@@ -305,6 +305,10 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 			case *types.Const:
 			case *types.TypeName:
 			case *types.Func:
+				sign := obj.Type().(*types.Signature)
+				if obj.Exported() && sign.Recv() != nil {
+					return true // might implement an interface
+				}
 				switch node.Name {
 				case "main", "init":
 					return true // don't break them

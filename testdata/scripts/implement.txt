@@ -1,0 +1,28 @@
+garble build main.go
+exec ./main
+cmp stdout main.stdout
+
+! grep 'unexportedMethod' main
+
+-- main.go --
+package main
+
+import "fmt"
+
+type T string
+
+func (t T) String() string {
+	return "String method for " + string(t)
+}
+
+func (t T) unexportedMethod() string {
+	return "unexported method for " + string(t)
+}
+
+func main() {
+	fmt.Println(T("foo"))
+	fmt.Println(T("foo").unexportedMethod())
+}
+-- main.stdout --
+String method for foo
+unexported method for foo
