@@ -300,8 +300,12 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 				return true // unnamed remains unnamed
 			}
 			obj := info.ObjectOf(node)
-			switch obj.(type) {
+			// log.Printf("%#v %T", node, obj)
+			switch x := obj.(type) {
 			case *types.Var:
+				if x.Embedded() {
+					obj = obj.Type().(*types.Named).Obj()
+				}
 			case *types.Const:
 			case *types.TypeName:
 			case *types.Func:
@@ -337,7 +341,6 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 					buildID = id
 				}
 			}
-			// log.Printf("%#v\n", node.Obj)
 			node.Name = hashWith(buildID, node.Name)
 		}
 		return true
