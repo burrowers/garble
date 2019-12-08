@@ -18,9 +18,9 @@ cmp stderr main.stderr
 grep $WORK main
 
 # The default build includes DWARF and the symbol table.
-exec readelf --section-details --symbols main
-stdout 'debug_info$'
-stdout 'globalVar'
+exec readelf --section-headers main
+stdout 'debug_info'
+stdout '\.symtab'
 
 # The default build includes full non-trimmed paths.
 grep $WORK main
@@ -34,9 +34,9 @@ exec go build -a -trimpath -toolexec=garble main.go
 exec ./main
 cmp stderr main.stderr
 
-exec readelf --section-details --symbols main
-! stdout 'debug_info$'
-! stdout 'globalVar'
+exec readelf --section-headers main
+! stdout 'debug_info'
+! stdout '\.symtab'
 
 ! grep $WORK main
 
