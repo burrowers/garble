@@ -22,6 +22,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/tools/go/ast/astutil"
 )
 
 var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
@@ -186,8 +188,9 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
-	for i, file := range files {
-		file := transformGoFile(file, info)
+	args = flags
+	for _, file := range files {
+		file := transformGo(file, info)
 		f, err := ioutil.TempFile("", "garble")
 		if err != nil {
 			return nil, err
@@ -203,9 +206,9 @@ func transformCompile(args []string) ([]string, error) {
 		deferred = append(deferred, func() error {
 			return os.Remove(f.Name())
 		})
-		paths[i] = f.Name()
+		args = append(args, f.Name())
 	}
-	return append(flags, paths...), nil
+	return args, nil
 }
 
 func readBuildIDs(flags []string) error {
@@ -284,12 +287,14 @@ func hashWith(salt, value string) string {
 	return "z" + sum[:length]
 }
 
-// transformGoFile creates a garbled copy of the Go file at path, and returns
-// the path to the copy.
-func transformGoFile(file *ast.File, info *types.Info) *ast.File {
-	ast.Inspect(file, func(node ast.Node) bool {
-		switch node := node.(type) {
+// transformGo garbles the provided Go syntax node.
+func transformGo(node ast.Node, info *types.Info) ast.Node {
+	pre := func(cursor *astutil.Cursor) bool {
+		switch node := cursor.Node().(type) {
 		case *ast.Ident:
+			if node.Name == "_" {
+				return true // unnamed remains unnamed
+			}
 			obj := info.ObjectOf(node)
 			switch obj.(type) {
 			case *types.Var:
@@ -300,28 +305,36 @@ func transformGoFile(file *ast.File, info *types.Info) *ast.File {
 				case "main", "init":
 					return true // don't break them
 				}
+			case nil:
+				switch cursor.Parent().(type) {
+				case *ast.AssignStmt:
+					// symbolic var v in v := expr.(type)
+				default:
+					return true
+				}
 			default:
 				return true // we only want to rename the above
 			}
-			pkg := obj.Pkg()
-			if pkg == nil {
-				return true // universe scope
-			}
-			path := pkg.Path()
-			if !strings.Contains(path, ".") {
-				return true // std isn't transformed
-			}
-
 			buildID := buildInfo.buildID
-			if id := buildInfo.imports[path].buildID; id != "" {
-				buildID = id
+			if obj != nil {
+				pkg := obj.Pkg()
+				if pkg == nil {
+					return true // universe scope
+				}
+				path := pkg.Path()
+				if !strings.Contains(path, ".") {
+					return true // std isn't transformed
+				}
+				if id := buildInfo.imports[path].buildID; id != "" {
+					buildID = id
+				}
 			}
 			// log.Printf("%#v\n", node.Obj)
 			node.Name = hashWith(buildID, node.Name)
 		}
 		return true
-	})
-	return file
+	}
+	return astutil.Apply(node, pre, nil)
 }
 
 func transformLink(args []string) ([]string, error) {

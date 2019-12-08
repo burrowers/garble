@@ -1,0 +1,19 @@
+garble build main.go
+exec ./main
+cmp stderr main.stderr
+
+-- main.go --
+package main
+
+var V interface{}
+
+func main() {
+	switch V := V.(type) {
+	case int:
+		var _ int = V
+	case nil:
+		println("nil case")
+	}
+}
+-- main.stderr --
+nil case
