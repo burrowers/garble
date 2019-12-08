@@ -1,3 +1,5 @@
+# TODO: make this script run on mac and windows
+
 [!exec:go] skip
 [!symlink] skip
 

@@ -6,6 +6,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,7 @@ func main1() int {
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
 		return 2
 	}
+	log.SetPrefix("[garble] ")
 	args := flagSet.Args()
 	if len(args) < 1 {
 		flagSet.Usage()
@@ -94,6 +96,10 @@ func transformLink(args []string) ([]string, error) {
 	return append(flags, files...), nil
 }
 
+// splitFlagsFromFiles splits args into a list of flag and file arguments. Since
+// we can't rely on "--" being present, and we don't parse all flags upfront, we
+// rely on finding the first argument that doesn't begin with "-" and that has
+// the extension we expect for the list of files.
 func splitFlagsFromFiles(args []string, ext string) (flags, files []string) {
 	for i, arg := range args {
 		if !strings.HasPrefix(arg, "-") && strings.HasSuffix(arg, ext) {
@@ -103,6 +109,8 @@ func splitFlagsFromFiles(args []string, ext string) (flags, files []string) {
 	return args, nil
 }
 
+// flagValue retrieves the value of a flag such as "-foo", from strings in the
+// list of arguments like "-foo=bar" or "-foo" "bar".
 func flagValue(flags []string, name string) string {
 	for i, arg := range flags {
 		if val := strings.TrimPrefix(arg, name+"="); val != arg {
