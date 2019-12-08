@@ -6,13 +6,34 @@
 # correctly run garble thanks to go-internal/testscript.
 mkdir .bin
 symlink .bin/garble$exe -> $TESTBIN
-env PATH=.bin${:}$PATH
+env PATH=$WORK/.bin${:}$PATH
 env TESTSCRIPT_COMMAND=garble
 
-exec go build -toolexec=garble main.go
-exists main
+# Check that the program works as expected without garble.
+exec go build main.go
 exec ./main
 cmp stderr main.stderr
+grep $WORK main
+
+# The default compilation includes DWARF and the symbol table.
+exec readelf --section-details --symbols main
+stdout 'debug_info$'
+stdout 'globalVar'
+
+# TODO
+# Check that we fail if the user forgot -trimpath.
+# ! exec go build -a -toolexec=garble main.go
+
+# Check that the simplest use of garble works.
+exec go build -a -trimpath -toolexec=garble main.go
+exec ./main
+cmp stderr main.stderr
+
+exec readelf --section-details --symbols main
+! stdout 'debug_info$'
+! stdout 'globalVar'
+
+# ! grep $WORK main
 # TODO
 # ! grep 'globalVar' main
 # ! grep 'globalFunc' main

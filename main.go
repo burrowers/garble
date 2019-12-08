@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
@@ -38,10 +39,10 @@ func main1() int {
 	_, tool := filepath.Split(args[0])
 	// TODO: trim ".exe" for windows?
 	transformed := args[1:]
-	switch tool {
-	case "compile":
+	// fmt.Fprintln(os.Stderr, tool, transformed)
+	if transform := transformFuncs[tool]; transform != nil {
 		var err error
-		transformed, err = transformCompile(args[1:])
+		transformed, err = transform(transformed)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
@@ -57,6 +58,46 @@ func main1() int {
 	return 0
 }
 
+var transformFuncs = map[string]func([]string) ([]string, error){
+	"compile": transformCompile,
+	"link": transformLink,
+}
+
 func transformCompile(args []string) ([]string, error) {
+	flags, files := splitFlagsFromFiles(args, ".go")
+	if len(files) == 0 {
+		// Nothing to transform; probably just ["-V=full"].
+		return args, nil
+	}
+
+	// TODO: find a way to do this. -trimpath is always present for some reason.
+	// trimpath := false
+	// for _, flag := range flags {
+	// 	if strings.HasPrefix(flag, "-trimpath") {
+	// 		trimpath = true
+	// 	}
+	// }
+	// if !trimpath {
+	// 	return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
+	// }
+	return append(flags, files...), nil
+}
+
+func transformLink(args []string) ([]string, error) {
+	flags, files := splitFlagsFromFiles(args, ".a")
+	if len(files) == 0 {
+		// Nothing to transform; probably just ["-V=full"].
+		return args, nil
+	}
+	flags = append(flags, "-w", "-s")
+	return append(flags, files...), nil
+}
+
+func splitFlagsFromFiles(args []string, ext string) (flags, files []string) {
+	for i, arg := range args {
+		if !strings.HasPrefix(arg, "-") && strings.HasSuffix(arg, ext) {
+			return args[:i:i], args[i:]
+		}
+	}
 	return args, nil
 }
