@@ -15,14 +15,17 @@ exec ./main
 cmp stderr main.stderr
 grep $WORK main
 
-# The default compilation includes DWARF and the symbol table.
+# The default build includes DWARF and the symbol table.
 exec readelf --section-details --symbols main
 stdout 'debug_info$'
 stdout 'globalVar'
 
-# TODO
+# The default build includes full non-trimmed paths.
+grep $WORK main
+
 # Check that we fail if the user forgot -trimpath.
-# ! exec go build -a -toolexec=garble main.go
+! exec go build -a -toolexec=garble main.go
+stderr 'should be used alongside -trimpath'
 
 # Check that the simplest use of garble works.
 exec go build -a -trimpath -toolexec=garble main.go
@@ -33,7 +36,8 @@ exec readelf --section-details --symbols main
 ! stdout 'debug_info$'
 ! stdout 'globalVar'
 
-# ! grep $WORK main
+! grep $WORK main
+
 # TODO
 # ! grep 'globalVar' main
 # ! grep 'globalFunc' main

@@ -28,6 +28,8 @@ Usage of garble:
 
 func main() { os.Exit(main1()) }
 
+var workingDir string
+
 func main1() int {
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
 		return 2
@@ -36,14 +38,19 @@ func main1() int {
 	if len(args) < 1 {
 		flagSet.Usage()
 	}
+	var err error
+	workingDir, err = os.Getwd()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+
 	_, tool := filepath.Split(args[0])
 	// TODO: trim ".exe" for windows?
 	transformed := args[1:]
-	// fmt.Fprintln(os.Stderr, tool, transformed)
+	// log.Println(tool, transformed)
 	if transform := transformFuncs[tool]; transform != nil {
-		var err error
-		transformed, err = transform(transformed)
-		if err != nil {
+		if transformed, err = transform(transformed); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
@@ -60,7 +67,7 @@ func main1() int {
 
 var transformFuncs = map[string]func([]string) ([]string, error){
 	"compile": transformCompile,
-	"link": transformLink,
+	"link":    transformLink,
 }
 
 func transformCompile(args []string) ([]string, error) {
@@ -70,16 +77,10 @@ func transformCompile(args []string) ([]string, error) {
 		return args, nil
 	}
 
-	// TODO: find a way to do this. -trimpath is always present for some reason.
-	// trimpath := false
-	// for _, flag := range flags {
-	// 	if strings.HasPrefix(flag, "-trimpath") {
-	// 		trimpath = true
-	// 	}
-	// }
-	// if !trimpath {
-	// 	return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
-	// }
+	trimpath := flagValue(flags, "-trimpath")
+	if !strings.Contains(trimpath, workingDir) {
+		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
+	}
 	return append(flags, files...), nil
 }
 
@@ -100,4 +101,18 @@ func splitFlagsFromFiles(args []string, ext string) (flags, files []string) {
 		}
 	}
 	return args, nil
+}
+
+func flagValue(flags []string, name string) string {
+	for i, arg := range flags {
+		if val := strings.TrimPrefix(arg, name+"="); val != arg {
+			// -name=value
+			return val
+		}
+		if arg == name && i+1 < len(flags) {
+			// -name value
+			return flags[i+1]
+		}
+	}
+	return ""
 }
