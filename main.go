@@ -6,12 +6,15 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/importer"
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"go/types"
 	"io"
 	"io/ioutil"
 	"log"
@@ -42,13 +45,45 @@ which is equivalent to the longer:
 func main() { os.Exit(main1()) }
 
 var (
-	workingDir string
-	deferred   []func() error
-	fset       = token.NewFileSet()
+	deferred []func() error
+	fset     = token.NewFileSet()
 
 	b64           = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
 	printerConfig = printer.Config{Mode: printer.RawFormat}
+	typesConfig   = types.Config{Importer: importer.ForCompiler(fset, "gc", objLookup)}
+
+	buildInfo = packageInfo{imports: make(map[string]importedPkg)}
 )
+
+type jsonExport struct {
+	Export string
+}
+
+func objLookup(path string) (io.ReadCloser, error) {
+	// objPath := buildInfo.imports[path].packagefile
+	cmd := exec.Command("go", "list", "-json", "-export", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("go list error: %v: %s", err, out)
+	}
+	var res struct {
+		Export string
+	}
+	if err := json.Unmarshal(out, &res); err != nil {
+		return nil, err
+	}
+	return os.Open(res.Export)
+}
+
+type packageInfo struct {
+	buildID string
+	imports map[string]importedPkg
+}
+
+type importedPkg struct {
+	packagefile string
+	buildID     string
+}
 
 func main1() int {
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
@@ -67,7 +102,7 @@ func main1() int {
 			"build",
 			"-a",
 			"-trimpath",
-			"-toolexec="+os.Args[0],
+			"-toolexec=" + os.Args[0],
 		}
 		goArgs = append(goArgs, args[1:]...)
 
@@ -81,18 +116,12 @@ func main1() int {
 		return 0
 	}
 
-	var err error
-	workingDir, err = os.Getwd()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-
 	_, tool := filepath.Split(args[0])
 	// TODO: trim ".exe" for windows?
 	transformed := args[1:]
 	// log.Println(tool, transformed)
 	if transform := transformFuncs[tool]; transform != nil {
+		var err error
 		if transformed, err = transform(transformed); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
@@ -121,29 +150,124 @@ var transformFuncs = map[string]func([]string) ([]string, error){
 }
 
 func transformCompile(args []string) ([]string, error) {
-	flags, files := splitFlagsFromFiles(args, ".go")
-	if len(files) == 0 {
+	flags, paths := splitFlagsFromFiles(args, ".go")
+	if len(paths) == 0 {
 		// Nothing to transform; probably just ["-V=full"].
 		return args, nil
 	}
 
+	// If the value of -trimpath doesn't contain the separator ';', the 'go
+	// build' command is most likely not using '-trimpath'.
 	trimpath := flagValue(flags, "-trimpath")
-	if !strings.Contains(trimpath, workingDir) {
+	if !strings.Contains(trimpath, ";") {
 		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
 	}
-	std := flagValue(flags, "-std") == "true"
-	buildid := flagValue(flags, "-buildid")
-	for i, file := range files {
-		if std {
-			continue
-		}
-		var err error
-		files[i], err = transformGoFile(buildid, file)
+	if flagValue(flags, "-std") == "true" {
+		return args, nil
+	}
+	if err := readBuildIDs(flags); err != nil {
+		return nil, err
+	}
+	// log.Printf("%#v", ids)
+	var files []*ast.File
+	for _, path := range paths {
+		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
 			return nil, err
 		}
+		files = append(files, file)
 	}
-	return append(flags, files...), nil
+
+	info := &types.Info{
+		Defs: make(map[*ast.Ident]types.Object),
+		Uses: make(map[*ast.Ident]types.Object),
+	}
+	if _, err := typesConfig.Check("current", fset, files, info); err != nil {
+		return nil, fmt.Errorf("typecheck error: %v", err)
+	}
+
+	for i, file := range files {
+		file := transformGoFile(file, info)
+		f, err := ioutil.TempFile("", "garble")
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		// printerConfig.Fprint(os.Stderr, fset, file)
+		if err := printerConfig.Fprint(f, fset, file); err != nil {
+			return nil, err
+		}
+		if err := f.Close(); err != nil {
+			return nil, err
+		}
+		deferred = append(deferred, func() error {
+			return os.Remove(f.Name())
+		})
+		paths[i] = f.Name()
+	}
+	return append(flags, paths...), nil
+}
+
+func readBuildIDs(flags []string) error {
+	buildInfo.buildID = flagValue(flags, "-buildid")
+	if buildInfo.buildID == "" {
+		return fmt.Errorf("could not find -buildid argument")
+	}
+	buildInfo.buildID = trimBuildID(buildInfo.buildID)
+	importcfg := flagValue(flags, "-importcfg")
+	if importcfg == "" {
+		return fmt.Errorf("could not find -importcfg argument")
+	}
+	data, err := ioutil.ReadFile(importcfg)
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		i := strings.Index(line, " ")
+		if i < 0 {
+			continue
+		}
+		if verb := line[:i]; verb != "packagefile" {
+			continue
+		}
+		args := strings.TrimSpace(line[i+1:])
+		j := strings.Index(args, "=")
+		if j < 0 {
+			continue
+		}
+		importPath, objectPath := args[:j], args[j+1:]
+		fileID, err := buildidOf(objectPath)
+		if err != nil {
+			return err
+		}
+		buildInfo.imports[importPath] = importedPkg{
+			packagefile: objectPath,
+			buildID:     fileID,
+		}
+	}
+	// log.Printf("%#v", buildInfo)
+	return nil
+}
+
+func trimBuildID(id string) string {
+	id = strings.TrimSpace(id)
+	if i := strings.IndexByte(id, '/'); i > 0 {
+		id = id[:i]
+	}
+	return id
+}
+
+func buildidOf(path string) (string, error) {
+	cmd := exec.Command("go", "tool", "buildid", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%v: %s", err, out)
+	}
+	return trimBuildID(string(out)), nil
 }
 
 func hashWith(salt, value string) string {
@@ -154,66 +278,58 @@ func hashWith(salt, value string) string {
 	io.WriteString(d, value)
 	sum := b64.EncodeToString(d.Sum(nil))
 
-	for i := 0; i < len(sum)-length; i++ {
-		if '0' <= sum[i] && sum[i] <= '9' {
-			continue
-		}
-		return sum[i : i+length]
+	if token.IsExported(value) {
+		return "Z" + sum[:length]
 	}
-	return "_" + sum[:length-1]
+	return "z" + sum[:length]
 }
 
 // transformGoFile creates a garbled copy of the Go file at path, and returns
 // the path to the copy.
-func transformGoFile(buildid, path string) (string, error) {
-	file, err := parser.ParseFile(fset, path, nil, 0)
-	if err != nil {
-		return "", err
-	}
+func transformGoFile(file *ast.File, info *types.Info) *ast.File {
 	ast.Inspect(file, func(node ast.Node) bool {
 		switch node := node.(type) {
 		case *ast.Ident:
-			switch {
-			case node.Obj == nil:
-				// a builtin name, or the package name
-			case node.Name == "main":
-				// possibly the main func
+			obj := info.ObjectOf(node)
+			switch obj.(type) {
+			case *types.Var:
+			case *types.Const:
+			case *types.Func:
+				switch node.Name {
+				case "main", "init":
+					return true // don't break them
+				}
 			default:
-				node.Name = hashWith(buildid, node.Name)
+				return true // we only want to rename the above
 			}
+			path := obj.Pkg().Path()
+			buildID := buildInfo.buildID
+			if id := buildInfo.imports[path].buildID; id != "" {
+				buildID = id
+			}
+			// log.Printf("%#v\n", node.Obj)
+			node.Name = hashWith(buildID, node.Name)
 		}
 		return true
 	})
-	f, err := ioutil.TempFile("", "garble")
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	printerConfig.Fprint(os.Stderr, fset, file)
-	if err := printerConfig.Fprint(f, fset, file); err != nil {
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		return "", err
-	}
-	return f.Name(), nil
+	return file
 }
 
 func transformLink(args []string) ([]string, error) {
-	flags, files := splitFlagsFromFiles(args, ".a")
-	if len(files) == 0 {
+	flags, paths := splitFlagsFromFiles(args, ".a")
+	if len(paths) == 0 {
 		// Nothing to transform; probably just ["-V=full"].
 		return args, nil
 	}
 	flags = append(flags, "-w", "-s")
-	return append(flags, files...), nil
+	return append(flags, paths...), nil
 }
 
 // splitFlagsFromFiles splits args into a list of flag and file arguments. Since
 // we can't rely on "--" being present, and we don't parse all flags upfront, we
 // rely on finding the first argument that doesn't begin with "-" and that has
-// the extension we expect for the list of files.
-func splitFlagsFromFiles(args []string, ext string) (flags, files []string) {
+// the extension we expect for the list of paths.
+func splitFlagsFromFiles(args []string, ext string) (flags, paths []string) {
 	for i, arg := range args {
 		if !strings.HasPrefix(arg, "-") && strings.HasSuffix(arg, ext) {
 			return args[:i:i], args[i:]

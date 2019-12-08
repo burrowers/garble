@@ -1,0 +1,24 @@
+garble build
+exec ./main
+cmp stderr main.stderr
+
+-- go.mod --
+module foo.com/main
+-- main.go --
+package main
+
+import "foo.com/main/imported"
+
+func main() {
+	println(imported.ImportedVar)
+	println(imported.ImportedConst)
+}
+-- main.stderr --
+imported var value
+imported const value
+-- imported/imported.go --
+package imported
+
+var ImportedVar = "imported var value"
+
+const ImportedConst = "imported const value"
