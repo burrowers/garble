@@ -1,0 +1,12 @@
+! garble
+stderr -count=1 'Usage of'
+stderr '\tgo build'
+! stdout .
+
+! garble -h
+stderr 'Usage of'
+! stdout .
+
+! garble -badflag
+stderr 'Usage of'
+! stdout .

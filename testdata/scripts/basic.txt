@@ -1,0 +1,33 @@
+[!exec:go] skip
+[!symlink] skip
+
+# We want to use the current garble, not whichever happens to be globally
+# installed. Use the test binary with TESTSCRIPT_COMMAND, which we know will
+# correctly run garble thanks to go-internal/testscript.
+mkdir .bin
+symlink .bin/garble$exe -> $TESTBIN
+env PATH=.bin${:}$PATH
+env TESTSCRIPT_COMMAND=garble
+
+exec go build -toolexec=garble main.go
+exists main
+exec ./main
+cmp stderr main.stderr
+# TODO
+# ! grep 'globalVar' main
+# ! grep 'globalFunc' main
+
+-- main.go --
+package main
+
+var globalVar = "global value"
+
+func globalFunc() { println("global func body") }
+
+func main() {
+	println(globalVar)
+	globalFunc()
+}
+-- main.stderr --
+global value
+global func body
