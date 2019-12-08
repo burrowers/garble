@@ -1,16 +1,5 @@
 # TODO: make this script run on mac and windows
 
-[!exec:go] skip
-[!symlink] skip
-
-# We want to use the current garble, not whichever happens to be globally
-# installed. Use the test binary with TESTSCRIPT_COMMAND, which we know will
-# correctly run garble thanks to go-internal/testscript.
-mkdir .bin
-symlink .bin/garble$exe -> $TESTBIN
-env PATH=$WORK/.bin${:}$PATH
-env TESTSCRIPT_COMMAND=garble
-
 # Check that the program works as expected without garble.
 exec go build main.go
 exec ./main

@@ -5,6 +5,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,7 +27,15 @@ func TestScripts(t *testing.T) {
 	testscript.Run(t, testscript.Params{
 		Dir: filepath.Join("testdata", "scripts"),
 		Setup: func(env *testscript.Env) error {
-			env.Vars = append(env.Vars, "TESTBIN="+os.Args[0])
+			bindir := filepath.Join(env.WorkDir, ".bin")
+			if err := os.Mkdir(bindir, 0777); err != nil {
+				return err
+			}
+			if err := os.Symlink(os.Args[0], filepath.Join(bindir, "garble")); err != nil {
+				return err
+			}
+			env.Vars = append(env.Vars, fmt.Sprintf("PATH=%s%c%s", bindir, filepath.ListSeparator, os.Getenv("PATH")))
+			env.Vars = append(env.Vars, "TESTSCRIPT_COMMAND=garble")
 
 			for _, name := range [...]string{
 				"HOME",
