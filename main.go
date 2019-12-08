@@ -29,7 +29,11 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `
 Usage of garble:
 
-	go build -toolexec=garble [build flags] [packages]
+	garble build [build flags] [packages]
+
+which is equivalent to the longer:
+
+	go build -a -trimpath -toolexec=garble [build flags] [packages]
 `[1:])
 	flagSet.PrintDefaults()
 	os.Exit(2)
@@ -55,6 +59,28 @@ func main1() int {
 	if len(args) < 1 {
 		flagSet.Usage()
 	}
+
+	// If we recognise an argument, we're not running within -toolexec.
+	switch args[0] {
+	case "build":
+		goArgs := []string{
+			"build",
+			"-a",
+			"-trimpath",
+			"-toolexec="+os.Args[0],
+		}
+		goArgs = append(goArgs, args[1:]...)
+
+		cmd := exec.Command("go", goArgs...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+
 	var err error
 	workingDir, err = os.Getwd()
 	if err != nil {
