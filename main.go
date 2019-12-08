@@ -174,6 +174,9 @@ func transformCompile(args []string) ([]string, error) {
 	// log.Printf("%#v", ids)
 	var files []*ast.File
 	for _, path := range paths {
+		if strings.HasSuffix(path, "_gomod_.go") {
+			continue // don't include module info
+		}
 		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
 			return nil, err

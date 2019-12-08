@@ -1,0 +1,26 @@
+exec go build
+exec ./main
+cmp stdout main.stdout-orig
+
+garble build
+exec ./main
+cmp stdout main.stdout
+! grep '\(devel\)' main
+
+-- go.mod --
+module foo.com/main
+-- main.go --
+package main
+
+import (
+	"fmt"
+	"runtime/debug"
+)
+
+func main() {
+	fmt.Println(debug.ReadBuildInfo())
+}
+-- main.stdout-orig --
+&{foo.com/main {foo.com/main (devel)  <nil>} []} true
+-- main.stdout --
+<nil> false
