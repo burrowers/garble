@@ -47,8 +47,9 @@ which is equivalent to the longer:
 func main() { os.Exit(main1()) }
 
 var (
-	deferred []func() error
-	fset     = token.NewFileSet()
+	deferred  []func() error
+	fset      = token.NewFileSet()
+	emptyFset = token.NewFileSet()
 
 	b64           = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
 	printerConfig = printer.Config{Mode: printer.RawFormat}
@@ -196,8 +197,8 @@ func transformCompile(args []string) ([]string, error) {
 			return nil, err
 		}
 		defer f.Close()
-		// printerConfig.Fprint(os.Stderr, fset, file)
-		if err := printerConfig.Fprint(f, fset, file); err != nil {
+		// printerConfig.Fprint(os.Stderr, emptyFset, file)
+		if err := printerConfig.Fprint(f, emptyFset, file); err != nil {
 			return nil, err
 		}
 		if err := f.Close(); err != nil {
