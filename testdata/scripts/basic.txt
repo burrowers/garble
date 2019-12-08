@@ -40,9 +40,8 @@ exec readelf --section-details --symbols main
 
 ! grep $WORK main
 
-# TODO
-# ! grep 'globalVar' main
-# ! grep 'globalFunc' main
+! grep 'globalVar' main
+! grep 'globalFunc' main
 
 -- main.go --
 package main

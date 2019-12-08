@@ -4,8 +4,16 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/printer"
+	"go/token"
+	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -29,7 +37,14 @@ Usage of garble:
 
 func main() { os.Exit(main1()) }
 
-var workingDir string
+var (
+	workingDir string
+	deferred   []func() error
+	fset       = token.NewFileSet()
+
+	b64           = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
+	printerConfig = printer.Config{Mode: printer.RawFormat}
+)
 
 func main1() int {
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
@@ -57,6 +72,13 @@ func main1() int {
 			return 1
 		}
 	}
+	defer func() {
+		for _, fn := range deferred {
+			if err := fn(); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
+		}
+	}()
 	cmd := exec.Command(args[0], transformed...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -83,7 +105,72 @@ func transformCompile(args []string) ([]string, error) {
 	if !strings.Contains(trimpath, workingDir) {
 		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
 	}
+	std := flagValue(flags, "-std") == "true"
+	buildid := flagValue(flags, "-buildid")
+	for i, file := range files {
+		if std {
+			continue
+		}
+		var err error
+		files[i], err = transformGoFile(buildid, file)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return append(flags, files...), nil
+}
+
+func hashWith(salt, value string) string {
+	const length = 8
+
+	d := sha256.New()
+	io.WriteString(d, salt)
+	io.WriteString(d, value)
+	sum := b64.EncodeToString(d.Sum(nil))
+
+	for i := 0; i < len(sum)-length; i++ {
+		if '0' <= sum[i] && sum[i] <= '9' {
+			continue
+		}
+		return sum[i : i+length]
+	}
+	return "_" + sum[:length-1]
+}
+
+// transformGoFile creates a garbled copy of the Go file at path, and returns
+// the path to the copy.
+func transformGoFile(buildid, path string) (string, error) {
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		return "", err
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.Ident:
+			switch {
+			case node.Obj == nil:
+				// a builtin name, or the package name
+			case node.Name == "main":
+				// possibly the main func
+			default:
+				node.Name = hashWith(buildid, node.Name)
+			}
+		}
+		return true
+	})
+	f, err := ioutil.TempFile("", "garble")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	printerConfig.Fprint(os.Stderr, fset, file)
+	if err := printerConfig.Fprint(f, fset, file); err != nil {
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 func transformLink(args []string) ([]string, error) {
@@ -117,9 +204,15 @@ func flagValue(flags []string, name string) string {
 			// -name=value
 			return val
 		}
-		if arg == name && i+1 < len(flags) {
-			// -name value
-			return flags[i+1]
+		if arg == name {
+			if i+1 < len(flags) {
+				if val := flags[i+1]; !strings.HasPrefix(val, "-") {
+					// -name value
+					return flags[i+1]
+				}
+			}
+			// -name, equivalent to -name=true
+			return "true"
 		}
 	}
 	return ""
