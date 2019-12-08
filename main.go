@@ -182,7 +182,7 @@ func transformCompile(args []string) ([]string, error) {
 		Defs: make(map[*ast.Ident]types.Object),
 		Uses: make(map[*ast.Ident]types.Object),
 	}
-	if _, err := typesConfig.Check("current", fset, files, info); err != nil {
+	if _, err := typesConfig.Check("current.pkg/path", fset, files, info); err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
@@ -294,6 +294,7 @@ func transformGoFile(file *ast.File, info *types.Info) *ast.File {
 			switch obj.(type) {
 			case *types.Var:
 			case *types.Const:
+			case *types.TypeName:
 			case *types.Func:
 				switch node.Name {
 				case "main", "init":
@@ -302,7 +303,15 @@ func transformGoFile(file *ast.File, info *types.Info) *ast.File {
 			default:
 				return true // we only want to rename the above
 			}
-			path := obj.Pkg().Path()
+			pkg := obj.Pkg()
+			if pkg == nil {
+				return true // universe scope
+			}
+			path := pkg.Path()
+			if !strings.Contains(path, ".") {
+				return true // std isn't transformed
+			}
+
 			buildID := buildInfo.buildID
 			if id := buildInfo.imports[path].buildID; id != "" {
 				buildID = id

@@ -1,24 +1,43 @@
 garble build
 exec ./main
-cmp stderr main.stderr
+cmp stdout main.stdout
+
+! grep 'ImportedVar' main
+! grep 'ImportedConst' main
+! grep 'ImportedFunc' main
+! grep 'ImportedType' main
 
 -- go.mod --
 module foo.com/main
 -- main.go --
 package main
 
-import "foo.com/main/imported"
+import (
+	"fmt"
+	"foo.com/main/imported"
+)
 
 func main() {
-	println(imported.ImportedVar)
-	println(imported.ImportedConst)
+	fmt.Println(imported.ImportedVar)
+	fmt.Println(imported.ImportedConst)
+	imported.ImportedFunc('x')
+	fmt.Println(imported.ImportedType(3))
+	fmt.Println(nil)
 }
--- main.stderr --
+-- main.stdout --
 imported var value
 imported const value
+3
+<nil>
 -- imported/imported.go --
 package imported
 
 var ImportedVar = "imported var value"
 
 const ImportedConst = "imported const value"
+
+func ImportedFunc(param rune) string {
+	return string(param)
+}
+
+type ImportedType int

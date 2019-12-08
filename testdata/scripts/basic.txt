@@ -32,8 +32,10 @@ exec readelf --section-headers main
 ! grep 'globalFunc' main
 
 # Finally, check that the 'garble build' shortcut works.
+# cp main main_old
 garble build main.go
 ! grep 'globalVar' main
+# cmp main main_old
 
 -- main.go --
 package main
