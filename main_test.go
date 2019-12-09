@@ -62,6 +62,7 @@ func TestScripts(t *testing.T) {
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
 			"bingrep": bingrep,
+			"bincmp":  bincmp,
 		},
 		UpdateScripts: *update,
 	})
@@ -81,5 +82,20 @@ func bingrep(ts *testscript.TestScript, neg bool, args []string) {
 		} else if !match && !neg {
 			ts.Fatalf("expected match for %q in %s", pattern, args[0])
 		}
+	}
+}
+
+func bincmp(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("unsupported: ! bincmp")
+	}
+	if len(args) != 2 {
+		ts.Fatalf("usage: bincmp file1 file2")
+	}
+	data1 := ts.ReadFile(args[0])
+	data2 := ts.ReadFile(args[1])
+	if data1 != data2 {
+		sizeDiff := len(data2) - len(data1)
+		ts.Fatalf("%s and %s differ; size diff: %+d", args[0], args[1], sizeDiff)
 	}
 }
