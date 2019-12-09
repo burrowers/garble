@@ -40,11 +40,14 @@ binary doesn't include paths from the current filesystem.
 
 ### Caveats
 
-The `-a` flag for `go build` is required, since `-toolexec` doesn't work well
-with the build cache; see [#27628](https://github.com/golang/go/issues/27628).
+* The `-a` flag for `go build` is required, since `-toolexec` doesn't work well
+  with the build cache; see [#27628](https://github.com/golang/go/issues/27628).
 
-Since no caching at all can take place right now (see the link above), builds
-will be slower than `go build` - especially for large projects.
+* Since no caching at all can take place right now (see the link above), builds
+  will be slower than `go build` - especially for large projects.
 
-The standard library is never garbled when compiled, since the source is always
-publicly available.
+* The standard library is never garbled when compiled, since the source is
+  always publicly available.
+
+* Some uses of the `reflect` package may break, such as accessing a struct's
+  field, whose name has been garbled.
