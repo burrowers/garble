@@ -1,5 +1,7 @@
 # garble
 
+	GO111MODULE=on go get mvdan.cc/garble
+
 Obfuscate a Go build.
 
 	garble build [build flags] [packages]
