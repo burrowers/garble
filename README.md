@@ -17,7 +17,7 @@ The tool is designed to be:
 
 * Coupled with `cmd/go`, to support both `GOPATH` and modules with ease
 * Deterministic, though the output is not yet reproducible
-* Reversible, for example to un-garble panic stack traces
+* Reversible given the original source, to un-garble panic stack traces
 
 ### Mechanism
 
@@ -43,3 +43,6 @@ with the build cache; see [#27628](https://github.com/golang/go/issues/27628).
 
 Since no caching at all can take place right now (see the link above), builds
 will be slower than `go build` - especially for large projects.
+
+The standard library is never garbled when compiled, since the source is always
+publicly available.
