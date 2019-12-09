@@ -9,7 +9,9 @@ cmp stderr main.stderr
 [!windows] [exec:readelf] stdout '\.symtab'
 
 # The default build includes full non-trimmed paths, as well as our names.
-bingrep main$exe ${WORK@R} 'globalVar' 'globalFunc'
+# Only check $WORK on non-windows, because it's difficult to do it there.
+bingrep main$exe 'globalVar' 'globalFunc'
+[!windows] bingrep main$exe ${WORK@R}
 
 # Check that we fail if the user forgot -trimpath.
 ! exec go build -a -toolexec=garble main.go
@@ -28,11 +30,11 @@ cmp stderr main.stderr
 
 # Finally, check that the 'garble build' shortcut works, and produces the same
 # binary.
-cp main main_old
-rm main
+cp main$exe main_old$exe
+rm main$exe
 garble build main.go
 ! bingrep main$exe 'globalVar'
-bincmp main main_old
+bincmp main$exe main_old$exe
 
 -- main.go --
 package main

@@ -38,7 +38,7 @@ func TestScripts(t *testing.T) {
 			if runtime.GOOS == "windows" {
 				binfile += ".exe"
 			}
-			if err := os.Symlink(os.Args[0], filepath.Join(bindir, "garble")); err != nil {
+			if err := os.Symlink(os.Args[0], binfile); err != nil {
 				return err
 			}
 			env.Vars = append(env.Vars, fmt.Sprintf("PATH=%s%c%s", bindir, filepath.ListSeparator, os.Getenv("PATH")))

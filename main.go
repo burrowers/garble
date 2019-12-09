@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
@@ -125,10 +126,17 @@ func main1() int {
 	}
 
 	_, tool := filepath.Split(args[0])
-	// TODO: trim ".exe" for windows?
+	if runtime.GOOS == "windows" {
+		tool = strings.TrimSuffix(tool, ".exe")
+	}
+	transform, ok := transformFuncs[tool]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "unknown tool: %q", tool)
+		return 1
+	}
 	transformed := args[1:]
 	// log.Println(tool, transformed)
-	if transform := transformFuncs[tool]; transform != nil {
+	if transform != nil {
 		var err error
 		if transformed, err = transform(transformed); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -155,6 +163,23 @@ func main1() int {
 var transformFuncs = map[string]func([]string) ([]string, error){
 	"compile": transformCompile,
 	"link":    transformLink,
+
+	"addr2line": nil,
+	"api":       nil,
+	"asm":       nil,
+	"buildid":   nil,
+	"cgo":       nil,
+	"cover":     nil,
+	"dist":      nil,
+	"doc":       nil,
+	"fix":       nil,
+	"nm":        nil,
+	"objdump":   nil,
+	"pack":      nil,
+	"pprof":     nil,
+	"test2json": nil,
+	"trace":     nil,
+	"vet":       nil,
 }
 
 func transformCompile(args []string) ([]string, error) {
