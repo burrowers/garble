@@ -4,6 +4,12 @@ cmp stdout main.stdout
 
 ! bingrep main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType'
 
+# Also check that the binary is reproducible when many imports are involved.
+cp main main_old
+rm main
+garble build
+bincmp main main_old
+
 -- go.mod --
 module foo.com/main
 -- main.go --

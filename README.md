@@ -18,7 +18,7 @@ information about the original source code as possible.
 The tool is designed to be:
 
 * Coupled with `cmd/go`, to support both `GOPATH` and modules with ease
-* Deterministic, though the output is not yet reproducible
+* Deterministic and reproducible, given the same initial source code
 * Reversible given the original source, to un-garble panic stack traces
 
 ### Mechanism

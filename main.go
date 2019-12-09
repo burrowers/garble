@@ -197,10 +197,24 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
+	tempDir, err := ioutil.TempDir("", "garble-build")
+	if err != nil {
+		return nil, err
+	}
+	deferred = append(deferred, func() error {
+		return os.RemoveAll(tempDir)
+	})
+	// Add our temporary dir to the beginning of -trimpath, so that we don't
+	// leak temporary dirs. Needs to be at the beginning, since there may be
+	// shorter prefixes later in the list, such as $PWD if TMPDIR=$PWD/tmp.
+	flags = flagSetValue(flags, "-trimpath", tempDir+"=>;"+trimpath)
+	// log.Println(flags)
 	args = flags
-	for _, file := range files {
+	// TODO: randomize the order and names of the files
+	for i, file := range files {
 		file := transformGo(file, info)
-		f, err := ioutil.TempFile("", "garble")
+		tempFile := filepath.Join(tempDir, fmt.Sprintf("z%d.go", i))
+		f, err := os.Create(tempFile)
 		if err != nil {
 			return nil, err
 		}
@@ -212,9 +226,6 @@ func transformCompile(args []string) ([]string, error) {
 		if err := f.Close(); err != nil {
 			return nil, err
 		}
-		deferred = append(deferred, func() error {
-			return os.Remove(f.Name())
-		})
 		args = append(args, f.Name())
 	}
 	return args, nil
@@ -396,4 +407,32 @@ func flagValue(flags []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func flagSetValue(flags []string, name, value string) []string {
+	for i, arg := range flags {
+		if strings.HasPrefix(arg, name+"=") {
+			// -name=value
+			if value == "true" {
+				flags[i] = name
+			} else {
+				flags[i] = name + "=" + value
+			}
+			return flags
+		}
+		if arg == name {
+			if i+1 < len(flags) {
+				if val := flags[i+1]; !strings.HasPrefix(val, "-") {
+					flags[i+1] = value
+					return flags
+				}
+			}
+			// -name, equivalent to -name=true
+			if value != "true" {
+				flags[i] = name + "=" + value
+			}
+			return flags
+		}
+	}
+	return append(flags, name+"="+value)
 }

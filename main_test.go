@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -95,7 +96,14 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 	data1 := ts.ReadFile(args[0])
 	data2 := ts.ReadFile(args[1])
 	if data1 != data2 {
+		if _, err := exec.LookPath("diffoscope"); err != nil {
+			ts.Logf("diffoscope is not installing; skipping binary diff")
+		} else {
+			// We'll error below; ignore the exec error here.
+			ts.Exec("diffoscope", ts.MkAbs(args[0]), ts.MkAbs(args[1]))
+		}
 		sizeDiff := len(data2) - len(data1)
-		ts.Fatalf("%s and %s differ; size diff: %+d", args[0], args[1], sizeDiff)
+		ts.Fatalf("%s and %s differ; diffoscope above, size diff: %+d",
+			args[0], args[1], sizeDiff)
 	}
 }

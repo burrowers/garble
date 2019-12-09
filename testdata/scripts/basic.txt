@@ -26,11 +26,13 @@ cmp stderr main.stderr
 
 ! bingrep main$exe ${WORK@R} 'globalVar' 'globalFunc'
 
-# Finally, check that the 'garble build' shortcut works.
-# cp main main_old
+# Finally, check that the 'garble build' shortcut works, and produces the same
+# binary.
+cp main main_old
+rm main
 garble build main.go
 ! bingrep main$exe 'globalVar'
-# bincmp main main_old
+bincmp main main_old
 
 -- main.go --
 package main
