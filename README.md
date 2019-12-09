@@ -2,7 +2,7 @@
 
 	GO111MODULE=on go get mvdan.cc/garble
 
-Obfuscate a Go build.
+Obfuscate a Go build. Requires Go 1.13 or later.
 
 	garble build [build flags] [packages]
 

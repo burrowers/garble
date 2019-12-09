@@ -101,11 +101,16 @@ func main1() int {
 	// If we recognise an argument, we're not running within -toolexec.
 	switch args[0] {
 	case "build":
+		execPath, err := os.Executable()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
 		goArgs := []string{
 			"build",
 			"-a",
 			"-trimpath",
-			"-toolexec=" + os.Args[0],
+			"-toolexec=" + execPath,
 		}
 		goArgs = append(goArgs, args[1:]...)
 

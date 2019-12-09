@@ -1,14 +1,12 @@
-# TODO: make this script run on mac and windows
-
 # Check that the program works as expected without garble.
 exec go build main.go
 exec ./main
 cmp stderr main.stderr
 
 # The default build includes DWARF and the symbol table.
-exec readelf --section-headers main
-stdout 'debug_info'
-stdout '\.symtab'
+[!windows] [exec:readelf] exec readelf --section-headers main$exe
+[!windows] [exec:readelf] stdout 'debug_info'
+[!windows] [exec:readelf] stdout '\.symtab'
 
 # The default build includes full non-trimmed paths, as well as our names.
 bingrep main$exe ${WORK@R} 'globalVar' 'globalFunc'
@@ -22,9 +20,9 @@ exec go build -a -trimpath -toolexec=garble main.go
 exec ./main
 cmp stderr main.stderr
 
-exec readelf --section-headers main
-! stdout 'debug_info'
-! stdout '\.symtab'
+[!windows] [exec:readelf] exec readelf --section-headers main$exe
+[!windows] [exec:readelf] ! stdout 'debug_info'
+[!windows] [exec:readelf] ! stdout '\.symtab'
 
 ! bingrep main$exe ${WORK@R} 'globalVar' 'globalFunc'
 
