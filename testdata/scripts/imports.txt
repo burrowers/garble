@@ -2,10 +2,7 @@ garble build
 exec ./main
 cmp stdout main.stdout
 
-! grep 'ImportedVar' main
-! grep 'ImportedConst' main
-! grep 'ImportedFunc' main
-! grep 'ImportedType' main
+! bingrep main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType'
 
 -- go.mod --
 module foo.com/main

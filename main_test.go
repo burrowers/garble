@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/rogpeppe/go-internal/testscript"
@@ -48,6 +49,26 @@ func TestScripts(t *testing.T) {
 			}
 			return nil
 		},
+		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
+			"bingrep": bingrep,
+		},
 		UpdateScripts: *update,
 	})
+}
+
+func bingrep(ts *testscript.TestScript, neg bool, args []string) {
+	if len(args) < 2 {
+		ts.Fatalf("usage: bingrep file pattern...")
+	}
+	data := ts.ReadFile(args[0])
+	for _, pattern := range args[1:] {
+		rx, err := regexp.Compile(pattern)
+		ts.Check(err)
+		match := rx.MatchString(data)
+		if match && neg {
+			ts.Fatalf("unexpected match for %q in %s", pattern, args[0])
+		} else if !match && !neg {
+			ts.Fatalf("expected match for %q in %s", pattern, args[0])
+		}
+	}
 }

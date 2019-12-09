@@ -1,11 +1,12 @@
 exec go build
 exec ./main
 cmp stdout main.stdout-orig
+bingrep main$exe '\(devel\)'
 
 garble build
 exec ./main
 cmp stdout main.stdout
-! grep '\(devel\)' main
+! bingrep main$exe '\(devel\)'
 
 -- go.mod --
 module foo.com/main

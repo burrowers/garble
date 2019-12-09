@@ -4,15 +4,14 @@
 exec go build main.go
 exec ./main
 cmp stderr main.stderr
-grep $WORK main
 
 # The default build includes DWARF and the symbol table.
 exec readelf --section-headers main
 stdout 'debug_info'
 stdout '\.symtab'
 
-# The default build includes full non-trimmed paths.
-grep $WORK main
+# The default build includes full non-trimmed paths, as well as our names.
+bingrep main$exe ${WORK@R} 'globalVar' 'globalFunc'
 
 # Check that we fail if the user forgot -trimpath.
 ! exec go build -a -toolexec=garble main.go
@@ -27,15 +26,13 @@ exec readelf --section-headers main
 ! stdout 'debug_info'
 ! stdout '\.symtab'
 
-! grep $WORK main
-! grep 'globalVar' main
-! grep 'globalFunc' main
+! bingrep main$exe ${WORK@R} 'globalVar' 'globalFunc'
 
 # Finally, check that the 'garble build' shortcut works.
 # cp main main_old
 garble build main.go
-! grep 'globalVar' main
-# cmp main main_old
+! bingrep main$exe 'globalVar'
+# bincmp main main_old
 
 -- main.go --
 package main
