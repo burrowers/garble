@@ -17,7 +17,7 @@ The tool is designed to be:
 
 * Coupled with `cmd/go`, to support both `GOPATH` and modules with ease
 * Deterministic, though the output is not yet reproducible
-* eversible
+* Reversible, for example to un-garble panic stack traces
 
 ### Mechanism
 
