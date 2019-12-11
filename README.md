@@ -28,7 +28,7 @@ order to:
 
 * Replace as many useful identifiers as possible with short base64 hashes
 * Remove [module build information](https://golang.org/pkg/runtime/debug/#ReadBuildInfo)
-* Remove comments and empty lines, to make position info less useful
+* Strip filenames and unnecessary lines, to make position info less useful
 
 It also wraps calls to the linker in order to:
 
@@ -48,6 +48,9 @@ binary doesn't include paths from the current filesystem.
 
 * The standard library is never garbled when compiled, since the source is
   always publicly available.
+
+* Deciding what method names to garble is always going to be difficult, due to
+  interfaces that could be implemented up or down the package import tree.
 
 * Some uses of the `reflect` package may break, such as accessing a struct's
   field, whose name has been garbled.
