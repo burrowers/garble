@@ -98,14 +98,20 @@ func main1() int {
 	if len(args) < 1 {
 		flagSet.Usage()
 	}
+	if err := mainErr(args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
 
+func mainErr(args []string) error {
 	// If we recognise an argument, we're not running within -toolexec.
 	switch args[0] {
 	case "build":
 		execPath, err := os.Executable()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
+			return err
 		}
 		goArgs := []string{
 			"build",
@@ -118,11 +124,7 @@ func main1() int {
 		cmd := exec.Command("go", goArgs...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		return 0
+		return cmd.Run()
 	}
 
 	_, tool := filepath.Split(args[0])
@@ -131,16 +133,14 @@ func main1() int {
 	}
 	transform, ok := transformFuncs[tool]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "unknown tool: %q", tool)
-		return 1
+		return fmt.Errorf("unknown tool: %q", tool)
 	}
 	transformed := args[1:]
 	// log.Println(tool, transformed)
 	if transform != nil {
 		var err error
 		if transformed, err = transform(transformed); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
+			return err
 		}
 	}
 	defer func() {
@@ -154,10 +154,9 @@ func main1() int {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return err
 	}
-	return 0
+	return nil
 }
 
 var transformFuncs = map[string]func([]string) ([]string, error){
