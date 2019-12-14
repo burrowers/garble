@@ -107,14 +107,14 @@ func main1() int {
 
 func mainErr(args []string) error {
 	// If we recognise an argument, we're not running within -toolexec.
-	switch args[0] {
+	switch cmd := args[0]; cmd {
 	case "build":
 		execPath, err := os.Executable()
 		if err != nil {
 			return err
 		}
 		goArgs := []string{
-			"build",
+			cmd,
 			"-a",
 			"-trimpath",
 			"-toolexec=" + execPath,
@@ -125,6 +125,11 @@ func mainErr(args []string) error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
+	}
+	if !filepath.IsAbs(args[0]) {
+		// -toolexec gives us an absolute path to the tool binary to
+		// run, so this is most likely misuse of garble by a user.
+		return fmt.Errorf("unknown command: %q", args[0])
 	}
 
 	_, tool := filepath.Split(args[0])
