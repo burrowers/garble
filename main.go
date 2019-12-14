@@ -222,7 +222,8 @@ func transformCompile(args []string) ([]string, error) {
 		Defs: make(map[*ast.Ident]types.Object),
 		Uses: make(map[*ast.Ident]types.Object),
 	}
-	if _, err := typesConfig.Check("current.pkg/path", fset, files, info); err != nil {
+	pkgPath := flagValue(flags, "-p")
+	if _, err := typesConfig.Check(pkgPath, fset, files, info); err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
@@ -379,7 +380,7 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 					return true // universe scope
 				}
 				path := pkg.Path()
-				if !strings.Contains(path, ".") {
+				if isStandardLibrary(path) {
 					return true // std isn't transformed
 				}
 				if id := buildInfo.imports[path].buildID; id != "" {
@@ -391,6 +392,16 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 		return true
 	}
 	return astutil.Apply(node, pre, nil)
+}
+
+func isStandardLibrary(path string) bool {
+	switch path {
+	case "main":
+		// Main packages may not have fully qualified import paths, but
+		// they're not part of the standard library
+		return false
+	}
+	return !strings.Contains(path, ".")
 }
 
 func transformLink(args []string) ([]string, error) {
