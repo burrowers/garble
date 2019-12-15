@@ -1,12 +1,3 @@
-! garble badcmd
-stderr 'unknown command'
-
-! garble /does/not/exist
-stderr 'unknown tool'
-
-! garble /does/not/exist/compile
-stderr 'no such file'
-
 exec go test -v
 stdout 'PASS.*TestFoo'
 

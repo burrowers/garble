@@ -10,3 +10,15 @@ stderr 'Usage of'
 ! garble -badflag
 stderr 'Usage of'
 ! stdout .
+
+! garble badcmd
+stderr 'unknown command'
+
+[!windows] ! garble /does/not/exist
+[windows] ! garble C:\does\not\exist
+stderr 'unknown tool'
+
+[!windows] ! garble /does/not/exist/compile
+[!windows] stderr 'no such file'
+[windows] ! garble C:\does\not\exist\compile
+[windows] stderr 'file does not exist'
