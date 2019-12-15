@@ -2,11 +2,12 @@ exec go test -v
 stdout 'PASS.*TestFoo'
 
 garble test -c -vet=off
-bingrep bar.test$exe 'TestFoo'
+bingrep bar.test$exe 'TestFoo' 'TestSeparateFoo'
 ! bingrep bar.test$exe 'ImportedVar'
 
 exec ./bar.test -test.v
 stdout 'PASS.*TestFoo'
+stdout 'PASS.*TestSeparateFoo'
 
 -- go.mod --
 module foo.com/bar
@@ -26,6 +27,21 @@ import (
 func TestFoo(t *testing.T) {
 	t.Log(ImportedVar)
 	if Foo() != "Foo" {
+		t.FailNow()
+	}
+}
+-- bar_separate_test.go --
+package bar_test
+
+import (
+	"testing"
+
+	"foo.com/bar"
+)
+
+func TestSeparateFoo(t *testing.T) {
+	t.Log(bar.ImportedVar)
+	if bar.Foo() != "Foo" {
 		t.FailNow()
 	}
 }
