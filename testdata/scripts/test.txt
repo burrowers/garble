@@ -1,0 +1,40 @@
+! garble badcmd
+stderr 'unknown command'
+
+! garble /does/not/exist
+stderr 'unknown tool'
+
+! garble /does/not/exist/compile
+stderr 'no such file'
+
+exec go test -v
+stdout 'PASS.*TestFoo'
+
+garble test -v
+stdout 'PASS.*TestFoo'
+
+garble test -c -vet=off
+bingrep bar.test$exe 'TestFoo'
+! bingrep bar.test$exe 'ImportedVar'
+
+-- go.mod --
+module foo.com/bar
+-- bar.go --
+package bar
+
+func Foo() string { return "Foo" }
+
+var ImportedVar = "imported var value"
+-- bar_test.go --
+package bar
+
+import (
+	"testing"
+)
+
+func TestFoo(t *testing.T) {
+	t.Log(ImportedVar)
+	if Foo() != "Foo" {
+		t.FailNow()
+	}
+}

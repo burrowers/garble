@@ -108,7 +108,7 @@ func main1() int {
 func mainErr(args []string) error {
 	// If we recognise an argument, we're not running within -toolexec.
 	switch cmd := args[0]; cmd {
-	case "build":
+	case "build", "test":
 		execPath, err := os.Executable()
 		if err != nil {
 			return err
@@ -190,6 +190,9 @@ func transformCompile(args []string) ([]string, error) {
 	flags, paths := splitFlagsFromFiles(args, ".go")
 	if len(paths) == 0 {
 		// Nothing to transform; probably just ["-V=full"].
+		return args, nil
+	}
+	if len(paths) == 1 && filepath.Base(paths[0]) == "_testmain.go" {
 		return args, nil
 	}
 
@@ -363,6 +366,9 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 				case "main", "init":
 					return true // don't break them
 				}
+				if strings.HasPrefix(node.Name, "Test") && isTestSignature(sign) {
+					return true // don't break tests
+				}
 			case nil:
 				switch cursor.Parent().(type) {
 				case *ast.AssignStmt:
@@ -402,6 +408,27 @@ func isStandardLibrary(path string) bool {
 		return false
 	}
 	return !strings.Contains(path, ".")
+}
+
+// isTestSignature returns true if the signature matches "func _(*testing.T)".
+func isTestSignature(sign *types.Signature) bool {
+	if sign.Recv() != nil {
+		return false
+	}
+	params := sign.Params()
+	if params.Len() != 1 {
+		return false
+	}
+	ptr, ok := params.At(0).Type().(*types.Pointer) // *testing.T
+	if !ok {
+		return false
+	}
+	named, ok := ptr.Elem().(*types.Named) // testing.T
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	return obj.Pkg().Path() == "testing" && obj.Name() == "T"
 }
 
 func transformLink(args []string) ([]string, error) {
