@@ -28,6 +28,8 @@ cmp stderr main.stderr
 
 ! bingrep main$exe ${WORK@R} 'globalVar' 'globalFunc'
 
+[short] stop # checking that the build is reproducible is slow
+
 # Finally, check that the 'garble build' shortcut works, and produces the same
 # binary.
 cp main$exe main_old$exe

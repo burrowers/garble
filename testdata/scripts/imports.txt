@@ -4,6 +4,8 @@ cmp stdout main.stdout
 
 ! bingrep main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType'
 
+[short] stop # checking that the build is reproducible is slow
+
 # Also check that the binary is reproducible when many imports are involved.
 cp main$exe main_old$exe
 rm main$exe
