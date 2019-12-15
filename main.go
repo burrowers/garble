@@ -353,7 +353,7 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 			switch x := obj.(type) {
 			case *types.Var:
 				if x.Embedded() {
-					obj = obj.Type().(*types.Named).Obj()
+					obj = objOf(obj.Type())
 				}
 			case *types.Const:
 			case *types.TypeName:
@@ -410,6 +410,17 @@ func isStandardLibrary(path string) bool {
 	return !strings.Contains(path, ".")
 }
 
+func objOf(t types.Type) types.Object {
+	switch t := t.(type) {
+	case *types.Named:
+		return t.Obj()
+	case interface{ Elem() types.Type }:
+		return objOf(t.Elem())
+	default:
+		return nil
+	}
+}
+
 // isTestSignature returns true if the signature matches "func _(*testing.T)".
 func isTestSignature(sign *types.Signature) bool {
 	if sign.Recv() != nil {
@@ -419,16 +430,8 @@ func isTestSignature(sign *types.Signature) bool {
 	if params.Len() != 1 {
 		return false
 	}
-	ptr, ok := params.At(0).Type().(*types.Pointer) // *testing.T
-	if !ok {
-		return false
-	}
-	named, ok := ptr.Elem().(*types.Named) // testing.T
-	if !ok {
-		return false
-	}
-	obj := named.Obj()
-	return obj.Pkg().Path() == "testing" && obj.Name() == "T"
+	obj := objOf(params.At(0).Type())
+	return obj != nil && obj.Pkg().Path() == "testing" && obj.Name() == "T"
 }
 
 func transformLink(args []string) ([]string, error) {

@@ -11,6 +11,7 @@ var V interface{}
 
 type T struct{
 	ast.Node
+	*ast.Ident
 }
 
 func main() {
