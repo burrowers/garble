@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/rogpeppe/go-internal/gotooltest"
 	"github.com/rogpeppe/go-internal/testscript"
 )
 
@@ -27,7 +28,7 @@ var update = flag.Bool("u", false, "update testscript output files")
 func TestScripts(t *testing.T) {
 	t.Parallel()
 
-	testscript.Run(t, testscript.Params{
+	p := testscript.Params{
 		Dir: filepath.Join("testdata", "scripts"),
 		Setup: func(env *testscript.Env) error {
 			bindir := filepath.Join(env.WorkDir, ".bin")
@@ -43,22 +44,6 @@ func TestScripts(t *testing.T) {
 			}
 			env.Vars = append(env.Vars, fmt.Sprintf("PATH=%s%c%s", bindir, filepath.ListSeparator, os.Getenv("PATH")))
 			env.Vars = append(env.Vars, "TESTSCRIPT_COMMAND=garble")
-
-			// GitHub Actions doesn't define %LocalAppData% on
-			// Windows, which breaks $GOCACHE. Set it ourselves.
-			if runtime.GOOS == "windows" {
-				env.Vars = append(env.Vars, fmt.Sprintf(`LOCALAPPDATA=%s\appdata`, env.WorkDir))
-			}
-
-			for _, name := range [...]string{
-				"HOME",
-				"USERPROFILE", // $HOME for windows
-				"GOCACHE",
-			} {
-				if value := os.Getenv(name); value != "" {
-					env.Vars = append(env.Vars, name+"="+value)
-				}
-			}
 			return nil
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
@@ -66,7 +51,11 @@ func TestScripts(t *testing.T) {
 			"bincmp":  bincmp,
 		},
 		UpdateScripts: *update,
-	})
+	}
+	if err := gotooltest.Setup(&p); err != nil {
+		t.Fatal(err)
+	}
+	testscript.Run(t, p)
 }
 
 func bingrep(ts *testscript.TestScript, neg bool, args []string) {
