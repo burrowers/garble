@@ -1,7 +1,7 @@
 exec go test -v
 stdout 'PASS.*TestFoo'
 
-garble test -c -vet=off
+garble test -c
 bingrep bar.test$exe 'TestFoo' 'TestSeparateFoo'
 ! bingrep bar.test$exe 'ImportedVar'
 

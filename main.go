@@ -119,6 +119,11 @@ func mainErr(args []string) error {
 			"-trimpath",
 			"-toolexec=" + execPath,
 		}
+		if cmd == "test" {
+			// vet is generally not useful on garbled code; keep it
+			// disabled by default.
+			goArgs = append(goArgs, "-vet=off")
+		}
 		goArgs = append(goArgs, args[1:]...)
 
 		cmd := exec.Command("go", goArgs...)
@@ -192,6 +197,13 @@ func transformCompile(args []string) ([]string, error) {
 		// Nothing to transform; probably just ["-V=full"].
 		return args, nil
 	}
+	for i, path := range paths {
+		if filepath.Base(path) == "_gomod_.go" {
+			// never include module info
+			paths = append(paths[:i], paths[i+1:]...)
+			break
+		}
+	}
 	if len(paths) == 1 && filepath.Base(paths[0]) == "_testmain.go" {
 		return args, nil
 	}
@@ -211,9 +223,6 @@ func transformCompile(args []string) ([]string, error) {
 	// log.Printf("%#v", ids)
 	var files []*ast.File
 	for _, path := range paths {
-		if strings.HasSuffix(path, "_gomod_.go") {
-			continue // don't include module info
-		}
 		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
 			return nil, err
