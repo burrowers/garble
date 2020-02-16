@@ -266,7 +266,8 @@ func transformCompile(args []string) ([]string, error) {
 
 func readBuildIDs(flags []string) error {
 	buildInfo.buildID = flagValue(flags, "-buildid")
-	if buildInfo.buildID == "" {
+	switch buildInfo.buildID {
+	case "", "true":
 		return fmt.Errorf("could not find -buildid argument")
 	}
 	buildInfo.buildID = trimBuildID(buildInfo.buildID)
@@ -393,6 +394,7 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 					buildID = id
 				}
 			}
+			// log.Printf("%q hashed with %q", node.Name, buildID)
 			node.Name = hashWith(buildID, node.Name)
 		}
 		return true
@@ -457,49 +459,61 @@ func splitFlagsFromFiles(args []string, ext string) (flags, paths []string) {
 	return args, nil
 }
 
+// booleanFlag records which of the flags that we need are boolean. This
+// matters, because boolean flags never consume the following argument, while
+// non-boolean flags always do.
+//
+// For now, this stati
+func booleanFlag(name string) bool {
+	switch name {
+	case "-std":
+		return true
+	default:
+		return false
+	}
+}
+
 // flagValue retrieves the value of a flag such as "-foo", from strings in the
 // list of arguments like "-foo=bar" or "-foo" "bar".
 func flagValue(flags []string, name string) string {
+	isBool := booleanFlag(name)
 	for i, arg := range flags {
 		if val := strings.TrimPrefix(arg, name+"="); val != arg {
 			// -name=value
 			return val
 		}
-		if arg == name {
-			if i+1 < len(flags) {
-				if val := flags[i+1]; !strings.HasPrefix(val, "-") {
-					// -name value
-					return flags[i+1]
-				}
+		if arg == name { // -name ...
+			if isBool {
+				// -name, equivalent to -name=true
+				return "true"
 			}
-			// -name, equivalent to -name=true
-			return "true"
+			if i+1 < len(flags) {
+				// -name value
+				return flags[i+1]
+			}
 		}
 	}
 	return ""
 }
 
 func flagSetValue(flags []string, name, value string) []string {
+	isBool := booleanFlag(name)
 	for i, arg := range flags {
 		if strings.HasPrefix(arg, name+"=") {
 			// -name=value
-			if value == "true" {
-				flags[i] = name
-			} else {
-				flags[i] = name + "=" + value
-			}
+			flags[i] = name + "=" + value
 			return flags
 		}
-		if arg == name {
-			if i+1 < len(flags) {
-				if val := flags[i+1]; !strings.HasPrefix(val, "-") {
-					flags[i+1] = value
-					return flags
-				}
-			}
-			// -name, equivalent to -name=true
-			if value != "true" {
+		if arg == name { // -name ...
+			if isBool {
+				// -name, equivalent to -name=true
 				flags[i] = name + "=" + value
+				return flags
+			}
+			if i+1 < len(flags) {
+				// -name value
+				flags[i+1] = value
+				return flags
 			}
 			return flags
 		}

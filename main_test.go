@@ -96,3 +96,37 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 			args[0], args[1], sizeDiff)
 	}
 }
+
+func TestFlagValue(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		flags    []string
+		flagName string
+		want     string
+	}{
+		{"BoolAlone", []string{"-std"}, "-std", "true"},
+		{"BoolFollowed", []string{"-std", "-foo"}, "-std", "true"},
+		{"BoolFalse", []string{"-std=false"}, "-std", "false"},
+		{"BoolMissing", []string{"-foo"}, "-std", ""},
+		{"BoolEmpty", []string{"-std="}, "-std", ""},
+		{"StrSpace", []string{"-buildid", "bar"}, "-buildid", "bar"},
+		{"StrSpaceDash", []string{"-buildid", "-bar"}, "-buildid", "-bar"},
+		{"StrEqual", []string{"-buildid=bar"}, "-buildid", "bar"},
+		{"StrEqualDash", []string{"-buildid=-bar"}, "-buildid", "-bar"},
+		{"StrMissing", []string{"-foo"}, "-buildid", ""},
+		{"StrNotFollowed", []string{"-buildid"}, "-buildid", ""},
+		{"StrEmpty", []string{"-buildid="}, "-buildid", ""},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := flagValue(test.flags, test.flagName)
+			if got != test.want {
+				t.Fatalf("flagValue(%q, %q) got %q, want %q",
+					test.flags, test.flagName, got, test.want)
+			}
+		})
+	}
+}
