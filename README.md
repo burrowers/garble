@@ -52,5 +52,5 @@ binary doesn't include paths from the current filesystem.
 * Deciding what method names to garble is always going to be difficult, due to
   interfaces that could be implemented up or down the package import tree.
 
-* Some uses of the `reflect` package may break, such as accessing a struct's
-  field, whose name has been garbled.
+* Similarly to methods, exported struct fields are difficult to garble, as the
+  names might be relevant for reflection work like `encoding/json`

@@ -353,6 +353,11 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 			// log.Printf("%#v %T", node, obj)
 			switch x := obj.(type) {
 			case *types.Var:
+				if x.IsField() && x.Exported() {
+					// might be used for reflection, e.g.
+					// encoding/json without struct tags
+					return true
+				}
 				if x.Embedded() {
 					obj = objOf(obj.Type())
 				}

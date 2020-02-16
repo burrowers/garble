@@ -5,13 +5,20 @@ cmp stderr main.stderr
 -- main.go --
 package main
 
-import "go/ast"
+import (
+	"encoding/json"
+	"go/ast"
+)
 
 var V interface{}
 
-type T struct{
+type T struct {
 	ast.Node
 	*ast.Ident
+}
+
+type EncodingT struct {
+	Foo int
 }
 
 func main() {
@@ -21,6 +28,10 @@ func main() {
 	case nil:
 		println("nil case")
 	}
+
+	enc, _ := json.Marshal(EncodingT{Foo: 3})
+	println(string(enc))
 }
 -- main.stderr --
 nil case
+{"Foo":3}
