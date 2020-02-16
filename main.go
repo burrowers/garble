@@ -363,7 +363,7 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 					return true // might implement an interface
 				}
 				switch node.Name {
-				case "main", "init":
+				case "main", "init", "TestMain":
 					return true // don't break them
 				}
 				if strings.HasPrefix(node.Name, "Test") && isTestSignature(sign) {

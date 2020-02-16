@@ -45,3 +45,14 @@ func TestSeparateFoo(t *testing.T) {
 		t.FailNow()
 	}
 }
+-- main_test.go --
+package bar
+
+import (
+	"os"
+	"testing"
+)
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}
