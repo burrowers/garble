@@ -2,7 +2,7 @@ garble build
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType'
+! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'imported.go'
 
 [short] stop # checking that the build is reproducible is slow
 
