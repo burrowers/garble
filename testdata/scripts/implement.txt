@@ -2,7 +2,7 @@ garble build main.go
 exec ./main
 cmp stdout main.stdout
 
-! bingrep main$exe 'unexportedMethod'
+! binsubstr main$exe 'unexportedMethod'
 
 -- main.go --
 package main

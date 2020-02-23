@@ -9,8 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/rogpeppe/go-internal/gotooltest"
@@ -47,8 +47,8 @@ func TestScripts(t *testing.T) {
 			return nil
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
-			"bingrep": bingrep,
-			"bincmp":  bincmp,
+			"binsubstr": binsubstr,
+			"bincmp":    bincmp,
 		},
 		UpdateScripts: *update,
 	}
@@ -58,19 +58,17 @@ func TestScripts(t *testing.T) {
 	testscript.Run(t, p)
 }
 
-func bingrep(ts *testscript.TestScript, neg bool, args []string) {
+func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
 	if len(args) < 2 {
-		ts.Fatalf("usage: bingrep file pattern...")
+		ts.Fatalf("usage: binsubstr file substr...")
 	}
 	data := ts.ReadFile(args[0])
-	for _, pattern := range args[1:] {
-		rx, err := regexp.Compile(pattern)
-		ts.Check(err)
-		match := rx.MatchString(data)
+	for _, substr := range args[1:] {
+		match := strings.Contains(data, substr)
 		if match && neg {
-			ts.Fatalf("unexpected match for %q in %s", pattern, args[0])
+			ts.Fatalf("unexpected match for %q in %s", substr, args[0])
 		} else if !match && !neg {
-			ts.Fatalf("expected match for %q in %s", pattern, args[0])
+			ts.Fatalf("expected match for %q in %s", substr, args[0])
 		}
 	}
 }
