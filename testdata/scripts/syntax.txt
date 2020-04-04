@@ -21,6 +21,12 @@ type EncodingT struct {
 	Foo int
 }
 
+type Embedded int
+
+type Embedding struct {
+	Embedded
+}
+
 func main() {
 	switch V := V.(type) {
 	case int:
