@@ -1,12 +1,14 @@
-exec go build
-exec ./main
-cmp stdout main.stdout-orig
-binsubstr main$exe '(devel)'
-
 garble build
 exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe '(devel)'
+
+[short] stop # no need to verify this with -short
+
+exec go build
+exec ./main
+cmp stdout main.stdout-orig
+binsubstr main$exe '(devel)'
 
 -- go.mod --
 module foo.com/main

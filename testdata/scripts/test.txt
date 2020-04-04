@@ -1,6 +1,3 @@
-exec go test -v
-stdout 'PASS.*TestFoo'
-
 garble test -c
 binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
 ! binsubstr bar.test$exe 'ImportedVar'
@@ -8,6 +5,11 @@ binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
 exec ./bar.test -test.v
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
+
+[short] stop # no need to verify this with -short
+
+exec go test -v
+stdout 'PASS.*TestFoo'
 
 -- go.mod --
 module foo.com/bar

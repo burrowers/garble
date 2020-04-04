@@ -1,18 +1,3 @@
-# Check that the program works as expected without garble.
-exec go build main.go
-exec ./main
-cmp stderr main.stderr
-
-# The default build includes DWARF and the symbol table.
-[!windows] [exec:readelf] exec readelf --section-headers main$exe
-[!windows] [exec:readelf] stdout 'debug_info'
-[!windows] [exec:readelf] stdout '\.symtab'
-
-# The default build includes full non-trimmed paths, as well as our names.
-# Only check $WORK on non-windows, because it's difficult to do it there.
-binsubstr main$exe 'globalVar' 'globalFunc'
-[!windows] binsubstr main$exe ${WORK@R}
-
 # Check that we fail if the user forgot -trimpath.
 ! exec go build -a -toolexec=garble main.go
 stderr 'should be used alongside -trimpath'
@@ -37,6 +22,22 @@ rm main$exe
 garble build main.go
 ! binsubstr main$exe 'globalVar'
 bincmp main$exe main_old$exe
+
+# Check that the program works as expected without garble. No need to verify
+# this when we run with -short.
+exec go build main.go
+exec ./main
+cmp stderr main.stderr
+
+# The default build includes DWARF and the symbol table.
+[!windows] [exec:readelf] exec readelf --section-headers main$exe
+[!windows] [exec:readelf] stdout 'debug_info'
+[!windows] [exec:readelf] stdout '\.symtab'
+
+# The default build includes full non-trimmed paths, as well as our names.
+# Only check $WORK on non-windows, because it's difficult to do it there.
+binsubstr main$exe 'globalVar' 'globalFunc'
+[!windows] binsubstr main$exe ${WORK@R}
 
 -- main.go --
 package main
