@@ -8,7 +8,7 @@ Obfuscate a Go build. Requires Go 1.13 or later.
 
 which is equivalent to the longer:
 
-	go build -a -trimpath -toolexec=garble [build flags] [packages]
+	GARBLE_DIR="$PWD" go build -a -trimpath -toolexec=garble [build flags] [packages]
 
 ### Purpose
 

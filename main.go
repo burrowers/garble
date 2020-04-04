@@ -66,6 +66,11 @@ type jsonExport struct {
 func objLookup(path string) (io.ReadCloser, error) {
 	// objPath := buildInfo.imports[path].packagefile
 	cmd := exec.Command("go", "list", "-json", "-export", path)
+	dir := os.Getenv("GARBLE_DIR")
+	if dir == "" {
+		return nil, fmt.Errorf("$GARBLE_DIR unset; did you run via 'garble build'?")
+	}
+	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("go list error: %v: %s", err, out)
@@ -109,6 +114,11 @@ func mainErr(args []string) error {
 	// If we recognise an argument, we're not running within -toolexec.
 	switch cmd := args[0]; cmd {
 	case "build", "test":
+		wd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		os.Setenv("GARBLE_DIR", wd)
 		execPath, err := os.Executable()
 		if err != nil {
 			return err

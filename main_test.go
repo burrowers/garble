@@ -13,14 +13,32 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rogpeppe/go-internal/goproxytest"
 	"github.com/rogpeppe/go-internal/gotooltest"
 	"github.com/rogpeppe/go-internal/testscript"
 )
 
+var proxyURL string
+
 func TestMain(m *testing.M) {
-	os.Exit(testscript.RunMain(m, map[string]func() int{
+	os.Exit(testscript.RunMain(garbleMain{m}, map[string]func() int{
 		"garble": main1,
 	}))
+}
+
+type garbleMain struct {
+	m *testing.M
+}
+
+func (m garbleMain) Run() int {
+	// Start the Go proxy server running for all tests.
+	srv, err := goproxytest.NewServer("testdata/mod", "")
+	if err != nil {
+		panic(fmt.Sprintf("cannot start proxy: %v", err))
+	}
+	proxyURL = srv.URL
+
+	return m.m.Run()
 }
 
 var update = flag.Bool("u", false, "update testscript output files")
@@ -31,6 +49,10 @@ func TestScripts(t *testing.T) {
 	p := testscript.Params{
 		Dir: filepath.Join("testdata", "scripts"),
 		Setup: func(env *testscript.Env) error {
+			env.Vars = append(env.Vars,
+				"GOPROXY="+proxyURL,
+				"GONOSUMDB=*",
+			)
 			bindir := filepath.Join(env.WorkDir, ".bin")
 			if err := os.Mkdir(bindir, 0777); err != nil {
 				return err

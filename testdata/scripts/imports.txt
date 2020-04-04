@@ -19,7 +19,10 @@ package main
 
 import (
 	"fmt"
+
 	"foo.com/main/imported"
+
+	"rsc.io/quote"
 )
 
 func main() {
@@ -28,12 +31,14 @@ func main() {
 	imported.ImportedFunc('x')
 	fmt.Println(imported.ImportedType(3))
 	fmt.Println(nil)
+	fmt.Println(quote.Go())
 }
 -- main.stdout --
 imported var value
 imported const value
 3
 <nil>
+Don't communicate by sharing memory, share memory by communicating.
 -- imported/imported.go --
 package imported
 
