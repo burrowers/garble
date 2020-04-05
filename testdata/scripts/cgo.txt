@@ -1,0 +1,30 @@
+garble build
+exec ./main
+cmp stdout main.stdout
+binsubstr main$exe 'privateAdd'
+
+[short] stop # no need to verify this with -short
+
+go build
+exec ./main
+cmp stdout main.stdout
+
+-- go.mod --
+module foo.com/main
+-- main.go --
+package main
+
+/*
+static int privateAdd(int a, int b) {
+	return a + b;
+}
+*/
+import "C"
+
+import "fmt"
+
+func main() {
+	fmt.Println(C.privateAdd(C.int(1), C.int(2)))
+}
+-- main.stdout --
+3

@@ -287,8 +287,18 @@ func transformCompile(args []string) ([]string, error) {
 	args = flags
 	// TODO: randomize the order and names of the files
 	for i, file := range files {
-		file := transformGo(file, info)
-		tempFile := filepath.Join(tempDir, fmt.Sprintf("z%d.go", i))
+		origName := filepath.Base(filepath.Clean(paths[i]))
+		name := fmt.Sprintf("z%d.go", i)
+		switch {
+		case strings.HasPrefix(origName, "_cgo_"):
+			// Cgo generated code requires a prefix. Also, don't
+			// garble it, since it's just generated code and it gets
+			// messy.
+			name = "_cgo_" + name
+		default:
+			file = transformGo(file, info)
+		}
+		tempFile := filepath.Join(tempDir, name)
 		f, err := os.Create(tempFile)
 		if err != nil {
 			return nil, err
@@ -384,7 +394,7 @@ func hashWith(salt, value string) string {
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info) ast.Node {
+func transformGo(file *ast.File, info *types.Info) *ast.File {
 	// Remove all comments, minus the "//go:" compiler directives.
 	// The final binary should still not contain comment text, but removing
 	// it helps ensure that (and makes position info less predictable).
@@ -405,6 +415,9 @@ func transformGo(file *ast.File, info *types.Info) ast.Node {
 		case *ast.Ident:
 			if node.Name == "_" {
 				return true // unnamed remains unnamed
+			}
+			if strings.HasPrefix(node.Name, "_C") || strings.Contains(node.Name, "_cgo") {
+				return true // don't mess with cgo-generated code
 			}
 			obj := info.ObjectOf(node)
 			// log.Printf("%#v %T", node, obj)
@@ -473,7 +486,7 @@ func transformGo(file *ast.File, info *types.Info) ast.Node {
 		}
 		return true
 	}
-	return astutil.Apply(file, pre, nil)
+	return astutil.Apply(file, pre, nil).(*ast.File)
 }
 
 func isStandardLibrary(path string) bool {
