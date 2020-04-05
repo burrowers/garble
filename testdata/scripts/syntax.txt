@@ -2,6 +2,8 @@ garble build main.go
 exec ./main
 cmp stderr main.stderr
 
+! binsubstr main$exe 'valuable information'
+
 -- main.go --
 package main
 
@@ -10,6 +12,7 @@ import (
 	"go/ast"
 )
 
+// This comment contains valuable information. Ensure it's not in the final binary.
 var V interface{}
 
 type T struct {

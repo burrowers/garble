@@ -12,6 +12,10 @@ rm main$exe
 garble build
 bincmp main$exe main_old$exe
 
+go build
+exec ./main
+cmp stdout main.stdout
+
 -- go.mod --
 module foo.com/main
 -- main.go --
@@ -19,18 +23,22 @@ package main
 
 import (
 	"fmt"
+	_ "unsafe"
 
 	"foo.com/main/imported"
 
 	"rsc.io/quote"
 )
 
+//go:linkname linkedPrintln fmt.Println
+func linkedPrintln(a ...interface{}) (n int, err error)
+
 func main() {
 	fmt.Println(imported.ImportedVar)
 	fmt.Println(imported.ImportedConst)
 	imported.ImportedFunc('x')
 	fmt.Println(imported.ImportedType(3))
-	fmt.Println(nil)
+	linkedPrintln(nil)
 	fmt.Println(quote.Go())
 }
 -- main.stdout --

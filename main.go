@@ -48,9 +48,8 @@ which is equivalent to the longer:
 func main() { os.Exit(main1()) }
 
 var (
-	deferred  []func() error
-	fset      = token.NewFileSet()
-	emptyFset = token.NewFileSet()
+	deferred []func() error
+	fset     = token.NewFileSet()
 
 	b64             = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
 	printerConfig   = printer.Config{Mode: printer.RawFormat}
@@ -257,7 +256,7 @@ func transformCompile(args []string) ([]string, error) {
 	// log.Printf("%#v", ids)
 	var files []*ast.File
 	for _, path := range paths {
-		file, err := parser.ParseFile(fset, path, nil, 0)
+		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
 			return nil, err
 		}
@@ -295,8 +294,8 @@ func transformCompile(args []string) ([]string, error) {
 			return nil, err
 		}
 		defer f.Close()
-		// printerConfig.Fprint(os.Stderr, emptyFset, file)
-		if err := printerConfig.Fprint(f, emptyFset, file); err != nil {
+		// printerConfig.Fprint(os.Stderr, fset, file)
+		if err := printerConfig.Fprint(f, fset, file); err != nil {
 			return nil, err
 		}
 		if err := f.Close(); err != nil {
@@ -385,7 +384,22 @@ func hashWith(salt, value string) string {
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(node ast.Node, info *types.Info) ast.Node {
+func transformGo(file *ast.File, info *types.Info) ast.Node {
+	// Remove all comments, minus the "//go:" compiler directives.
+	// The final binary should still not contain comment text, but removing
+	// it helps ensure that (and makes position info less predictable).
+	origComments := file.Comments
+	file.Comments = nil
+	for _, commentGroup := range origComments {
+		for _, comment := range commentGroup.List {
+			if strings.HasPrefix(comment.Text, "//go:") {
+				file.Comments = append(file.Comments, &ast.CommentGroup{
+					List: []*ast.Comment{comment},
+				})
+			}
+		}
+	}
+
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.Ident:
@@ -411,7 +425,7 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 					return true // might implement an interface
 				}
 				if implementedOutsideGo(x) {
-					return true // implemented elsewhere, like assembly
+					return true // give up in this case
 				}
 				switch node.Name {
 				case "main", "init", "TestMain":
@@ -459,7 +473,7 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 		}
 		return true
 	}
-	return astutil.Apply(node, pre, nil)
+	return astutil.Apply(file, pre, nil)
 }
 
 func isStandardLibrary(path string) bool {
@@ -473,7 +487,7 @@ func isStandardLibrary(path string) bool {
 }
 
 // implementedOutsideGo returns whether a *types.Func does not have a body, for
-// example when it's implemented in assembly.
+// example when it's implemented in assembly, or when one uses go:linkname.
 //
 // Note that this function can only return true if the obj parameter was
 // type-checked from source - that is, if it's the top-level package we're
