@@ -52,19 +52,21 @@ var (
 	fset      = token.NewFileSet()
 	emptyFset = token.NewFileSet()
 
-	b64           = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
-	printerConfig = printer.Config{Mode: printer.RawFormat}
-	typesConfig   = types.Config{Importer: importer.ForCompiler(fset, "gc", objLookup)}
+	b64             = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
+	printerConfig   = printer.Config{Mode: printer.RawFormat}
+	origTypesConfig = types.Config{Importer: importer.ForCompiler(fset, "gc", origLookup)}
 
-	buildInfo = packageInfo{imports: make(map[string]importedPkg)}
+	buildInfo       = packageInfo{imports: make(map[string]importedPkg)}
+	garbledImporter = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+		return os.Open(buildInfo.imports[path].packagefile)
+	}).(types.ImporterFrom)
 )
 
-type jsonExport struct {
-	Export string
-}
-
-func objLookup(path string) (io.ReadCloser, error) {
-	// objPath := buildInfo.imports[path].packagefile
+// origLookup helps implement a types.Importer which finds the export data for
+// the original dependencies, not their garbled counterparts. This is useful to
+// typecheck a package before it's garbled, so we can make decisions on how to
+// garble it.
+func origLookup(path string) (io.ReadCloser, error) {
 	cmd := exec.Command("go", "list", "-json", "-export", path)
 	dir := os.Getenv("GARBLE_DIR")
 	if dir == "" {
@@ -84,6 +86,26 @@ func objLookup(path string) (io.ReadCloser, error) {
 	return os.Open(res.Export)
 }
 
+func garbledImport(path string) (*types.Package, error) {
+	ipkg, ok := buildInfo.imports[path]
+	if !ok {
+		return nil, fmt.Errorf("could not find imported package %q", path)
+	}
+	if ipkg.pkg != nil {
+		return ipkg.pkg, nil // cached
+	}
+	dir := os.Getenv("GARBLE_DIR")
+	if dir == "" {
+		return nil, fmt.Errorf("$GARBLE_DIR unset; did you run via 'garble build'?")
+	}
+	pkg, err := garbledImporter.ImportFrom(path, dir, 0)
+	if err != nil {
+		return nil, err
+	}
+	ipkg.pkg = pkg // cache for later use
+	return pkg, nil
+}
+
 type packageInfo struct {
 	buildID string
 	imports map[string]importedPkg
@@ -92,6 +114,8 @@ type packageInfo struct {
 type importedPkg struct {
 	packagefile string
 	buildID     string
+
+	pkg *types.Package
 }
 
 func main1() int {
@@ -245,7 +269,7 @@ func transformCompile(args []string) ([]string, error) {
 		Uses: make(map[*ast.Ident]types.Object),
 	}
 	pkgPath := flagValue(flags, "-p")
-	if _, err := typesConfig.Check(pkgPath, fset, files, info); err != nil {
+	if _, err := origTypesConfig.Check(pkgPath, fset, files, info); err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
@@ -386,6 +410,9 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 				if obj.Exported() && sign.Recv() != nil {
 					return true // might implement an interface
 				}
+				if implementedOutsideGo(x) {
+					return true // implemented elsewhere, like assembly
+				}
 				switch node.Name {
 				case "main", "init", "TestMain":
 					return true // don't break them
@@ -414,11 +441,21 @@ func transformGo(node ast.Node, info *types.Info) ast.Node {
 					return true // std isn't transformed
 				}
 				if id := buildInfo.imports[path].buildID; id != "" {
+					garbledPkg, err := garbledImport(path)
+					if err != nil {
+						panic(err) // shouldn't happen
+					}
+					// Check if the imported name wasn't
+					// garbled, e.g. if it's assembly.
+					if garbledPkg.Scope().Lookup(obj.Name()) != nil {
+						return true
+					}
 					buildID = id
 				}
 			}
-			// log.Printf("%q hashed with %q", node.Name, buildID)
+			// orig := node.Name
 			node.Name = hashWith(buildID, node.Name)
+			// log.Printf("%q hashed with %q to %q", orig, buildID, node.Name)
 		}
 		return true
 	}
@@ -433,6 +470,18 @@ func isStandardLibrary(path string) bool {
 		return false
 	}
 	return !strings.Contains(path, ".")
+}
+
+// implementedOutsideGo returns whether a *types.Func does not have a body, for
+// example when it's implemented in assembly.
+//
+// Note that this function can only return true if the obj parameter was
+// type-checked from source - that is, if it's the top-level package we're
+// building. Dependency packages, whose type information comes from export data,
+// do not differentiate these "external funcs" in any way.
+func implementedOutsideGo(obj *types.Func) bool {
+	return obj.Type().(*types.Signature).Recv() == nil &&
+		(obj.Scope() != nil && obj.Scope().Pos() == token.NoPos)
 }
 
 func objOf(t types.Type) types.Object {

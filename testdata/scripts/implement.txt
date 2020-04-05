@@ -2,7 +2,7 @@ garble build main.go
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'unexportedMethod'
+! binsubstr main$exe 'unexportedMethod' 'privateIface'
 
 -- main.go --
 package main
@@ -18,6 +18,14 @@ func (t T) String() string {
 func (t T) unexportedMethod() string {
 	return "unexported method for " + string(t)
 }
+
+type privateInterface interface {
+	privateIface()
+}
+
+func (T) privateIface() {}
+
+var _ privateInterface = T("")
 
 func main() {
 	fmt.Println(T("foo"))

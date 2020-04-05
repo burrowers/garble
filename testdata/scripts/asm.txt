@@ -1,0 +1,49 @@
+garble build
+exec ./main
+cmp stdout main.stdout
+binsubstr main$exe 'privateAdd' 'PublicAdd'
+
+[short] stop # no need to verify this with -short
+
+go build
+exec ./main
+cmp stdout main.stdout
+
+-- go.mod --
+module foo.com/main
+-- main.go --
+package main
+
+import (
+	"fmt"
+
+	"foo.com/main/imported"
+)
+
+func privateAdd(x, y int64) int64
+
+func main() {
+	fmt.Println(privateAdd(1, 2))
+	fmt.Println(imported.PublicAdd(3, 4))
+}
+-- main.s --
+TEXT ·privateAdd(SB),$0-24
+	MOVQ x+0(FP), BX
+	MOVQ y+8(FP), BP
+	ADDQ BP, BX
+	MOVQ BX, ret+16(FP)
+	RET
+-- imported/imported.go --
+package imported
+
+func PublicAdd(x, y int64) int64
+-- imported/imported.s --
+TEXT ·PublicAdd(SB),$0-24
+	MOVQ x+0(FP), BX
+	MOVQ y+8(FP), BP
+	ADDQ BP, BX
+	MOVQ BX, ret+16(FP)
+	RET
+-- main.stdout --
+3
+7
