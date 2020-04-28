@@ -38,6 +38,12 @@ It also wraps calls to the linker in order to:
 Finally, the tool requires the use of the `-trimpath` build flag, to ensure the
 binary doesn't include paths from the current filesystem.
 
+### Options
+
+By default, the tool garbles the packages under the current module. If not
+running in module mode, then only the main package is garbled. To specify what
+packages to garble, set `GOPRIVATE`, documented at `go help module-private`.
+
 ### Caveats
 
 Most of these can improve with time and effort. The purpose of this section is
@@ -51,9 +57,6 @@ to document the current shortcomings of this tool.
 
 * Since no caching at all can take place right now (see the link above), fast
   incremental builds aren't possible. Large projects might be slow to build.
-
-* The standard library is never garbled when compiled, since the source is
-  always publicly available. See #7 for making this configurable.
 
 * Deciding what method names to garble is always going to be difficult, due to
   interfaces that could be implemented up or down the package import tree. At

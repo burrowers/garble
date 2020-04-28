@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -59,6 +60,9 @@ var (
 	garbledImporter = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
 		return os.Open(buildInfo.imports[path].packagefile)
 	}).(types.ImporterFrom)
+
+	envGarbleDir = os.Getenv("GARBLE_DIR")
+	envGoPrivate string // filled via 'go env' below to support 'go env -w'
 )
 
 // origLookup helps implement a types.Importer which finds the export data for
@@ -67,11 +71,10 @@ var (
 // garble it.
 func origLookup(path string) (io.ReadCloser, error) {
 	cmd := exec.Command("go", "list", "-json", "-export", path)
-	dir := os.Getenv("GARBLE_DIR")
-	if dir == "" {
+	if envGarbleDir == "" {
 		return nil, fmt.Errorf("$GARBLE_DIR unset; did you run via 'garble build'?")
 	}
-	cmd.Dir = dir
+	cmd.Dir = envGarbleDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("go list error: %v: %s", err, out)
@@ -93,11 +96,10 @@ func garbledImport(path string) (*types.Package, error) {
 	if ipkg.pkg != nil {
 		return ipkg.pkg, nil // cached
 	}
-	dir := os.Getenv("GARBLE_DIR")
-	if dir == "" {
+	if envGarbleDir == "" {
 		return nil, fmt.Errorf("$GARBLE_DIR unset; did you run via 'garble build'?")
 	}
-	pkg, err := garbledImporter.ImportFrom(path, dir, 0)
+	pkg, err := garbledImporter.ImportFrom(path, envGarbleDir, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -134,6 +136,12 @@ func main1() int {
 }
 
 func mainErr(args []string) error {
+	out, err := exec.Command("go", "env", "GOPRIVATE").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, out)
+	}
+	envGoPrivate = string(bytes.TrimSpace(out))
+
 	// If we recognise an argument, we're not running within -toolexec.
 	switch cmd := args[0]; cmd {
 	case "build", "test":
@@ -142,6 +150,17 @@ func mainErr(args []string) error {
 			return err
 		}
 		os.Setenv("GARBLE_DIR", wd)
+
+		// If GOPRIVATE isn't set and we're in a module, use its module
+		// path as a GOPRIVATE default. Include a _test variant too.
+		if envGoPrivate == "" {
+			modpath, err := exec.Command("go", "list", "-m").CombinedOutput()
+			if err == nil {
+				path := string(bytes.TrimSpace(modpath))
+				os.Setenv("GOPRIVATE", path+","+path+"_test")
+			}
+		}
+
 		execPath, err := os.Executable()
 		if err != nil {
 			return err
@@ -230,6 +249,10 @@ func transformCompile(args []string) ([]string, error) {
 		// Nothing to transform; probably just ["-V=full"].
 		return args, nil
 	}
+	pkgPath := flagValue(flags, "-p")
+	if !isPrivate(pkgPath) {
+		return args, nil
+	}
 	for i, path := range paths {
 		if filepath.Base(path) == "_gomod_.go" {
 			// never include module info
@@ -246,9 +269,6 @@ func transformCompile(args []string) ([]string, error) {
 	trimpath := flagValue(flags, "-trimpath")
 	if !strings.Contains(trimpath, ";") {
 		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
-	}
-	if flagValue(flags, "-std") == "true" {
-		return args, nil
 	}
 	if err := readBuildIDs(flags); err != nil {
 		return nil, err
@@ -267,7 +287,6 @@ func transformCompile(args []string) ([]string, error) {
 		Defs: make(map[*ast.Ident]types.Object),
 		Uses: make(map[*ast.Ident]types.Object),
 	}
-	pkgPath := flagValue(flags, "-p")
 	if _, err := origTypesConfig.Check(pkgPath, fset, files, info); err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
@@ -314,6 +333,18 @@ func transformCompile(args []string) ([]string, error) {
 		args = append(args, f.Name())
 	}
 	return args, nil
+}
+
+// isPrivate checks if GOPRIVATE matches pkgPath.
+//
+// To allow using garble without GOPRIVATE for standalone main packages, it will
+// default to not matching standard library packages.
+func isPrivate(pkgPath string) bool {
+	if pkgPath == "main" {
+		// TODO: why don't we see the full package path for main packages?
+		return true
+	}
+	return GlobsMatchPath(envGoPrivate, pkgPath)
 }
 
 func readBuildIDs(flags []string) error {
@@ -376,7 +407,7 @@ func buildidOf(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%v: %s", err, out)
 	}
-	return trimBuildID(string(out)), nil
+	return trimBuildID(string(bytes.TrimSpace(out))), nil
 }
 
 func hashWith(salt, value string) string {
@@ -464,8 +495,8 @@ func transformGo(file *ast.File, info *types.Info) *ast.File {
 					return true // universe scope
 				}
 				path := pkg.Path()
-				if isStandardLibrary(path) {
-					return true // std isn't transformed
+				if !isPrivate(path) {
+					return true // only private packages are transformed
 				}
 				if id := buildInfo.imports[path].buildID; id != "" {
 					garbledPkg, err := garbledImport(path)
@@ -487,16 +518,6 @@ func transformGo(file *ast.File, info *types.Info) *ast.File {
 		return true
 	}
 	return astutil.Apply(file, pre, nil).(*ast.File)
-}
-
-func isStandardLibrary(path string) bool {
-	switch path {
-	case "main":
-		// Main packages may not have fully qualified import paths, but
-		// they're not part of the standard library
-		return false
-	}
-	return !strings.Contains(path, ".")
 }
 
 // implementedOutsideGo returns whether a *types.Func does not have a body, for
@@ -558,34 +579,15 @@ func splitFlagsFromFiles(args []string, ext string) (flags, paths []string) {
 	return args, nil
 }
 
-// booleanFlag records which of the flags that we need are boolean. This
-// matters, because boolean flags never consume the following argument, while
-// non-boolean flags always do.
-//
-// For now, this stati
-func booleanFlag(name string) bool {
-	switch name {
-	case "-std":
-		return true
-	default:
-		return false
-	}
-}
-
 // flagValue retrieves the value of a flag such as "-foo", from strings in the
 // list of arguments like "-foo=bar" or "-foo" "bar".
 func flagValue(flags []string, name string) string {
-	isBool := booleanFlag(name)
 	for i, arg := range flags {
 		if val := strings.TrimPrefix(arg, name+"="); val != arg {
 			// -name=value
 			return val
 		}
 		if arg == name { // -name ...
-			if isBool {
-				// -name, equivalent to -name=true
-				return "true"
-			}
 			if i+1 < len(flags) {
 				// -name value
 				return flags[i+1]
@@ -596,7 +598,6 @@ func flagValue(flags []string, name string) string {
 }
 
 func flagSetValue(flags []string, name, value string) []string {
-	isBool := booleanFlag(name)
 	for i, arg := range flags {
 		if strings.HasPrefix(arg, name+"=") {
 			// -name=value
@@ -604,11 +605,6 @@ func flagSetValue(flags []string, name, value string) []string {
 			return flags
 		}
 		if arg == name { // -name ...
-			if isBool {
-				// -name, equivalent to -name=true
-				flags[i] = name + "=" + value
-				return flags
-			}
 			if i+1 < len(flags) {
 				// -name value
 				flags[i+1] = value

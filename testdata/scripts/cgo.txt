@@ -10,7 +10,7 @@ exec ./main
 cmp stdout main.stdout
 
 -- go.mod --
-module foo.com/main
+module test/main
 -- main.go --
 package main
 

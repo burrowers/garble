@@ -125,11 +125,6 @@ func TestFlagValue(t *testing.T) {
 		flagName string
 		want     string
 	}{
-		{"BoolAlone", []string{"-std"}, "-std", "true"},
-		{"BoolFollowed", []string{"-std", "-foo"}, "-std", "true"},
-		{"BoolFalse", []string{"-std=false"}, "-std", "false"},
-		{"BoolMissing", []string{"-foo"}, "-std", ""},
-		{"BoolEmpty", []string{"-std="}, "-std", ""},
 		{"StrSpace", []string{"-buildid", "bar"}, "-buildid", "bar"},
 		{"StrSpaceDash", []string{"-buildid", "-bar"}, "-buildid", "-bar"},
 		{"StrEqual", []string{"-buildid=bar"}, "-buildid", "bar"},

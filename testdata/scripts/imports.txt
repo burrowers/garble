@@ -17,7 +17,7 @@ exec ./main
 cmp stdout main.stdout
 
 -- go.mod --
-module foo.com/main
+module test/main
 -- main.go --
 package main
 
@@ -25,7 +25,7 @@ import (
 	"fmt"
 	_ "unsafe"
 
-	"foo.com/main/imported"
+	"test/main/imported"
 
 	"rsc.io/quote"
 )

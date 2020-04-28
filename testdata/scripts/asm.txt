@@ -10,14 +10,14 @@ exec ./main
 cmp stdout main.stdout
 
 -- go.mod --
-module foo.com/main
+module test/main
 -- main.go --
 package main
 
 import (
 	"fmt"
 
-	"foo.com/main/imported"
+	"test/main/imported"
 )
 
 func privateAdd(x, y int64) int64

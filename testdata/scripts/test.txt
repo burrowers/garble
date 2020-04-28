@@ -12,7 +12,7 @@ exec go test -v
 stdout 'PASS.*TestFoo'
 
 -- go.mod --
-module foo.com/bar
+module test/bar
 -- bar.go --
 package bar
 
@@ -38,7 +38,7 @@ package bar_test
 import (
 	"testing"
 
-	"foo.com/bar"
+	"test/bar"
 )
 
 func TestSeparateFoo(t *testing.T) {
