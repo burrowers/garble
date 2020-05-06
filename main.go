@@ -151,9 +151,11 @@ func mainErr(args []string) error {
 	case "help":
 		flagSet.Usage()
 	case "build", "test":
-		switch args[1] {
-		case "-h", "-help", "--help":
-			flagSet.Usage()
+		if len(args) > 1 {
+			switch args[1] {
+			case "-h", "-help", "--help":
+				flagSet.Usage()
+			}
 		}
 		wd, err := os.Getwd()
 		if err != nil {
