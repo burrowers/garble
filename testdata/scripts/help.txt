@@ -1,14 +1,24 @@
 ! garble
-stderr -count=1 'Usage of'
-stderr '\tgo build'
+stderr -count=1 'Usage of garble'
+stderr 'garble cmd'
+! stderr 'usage: go build'
 ! stdout .
 
 ! garble -h
-stderr 'Usage of'
+stderr 'Usage of garble'
+! stdout .
+
+! garble help
+stderr 'Usage of garble'
+! stdout .
+
+! garble build -h
+stderr 'Usage of garble'
+! stderr 'usage: go build'
 ! stdout .
 
 ! garble -badflag
-stderr 'Usage of'
+stderr 'Usage of garble'
 ! stdout .
 
 ! garble badcmd

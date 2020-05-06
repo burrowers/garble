@@ -38,9 +38,13 @@ Usage of garble:
 
 	garble build [build flags] [packages]
 
-which is equivalent to the longer:
+The tool supports wrapping the following Go commands - run "garble cmd [args]"
+instead of "go cmd [args]" to add obfuscation:
 
-	go build -a -trimpath -toolexec=garble [build flags] [packages]
+	build
+	test
+
+garble does not have flags of its own at this moment.
 `[1:])
 	flagSet.PrintDefaults()
 	os.Exit(2)
@@ -144,7 +148,13 @@ func mainErr(args []string) error {
 
 	// If we recognise an argument, we're not running within -toolexec.
 	switch cmd := args[0]; cmd {
+	case "help":
+		flagSet.Usage()
 	case "build", "test":
+		switch args[1] {
+		case "-h", "-help", "--help":
+			flagSet.Usage()
+		}
 		wd, err := os.Getwd()
 		if err != nil {
 			return err
