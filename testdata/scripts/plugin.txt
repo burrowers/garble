@@ -1,3 +1,5 @@
+[windows] skip 'Go plugins are not supported on Windows'
+
 garble build -buildmode=plugin ./plugin
 binsubstr plugin.so 'PublicVar' 'PublicFunc'
 ! binsubstr plugin.so 'privateFunc'
