@@ -545,6 +545,9 @@ func implementedOutsideGo(obj *types.Func) bool {
 		(obj.Scope() != nil && obj.Scope().Pos() == token.NoPos)
 }
 
+// objOf tries to obtain the object behind a *types.Named, even if it's behind a
+// pointer type. This is useful to obtain "testing.T" from "*testing.T", or to
+// obtain the type declaration object from an embedded field.
 func objOf(t types.Type) types.Object {
 	switch t := t.(type) {
 	case *types.Named:
