@@ -454,79 +454,80 @@ func transformGo(file *ast.File, info *types.Info) *ast.File {
 	}
 
 	pre := func(cursor *astutil.Cursor) bool {
-		switch node := cursor.Node().(type) {
-		case *ast.Ident:
-			if node.Name == "_" {
-				return true // unnamed remains unnamed
-			}
-			if strings.HasPrefix(node.Name, "_C") || strings.Contains(node.Name, "_cgo") {
-				return true // don't mess with cgo-generated code
-			}
-			obj := info.ObjectOf(node)
-			// log.Printf("%#v %T", node, obj)
-			switch x := obj.(type) {
-			case *types.Var:
-				if x.Embedded() {
-					obj = objOf(obj.Type())
-				} else if x.IsField() && x.Exported() {
-					// might be used for reflection, e.g.
-					// encoding/json without struct tags
-					return true
-				}
-			case *types.Const:
-			case *types.TypeName:
-			case *types.Func:
-				sign := obj.Type().(*types.Signature)
-				if obj.Exported() && sign.Recv() != nil {
-					return true // might implement an interface
-				}
-				if implementedOutsideGo(x) {
-					return true // give up in this case
-				}
-				switch node.Name {
-				case "main", "init", "TestMain":
-					return true // don't break them
-				}
-				if strings.HasPrefix(node.Name, "Test") && isTestSignature(sign) {
-					return true // don't break tests
-				}
-			case nil:
-				switch cursor.Parent().(type) {
-				case *ast.AssignStmt:
-					// symbolic var v in v := expr.(type)
-				default:
-					return true
-				}
-			default:
-				return true // we only want to rename the above
-			}
-			buildID := buildInfo.buildID
-			if obj != nil {
-				pkg := obj.Pkg()
-				if pkg == nil {
-					return true // universe scope
-				}
-				path := pkg.Path()
-				if !isPrivate(path) {
-					return true // only private packages are transformed
-				}
-				if id := buildInfo.imports[path].buildID; id != "" {
-					garbledPkg, err := garbledImport(path)
-					if err != nil {
-						panic(err) // shouldn't happen
-					}
-					// Check if the imported name wasn't
-					// garbled, e.g. if it's assembly.
-					if garbledPkg.Scope().Lookup(obj.Name()) != nil {
-						return true
-					}
-					buildID = id
-				}
-			}
-			// orig := node.Name
-			node.Name = hashWith(buildID, node.Name)
-			// log.Printf("%q hashed with %q to %q", orig, buildID, node.Name)
+		node, ok := cursor.Node().(*ast.Ident)
+		if !ok {
+			return true
 		}
+		if node.Name == "_" {
+			return true // unnamed remains unnamed
+		}
+		if strings.HasPrefix(node.Name, "_C") || strings.Contains(node.Name, "_cgo") {
+			return true // don't mess with cgo-generated code
+		}
+		obj := info.ObjectOf(node)
+		if obj == nil {
+			switch cursor.Parent().(type) {
+			case *ast.AssignStmt:
+				// symbolic var v in v := expr.(type)
+				node.Name = hashWith(buildInfo.buildID, node.Name)
+			}
+			return true
+		}
+		pkg := obj.Pkg()
+		if pkg == nil {
+			return true // universe scope
+		}
+		// log.Printf("%#v %T", node, obj)
+		switch x := obj.(type) {
+		case *types.Var:
+			if x.Embedded() {
+				obj = objOf(obj.Type())
+				pkg = obj.Pkg()
+			} else if x.IsField() && x.Exported() {
+				// might be used for reflection, e.g.
+				// encoding/json without struct tags
+				return true
+			}
+		case *types.Const:
+		case *types.TypeName:
+		case *types.Func:
+			sign := obj.Type().(*types.Signature)
+			if obj.Exported() && sign.Recv() != nil {
+				return true // might implement an interface
+			}
+			if implementedOutsideGo(x) {
+				return true // give up in this case
+			}
+			switch node.Name {
+			case "main", "init", "TestMain":
+				return true // don't break them
+			}
+			if strings.HasPrefix(node.Name, "Test") && isTestSignature(sign) {
+				return true // don't break tests
+			}
+		default:
+			return true // we only want to rename the above
+		}
+		buildID := buildInfo.buildID
+		path := pkg.Path()
+		if !isPrivate(path) {
+			return true // only private packages are transformed
+		}
+		if id := buildInfo.imports[path].buildID; id != "" {
+			garbledPkg, err := garbledImport(path)
+			if err != nil {
+				panic(err) // shouldn't happen
+			}
+			// Check if the imported name wasn't
+			// garbled, e.g. if it's assembly.
+			if garbledPkg.Scope().Lookup(obj.Name()) != nil {
+				return true
+			}
+			buildID = id
+		}
+		// orig := node.Name
+		node.Name = hashWith(buildID, node.Name)
+		// log.Printf("%q hashed with %q to %q", orig, buildID, node.Name)
 		return true
 	}
 	return astutil.Apply(file, pre, nil).(*ast.File)
