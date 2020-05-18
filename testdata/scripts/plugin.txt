@@ -1,0 +1,54 @@
+garble build -buildmode=plugin ./plugin
+binsubstr plugin.so 'PublicVar' 'PublicFunc'
+! binsubstr plugin.so 'privateFunc'
+
+# Note that we need -trimpath; see the caveat section in the README.
+go build -trimpath
+exec ./main
+cmp stdout main.stdout
+binsubstr main$exe 'PublicVar' 'PublicFunc'
+! binsubstr plugin.so 'privateFunc'
+
+[short] stop # no need to verify this with -short
+
+go build -buildmode=plugin ./plugin
+binsubstr plugin.so 'PublicVar' 'PublicFunc' 'privateFunc'
+go build
+exec ./main
+cmp stdout main.stdout
+
+-- go.mod --
+module test/main
+-- plugin/main.go --
+package main
+
+import "fmt"
+
+var PublicVar int
+
+func privateFunc(n int) { fmt.Printf("Hello, number %d\n", n) }
+
+func PublicFunc() { privateFunc(PublicVar) }
+-- main.go --
+package main
+
+import "plugin"
+
+func main() {
+	p, err := plugin.Open("plugin.so")
+	if err != nil {
+		panic(err)
+	}
+	v, err := p.Lookup("PublicVar")
+	if err != nil {
+		panic(err)
+	}
+	f, err := p.Lookup("PublicFunc")
+	if err != nil {
+		panic(err)
+	}
+	*v.(*int) = 7
+	f.(func())()
+}
+-- main.stdout --
+Hello, number 7

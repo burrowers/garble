@@ -30,6 +30,12 @@ type Embedding struct {
 	Embedded
 }
 
+type embedded int
+
+type embedding struct {
+	embedded
+}
+
 func main() {
 	switch V := V.(type) {
 	case int:

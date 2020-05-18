@@ -477,13 +477,22 @@ func transformGo(file *ast.File, info *types.Info) *ast.File {
 		if pkg == nil {
 			return true // universe scope
 		}
+		if vr, ok := obj.(*types.Var); ok && vr.Embedded() {
+			// ObjectOf returns the field for embedded struct
+			// fields, not the type it uses. Use the type.
+			obj = objOf(obj.Type())
+			pkg = obj.Pkg()
+		}
+
+		if pkg.Name() == "main" && obj.Exported() && obj.Parent() == pkg.Scope() {
+			// TODO: only do this when -buildmode is plugin? what
+			// about other -buildmode options?
+			return true // could be a Go plugin API
+		}
 		// log.Printf("%#v %T", node, obj)
 		switch x := obj.(type) {
 		case *types.Var:
-			if x.Embedded() {
-				obj = objOf(obj.Type())
-				pkg = obj.Pkg()
-			} else if x.IsField() && x.Exported() {
+			if x.IsField() && x.Exported() {
 				// might be used for reflection, e.g.
 				// encoding/json without struct tags
 				return true
