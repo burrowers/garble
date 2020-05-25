@@ -112,8 +112,10 @@ func garbledImport(path string) (*types.Package, error) {
 }
 
 type packageInfo struct {
-	buildID string
-	imports map[string]importedPkg
+	buildID string // from -buildid
+
+	imports     map[string]importedPkg // from -importcfg
+	firstImport string                 // first from -importcfg; the main package when linking
 }
 
 type importedPkg struct {
@@ -307,6 +309,7 @@ func transformCompile(args []string) ([]string, error) {
 	deferred = append(deferred, func() error {
 		return os.RemoveAll(tempDir)
 	})
+
 	// Add our temporary dir to the beginning of -trimpath, so that we don't
 	// leak temporary dirs. Needs to be at the beginning, since there may be
 	// shorter prefixes later in the list, such as $PWD if TMPDIR=$PWD/tmp.
@@ -352,8 +355,10 @@ func transformCompile(args []string) ([]string, error) {
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(pkgPath string) bool {
-	if pkgPath == "main" {
-		// TODO: why don't we see the full package path for main packages?
+	if pkgPath == "main" || strings.HasPrefix(pkgPath, "plugin/unnamed") {
+		// TODO: why don't we see the full package path for main
+		// packages? The linker has it at the top of -importcfg, but not
+		// the compiler.
 		return true
 	}
 	return GlobsMatchPath(envGoPrivate, pkgPath)
@@ -395,6 +400,9 @@ func readBuildIDs(flags []string) error {
 		fileID, err := buildidOf(objectPath)
 		if err != nil {
 			return err
+		}
+		if len(buildInfo.imports) == 0 {
+			buildInfo.firstImport = importPath
 		}
 		buildInfo.imports[importPath] = importedPkg{
 			packagefile: objectPath,
@@ -639,6 +647,39 @@ func transformLink(args []string) ([]string, error) {
 		// Nothing to transform; probably just ["-V=full"].
 		return args, nil
 	}
+
+	// Make sure -X works with garbled identifiers. To cover both garbled
+	// and non-garbled names, duplicate each flag with a garbled version.
+	if err := readBuildIDs(flags); err != nil {
+		return nil, err
+	}
+	flagValueIter(flags, "-X", func(val string) {
+		// val is in the form of "pkg.name=str"
+		i := strings.IndexByte(val, '=')
+		if i <= 0 {
+			return
+		}
+		name := val[:i]
+		str := val[i+1:]
+		j := strings.IndexByte(name, '.')
+		if j <= 0 {
+			return
+		}
+		pkg := name[:j]
+		name = name[j+1:]
+
+		pkgPath := pkg
+		if pkgPath == "main" {
+			// The main package is known under its import path in
+			// the import config map.
+			pkgPath = buildInfo.firstImport
+		}
+		if id := buildInfo.imports[pkgPath].buildID; id != "" {
+			name = hashWith(id, name)
+			flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", pkg, name, str))
+		}
+	})
+
 	flags = append(flags, "-w", "-s")
 	return append(flags, paths...), nil
 }
@@ -657,21 +698,32 @@ func splitFlagsFromFiles(args []string, ext string) (flags, paths []string) {
 }
 
 // flagValue retrieves the value of a flag such as "-foo", from strings in the
-// list of arguments like "-foo=bar" or "-foo" "bar".
+// list of arguments like "-foo=bar" or "-foo" "bar". If the flag is repeated,
+// the last value is returned.
 func flagValue(flags []string, name string) string {
+	lastVal := ""
+	flagValueIter(flags, name, func(val string) {
+		lastVal = val
+	})
+	return lastVal
+}
+
+// flagValueIter retrieves all the values for a flag such as "-foo", like
+// flagValue. The difference is that it allows handling complex flags, such as
+// those whose values compose a list.
+func flagValueIter(flags []string, name string, fn func(string)) {
 	for i, arg := range flags {
 		if val := strings.TrimPrefix(arg, name+"="); val != arg {
 			// -name=value
-			return val
+			fn(val)
 		}
 		if arg == name { // -name ...
 			if i+1 < len(flags) {
 				// -name value
-				return flags[i+1]
+				fn(flags[i+1])
 			}
 		}
 	}
-	return ""
 }
 
 func flagSetValue(flags []string, name, value string) []string {

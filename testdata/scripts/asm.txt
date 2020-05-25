@@ -1,13 +1,13 @@
 garble build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 binsubstr main$exe 'privateAdd' 'PublicAdd'
 
 [short] stop # no need to verify this with -short
 
 go build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 
 -- go.mod --
 module test/main
@@ -15,16 +15,14 @@ module test/main
 package main
 
 import (
-	"fmt"
-
 	"test/main/imported"
 )
 
 func privateAdd(x, y int64) int64
 
 func main() {
-	fmt.Println(privateAdd(1, 2))
-	fmt.Println(imported.PublicAdd(3, 4))
+	println(privateAdd(1, 2))
+	println(imported.PublicAdd(3, 4))
 }
 -- main.s --
 TEXT ·privateAdd(SB),$0-24
@@ -44,6 +42,6 @@ TEXT ·PublicAdd(SB),$0-24
 	ADDQ BP, BX
 	MOVQ BX, ret+16(FP)
 	RET
--- main.stdout --
+-- main.stderr --
 3
 7

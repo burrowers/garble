@@ -7,30 +7,38 @@ binsubstr plugin.so 'PublicVar' 'PublicFunc'
 # Note that we need -trimpath; see the caveat section in the README.
 go build -trimpath
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 binsubstr main$exe 'PublicVar' 'PublicFunc'
 ! binsubstr plugin.so 'privateFunc'
 
 [short] stop # no need to verify this with -short
 
+# This used to fail, since in this case the package path for the ad-hoc plugin
+# package isn't "main", but "plugin/unnamed-*".
+garble build -buildmode=plugin plugin/main.go
+
 go build -buildmode=plugin ./plugin
 binsubstr plugin.so 'PublicVar' 'PublicFunc' 'privateFunc'
 go build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 
 -- go.mod --
 module test/main
 -- plugin/main.go --
 package main
 
-import "fmt"
+import "test/main/plugin/lib"
 
-var PublicVar int
+var PublicVar int = lib.ImportedFunc()
 
-func privateFunc(n int) { fmt.Printf("Hello, number %d\n", n) }
+func privateFunc(n int) { println("Hello, number", n) }
 
 func PublicFunc() { privateFunc(PublicVar) }
+-- plugin/lib/lib.go --
+package lib
+
+func ImportedFunc() int { return 4 }
 -- main.go --
 package main
 
@@ -52,5 +60,5 @@ func main() {
 	*v.(*int) = 7
 	f.(func())()
 }
--- main.stdout --
+-- main.stderr --
 Hello, number 7

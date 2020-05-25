@@ -1,13 +1,13 @@
 garble build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 binsubstr main$exe 'privateAdd'
 
 [short] stop # no need to verify this with -short
 
 go build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 
 -- go.mod --
 module test/main
@@ -21,10 +21,8 @@ static int privateAdd(int a, int b) {
 */
 import "C"
 
-import "fmt"
-
 func main() {
-	fmt.Println(C.privateAdd(C.int(1), C.int(2)))
+	println(C.privateAdd(C.int(1), C.int(2)))
 }
--- main.stdout --
+-- main.stderr --
 3
