@@ -1,13 +1,13 @@
 garble build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=test/main/imported.ExportedVar=replaced'
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 ! binsubstr main$exe 'unexportedVersion'
 
 [short] stop # no need to verify this with -short
 
 exec go build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=test/main/imported.ExportedVar=replaced'
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 binsubstr main$exe 'unexportedVersion'
 
 -- go.mod --
@@ -16,21 +16,19 @@ module test/main
 package main
 
 import (
-	"fmt"
-
 	"test/main/imported"
 )
 
 var unexportedVersion = "unknown"
 
 func main() {
-	fmt.Println("version:", unexportedVersion)
-	fmt.Println("var:", imported.ExportedVar)
+	println("version:", unexportedVersion)
+	println("var:", imported.ExportedVar)
 }
 -- imported/imported.go --
 package imported
 
 var ExportedVar = "original"
--- main.stdout --
+-- main.stderr --
 version: v1.0.0
 var: replaced

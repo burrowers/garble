@@ -7,7 +7,7 @@ binsubstr plugin.so 'PublicVar' 'PublicFunc'
 # Note that we need -trimpath; see the caveat section in the README.
 go build -trimpath
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 binsubstr main$exe 'PublicVar' 'PublicFunc'
 ! binsubstr plugin.so 'privateFunc'
 
@@ -17,18 +17,16 @@ go build -buildmode=plugin ./plugin
 binsubstr plugin.so 'PublicVar' 'PublicFunc' 'privateFunc'
 go build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 
 -- go.mod --
 module test/main
 -- plugin/main.go --
 package main
 
-import "fmt"
-
 var PublicVar int
 
-func privateFunc(n int) { fmt.Printf("Hello, number %d\n", n) }
+func privateFunc(n int) { println("Hello, number", n) }
 
 func PublicFunc() { privateFunc(PublicVar) }
 -- main.go --
@@ -52,5 +50,5 @@ func main() {
 	*v.(*int) = 7
 	f.(func())()
 }
--- main.stdout --
+-- main.stderr --
 Hello, number 7

@@ -1,13 +1,13 @@
 garble build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 ! binsubstr main$exe '(devel)'
 
 [short] stop # no need to verify this with -short
 
 exec go build
 exec ./main
-cmp stdout main.stdout-orig
+cmp stderr main.stderr-orig
 binsubstr main$exe '(devel)'
 
 -- go.mod --
@@ -15,15 +15,16 @@ module test/main
 -- main.go --
 package main
 
-import (
-	"fmt"
-	"runtime/debug"
-)
+import "runtime/debug"
 
 func main() {
-	fmt.Println(debug.ReadBuildInfo())
+	if info, ok := debug.ReadBuildInfo(); ok {
+		println("version", info.Main.Version)
+	} else {
+		println("no version")
+	}
 }
--- main.stdout-orig --
-&{test/main {test/main (devel)  <nil>} []} true
--- main.stdout --
-<nil> false
+-- main.stderr-orig --
+version (devel)
+-- main.stderr --
+no version
