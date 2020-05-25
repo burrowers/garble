@@ -316,6 +316,9 @@ func transformCompile(args []string) ([]string, error) {
 	flags = flagSetValue(flags, "-trimpath", tempDir+"=>;"+trimpath)
 	// log.Println(flags)
 	args = flags
+
+	blacklist := buildBlacklist(files, info)
+
 	// TODO: randomize the order and names of the files
 	for i, file := range files {
 		origName := filepath.Base(filepath.Clean(paths[i]))
@@ -327,7 +330,7 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
-			file = transformGo(file, info)
+			file = transformGo(file, info, blacklist)
 		}
 		tempFile := filepath.Join(tempDir, name)
 		f, err := os.Create(tempFile)
@@ -436,8 +439,55 @@ func hashWith(salt, value string) string {
 	return "z" + sum[:length]
 }
 
+type blacklistItem struct {
+	pkg      string
+	typename string
+}
+
+func buildBlacklist(files []*ast.File, info *types.Info) []blacklistItem {
+	var (
+		blacklist   []blacklistItem
+		prevReflect bool
+	)
+
+	pre := func(cursor *astutil.Cursor) bool {
+		node, ok := cursor.Node().(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		obj := info.ObjectOf(node)
+
+		tmpReflect := prevReflect
+		prevReflect = false
+
+		switch x := obj.(type) {
+		case *types.Func:
+			if x.Pkg().Name() == "reflect" && (x.Name() == "TypeOf" || x.Name() == "ValueOf") {
+				prevReflect = true
+			}
+
+		case *types.TypeName:
+			if tmpReflect {
+				blacklist = append(blacklist, blacklistItem{
+					pkg:      x.Pkg().Path(),
+					typename: x.Name(),
+				})
+			}
+		}
+
+		return true
+	}
+
+	for _, file := range files {
+		astutil.Apply(file, pre, nil)
+	}
+
+	return blacklist
+}
+
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist []blacklistItem) *ast.File {
 	// Remove all comments, minus the "//go:" compiler directives.
 	// The final binary should still not contain comment text, but removing
 	// it helps ensure that (and makes position info less predictable).
@@ -499,6 +549,11 @@ func transformGo(file *ast.File, info *types.Info) *ast.File {
 			}
 		case *types.Const:
 		case *types.TypeName:
+			for _, item := range blacklist {
+				if item.pkg == obj.Pkg().Path() && item.typename == obj.Name() {
+					return true
+				}
+			}
 		case *types.Func:
 			sign := obj.Type().(*types.Signature)
 			if obj.Exported() && sign.Recv() != nil {
