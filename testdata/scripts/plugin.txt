@@ -13,6 +13,10 @@ binsubstr main$exe 'PublicVar' 'PublicFunc'
 
 [short] stop # no need to verify this with -short
 
+# This used to fail, since in this case the package path for the ad-hoc plugin
+# package isn't "main", but "plugin/unnamed-*".
+garble build -buildmode=plugin plugin/main.go
+
 go build -buildmode=plugin ./plugin
 binsubstr plugin.so 'PublicVar' 'PublicFunc' 'privateFunc'
 go build
@@ -24,11 +28,17 @@ module test/main
 -- plugin/main.go --
 package main
 
-var PublicVar int
+import "test/main/plugin/lib"
+
+var PublicVar int = lib.ImportedFunc()
 
 func privateFunc(n int) { println("Hello, number", n) }
 
 func PublicFunc() { privateFunc(PublicVar) }
+-- plugin/lib/lib.go --
+package lib
+
+func ImportedFunc() int { return 4 }
 -- main.go --
 package main
 

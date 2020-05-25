@@ -355,10 +355,10 @@ func transformCompile(args []string) ([]string, error) {
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(pkgPath string) bool {
-	if pkgPath == "main" {
-		// TODO: why don't we see the full package path for main packages?
-		// Hint: it seems like the real import path is at the top of
-		// -importcfg.
+	if pkgPath == "main" || strings.HasPrefix(pkgPath, "plugin/unnamed") {
+		// TODO: why don't we see the full package path for main
+		// packages? The linker has it at the top of -importcfg, but not
+		// the compiler.
 		return true
 	}
 	return GlobsMatchPath(envGoPrivate, pkgPath)
