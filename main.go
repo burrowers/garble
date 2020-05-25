@@ -286,13 +286,10 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 	// log.Printf("%#v", ids)
-	var files []*ast.File
-	for _, path := range paths {
-		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, file)
+
+	files, err := parseFilesFromPaths(paths)
+	if err != nil {
+		return nil, err
 	}
 
 	info := &types.Info{
@@ -304,6 +301,7 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	tempDir, err := ioutil.TempDir("", "garble-build")
+	log.Println(tempDir)
 	if err != nil {
 		return nil, err
 	}
@@ -473,6 +471,7 @@ func transformGo(file *ast.File, info *types.Info) *ast.File {
 			}
 			return true
 		}
+
 		pkg := obj.Pkg()
 		if pkg == nil {
 			return true // universe scope
@@ -484,12 +483,14 @@ func transformGo(file *ast.File, info *types.Info) *ast.File {
 			pkg = obj.Pkg()
 		}
 
-		if pkg.Name() == "main" && obj.Exported() && obj.Parent() == pkg.Scope() {
+		if pkg.Name() == "main" && obj.Exported() && obj.Parent() == pkg.Scope() || excludeObj(obj, origComments) {
 			// TODO: only do this when -buildmode is plugin? what
 			// about other -buildmode options?
+
+			log.Println("here", obj.Name())
 			return true // could be a Go plugin API
 		}
-		// log.Printf("%#v %T", node, obj)
+		//log.Printf("%#v %T", node, obj)
 		switch x := obj.(type) {
 		case *types.Var:
 			if x.IsField() && x.Exported() {
@@ -539,6 +540,7 @@ func transformGo(file *ast.File, info *types.Info) *ast.File {
 		// log.Printf("%q hashed with %q to %q", orig, buildID, node.Name)
 		return true
 	}
+
 	return astutil.Apply(file, pre, nil).(*ast.File)
 }
 
@@ -639,4 +641,46 @@ func flagSetValue(flags []string, name, value string) []string {
 		}
 	}
 	return append(flags, name+"="+value)
+}
+
+func parseFilesFromPaths(paths []string) (files []*ast.File, err error) {
+	for _, path := range paths {
+		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+
+	return
+}
+
+func excludeObj(obj types.Object, comments []*ast.CommentGroup) bool {
+	if obj.Exported() {
+		for _, commentGroup := range comments {
+			if commentGroup.Pos() > obj.Pos() {
+				continue
+			}
+
+			var groupHasObjName bool
+			var groupHasExclude bool
+			for _, comment := range commentGroup.List {
+				if strings.Contains(comment.Text, obj.Name()) {
+					groupHasObjName = true
+				}
+
+				if strings.Contains(comment.Text, "garble:exclude") {
+					groupHasExclude = true
+				}
+			}
+
+			if groupHasExclude && groupHasObjName {
+
+				log.Println("skipped", obj.Name())
+				return true
+			}
+		}
+	}
+
+	return false
 }

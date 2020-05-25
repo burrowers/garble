@@ -36,6 +36,17 @@ It also wraps calls to the linker in order to:
 Finally, the tool requires the use of the `-trimpath` build flag, to ensure the
 binary doesn't include paths from the current filesystem.
 
+### Exclude
+Identifiers can be excluded from garble by adding a comment in the form of a single line
+// Identifier garble:exclude
+
+or multiline
+
+// Identifier some documentation
+// garble:exclude
+
+comment before it.
+
 ### Options
 
 By default, the tool garbles the packages under the current module. If not

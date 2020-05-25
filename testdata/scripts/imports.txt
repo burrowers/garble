@@ -3,6 +3,7 @@ exec ./main
 cmp stdout main.stdout
 
 ! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'imported.go'
+binsubstr main$exe 'ImportedAPI'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -24,6 +25,7 @@ package main
 import (
 	"fmt"
 	_ "unsafe"
+	"reflect"
 
 	"test/main/imported"
 
@@ -38,6 +40,9 @@ func main() {
 	fmt.Println(imported.ImportedConst)
 	imported.ImportedFunc('x')
 	fmt.Println(imported.ImportedType(3))
+
+	api := new(imported.ImportedAPI)
+	fmt.Println(reflect.TypeOf(api))
 	linkedPrintln(nil)
 	fmt.Println(quote.Go())
 }
@@ -45,6 +50,7 @@ func main() {
 imported var value
 imported const value
 3
+*imported.ImportedAPI
 <nil>
 Don't communicate by sharing memory, share memory by communicating.
 -- imported/imported.go --
@@ -59,3 +65,6 @@ func ImportedFunc(param rune) string {
 }
 
 type ImportedType int
+
+// ImportedAPI garble:exclude
+type ImportedAPI int
