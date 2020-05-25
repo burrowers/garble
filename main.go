@@ -286,13 +286,10 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 	// log.Printf("%#v", ids)
-	var files []*ast.File
-	for _, path := range paths {
-		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, file)
+
+	files, err := parseFilesFromPaths(paths)
+	if err != nil {
+		return nil, err
 	}
 
 	info := &types.Info{
@@ -694,4 +691,16 @@ func flagSetValue(flags []string, name, value string) []string {
 		}
 	}
 	return append(flags, name+"="+value)
+}
+
+func parseFilesFromPaths(paths []string) (files []*ast.File, err error) {
+	for _, path := range paths {
+		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+
+	return
 }
