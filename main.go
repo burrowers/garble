@@ -319,6 +319,9 @@ func transformCompile(args []string) ([]string, error) {
 	flags = flagSetValue(flags, "-trimpath", tempDir+"=>;"+trimpath)
 	// log.Println(flags)
 	args = flags
+
+	blacklist := buildBlacklist(files, info)
+
 	// TODO: randomize the order and names of the files
 	for i, file := range files {
 		origName := filepath.Base(filepath.Clean(paths[i]))
@@ -330,7 +333,7 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
-			file = transformGo(file, info)
+			file = transformGo(file, info, blacklist)
 		}
 		tempFile := filepath.Join(tempDir, name)
 		f, err := os.Create(tempFile)
@@ -444,8 +447,43 @@ func hashWith(salt, value string) string {
 	return "z" + sum[:length]
 }
 
+func buildBlacklist(files []*ast.File, info *types.Info) (blacklist []types.Object) {
+	pre := func(node ast.Node) bool {
+		nodeExpr, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		exprFunc, ok := nodeExpr.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+
+		exprFuncType := info.ObjectOf(exprFunc.Sel)
+
+		if exprFuncType.Pkg().Path() == "reflect" && (exprFuncType.Name() == "TypeOf" || exprFuncType.Name() == "ValueOf") {
+			for _, arg := range nodeExpr.Args {
+				if expr, ok := arg.(*ast.CallExpr); ok {
+					if f, ok := expr.Fun.(*ast.Ident); ok {
+						blacklistItem := info.ObjectOf(f)
+						blacklist = append(blacklist, blacklistItem)
+					}
+				}
+			}
+		}
+
+		return true
+	}
+
+	for _, file := range files {
+		ast.Inspect(file, pre)
+	}
+
+	return blacklist
+}
+
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist []types.Object) *ast.File {
 	// Remove all comments, minus the "//go:" compiler directives.
 	// The final binary should still not contain comment text, but removing
 	// it helps ensure that (and makes position info less predictable).
@@ -497,6 +535,13 @@ func transformGo(file *ast.File, info *types.Info) *ast.File {
 			// about other -buildmode options?
 			return true // could be a Go plugin API
 		}
+
+		for _, item := range blacklist {
+			if item.Pkg().Path() == obj.Pkg().Path() && item.Name() == obj.Name() {
+				return true
+			}
+		}
+
 		// log.Printf("%#v %T", node, obj)
 		switch x := obj.(type) {
 		case *types.Var:
