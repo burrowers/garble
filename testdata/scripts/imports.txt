@@ -3,7 +3,6 @@ exec ./main
 cmp stdout main.stdout
 
 ! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'imported.go'
-binsubstr main$exe 'ImportedAPI'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -24,7 +23,6 @@ package main
 
 import (
 	"fmt"
-	"reflect"
 	_ "unsafe"
 
 	"test/main/imported"
