@@ -3,7 +3,6 @@ exec ./main
 cmp stdout main.stdout
 
 ! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'imported.go'
-binsubstr main$exe 'ImportedAPI'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -24,7 +23,6 @@ package main
 
 import (
 	"fmt"
-	"reflect"
 	_ "unsafe"
 
 	"test/main/imported"
@@ -41,18 +39,13 @@ func main() {
 	imported.ImportedFunc('x')
 	fmt.Println(imported.ImportedType(3))
 
-	api := new(imported.ImportedAPI)
-	fmt.Println(reflect.TypeOf(api))
+	fmt.Printf("%T\n", imported.ReflectTypeOf(2))
+	fmt.Printf("%T\n", imported.ReflectTypeOfIndirect(4))
+	fmt.Printf("%#v\n", imported.ReflectValueOfVar)
+
 	linkedPrintln(nil)
 	fmt.Println(quote.Go())
 }
--- main.stdout --
-imported var value
-imported const value
-3
-*imported.ImportedAPI
-<nil>
-Don't communicate by sharing memory, share memory by communicating.
 -- imported/imported.go --
 package imported
 
@@ -66,8 +59,31 @@ func ImportedFunc(param rune) string {
 	return string(param)
 }
 
+type ReflectTypeOf int
+
+var _ = reflect.TypeOf(ReflectTypeOf(0))
+
+type ReflectTypeOfIndirect int
+
+var _ = reflect.TypeOf(new([]*ReflectTypeOfIndirect))
+
+type ReflectValueOf struct {
+	Foo int `bar:"baz"`
+}
+
+var ReflectValueOfVar = ReflectValueOf{Foo: 3}
+
+var _ = reflect.TypeOf(ReflectValueOfVar)
+
+// ImportedType comes after the calls to reflect, to ensure no false positives.
 type ImportedType int
 
-type ImportedAPI int
-
-var _ = reflect.TypeOf(ImportedAPI(0))
+-- main.stdout --
+imported var value
+imported const value
+3
+imported.ReflectTypeOf
+imported.ReflectTypeOfIndirect
+imported.ReflectValueOf{Foo:3}
+<nil>
+Don't communicate by sharing memory, share memory by communicating.

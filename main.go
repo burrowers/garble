@@ -301,7 +301,8 @@ func transformCompile(args []string) ([]string, error) {
 		Defs: make(map[*ast.Ident]types.Object),
 		Uses: make(map[*ast.Ident]types.Object),
 	}
-	if _, err := origTypesConfig.Check(pkgPath, fset, files, info); err != nil {
+	pkg, err := origTypesConfig.Check(pkgPath, fset, files, info)
+	if err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
@@ -320,7 +321,7 @@ func transformCompile(args []string) ([]string, error) {
 	// log.Println(flags)
 	args = flags
 
-	blacklist := buildBlacklist(files, info)
+	blacklist := buildBlacklist(files, info, pkg)
 
 	// TODO: randomize the order and names of the files
 	for i, file := range files {
@@ -447,38 +448,49 @@ func hashWith(salt, value string) string {
 	return "z" + sum[:length]
 }
 
-func buildBlacklist(files []*ast.File, info *types.Info) (blacklist []types.Object) {
-	pre := func(node ast.Node) bool {
-		nodeExpr, ok := node.(*ast.CallExpr)
-		if !ok {
+// buildBlacklist collects all the objects in a package which are known to be
+// used with reflect.TypeOf or reflect.ValueOf. Since we obfuscate one package
+// at a time, we only detect those if the type definition and the reflect usage
+// are both in the same package.
+func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) (blacklist []types.Object) {
+	// Keep track of the current syntax tree level. If reflectCallLevel is
+	// non-negative, we are under a reflect call.
+	level := 0
+	reflectCallLevel := -1
+
+	visit := func(node ast.Node) bool {
+		if node == nil {
+			if level == reflectCallLevel {
+				reflectCallLevel = -1
+			}
+			level--
 			return true
 		}
-
-		exprFunc, ok := nodeExpr.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-
-		exprFuncType := info.ObjectOf(exprFunc.Sel)
-
-		if exprFuncType.Pkg().Path() == "reflect" && (exprFuncType.Name() == "TypeOf" || exprFuncType.Name() == "ValueOf") {
-			for _, arg := range nodeExpr.Args {
-				if expr, ok := arg.(*ast.CallExpr); ok {
-					if f, ok := expr.Fun.(*ast.Ident); ok {
-						blacklistItem := info.ObjectOf(f)
-						blacklist = append(blacklist, blacklistItem)
-					}
-				}
+		if reflectCallLevel >= 0 && level >= reflectCallLevel {
+			expr, _ := node.(ast.Expr)
+			if obj := objOf(info.TypeOf(expr)); obj != nil && obj.Pkg() == pkg {
+				blacklist = append(blacklist, obj)
 			}
 		}
+		level++
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		fnType := info.ObjectOf(sel.Sel)
 
+		if fnType.Pkg().Path() == "reflect" && (fnType.Name() == "TypeOf" || fnType.Name() == "ValueOf") {
+			reflectCallLevel = level
+		}
 		return true
 	}
-
 	for _, file := range files {
-		ast.Inspect(file, pre)
+		ast.Inspect(file, visit)
 	}
-
 	return blacklist
 }
 
@@ -536,8 +548,9 @@ func transformGo(file *ast.File, info *types.Info, blacklist []types.Object) *as
 			return true // could be a Go plugin API
 		}
 
+		// TODO: also do this for method receivers
 		for _, item := range blacklist {
-			if item.Pkg().Path() == obj.Pkg().Path() && item.Name() == obj.Name() {
+			if obj == item {
 				return true
 			}
 		}
@@ -611,6 +624,7 @@ func implementedOutsideGo(obj *types.Func) bool {
 // pointer type. This is useful to obtain "testing.T" from "*testing.T", or to
 // obtain the type declaration object from an embedded field.
 func objOf(t types.Type) types.Object {
+	fmt.Printf("t: %T\n", t)
 	switch t := t.(type) {
 	case *types.Named:
 		return t.Obj()
