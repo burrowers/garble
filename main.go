@@ -452,12 +452,29 @@ func hashWith(salt, value string) string {
 // used with reflect.TypeOf or reflect.ValueOf. Since we obfuscate one package
 // at a time, we only detect those if the type definition and the reflect usage
 // are both in the same package.
-func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) (blacklist []types.Object) {
+//
+// The blacklist mainly contains named types and their field declarations.
+func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map[types.Object]struct{} {
 	// Keep track of the current syntax tree level. If reflectCallLevel is
 	// non-negative, we are under a reflect call.
 	level := 0
 	reflectCallLevel := -1
 
+	blacklist := make(map[types.Object]struct{})
+	addToBlacklist := func(named *types.Named) {
+		obj := named.Obj()
+		if obj == nil || obj.Pkg() != pkg {
+			return
+		}
+		blacklist[obj] = struct{}{}
+
+		strct, _ := named.Underlying().(*types.Struct)
+		if strct != nil {
+			for i := 0; i < strct.NumFields(); i++ {
+				blacklist[strct.Field(i)] = struct{}{}
+			}
+		}
+	}
 	visit := func(node ast.Node) bool {
 		if node == nil {
 			if level == reflectCallLevel {
@@ -468,8 +485,9 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) (bl
 		}
 		if reflectCallLevel >= 0 && level >= reflectCallLevel {
 			expr, _ := node.(ast.Expr)
-			if obj := objOf(info.TypeOf(expr)); obj != nil && obj.Pkg() == pkg {
-				blacklist = append(blacklist, obj)
+			named := namedType(info.TypeOf(expr))
+			if named != nil {
+				addToBlacklist(named)
 			}
 		}
 		level++
@@ -495,7 +513,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) (bl
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist []types.Object) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}) *ast.File {
 	// Remove all comments, minus the "//go:" compiler directives.
 	// The final binary should still not contain comment text, but removing
 	// it helps ensure that (and makes position info less predictable).
@@ -538,7 +556,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist []types.Object) *as
 		if vr, ok := obj.(*types.Var); ok && vr.Embedded() {
 			// ObjectOf returns the field for embedded struct
 			// fields, not the type it uses. Use the type.
-			obj = objOf(obj.Type())
+			obj = namedType(obj.Type()).Obj()
 			pkg = obj.Pkg()
 		}
 
@@ -548,11 +566,9 @@ func transformGo(file *ast.File, info *types.Info, blacklist []types.Object) *as
 			return true // could be a Go plugin API
 		}
 
-		// TODO: also do this for method receivers
-		for _, item := range blacklist {
-			if obj == item {
-				return true
-			}
+		// The object itself is blacklisted, e.g. a type definition.
+		if _, ok := blacklist[obj]; ok {
+			return true
 		}
 
 		// log.Printf("%#v %T", node, obj)
@@ -620,15 +636,15 @@ func implementedOutsideGo(obj *types.Func) bool {
 		(obj.Scope() != nil && obj.Scope().Pos() == token.NoPos)
 }
 
-// objOf tries to obtain the object behind a *types.Named, even if it's behind a
-// pointer type. This is useful to obtain "testing.T" from "*testing.T", or to
-// obtain the type declaration object from an embedded field.
-func objOf(t types.Type) types.Object {
+// named tries to obtain the *types.Named behind a type, if there is one.
+// This is useful to obtain "testing.T" from "*testing.T", or to obtain the type
+// declaration object from an embedded field.
+func namedType(t types.Type) *types.Named {
 	switch t := t.(type) {
 	case *types.Named:
-		return t.Obj()
+		return t
 	case interface{ Elem() types.Type }:
-		return objOf(t.Elem())
+		return namedType(t.Elem())
 	default:
 		return nil
 	}
@@ -643,7 +659,7 @@ func isTestSignature(sign *types.Signature) bool {
 	if params.Len() != 1 {
 		return false
 	}
-	obj := objOf(params.At(0).Type())
+	obj := namedType(params.At(0).Type()).Obj()
 	return obj != nil && obj.Pkg().Path() == "testing" && obj.Name() == "T"
 }
 

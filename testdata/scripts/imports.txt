@@ -23,6 +23,7 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 	_ "unsafe"
 
 	"test/main/imported"
@@ -36,12 +37,20 @@ func linkedPrintln(a ...interface{}) (n int, err error)
 func main() {
 	fmt.Println(imported.ImportedVar)
 	fmt.Println(imported.ImportedConst)
-	imported.ImportedFunc('x')
+	fmt.Println(imported.ImportedFunc('x'))
 	fmt.Println(imported.ImportedType(3))
 
 	fmt.Printf("%T\n", imported.ReflectTypeOf(2))
 	fmt.Printf("%T\n", imported.ReflectTypeOfIndirect(4))
-	fmt.Printf("%#v\n", imported.ReflectValueOfVar)
+
+	v := imported.ReflectValueOfVar
+	fmt.Printf("%#v\n", v)
+	method := reflect.ValueOf(&v).MethodByName("ExportedMethodName")
+	if method.IsValid() {
+		fmt.Println(method.Call(nil))
+	} else {
+		fmt.Println("method not found")
+	}
 
 	linkedPrintln(nil)
 	fmt.Println(quote.Go())
@@ -68,10 +77,14 @@ type ReflectTypeOfIndirect int
 var _ = reflect.TypeOf(new([]*ReflectTypeOfIndirect))
 
 type ReflectValueOf struct {
-	Foo int `bar:"baz"`
+	ExportedField   string
+
+	unexportedField string
 }
 
-var ReflectValueOfVar = ReflectValueOf{Foo: 3}
+func (r *ReflectValueOf) ExportedMethodName() string { return "method: "+r.ExportedField }
+
+var ReflectValueOfVar = ReflectValueOf{ExportedField: "abc"}
 
 var _ = reflect.TypeOf(ReflectValueOfVar)
 
@@ -81,9 +94,11 @@ type ImportedType int
 -- main.stdout --
 imported var value
 imported const value
+x
 3
 imported.ReflectTypeOf
 imported.ReflectTypeOfIndirect
-imported.ReflectValueOf{Foo:3}
+imported.ReflectValueOf{ExportedField:"abc", unexportedField:""}
+[method: abc]
 <nil>
 Don't communicate by sharing memory, share memory by communicating.
