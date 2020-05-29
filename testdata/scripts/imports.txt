@@ -23,6 +23,7 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 	_ "unsafe"
 
 	"test/main/imported"
