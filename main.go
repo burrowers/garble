@@ -624,7 +624,6 @@ func implementedOutsideGo(obj *types.Func) bool {
 // pointer type. This is useful to obtain "testing.T" from "*testing.T", or to
 // obtain the type declaration object from an embedded field.
 func objOf(t types.Type) types.Object {
-	fmt.Printf("t: %T\n", t)
 	switch t := t.(type) {
 	case *types.Named:
 		return t.Obj()
