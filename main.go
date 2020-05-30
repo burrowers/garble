@@ -297,6 +297,8 @@ func transformCompile(args []string) ([]string, error) {
 		files = append(files, file)
 	}
 
+	files = obfuscateStrings(files)
+
 	info := &types.Info{
 		Defs: make(map[*ast.Ident]types.Object),
 		Uses: make(map[*ast.Ident]types.Object),
