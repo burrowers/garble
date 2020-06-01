@@ -1,9 +1,9 @@
-# Check that we fail if the user forgot -trimpath.
+# Check that we fail if the user ran with -toolexec but without -trimpath.
 ! exec go build -a -toolexec=garble main.go
 stderr 'should be used alongside -trimpath'
 
 # Check that the simplest use of garble works.
-exec go build -a -trimpath -toolexec=garble main.go
+garble build main.go
 exec ./main
 cmp stderr main.stderr
 
@@ -15,12 +15,10 @@ cmp stderr main.stderr
 
 [short] stop # checking that the build is reproducible is slow
 
-# Finally, check that the 'garble build' shortcut works, and produces the same
-# binary.
+# Also check that the binary is reproducible.
 cp main$exe main_old$exe
 rm main$exe
 garble build main.go
-! binsubstr main$exe 'globalVar'
 bincmp main$exe main_old$exe
 
 # Check that the program works as expected without garble. No need to verify
