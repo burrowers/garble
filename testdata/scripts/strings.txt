@@ -1,0 +1,73 @@
+
+garble -literals build main.go
+exec ./main
+cmp stdout main.stdout
+! binsubstr main$exe 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate'
+
+[short] stop # checking that the build is reproducible is slow
+
+# Also check that the binary is reproducible.
+cp main$exe main_old$exe
+rm main$exe
+garble -literals build main.go
+bincmp main$exe main_old$exe
+
+-- main.go --
+package main
+
+import "fmt"
+
+type strucTest struct {
+	field        string
+	anotherfield string
+}
+
+const (
+	cnst      = "Lorem"
+	multiline = `First Line
+Second Line`
+)
+
+var variable = "ipsum"
+
+func main() {
+	empty := ""
+
+	localVar := "dolor"
+
+	reassign := "first assign"
+	reassign = "second assign"
+
+	fmt.Println(cnst)
+	fmt.Println(multiline)
+	fmt.Println(variable)
+	fmt.Println(localVar)
+	fmt.Println(reassign)
+	fmt.Println(empty)
+
+	x := strucTest{
+		field:        "to obfuscate",
+		anotherfield: "also obfuscate",
+	}
+
+	fmt.Println(x.field)
+	fmt.Println(x.anotherfield)
+
+	testMap := map[string]string{"map key": "map value"}
+	fmt.Println(testMap["map key"])
+
+	fmt.Println("another literal")
+}
+
+-- main.stdout --
+Lorem
+First Line
+Second Line
+ipsum
+dolor
+second assign
+
+to obfuscate
+also obfuscate
+map value
+another literal
