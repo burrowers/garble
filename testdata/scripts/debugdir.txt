@@ -1,0 +1,21 @@
+garble -debugdir ./test1 build
+exists 'test1/test/imported/z0.go' 'test1/main/z0.go'
+! grep ImportedFunc $WORK/test1/test/imported/z0.go
+! grep ImportedFunc $WORK/test1/main/z0.go 
+
+
+-- go.mod --
+module test
+-- main.go --
+package main
+
+import "test/imported"
+
+func main() {
+	imported.ImportedFunc()
+}
+
+-- imported/imported.go --
+package imported
+
+func ImportedFunc() {}
