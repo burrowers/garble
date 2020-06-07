@@ -30,11 +30,15 @@ import (
 
 var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
 
-var garbleLiterals bool
+var (
+	flagGarbleLiterals bool
+	flagDebugDir       string
+)
 
 func init() {
 	flagSet.Usage = usage
-	flagSet.BoolVar(&garbleLiterals, "literals", false, "Encrypt all literals with AES, currently only literal strings are supported")
+	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Encrypt all literals with AES, currently only literal strings are supported")
+	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a given directory")
 }
 
 func usage() {
@@ -81,6 +85,7 @@ var (
 
 	envGarbleDir      = os.Getenv("GARBLE_DIR")
 	envGarbleLiterals = os.Getenv("GARBLE_LITERALS") == "true"
+	envGarbleDebugDir = os.Getenv("GARBLE_DEBUGDIR")
 	envGoPrivate      string // filled via 'go env' below to support 'go env -w'
 )
 
@@ -179,7 +184,26 @@ func mainErr(args []string) error {
 			return err
 		}
 		os.Setenv("GARBLE_DIR", wd)
-		os.Setenv("GARBLE_LITERALS", fmt.Sprint(garbleLiterals))
+		os.Setenv("GARBLE_LITERALS", fmt.Sprint(flagGarbleLiterals))
+
+		if flagDebugDir != "" {
+			if !filepath.IsAbs(flagDebugDir) {
+				flagDebugDir = filepath.Join(wd, flagDebugDir)
+			}
+
+			if info, err := os.Stat(flagDebugDir); os.IsNotExist(err) {
+				err := os.MkdirAll(flagDebugDir, 0755)
+				if err != nil {
+					return err
+				}
+			} else if err != nil {
+				return fmt.Errorf("Debugdir error: %v", err)
+			} else if !info.IsDir() {
+				return fmt.Errorf("Debugdir exists, but is a file not a directory")
+			}
+		}
+
+		os.Setenv("GARBLE_DEBUGDIR", flagDebugDir)
 
 		// If GOPRIVATE isn't set and we're in a module, use its module
 		// path as a GOPRIVATE default. Include a _test variant too.
@@ -343,6 +367,16 @@ func transformCompile(args []string) ([]string, error) {
 
 	blacklist := buildBlacklist(files, info, pkg)
 
+	pkgDebugDir := ""
+	if envGarbleDebugDir != "" {
+		osPkgPath := filepath.FromSlash(pkgPath)
+		pkgDebugDir = filepath.Join(envGarbleDebugDir, osPkgPath)
+		err = os.MkdirAll(pkgDebugDir, 0755)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// TODO: randomize the order and names of the files
 	for i, file := range files {
 		origName := filepath.Base(filepath.Clean(paths[i]))
@@ -356,20 +390,41 @@ func transformCompile(args []string) ([]string, error) {
 		default:
 			file = transformGo(file, info, blacklist)
 		}
-		tempFile := filepath.Join(tempDir, name)
-		f, err := os.Create(tempFile)
+		tempFilePath := filepath.Join(tempDir, name)
+		tempFile, err := os.Create(tempFilePath)
 		if err != nil {
 			return nil, err
 		}
-		defer f.Close()
-		// printerConfig.Fprint(os.Stderr, fset, file)
-		if err := printerConfig.Fprint(f, fset, file); err != nil {
+		defer tempFile.Close()
+
+		var (
+			fW        io.Writer
+			debugFile *os.File
+		)
+
+		fW = tempFile
+
+		if pkgDebugDir != "" {
+			debugFilePath := filepath.Join(pkgDebugDir, name)
+
+			debugFile, err = os.Create(debugFilePath)
+			if err != nil {
+				return nil, err
+			}
+			defer debugFile.Close()
+
+			fW = io.MultiWriter(tempFile, debugFile)
+		}
+
+		if err := printerConfig.Fprint(fW, fset, file); err != nil {
 			return nil, err
 		}
-		if err := f.Close(); err != nil {
+		if err := tempFile.Close(); err != nil {
 			return nil, err
 		}
-		args = append(args, f.Name())
+		debugFile.Close() // this is ok to error if no file is supplied
+
+		args = append(args, tempFile.Name())
 	}
 	return args, nil
 }
