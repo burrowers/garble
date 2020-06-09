@@ -54,7 +54,7 @@ func TestScripts(t *testing.T) {
 				"GONOSUMDB=*",
 			)
 			bindir := filepath.Join(env.WorkDir, ".bin")
-			if err := os.Mkdir(bindir, 0777); err != nil {
+			if err := os.Mkdir(bindir, 0o777); err != nil {
 				return err
 			}
 			binfile := filepath.Join(bindir, "garble")

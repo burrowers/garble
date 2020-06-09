@@ -192,14 +192,14 @@ func mainErr(args []string) error {
 			}
 
 			if info, err := os.Stat(flagDebugDir); os.IsNotExist(err) {
-				err := os.MkdirAll(flagDebugDir, 0755)
+				err := os.MkdirAll(flagDebugDir, 0o755)
 				if err != nil {
 					return err
 				}
 			} else if err != nil {
-				return fmt.Errorf("Debugdir error: %v", err)
+				return fmt.Errorf("debugdir error: %v", err)
 			} else if !info.IsDir() {
-				return fmt.Errorf("Debugdir exists, but is a file not a directory")
+				return fmt.Errorf("debugdir exists, but is a file not a directory")
 			}
 		}
 
@@ -371,7 +371,7 @@ func transformCompile(args []string) ([]string, error) {
 	if envGarbleDebugDir != "" {
 		osPkgPath := filepath.FromSlash(pkgPath)
 		pkgDebugDir = filepath.Join(envGarbleDebugDir, osPkgPath)
-		err = os.MkdirAll(pkgDebugDir, 0755)
+		err = os.MkdirAll(pkgDebugDir, 0o755)
 		if err != nil {
 			return nil, err
 		}
