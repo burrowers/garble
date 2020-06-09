@@ -1,13 +1,16 @@
+# build the test binary
 garble test -c
 binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
 ! binsubstr bar.test$exe 'ImportedVar'
 
+# run the tests
 exec ./bar.test -test.v
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
 
 [short] stop # no need to verify this with -short
 
+# verify with regular cmd/go
 exec go test -v
 stdout 'PASS.*TestFoo'
 
@@ -22,9 +25,7 @@ var ImportedVar = "imported var value"
 -- bar_test.go --
 package bar
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestFoo(t *testing.T) {
 	t.Log(ImportedVar)
