@@ -668,14 +668,18 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			return true
 		}
 		pkg := obj.Pkg()
-		if pkg == nil {
-			return true // universe scope
-		}
 		if vr, ok := obj.(*types.Var); ok && vr.Embedded() {
 			// ObjectOf returns the field for embedded struct
 			// fields, not the type it uses. Use the type.
-			obj = namedType(obj.Type()).Obj()
+			named := namedType(obj.Type())
+			if named == nil {
+				return true // unnamed type (probably a basic type, e.g. int)
+			}
+			obj = named.Obj()
 			pkg = obj.Pkg()
+		}
+		if pkg == nil {
+			return true // universe scope
 		}
 
 		if pkg.Name() == "main" && obj.Exported() && obj.Parent() == pkg.Scope() {

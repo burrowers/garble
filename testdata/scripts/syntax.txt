@@ -36,6 +36,13 @@ type embedding struct {
 	embedded
 }
 
+// embedded fields whose type is in the universe scope used to crash garble
+type EmbeddingUniverseScope struct {
+	error
+	int
+	string
+}
+
 func main() {
 	switch V := V.(type) {
 	case int:
