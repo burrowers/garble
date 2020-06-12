@@ -18,11 +18,28 @@ func obfuscateLiterals(files []*ast.File) []*ast.File {
 			return true
 		}
 
-		// constants are not possibly if we want to obfuscate literals, therfore
-		// remove all constants and replace them by variables
-		if t.Tok == token.CONST {
-			t.Tok = token.VAR
+		if t.Tok != token.CONST {
+			return true
 		}
+
+		for _, spec := range t.Specs {
+			spec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				// cannot happen because ast.GenDecl with token.Const are always of type ast.ValueSpec
+				return false
+			}
+
+			for _, val := range spec.Values {
+				if v, ok := val.(*ast.BasicLit); !ok || v.Kind != token.STRING {
+					return false // skip the block if it contains non basic literals
+				}
+			}
+		}
+
+		// constants are not possible if we want to obfuscate literals, therefore
+		// move all constant blocks which only contain strings to variables
+		t.Tok = token.VAR
+
 		return true
 	}
 

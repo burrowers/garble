@@ -4,6 +4,8 @@ exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate'
 
+binsubstr main$exe 'Skip this block,' 'also skip this'
+
 [short] stop # checking that the build is reproducible is slow
 
 # Also check that the binary is reproducible.
@@ -27,6 +29,24 @@ const (
 	multiline = `First Line
 Second Line`
 )
+
+const (
+	skip1 = "Skip this block,"
+	i     = 1
+)
+
+const (
+	foo = iota
+	bar
+
+	skip2 = "also skip this"
+)
+
+const arrayLen = 4
+
+var array [arrayLen]byte
+
+type typeAlias [arrayLen]byte
 
 var variable = "ipsum"
 
@@ -57,6 +77,10 @@ func main() {
 	fmt.Println(testMap["map key"])
 
 	fmt.Println("another literal")
+
+	fmt.Println(skip1, skip2)
+
+	fmt.Println(i, foo, bar)
 }
 
 -- main.stdout --
@@ -71,3 +95,5 @@ to obfuscate
 also obfuscate
 map value
 another literal
+Skip this block, also skip this
+1 0 1
