@@ -13,23 +13,13 @@ import (
 
 func obfuscateLiterals(files []*ast.File) []*ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
-		t, ok := cursor.Node().(*ast.GenDecl)
-		if !ok {
+		decl, ok := cursor.Node().(*ast.GenDecl)
+		if !ok || decl.Tok != token.CONST {
 			return true
 		}
 
-		if t.Tok != token.CONST {
-			return true
-		}
-
-		for _, spec := range t.Specs {
-			spec, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				// cannot happen because ast.GenDecl with token.Const are always of type ast.ValueSpec
-				return false
-			}
-
-			for _, val := range spec.Values {
+		for _, spec := range decl.Specs {
+			for _, val := range spec.(*ast.ValueSpec).Values {
 				if v, ok := val.(*ast.BasicLit); !ok || v.Kind != token.STRING {
 					return false // skip the block if it contains non basic literals
 				}
@@ -38,37 +28,35 @@ func obfuscateLiterals(files []*ast.File) []*ast.File {
 
 		// constants are not possible if we want to obfuscate literals, therefore
 		// move all constant blocks which only contain strings to variables
-		t.Tok = token.VAR
-
+		decl.Tok = token.VAR
 		return true
 	}
 
-	var (
-		key        = genAesKey()
-		fset       = token.NewFileSet()
-		addedToPkg bool // we only want to inject the code and imports once
-	)
+	key := genAesKey()
+	addedToPkg := false // we only want to inject the code and imports once
 	post := func(cursor *astutil.Cursor) bool {
 		switch x := cursor.Node().(type) {
 		case *ast.File:
-			if !addedToPkg {
-				x.Decls = append(x.Decls, funcStmt)
-				x.Decls = append(x.Decls, keyStmt(key))
-
-				if x.Imports == nil {
-					newDecls := []ast.Decl{cryptoAesImportSpec}
-					newDecls = append(newDecls, x.Decls...)
-					x.Decls = newDecls
-				} else {
-					astutil.AddImport(fset, x, "crypto/aes")
-					astutil.AddImport(fset, x, "crypto/cipher")
-				}
-
-				addedToPkg = true
-				return true
+			if addedToPkg {
+				break
 			}
+			x.Decls = append(x.Decls, funcStmt)
+			x.Decls = append(x.Decls, keyStmt(key))
+
+			if x.Imports == nil {
+				newDecls := []ast.Decl{cryptoAesImportSpec}
+				newDecls = append(newDecls, x.Decls...)
+				x.Decls = newDecls
+			} else {
+				astutil.AddImport(fset, x, "crypto/aes")
+				astutil.AddImport(fset, x, "crypto/cipher")
+			}
+
+			addedToPkg = true
 		case *ast.BasicLit:
-			if !(cursor.Name() == "Values" || cursor.Name() == "Rhs" || cursor.Name() == "Value" || cursor.Name() == "Args") {
+			switch cursor.Name() {
+			case "Values", "Rhs", "Value", "Args":
+			default:
 				return true // we don't want to obfuscate imports etc.
 			}
 			if x.Kind != token.STRING {
@@ -79,7 +67,6 @@ func obfuscateLiterals(files []*ast.File) []*ast.File {
 			if err != nil {
 				panic(fmt.Sprintf("cannot unquote string: %v", err))
 			}
-
 			ciphertext, err := encAES([]byte(value), key)
 			if err != nil {
 				panic(fmt.Sprintf("cannot encrypt string: %v", err))
@@ -87,14 +74,12 @@ func obfuscateLiterals(files []*ast.File) []*ast.File {
 
 			cursor.Replace(ciphertextStmt(ciphertext))
 		}
-
 		return true
 	}
 
 	for i := range files {
 		files[i] = astutil.Apply(files[i], pre, post).(*ast.File)
 	}
-
 	return files
 }
 
