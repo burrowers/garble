@@ -42,15 +42,8 @@ func obfuscateLiterals(files []*ast.File) []*ast.File {
 			}
 			x.Decls = append(x.Decls, funcStmt)
 			x.Decls = append(x.Decls, keyStmt(key))
-
-			if x.Imports == nil {
-				newDecls := []ast.Decl{cryptoAesImportSpec}
-				newDecls = append(newDecls, x.Decls...)
-				x.Decls = newDecls
-			} else {
-				astutil.AddImport(fset, x, "crypto/aes")
-				astutil.AddImport(fset, x, "crypto/cipher")
-			}
+			astutil.AddImport(fset, x, "crypto/aes")
+			astutil.AddImport(fset, x, "crypto/cipher")
 
 			addedToPkg = true
 		case *ast.BasicLit:

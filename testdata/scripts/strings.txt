@@ -1,6 +1,6 @@
 
-garble -literals build main.go
-exec ./main
+garble -literals build
+exec ./main$exe
 cmp stdout main.stdout
 ! binsubstr main$exe 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate'
 
@@ -11,9 +11,11 @@ binsubstr main$exe 'Skip this block,' 'also skip this'
 # Also check that the binary is reproducible.
 cp main$exe main_old$exe
 rm main$exe
-garble -literals build main.go
+garble -literals build
 bincmp main$exe main_old$exe
 
+-- go.mod --
+module test/main
 -- main.go --
 package main
 
@@ -48,8 +50,6 @@ var array [arrayLen]byte
 
 type typeAlias [arrayLen]byte
 
-var variable = "ipsum"
-
 func main() {
 	empty := ""
 
@@ -82,6 +82,14 @@ func main() {
 
 	fmt.Println(i, foo, bar)
 }
+
+-- decl_without_imports.go --
+package main
+
+// The lack of imports is an edge case, since we have to add imports like
+// crypto/aes.
+
+var variable = "ipsum"
 
 -- main.stdout --
 Lorem
