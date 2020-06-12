@@ -1,7 +1,7 @@
 
 garble -literals build
 exec ./main$exe
-cmp stdout main.stdout
+cmp stderr main.stderr
 ! binsubstr main$exe 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate'
 
 binsubstr main$exe 'Skip this block,' 'also skip this'
@@ -18,8 +18,6 @@ bincmp main$exe main_old$exe
 module test/main
 -- main.go --
 package main
-
-import "fmt"
 
 type strucTest struct {
 	field        string
@@ -58,29 +56,29 @@ func main() {
 	reassign := "first assign"
 	reassign = "second assign"
 
-	fmt.Println(cnst)
-	fmt.Println(multiline)
-	fmt.Println(variable)
-	fmt.Println(localVar)
-	fmt.Println(reassign)
-	fmt.Println(empty)
+	println(cnst)
+	println(multiline)
+	println(variable)
+	println(localVar)
+	println(reassign)
+	println(empty)
 
 	x := strucTest{
 		field:        "to obfuscate",
 		anotherfield: "also obfuscate",
 	}
 
-	fmt.Println(x.field)
-	fmt.Println(x.anotherfield)
+	println(x.field)
+	println(x.anotherfield)
 
 	testMap := map[string]string{"map key": "map value"}
-	fmt.Println(testMap["map key"])
+	println(testMap["map key"])
 
-	fmt.Println("another literal")
+	println("another literal")
 
-	fmt.Println(skip1, skip2)
+	println(skip1, skip2)
 
-	fmt.Println(i, foo, bar)
+	println(i, foo, bar)
 }
 
 -- decl_without_imports.go --
@@ -91,7 +89,7 @@ package main
 
 var variable = "ipsum"
 
--- main.stdout --
+-- main.stderr --
 Lorem
 First Line
 Second Line
