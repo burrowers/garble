@@ -240,17 +240,3 @@ func keyStmt(key []byte) *ast.GenDecl {
 		}},
 	}
 }
-
-var cryptoAesImportSpec = &ast.GenDecl{
-	Tok: token.IMPORT,
-	Specs: []ast.Spec{
-		&ast.ImportSpec{Path: &ast.BasicLit{
-			Kind:  token.STRING,
-			Value: `"crypto/aes"`,
-		}},
-		&ast.ImportSpec{Path: &ast.BasicLit{
-			Kind:  token.STRING,
-			Value: `"crypto/cipher"`,
-		}},
-	},
-}

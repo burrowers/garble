@@ -195,6 +195,17 @@ func mainErr(args []string) error {
 		}
 		os.Setenv("GARBLE_DIR", wd)
 		os.Setenv("GARBLE_LITERALS", fmt.Sprint(flagGarbleLiterals))
+
+		if flagSeed == "random" {
+			seed = make([]byte, 16) // random 128 bit seed
+
+			_, err = rand.Read(seed)
+			if err != nil {
+				return fmt.Errorf("Error generating random seed: %v", err)
+			}
+
+			flagSeed = "random;" + base64.StdEncoding.EncodeToString(seed)
+		}
 		os.Setenv("GARBLE_SEED", flagSeed)
 
 		if flagDebugDir != "" {
@@ -349,20 +360,15 @@ func transformCompile(args []string) ([]string, error) {
 		files = append(files, file)
 	}
 
-	if envGarbleSeed == "random" {
-		seed = make([]byte, 16) // random 128 bit seed
-
-		_, err = rand.Read(seed)
-		if err != nil {
-			return nil, fmt.Errorf("Error generating random seed: %v", err)
-		}
-	} else if envGarbleSeed != "" {
-		seed, err = base64.StdEncoding.DecodeString(envGarbleSeed)
+	if envGarbleSeed != "" {
+		seed, err = base64.StdEncoding.DecodeString(strings.TrimPrefix(envGarbleSeed, "random;"))
 		if err != nil {
 			return nil, fmt.Errorf("Error decoding base64 encoded seed: %v", err)
 		}
 
 		mathrand.Seed(int64(binary.BigEndian.Uint64(seed)))
+	} else {
+		mathrand.Seed(int64(binary.BigEndian.Uint64([]byte(buildInfo.buildID))))
 	}
 
 	if envGarbleLiterals {
