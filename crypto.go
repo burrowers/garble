@@ -3,7 +3,9 @@ package main
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"math/rand"
+	"crypto/rand"
+	"fmt"
+	mathrand "math/rand"
 )
 
 // If math/rand.Seed() is not called, the generator behaves as if seeded by rand.Seed(1),
@@ -22,7 +24,16 @@ func genNonce() []byte {
 // genRandBytes return a random []byte with the length of size.
 func genRandBytes(size int) []byte {
 	buffer := make([]byte, size)
-	rand.Read(buffer) // error is always nil so save to ignore
+
+	if envGarbleSeed == "random" {
+		_, err := rand.Read(buffer)
+		if err != nil {
+			panic(fmt.Sprintf("couldn't generate random key:  %v", err))
+		}
+	} else {
+		mathrand.Read(buffer) // error is always nil so save to ignore
+	}
+
 	return buffer
 }
 

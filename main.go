@@ -5,8 +5,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	mathrand "math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,25 +36,29 @@ var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
 var (
 	flagGarbleLiterals bool
 	flagDebugDir       string
+	flagSeed           string
 )
 
 func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Encrypt all literals with AES, currently only literal strings are supported")
-	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a given directory")
+	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a given directory: '-debugdir=./debug'")
+	flagSet.StringVar(&flagSeed, "seed", "", "Provide a custom base64-encoded seed: '-seed=o9WDTZ4CN4w=' \nFor a random seed provide: '-seed=random'")
 }
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `
 Usage of garble:
 
-	garble build [build flags] [packages]
+garble [flags] build [build flags] [packages]
 
 The tool supports wrapping the following Go commands - run "garble cmd [args]"
 instead of "go cmd [args]" to add obfuscation:
 
 	build
 	test
+
+garble accepts the following flags:
 `[1:])
 	flagSet.PrintDefaults()
 	os.Exit(2)
@@ -86,7 +93,10 @@ var (
 	envGarbleDir      = os.Getenv("GARBLE_DIR")
 	envGarbleLiterals = os.Getenv("GARBLE_LITERALS") == "true"
 	envGarbleDebugDir = os.Getenv("GARBLE_DEBUGDIR")
+	envGarbleSeed     = os.Getenv("GARBLE_SEED")
 	envGoPrivate      string // filled via 'go env' below to support 'go env -w'
+
+	seed []byte
 )
 
 type listedPackage struct {
@@ -185,6 +195,7 @@ func mainErr(args []string) error {
 		}
 		os.Setenv("GARBLE_DIR", wd)
 		os.Setenv("GARBLE_LITERALS", fmt.Sprint(flagGarbleLiterals))
+		os.Setenv("GARBLE_SEED", flagSeed)
 
 		if flagDebugDir != "" {
 			if !filepath.IsAbs(flagDebugDir) {
@@ -298,6 +309,7 @@ var transformFuncs = map[string]func([]string) ([]string, error){
 }
 
 func transformCompile(args []string) ([]string, error) {
+	var err error
 	flags, paths := splitFlagsFromFiles(args, ".go")
 	if len(paths) == 0 {
 		// Nothing to transform; probably just ["-V=full"].
@@ -335,6 +347,22 @@ func transformCompile(args []string) ([]string, error) {
 			return nil, err
 		}
 		files = append(files, file)
+	}
+
+	if envGarbleSeed == "random" {
+		seed = make([]byte, 16) // random 128 bit seed
+
+		_, err = rand.Read(seed)
+		if err != nil {
+			return nil, fmt.Errorf("Error generating random seed: %v", err)
+		}
+	} else if envGarbleSeed != "" {
+		seed, err = base64.StdEncoding.DecodeString(envGarbleSeed)
+		if err != nil {
+			return nil, fmt.Errorf("Error decoding base64 encoded seed: %v", err)
+		}
+
+		mathrand.Seed(int64(binary.BigEndian.Uint64(seed)))
 	}
 
 	if envGarbleLiterals {
@@ -485,6 +513,8 @@ func readBuildIDs(flags []string) error {
 		if err != nil {
 			return err
 		}
+		// log.Println("buildid:", fileID)
+
 		if len(buildInfo.imports) == 0 {
 			buildInfo.firstImport = importPath
 		}
@@ -553,6 +583,7 @@ func hashWith(salt, value string) string {
 
 	d := sha256.New()
 	io.WriteString(d, salt)
+	d.Write(seed)
 	io.WriteString(d, value)
 	sum := b64.EncodeToString(d.Sum(nil))
 
