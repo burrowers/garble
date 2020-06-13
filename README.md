@@ -27,6 +27,7 @@ order to:
 * Replace as many useful identifiers as possible with short base64 hashes
 * Remove [module build information](https://golang.org/pkg/runtime/debug/#ReadBuildInfo)
 * Strip filenames and unnecessary lines, to make position info less useful
+* Replace all string literals with AES encrypted literals
 
 It also wraps calls to the linker in order to:
 

@@ -96,14 +96,18 @@ func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
 }
 
 func bincmp(ts *testscript.TestScript, neg bool, args []string) {
-	if neg {
-		ts.Fatalf("unsupported: ! bincmp")
-	}
 	if len(args) != 2 {
 		ts.Fatalf("usage: bincmp file1 file2")
 	}
 	data1 := ts.ReadFile(args[0])
 	data2 := ts.ReadFile(args[1])
+	if neg {
+		if data1 == data2 {
+			ts.Fatalf("%s and %s don't differ",
+				args[0], args[1])
+		}
+		return
+	}
 	if data1 != data2 {
 		if _, err := exec.LookPath("diffoscope"); err != nil {
 			ts.Logf("diffoscope is not installing; skipping binary diff")
