@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	mathrand "math/rand"
+	"strings"
 )
 
 // If math/rand.Seed() is not called, the generator behaves as if seeded by rand.Seed(1),
@@ -25,7 +26,7 @@ func genNonce() []byte {
 func genRandBytes(size int) []byte {
 	buffer := make([]byte, size)
 
-	if envGarbleSeed == "random" {
+	if strings.HasPrefix(envGarbleSeed, "random;") {
 		_, err := rand.Read(buffer)
 		if err != nil {
 			panic(fmt.Sprintf("couldn't generate random key:  %v", err))

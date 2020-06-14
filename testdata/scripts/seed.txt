@@ -1,43 +1,53 @@
 # Check the binary with a given base64 encoded seed
-garble -literals -seed=OQg9kACEECQ= build main.go
+garble -literals -seed=OQg9kACEECQ= build
 exec ./main$exe
 cmp stderr main.stdout   
-! binsubstr  main$exe 'teststring' 'teststringVar'
+! binsubstr  main$exe 'teststring' 'teststringVar' 'imported var value' 'ImportedVar'
 
 [short] stop # checking that the build is reproducible and random is slow
 
 # Also check that the binary is reproducible.
 cp main$exe main_old$exe
 rm main$exe
-garble -literals -seed=OQg9kACEECQ= build main.go
+garble -literals -seed=OQg9kACEECQ= build
 bincmp main$exe main_old$exe
 
 # Also check that a different seed leads to a different binary
 cp main$exe main_old$exe
 rm main$exe
-garble -literals -seed=NruiDmVz6/s= build main.go
+garble -literals -seed=NruiDmVz6/s= build
 ! bincmp main$exe main_old$exe
 
 # Check the random binary
-garble -literals -seed=random build main.go
+garble -literals -seed=random build
 exec ./main$exe
 cmp stderr main.stdout
-! binsubstr  main$exe 'teststring' 'teststringVar'
+! binsubstr  main$exe 'teststring' 'teststringVar' 'imported var value' 'ImportedVar'
 
 # Also check that the random binary is not reproducible.
 cp main$exe main_old$exe
 rm main$exe
-garble -literals -seed=random build main.go
+garble -literals -seed=random build
 ! bincmp main$exe main_old$exe
 
+-- go.mod --
+module test/main
 -- main.go --
 package main
+
+import "test/main/imported"
 
 var teststringVar = "teststring"
 
 func main() {
 	println(teststringVar)
+	println(imported.ImportedVar)
 }
+-- imported/imported.go --
+package imported
+
+var ImportedVar = "imported var value"
 
 -- main.stdout --
 teststring
+imported var value
