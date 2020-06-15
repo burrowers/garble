@@ -4,7 +4,7 @@ exec ./main$exe
 cmp stderr main.stderr
 ! binsubstr main$exe 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate'
 
-binsubstr main$exe 'Skip this block,' 'also skip this'
+binsubstr main$exe 'Skip this block,' 'also skip this' 'skip typed const' 'skip typed var'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -29,6 +29,13 @@ const (
 	multiline = `First Line
 Second Line`
 )
+
+// stringType this broke previously
+type stringType string
+
+const skipTypedConst stringType = "skip typed const"
+
+var skipTypedVar stringType = "skip typed var"
 
 const (
 	skip1 = "Skip this block,"
@@ -78,6 +85,8 @@ func main() {
 
 	println(skip1, skip2)
 
+	println(skipTypedConst, skipTypedVar)
+
 	println(i, foo, bar)
 }
 
@@ -102,4 +111,5 @@ also obfuscate
 map value
 another literal
 Skip this block, also skip this
+skip typed const skip typed var
 1 0 1

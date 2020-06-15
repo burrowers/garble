@@ -14,16 +14,30 @@ import (
 func obfuscateLiterals(files []*ast.File) []*ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
 		decl, ok := cursor.Node().(*ast.GenDecl)
-		if !ok || decl.Tok != token.CONST {
+		if !ok {
 			return true
 		}
 
 		for _, spec := range decl.Specs {
-			for _, val := range spec.(*ast.ValueSpec).Values {
+			spec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				return false
+			}
+
+			if t, ok := spec.Type.(*ast.Ident); ok {
+				if t.Name != "string" {
+					return false // if the spec has a explicit type name of non string skip it
+				}
+			}
+
+			for _, val := range spec.Values {
 				if v, ok := val.(*ast.BasicLit); !ok || v.Kind != token.STRING {
 					return false // skip the block if it contains non basic literals
 				}
 			}
+		}
+		if decl.Tok != token.CONST {
+			return true
 		}
 
 		// constants are not possible if we want to obfuscate literals, therefore
@@ -55,6 +69,8 @@ func obfuscateLiterals(files []*ast.File) []*ast.File {
 			if x.Kind != token.STRING {
 				return true // TODO: garble literals other than strings
 			}
+
+			cursor.Parent()
 
 			value, err := strconv.Unquote(x.Value)
 			if err != nil {
