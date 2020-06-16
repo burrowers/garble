@@ -2,10 +2,9 @@
 garble -literals build
 exec ./main$exe
 cmp stderr main.stderr
-! binsubstr main$exe 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate'
+! binsubstr main$exe 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'stringTypeStruct'
 
-binsubstr main$exe 'Skip this block,' 'also skip this'
-
+binsubstr main$exe 'Skip this block,' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap2 value' 'testMap3 value' 'testMap1 new value' 'testMap2 new value' 'testMap3 new value' 'stringType func param' 'stringType return'
 [short] stop # checking that the build is reproducible is slow
 
 # Also check that the binary is reproducible.
@@ -19,14 +18,17 @@ module test/main
 -- main.go --
 package main
 
+// The lack of imports is an edge case, since we have to add imports like
+// crypto/aes.
+
 type strucTest struct {
 	field        string
 	anotherfield string
 }
 
 const (
-	cnst      = "Lorem"
-	multiline = `First Line
+	cnst      string = "Lorem"
+	multiline        = `First Line
 Second Line`
 )
 
@@ -58,7 +60,6 @@ func main() {
 
 	println(cnst)
 	println(multiline)
-	println(variable)
 	println(localVar)
 	println(reassign)
 	println(empty)
@@ -68,38 +69,76 @@ func main() {
 		anotherfield: "also obfuscate",
 	}
 
-	println(x.field)
-	println(x.anotherfield)
+	println(x.field, x.anotherfield)
 
 	testMap := map[string]string{"map key": "map value"}
+	testMap["map key"] = "new value"
 	println(testMap["map key"])
-
 	println("another literal")
-
 	println(skip1, skip2)
-
 	println(i, foo, bar)
+	typedTest()
 }
 
--- decl_without_imports.go --
-package main
+type stringType string
 
-// The lack of imports is an edge case, since we have to add imports like
-// crypto/aes.
+type stringTypeStruct struct {
+	str     string
+	strType stringType
+}
 
-var variable = "ipsum"
+// typedTest types defined from string broke previously
+func typedTest() {
+	const skipTypedConst stringType = "skip typed const" // skip
+	var skipTypedVar stringType = "skip typed var"       // skip
+
+	var skipTypedVarAssign stringType
+	skipTypedVarAssign = "skip typed var assign" // skip
+
+	println(skipTypedConst, skipTypedVar, skipTypedVarAssign)
+
+	y := stringTypeStruct{
+		str:     "stringTypeField String",     // obfuscate
+		strType: "stringTypeField strType", // skip
+	}
+	println(y.str, y.strType)
+
+	z := func(s stringType) stringType {
+		return "stringType lambda func return" // skip
+	}("lambda call") // skip
+	println(z)
+
+	testMap1 := map[string]stringType{"testMap1 key": "testMap1 value"} // skip
+	testMap1["testMap1 key"] = "testMap1 new value"                     // skip
+
+	testMap2 := map[stringType]string{"testMap2 key": "testMap2 value"} // skip
+	testMap2["testMap2 key"] = "testMap2 new value"                     // skip
+
+	testMap3 := map[stringType]stringType{"testMap3 key": "testMap3 value"} // skip
+	testMap3["testMap3 key"] = "testMap3 new value"                         // skip
+
+	println(stringTypeFunc("stringType func param")) // skip
+}
+
+func stringTypeFunc(s stringType) stringType {
+	println(s)
+	return "stringType return" // skip
+}
 
 -- main.stderr --
 Lorem
 First Line
 Second Line
-ipsum
 dolor
 second assign
 
-to obfuscate
-also obfuscate
-map value
+to obfuscate also obfuscate
+new value
 another literal
 Skip this block, also skip this
 1 0 1
+skip typed const skip typed var skip typed var assign
+stringTypeField String stringTypeField strType
+stringType lambda func return
+stringType func param
+stringType return
