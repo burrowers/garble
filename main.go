@@ -371,10 +371,6 @@ func transformCompile(args []string) ([]string, error) {
 		mathrand.Seed(int64(binary.BigEndian.Uint64([]byte(buildInfo.buildID))))
 	}
 
-	if envGarbleLiterals {
-		files = obfuscateLiterals(files)
-	}
-
 	info := &types.Info{
 		Defs: make(map[*ast.Ident]types.Object),
 		Uses: make(map[*ast.Ident]types.Object),
@@ -382,6 +378,15 @@ func transformCompile(args []string) ([]string, error) {
 	pkg, err := origTypesConfig.Check(pkgPath, fset, files, info)
 	if err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
+	}
+
+	if envGarbleLiterals {
+		files = obfuscateLiterals(files, info)
+		// ast changed so we need to typecheck again
+		pkg, err = origTypesConfig.Check(pkgPath, fset, files, info)
+		if err != nil {
+			return nil, fmt.Errorf("typecheck error: %v", err)
+		}
 	}
 
 	tempDir, err := ioutil.TempDir("", "garble-build")

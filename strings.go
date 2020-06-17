@@ -5,30 +5,107 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
 )
 
-func obfuscateLiterals(files []*ast.File) []*ast.File {
-	pre := func(cursor *astutil.Cursor) bool {
-		decl, ok := cursor.Node().(*ast.GenDecl)
-		if !ok || decl.Tok != token.CONST {
-			return true
-		}
+func isTypeDefStr(typ types.Type) bool {
+	strType := types.Typ[types.String]
 
-		for _, spec := range decl.Specs {
-			for _, val := range spec.(*ast.ValueSpec).Values {
-				if v, ok := val.(*ast.BasicLit); !ok || v.Kind != token.STRING {
-					return false // skip the block if it contains non basic literals
-				}
+	if named, ok := typ.(*types.Named); ok {
+		return types.Identical(named.Underlying(), strType)
+	}
+
+	return false
+}
+
+func containsTypeDefStr(expr ast.Expr, info *types.Info) bool {
+	typ := info.TypeOf(expr)
+	//log.Println(expr, typ, reflect.TypeOf(expr), reflect.TypeOf(typ))
+
+	if sig, ok := typ.(*types.Signature); ok {
+		for i := 0; i < sig.Params().Len(); i++ {
+			if isTypeDefStr(sig.Params().At(i).Type()) {
+				return true
 			}
 		}
+	}
 
-		// constants are not possible if we want to obfuscate literals, therefore
-		// move all constant blocks which only contain strings to variables
-		decl.Tok = token.VAR
+	if mapT, ok := typ.(*types.Map); ok {
+		return isTypeDefStr(mapT.Elem()) || isTypeDefStr(mapT.Key())
+	}
+
+	if named, ok := typ.(*types.Named); ok {
+		return isTypeDefStr(named)
+	}
+
+	return false
+}
+
+func obfuscateLiterals(files []*ast.File, info *types.Info) []*ast.File {
+	pre := func(cursor *astutil.Cursor) bool {
+		switch x := cursor.Node().(type) {
+		case *ast.ValueSpec:
+			return !containsTypeDefStr(x.Type, info)
+
+		case *ast.AssignStmt:
+			for _, expr := range x.Lhs {
+				if index, ok := expr.(*ast.IndexExpr); ok {
+					return !containsTypeDefStr(index.X, info)
+				}
+
+				if ident, ok := expr.(*ast.Ident); ok {
+					return !containsTypeDefStr(ident, info)
+				}
+			}
+		case *ast.CallExpr:
+			return !containsTypeDefStr(x.Fun, info)
+
+		case *ast.CompositeLit:
+			if t, ok := x.Type.(*ast.MapType); ok {
+				return !(containsTypeDefStr(t.Key, info) || containsTypeDefStr(t.Value, info))
+			}
+
+		case *ast.FuncDecl:
+			if x.Type.Results == nil {
+				return true
+			}
+			for _, result := range x.Type.Results.List {
+				for _, name := range result.Names {
+					return !containsTypeDefStr(name, info)
+				}
+			}
+
+		case *ast.KeyValueExpr:
+			if ident, ok := x.Key.(*ast.Ident); ok {
+				return !containsTypeDefStr(ident, info)
+			}
+		case *ast.GenDecl:
+			if x.Tok != token.CONST {
+				return true
+			}
+			for _, spec := range x.Specs {
+				spec, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					return false
+				}
+
+				for _, val := range spec.Values {
+					if v, ok := val.(*ast.BasicLit); !ok || v.Kind != token.STRING {
+						return false // skip the block if it contains non basic literals
+					}
+				}
+
+			}
+
+			x.Tok = token.VAR
+			// constants are not possible if we want to obfuscate literals, therefore
+			// move all constant blocks which only contain strings to variables
+
+		}
 		return true
 	}
 
