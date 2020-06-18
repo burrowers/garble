@@ -6,7 +6,6 @@ import (
 	"go/token"
 	"go/types"
 	"strconv"
-	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
 )
@@ -285,22 +284,14 @@ func ciphertextStmt(ciphertext []byte) *ast.CallExpr {
 
 // dataToByteSlice turns a byte slice like []byte{1, 2, 3} into an AST
 // expression
-func dataToByteSlice(data []byte) *ast.CompositeLit {
-	var builder strings.Builder
-
-	for _, b := range data {
-		builder.WriteString(strconv.FormatInt(int64(b), 10) + ",")
-	}
-
-	return &ast.CompositeLit{
-		Type: &ast.ArrayType{
-			Elt: &ast.Ident{
-				Name: "byte",
-			},
+func dataToByteSlice(data []byte) *ast.CallExpr {
+	return &ast.CallExpr{
+		Fun: &ast.ArrayType{
+			Elt: &ast.Ident{Name: "byte"},
 		},
-		Elts: []ast.Expr{&ast.BasicLit{
+		Args: []ast.Expr{&ast.BasicLit{
 			Kind:  token.STRING,
-			Value: builder.String(),
+			Value: fmt.Sprintf("%q", data),
 		}},
 	}
 }
