@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -276,7 +275,7 @@ var funcStmt = &ast.FuncDecl{
 }
 
 func ciphertextStmt(ciphertext []byte) *ast.CallExpr {
-	ciphertextLit := dataAsByteSlice(ciphertext)
+	ciphertextLit := dataToByteSlice(ciphertext)
 
 	return &ast.CallExpr{
 		Fun:  &ast.Ident{Name: "garbleDecrypt"},
@@ -284,31 +283,30 @@ func ciphertextStmt(ciphertext []byte) *ast.CallExpr {
 	}
 }
 
-// dataAsByteSlice turns a byte slice like []byte{1, 2, 3} into an AST
-// expression which encodes it, such as []byte("\x01\x02\x03").
-func dataAsByteSlice(data []byte) *ast.CallExpr {
-	var b strings.Builder
+// dataToByteSlice turns a byte slice like []byte{1, 2, 3} into an AST
+// expression
+func dataToByteSlice(data []byte) *ast.CompositeLit {
+	var builder strings.Builder
 
-	b.WriteByte('"')
-	hexstr := hex.EncodeToString(data)
-	for i := 0; i < len(hexstr); i += 2 {
-		b.WriteString("\\x" + hexstr[i:i+2])
+	for _, b := range data {
+		builder.WriteString(strconv.FormatInt(int64(b), 10) + ",")
 	}
-	b.WriteByte('"')
 
-	return &ast.CallExpr{
-		Fun: &ast.ArrayType{
-			Elt: &ast.Ident{Name: "byte"},
+	return &ast.CompositeLit{
+		Type: &ast.ArrayType{
+			Elt: &ast.Ident{
+				Name: "byte",
+			},
 		},
-		Args: []ast.Expr{&ast.BasicLit{
+		Elts: []ast.Expr{&ast.BasicLit{
 			Kind:  token.STRING,
-			Value: b.String(),
+			Value: builder.String(),
 		}},
 	}
 }
 
 func keyStmt(key []byte) *ast.GenDecl {
-	keyLit := dataAsByteSlice(key)
+	keyLit := dataToByteSlice(key)
 	return &ast.GenDecl{
 		Tok: token.VAR,
 		Specs: []ast.Spec{&ast.ValueSpec{
