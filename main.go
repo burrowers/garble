@@ -866,6 +866,10 @@ func transformLink(args []string) ([]string, error) {
 		}
 	})
 
+	// Ensure we strip the -buildid flag, to not leak any build IDs for the
+	// link operation or the main package's compilation.
+	flags = flagSetValue(flags, "-buildid", "")
+
 	flags = append(flags, "-w", "-s")
 	return append(flags, paths...), nil
 }

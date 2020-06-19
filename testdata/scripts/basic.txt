@@ -7,9 +7,17 @@ garble build main.go
 exec ./main
 cmp stderr main.stderr
 
+# Ensure that -w and -s worked.
 [!windows] [exec:readelf] exec readelf --section-headers main$exe
 [!windows] [exec:readelf] ! stdout 'debug_info'
 [!windows] [exec:readelf] ! stdout '\.symtab'
+
+# The buildid needs to be missing from the binary. Otherwise, we leak
+# information unnecessarily, which is made worse by how we use part of said
+# buildid to obfuscate the main package.
+[!windows] [exec:readelf] ! stdout 'buildid'
+go tool buildid main$exe
+! stdout .
 
 ! binsubstr main$exe ${WORK@R} 'globalVar' 'globalFunc'
 
