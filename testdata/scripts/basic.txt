@@ -19,6 +19,12 @@ cmp stderr main.stderr
 go tool buildid main$exe
 ! stdout .
 
+# The build version needs to be missing too.
+go version main$exe
+stdout 'unknown'
+! stdout 'go1'
+! stdout 'devel'
+
 ! binsubstr main$exe ${WORK@R} 'globalVar' 'globalFunc'
 
 [short] stop # checking that the build is reproducible is slow

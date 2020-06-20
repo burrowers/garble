@@ -870,6 +870,12 @@ func transformLink(args []string) ([]string, error) {
 	// link operation or the main package's compilation.
 	flags = flagSetValue(flags, "-buildid", "")
 
+	// Ensure that we don't leak the Go version that built this binary. This
+	// is present as a string in the runtime package, and the linker has no
+	// flag like -buildid to omit it, so we manually replace the values.
+	flags = append(flags, "-X", "runtime/internal/sys.TheVersion=unknown")
+	flags = append(flags, "-X", "runtime.buildVersion=unknown")
+
 	flags = append(flags, "-w", "-s")
 	return append(flags, paths...), nil
 }
