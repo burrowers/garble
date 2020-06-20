@@ -21,21 +21,14 @@ The tool is designed to be:
 
 ### Mechanism
 
-The tool wraps calls to the Go compiler to transform the Go source code, in
+The tool wraps calls to the Go compiler and linker to transform the Go build, in
 order to:
 
 * Replace as many useful identifiers as possible with short base64 hashes
-* Remove [module build information](https://golang.org/pkg/runtime/debug/#ReadBuildInfo)
-* Strip filenames and unnecessary lines, to make position info less useful
-* Replace all string literals with AES encrypted literals
-
-It also wraps calls to the linker in order to:
-
-* Enforce the `-s` flag, to not include the symbol table
-* Enforce the `-w` flag, to not include DWARF debugging data
-
-Finally, the tool requires the use of the `-trimpath` build flag, to ensure the
-binary doesn't include paths from the current filesystem.
+* Remove all [build](https://golang.org/pkg/runtime/#Version) and [module](https://golang.org/pkg/runtime/debug/#ReadBuildInfo) information
+* Strip filenames and shuffle position information
+* Obfuscate literals, if the `-literals` flag is given
+* Strip debugging information and symbol tables
 
 ### Options
 
