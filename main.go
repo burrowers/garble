@@ -465,6 +465,10 @@ func transformCompile(args []string) ([]string, error) {
 
 		args = append(args, tempFile.Name())
 	}
+
+	// We will force the linker to drop DWARF via -w, so don't spend time
+	// generating it.
+	flags = append(flags, "-dwarf=false")
 	return args, nil
 }
 
@@ -876,6 +880,7 @@ func transformLink(args []string) ([]string, error) {
 	flags = append(flags, "-X", "runtime/internal/sys.TheVersion=unknown")
 	flags = append(flags, "-X", "runtime.buildVersion=unknown")
 
+	// Strip debug information and symbol tables.
 	flags = append(flags, "-w", "-s")
 	return append(flags, paths...), nil
 }
