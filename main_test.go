@@ -52,6 +52,7 @@ func TestScripts(t *testing.T) {
 			env.Vars = append(env.Vars,
 				"GOPROXY="+proxyURL,
 				"GONOSUMDB=*",
+				"gofullversion="+runtime.Version(),
 			)
 			bindir := filepath.Join(env.WorkDir, ".bin")
 			if err := os.Mkdir(bindir, 0o777); err != nil {

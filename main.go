@@ -327,7 +327,13 @@ func transformCompile(args []string) ([]string, error) {
 		return args, nil
 	}
 	pkgPath := flagValue(flags, "-p")
-	if !isPrivate(pkgPath) {
+	if pkgPath == "runtime/internal/sys" {
+		// Even though this package isn't private, we will still process
+		// it to remove the go version constant later. However, we only
+		// want flags to work on private packages.
+		envGarbleLiterals = false
+		envGarbleDebugDir = ""
+	} else if !isPrivate(pkgPath) {
 		return args, nil
 	}
 	for i, path := range paths {
@@ -419,8 +425,22 @@ func transformCompile(args []string) ([]string, error) {
 	// TODO: randomize the order and names of the files
 	for i, file := range files {
 		origName := filepath.Base(filepath.Clean(paths[i]))
-		name := fmt.Sprintf("z%d.go", i)
+		name := origName
 		switch {
+		case pkgPath == "runtime/internal/sys":
+			// The first declaration in zversion.go contains the Go
+			// version as follows. Replace it here, since the
+			// linker's -X does not work with constants.
+			//
+			//     const TheVersion = `devel ...`
+			//
+			// Don't touch the source in any other way.
+			if origName != "zversion.go" {
+				break
+			}
+			spec := file.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec)
+			lit := spec.Values[0].(*ast.BasicLit)
+			lit.Value = "`unknown`"
 		case strings.HasPrefix(origName, "_cgo_"):
 			// Cgo generated code requires a prefix. Also, don't
 			// garble it, since it's just generated code and it gets
@@ -428,6 +448,7 @@ func transformCompile(args []string) ([]string, error) {
 			name = "_cgo_" + name
 		default:
 			file = transformGo(file, info, blacklist)
+			name = fmt.Sprintf("z%d.go", i)
 		}
 		tempFilePath := filepath.Join(tempDir, name)
 		tempFile, err := os.Create(tempFilePath)
@@ -873,12 +894,6 @@ func transformLink(args []string) ([]string, error) {
 	// Ensure we strip the -buildid flag, to not leak any build IDs for the
 	// link operation or the main package's compilation.
 	flags = flagSetValue(flags, "-buildid", "")
-
-	// Ensure that we don't leak the Go version that built this binary. This
-	// is present as a string in the runtime package, and the linker has no
-	// flag like -buildid to omit it, so we manually replace the values.
-	flags = append(flags, "-X", "runtime/internal/sys.TheVersion=unknown")
-	flags = append(flags, "-X", "runtime.buildVersion=unknown")
 
 	// Strip debug information and symbol tables.
 	flags = append(flags, "-w", "-s")
