@@ -22,7 +22,7 @@ func isTypeDefStr(typ types.Type) bool {
 
 func containsTypeDefStr(expr ast.Expr, info *types.Info) bool {
 	typ := info.TypeOf(expr)
-	//log.Println(expr, typ, reflect.TypeOf(expr), reflect.TypeOf(typ))
+	// log.Println(expr, typ, reflect.TypeOf(expr), reflect.TypeOf(typ))
 
 	if sig, ok := typ.(*types.Signature); ok {
 		for i := 0; i < sig.Params().Len(); i++ {

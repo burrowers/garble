@@ -85,13 +85,19 @@ func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
 		ts.Fatalf("usage: binsubstr file substr...")
 	}
 	data := ts.ReadFile(args[0])
+	var failed []string
 	for _, substr := range args[1:] {
 		match := strings.Contains(data, substr)
 		if match && neg {
-			ts.Fatalf("unexpected match for %q in %s", substr, args[0])
+			failed = append(failed, substr)
 		} else if !match && !neg {
-			ts.Fatalf("expected match for %q in %s", substr, args[0])
+			failed = append(failed, substr)
 		}
+	}
+	if len(failed) > 0 && neg {
+		ts.Fatalf("unexpected match for %q in %s", failed, args[0])
+	} else if len(failed) > 0 {
+		ts.Fatalf("expected match for %q in %s", failed, args[0])
 	}
 }
 
@@ -103,8 +109,7 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 	data2 := ts.ReadFile(args[1])
 	if neg {
 		if data1 == data2 {
-			ts.Fatalf("%s and %s don't differ",
-				args[0], args[1])
+			ts.Fatalf("%s and %s don't differ", args[0], args[1])
 		}
 		return
 	}
