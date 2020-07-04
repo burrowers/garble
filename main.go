@@ -386,8 +386,10 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
+	blacklist := buildBlacklist(files, info, pkg)
+
 	if envGarbleLiterals {
-		files = obfuscateLiterals(files, info)
+		files = obfuscateLiterals(files, info, blacklist)
 		// ast changed so we need to typecheck again
 		pkg, err = origTypesConfig.Check(pkgPath, fset, files, info)
 		if err != nil {
@@ -409,8 +411,6 @@ func transformCompile(args []string) ([]string, error) {
 	flags = flagSetValue(flags, "-trimpath", tempDir+"=>;"+trimpath)
 	// log.Println(flags)
 	args = flags
-
-	blacklist := buildBlacklist(files, info, pkg)
 
 	pkgDebugDir := ""
 	if envGarbleDebugDir != "" {
@@ -665,6 +665,10 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 		}
 	}
 	visit := func(node ast.Node) bool {
+		if envGarbleLiterals {
+			strConstBlacklist(node, info, blacklist)
+		}
+
 		if node == nil {
 			if level == reflectCallLevel {
 				reflectCallLevel = -1

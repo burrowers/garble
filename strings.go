@@ -43,7 +43,7 @@ func containsTypeDefStr(expr ast.Expr, info *types.Info) bool {
 	return false
 }
 
-func obfuscateLiterals(files []*ast.File, info *types.Info) []*ast.File {
+func obfuscateLiterals(files []*ast.File, info *types.Info, blacklist map[types.Object]struct{}) []*ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
 		switch x := cursor.Node().(type) {
 		case *ast.ValueSpec:
@@ -89,6 +89,15 @@ func obfuscateLiterals(files []*ast.File, info *types.Info) []*ast.File {
 				spec, ok := spec.(*ast.ValueSpec)
 				if !ok {
 					return false
+				}
+
+				for _, name := range spec.Names {
+					obj := info.ObjectOf(name)
+
+					// The object itself is blacklisted, e.g. a value that needs to be constant
+					if _, ok := blacklist[obj]; ok {
+						return false
+					}
 				}
 
 				for _, val := range spec.Values {
@@ -304,5 +313,53 @@ func keyStmt(key []byte) *ast.GenDecl {
 			Names:  []*ast.Ident{{Name: "garbleKey"}},
 			Values: []ast.Expr{keyLit},
 		}},
+	}
+}
+
+func strConstBlacklist(node ast.Node, info *types.Info, blacklist map[types.Object]struct{}) {
+	strType := types.Typ[types.String]
+	untypedStr := types.Typ[types.UntypedString]
+
+	constCheck := func(node ast.Node) bool {
+		ident, ok := node.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		obj := info.ObjectOf(ident)
+		if obj.Type() == strType || obj.Type() == untypedStr {
+			blacklist[obj] = struct{}{}
+		}
+		return true
+	}
+
+	switch x := node.(type) {
+	case *ast.CompositeLit:
+		if _, ok := x.Type.(*ast.ArrayType); !ok {
+			break
+		}
+		for _, elt := range x.Elts {
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				ast.Inspect(kv.Key, constCheck)
+			}
+		}
+	case *ast.ArrayType:
+		if x.Len != nil {
+			ast.Inspect(x.Len, constCheck)
+		}
+	case *ast.GenDecl:
+		if x.Tok != token.CONST {
+			break
+		}
+		for _, spec := range x.Specs {
+			spec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+
+			for _, val := range spec.Values {
+				ast.Inspect(val, constCheck)
+			}
+		}
 	}
 }
