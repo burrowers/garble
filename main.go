@@ -449,6 +449,12 @@ func transformCompile(args []string) ([]string, error) {
 		default:
 			file = transformGo(file, info, blacklist)
 			name = fmt.Sprintf("z%d.go", i)
+
+			// Uncomment for some quick debugging. Do not delete.
+			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
+			// if err := printerConfig.Fprint(os.Stderr, fset, file); err != nil {
+			// 	return nil, err
+			// }
 		}
 		tempFilePath := filepath.Join(tempDir, name)
 		tempFile, err := os.Create(tempFilePath)
