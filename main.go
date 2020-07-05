@@ -666,7 +666,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 	}
 	visit := func(node ast.Node) bool {
 		if envGarbleLiterals {
-			strConstBlacklist(node, info, blacklist)
+			constBlacklist(node, info, blacklist)
 		}
 
 		if node == nil {

@@ -134,15 +134,18 @@ func constantTest() {
 
 	const d = "foo" // skip
 	var arr = [5]string{len(d): "foo"}
-
 	for _, elm := range arr {
-		println(elm)
+		if elm != "" {
+			println(elm)
+		}
 	}
 
 	const e = "foo" // skip
 	var slice = []string{len(e): "foo"}
 	for _, elm := range slice {
-		println(elm)
+		if elm != "" {
+			println(elm)
+		}
 	}
 
 	const f = "foo" // skip
@@ -171,12 +174,5 @@ stringTypeField String stringTypeField strType
 stringType lambda func return
 stringType func param
 stringType return
-
-
-
 foo
-
-
-
-
 foo
