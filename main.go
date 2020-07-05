@@ -564,33 +564,35 @@ func readBuildIDs(flags []string) error {
 	// Since string obfuscation adds crypto dependencies, ensure they are
 	// also part of the importcfg. Otherwise, the compiler or linker might
 	// error when trying to locate them.
-	// TODO: only do this when string obfuscation is enabled.
 	// TODO: this means these packages can't be garbled. never garble std?
-	toAdd := []string{
-		"crypto/aes",
-		"crypto/cipher",
+	if envGarbleLiterals {
+		toAdd := []string{
+			"crypto/aes",
+			"crypto/cipher",
+		}
+		for len(toAdd) > 0 {
+			// Use a stack, to reuse memory.
+			path := toAdd[len(toAdd)-1]
+			toAdd = toAdd[:len(toAdd)-1]
+			if _, ok := buildInfo.imports[path]; ok {
+				continue
+			}
+			pkg, err := listPackage(path)
+			if err != nil {
+				return err
+			}
+			if pkg.Export == "" {
+				continue // e.g. unsafe
+			}
+			if _, err := fmt.Fprintf(f, "packagefile %s=%s\n", path, pkg.Export); err != nil {
+				return err
+			}
+			// Add their dependencies too, without adding duplicates.
+			buildInfo.imports[path] = importedPkg{packagefile: pkg.Export}
+			toAdd = append(toAdd, pkg.Deps...)
+		}
 	}
-	for len(toAdd) > 0 {
-		// Use a stack, to reuse memory.
-		path := toAdd[len(toAdd)-1]
-		toAdd = toAdd[:len(toAdd)-1]
-		if _, ok := buildInfo.imports[path]; ok {
-			continue
-		}
-		pkg, err := listPackage(path)
-		if err != nil {
-			return err
-		}
-		if pkg.Export == "" {
-			continue // e.g. unsafe
-		}
-		if _, err := fmt.Fprintf(f, "packagefile %s=%s\n", path, pkg.Export); err != nil {
-			return err
-		}
-		// Add their dependencies too, without adding duplicates.
-		buildInfo.imports[path] = importedPkg{packagefile: pkg.Export}
-		toAdd = append(toAdd, pkg.Deps...)
-	}
+
 	if err := f.Close(); err != nil {
 		return err
 	}
