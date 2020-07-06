@@ -78,6 +78,7 @@ func main() {
 	println(skip1, skip2)
 	println(i, foo, bar)
 	typedTest()
+	constantTest()
 }
 
 type stringType string
@@ -98,7 +99,7 @@ func typedTest() {
 	println(skipTypedConst, skipTypedVar, skipTypedVarAssign)
 
 	y := stringTypeStruct{
-		str:     "stringTypeField String",     // obfuscate
+		str:     "stringTypeField String",  // obfuscate
 		strType: "stringTypeField strType", // skip
 	}
 	println(y.str, y.strType)
@@ -118,6 +119,37 @@ func typedTest() {
 	testMap3["testMap3 key"] = "testMap3 new value"                         // skip
 
 	println(stringTypeFunc("stringType func param")) // skip
+}
+
+// constantTest tests that string constants which need to be constant are skipped
+func constantTest() {
+	const a = "foo" // skip
+	const length = len(a)
+
+	const b = "bar" // skip
+	type T [len(b)]byte
+
+	const c = "foo" // skip
+	var _ [len(c)]byte
+
+	const d = "foo" // skip
+	var arr = [5]string{len(d): "foo"}
+	for _, elm := range arr {
+		if elm != "" {
+			println(elm)
+		}
+	}
+
+	const e = "foo" // skip
+	var slice = []string{len(e): "foo"}
+	for _, elm := range slice {
+		if elm != "" {
+			println(elm)
+		}
+	}
+
+	const f = "foo" // skip
+	const i = length + len(f)
 }
 
 func stringTypeFunc(s stringType) stringType {
@@ -142,3 +174,5 @@ stringTypeField String stringTypeField strType
 stringType lambda func return
 stringType func param
 stringType return
+foo
+foo
