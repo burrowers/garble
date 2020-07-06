@@ -1,0 +1,23 @@
+garble build
+! exec ./main
+cmp stderr main.stderr
+
+-- go.mod --
+module test/main
+-- main.go --
+package main
+
+import _ "unsafe"
+
+//go:linkname HidePanics runtime.HidePanics
+func HidePanics(hide bool)
+
+func init() {
+    HidePanics(true)
+}
+
+func main() {
+    panic("!!!")
+}
+
+-- main.stderr --
