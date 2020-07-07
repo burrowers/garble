@@ -644,16 +644,18 @@ func hashWith(salt, value string) string {
 //
 // The blacklist mainly contains named types and their field declarations.
 func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map[types.Object]struct{} {
-	// Keep track of the current syntax tree level. If reflectCallLevel is
-	// non-negative, we are under a reflect call.
-	level := 0
-	reflectCallLevel := -1
-
 	blacklist := make(map[types.Object]struct{})
-	addToBlacklist := func(named *types.Named) {
+
+	reflectBlacklist := func(node ast.Node) bool {
+		expr, _ := node.(ast.Expr)
+		named := namedType(info.TypeOf(expr))
+		if named == nil {
+			return true
+		}
+
 		obj := named.Obj()
 		if obj == nil || obj.Pkg() != pkg {
-			return
+			return true
 		}
 		blacklist[obj] = struct{}{}
 
@@ -663,27 +665,15 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 				blacklist[strct.Field(i)] = struct{}{}
 			}
 		}
+
+		return true
 	}
+
 	visit := func(node ast.Node) bool {
 		if envGarbleLiterals {
 			constBlacklist(node, info, blacklist)
 		}
 
-		if node == nil {
-			if level == reflectCallLevel {
-				reflectCallLevel = -1
-			}
-			level--
-			return true
-		}
-		if reflectCallLevel >= 0 && level >= reflectCallLevel {
-			expr, _ := node.(ast.Expr)
-			named := namedType(info.TypeOf(expr))
-			if named != nil {
-				addToBlacklist(named)
-			}
-		}
-		level++
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -699,7 +689,9 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 		}
 
 		if fnType.Pkg().Path() == "reflect" && (fnType.Name() == "TypeOf" || fnType.Name() == "ValueOf") {
-			reflectCallLevel = level
+			for _, arg := range call.Args {
+				ast.Inspect(arg, reflectBlacklist)
+			}
 		}
 		return true
 	}
