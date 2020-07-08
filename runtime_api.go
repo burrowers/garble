@@ -34,11 +34,15 @@ func addRuntimeAPI(filename string, file *ast.File) {
 	case "error.go":
 		// Add a function panicprint, that does nothing if panics are
 		// hidden, otherwise forwards arguments to printany to print them
-		// as normal.
+		// as normal. Although we add an if statement to printany to do
+		// nothing if panics are hidden, printany only takes one argument,
+		// and both print and printany are used to print panic messages.
+		// panicprint's entire purpose is to act as a replacement to print
+		// that respects HidePanics, and print is variadic, so print must be
+		// replaced by a variadic function, hence panicprint.
 		//
 		// We will also add two statements to printany:
-		// 1. An if statement that returns early if panics are hidden, as
-		//    printany is called directly when printing panics
+		// 1. An if statement that returns early if panics are hidden
 		// 2. An additional case statement that handles printing runtime.hex
 		//    values. Without this case statement, the default case will print
 		//    the runtime.hex values in a way not consistent with normal panic
@@ -70,14 +74,10 @@ func addRuntimeAPI(filename string, file *ast.File) {
 }
 
 var hidePanicsCheckStmt = &ast.IfStmt{
-	Cond: &ast.Ident{
-		Name: "hidePanics",
-	},
-	Body: &ast.BlockStmt{
-		List: []ast.Stmt{
-			&ast.ReturnStmt{},
-		},
-	},
+	Cond: &ast.Ident{Name: "hidePanics"},
+	Body: &ast.BlockStmt{List: []ast.Stmt{
+		&ast.ReturnStmt{},
+	}},
 }
 
 var hidePanicsDecls = []ast.Decl{
@@ -86,32 +86,22 @@ var hidePanicsDecls = []ast.Decl{
 		Specs: []ast.Spec{
 			&ast.ValueSpec{
 				Names: []*ast.Ident{
-					&ast.Ident{
-						Name: "hidePanics",
-					},
+					&ast.Ident{Name: "hidePanics"},
 				},
-				Type: &ast.Ident{
-					Name: "bool",
-				},
+				Type: &ast.Ident{Name: "bool"},
 			},
 		},
 	},
 	&ast.FuncDecl{
-		Name: &ast.Ident{
-			Name: "HidePanics",
-		},
+		Name: &ast.Ident{Name: "HidePanics"},
 		Type: &ast.FuncType{
 			Params: &ast.FieldList{
 				List: []*ast.Field{
 					&ast.Field{
 						Names: []*ast.Ident{
-							&ast.Ident{
-								Name: "hide",
-							},
+							&ast.Ident{Name: "hide"},
 						},
-						Type: &ast.Ident{
-							Name: "bool",
-						},
+						Type: &ast.Ident{Name: "bool"},
 					},
 				},
 			},
@@ -120,15 +110,11 @@ var hidePanicsDecls = []ast.Decl{
 			List: []ast.Stmt{
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{
-						&ast.Ident{
-							Name: "hidePanics",
-						},
+						&ast.Ident{Name: "hidePanics"},
 					},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
-						&ast.Ident{
-							Name: "hide",
-						},
+						&ast.Ident{Name: "hide"},
 					},
 				},
 			},
@@ -138,20 +124,14 @@ var hidePanicsDecls = []ast.Decl{
 
 var printanyHexCase = &ast.CaseClause{
 	List: []ast.Expr{
-		&ast.Ident{
-			Name: "hex",
-		},
+		&ast.Ident{Name: "hex"},
 	},
 	Body: []ast.Stmt{
 		&ast.ExprStmt{
 			X: &ast.CallExpr{
-				Fun: &ast.Ident{
-					Name: "print",
-				},
+				Fun: &ast.Ident{Name: "print"},
 				Args: []ast.Expr{
-					&ast.Ident{
-						Name: "v",
-					},
+					&ast.Ident{Name: "v"},
 				},
 			},
 		},
@@ -159,67 +139,45 @@ var printanyHexCase = &ast.CaseClause{
 }
 
 var panicprintDecl = &ast.FuncDecl{
-	Name: &ast.Ident{
-		Name: "panicprint",
-	},
-	Type: &ast.FuncType{
-		Params: &ast.FieldList{
-			List: []*ast.Field{
-				&ast.Field{
-					Names: []*ast.Ident{
-						&ast.Ident{
-							Name: "args",
-						},
-					},
-					Type: &ast.Ellipsis{
-						Elt: &ast.InterfaceType{
-							Methods: &ast.FieldList{},
-						},
+	Name: &ast.Ident{Name: "panicprint"},
+	Type: &ast.FuncType{Params: &ast.FieldList{
+		List: []*ast.Field{
+			&ast.Field{
+				Names: []*ast.Ident{
+					&ast.Ident{Name: "args"},
+				},
+				Type: &ast.Ellipsis{
+					Elt: &ast.InterfaceType{
+						Methods: &ast.FieldList{},
 					},
 				},
 			},
 		},
-	},
-	Body: &ast.BlockStmt{
-		List: []ast.Stmt{
-			&ast.IfStmt{
-				Cond: &ast.Ident{
-					Name: "hidePanics",
-				},
-				Body: &ast.BlockStmt{
-					List: []ast.Stmt{
-						&ast.ReturnStmt{},
-					},
-				},
-			},
-			&ast.RangeStmt{
-				Key: &ast.Ident{
-					Name: "_",
-				},
-				Value: &ast.Ident{
-					Name: "arg",
-				},
-				Tok: token.DEFINE,
-				X: &ast.Ident{
-					Name: "args",
-				},
-				Body: &ast.BlockStmt{
-					List: []ast.Stmt{
-						&ast.ExprStmt{
-							X: &ast.CallExpr{
-								Fun: &ast.Ident{
-									Name: "printany",
-								},
-								Args: []ast.Expr{
-									&ast.Ident{
-										Name: "arg",
-									},
-								},
+	}},
+	Body: &ast.BlockStmt{List: []ast.Stmt{
+		&ast.IfStmt{
+			Cond: &ast.Ident{Name: "hidePanics"},
+			Body: &ast.BlockStmt{List: []ast.Stmt{
+				&ast.ReturnStmt{},
+			}},
+		},
+		&ast.RangeStmt{
+			Key:   &ast.Ident{Name: "_"},
+			Value: &ast.Ident{Name: "arg"},
+			Tok:   token.DEFINE,
+			X:     &ast.Ident{Name: "args"},
+			Body: &ast.BlockStmt{
+				List: []ast.Stmt{
+					&ast.ExprStmt{
+						X: &ast.CallExpr{
+							Fun: &ast.Ident{Name: "printany"},
+							Args: []ast.Expr{
+								&ast.Ident{Name: "arg"},
 							},
 						},
 					},
 				},
 			},
 		},
-	},
+	}},
 }

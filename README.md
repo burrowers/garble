@@ -86,14 +86,12 @@ package main
 
 import _ "unsafe"
 
-//go:linkname HidePanics runtime.HidePanics
-func HidePanics(hide bool)
+//go:linkname hidePanics runtime.HidePanics
+func hidePanics(hide bool)
 
-func init() {
-    HidePanics(true)
-}
+func init() { hidePanics(true) }
 
 func main() {
-    panic("!!!")
+	panic("ya like jazz?")
 }
 ```
