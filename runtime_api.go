@@ -48,21 +48,18 @@ func addRuntimeAPI(filename string, file *ast.File) {
 		//    the runtime.hex values in a way not consistent with normal panic
 		//    outputs
 		for _, decl := range file.Decls {
-			funcDecl, ok := decl.(*ast.FuncDecl)
-			if ok && funcDecl.Name.Name == "printany" {
-				for _, stmt := range funcDecl.Body.List {
-					switchStmt, ok := stmt.(*ast.TypeSwitchStmt)
-					if !ok {
-						continue
-					}
-
-					switchStmt.Body.List = append(switchStmt.Body.List, printanyHexCase)
+			decl, ok := decl.(*ast.FuncDecl)
+			if !ok || decl.Name.Name != "printany" {
+				continue
+			}
+			for _, stmt := range decl.Body.List {
+				if stmt, ok := stmt.(*ast.TypeSwitchStmt); ok {
+					stmt.Body.List = append(stmt.Body.List, printanyHexCase)
 					break
 				}
-
-				funcDecl.Body.List = append([]ast.Stmt{fatalErrorsHiddenCheckStmt}, funcDecl.Body.List...)
-				break
 			}
+			decl.Body.List = append([]ast.Stmt{fatalErrorsHiddenCheckStmt}, decl.Body.List...)
+			break
 		}
 
 		file.Decls = append(file.Decls, panicprintDecl)
@@ -83,74 +80,48 @@ var fatalErrorsHiddenCheckStmt = &ast.IfStmt{
 var hideFatalErrorsDecls = []ast.Decl{
 	&ast.GenDecl{
 		Tok: token.VAR,
-		Specs: []ast.Spec{
-			&ast.ValueSpec{
-				Names: []*ast.Ident{
-					{Name: "fatalErrorsHidden"},
-				},
-				Type: &ast.Ident{Name: "bool"},
-			},
-		},
+		Specs: []ast.Spec{&ast.ValueSpec{
+			Names: []*ast.Ident{{Name: "fatalErrorsHidden"}},
+			Type:  &ast.Ident{Name: "bool"},
+		}},
 	},
 	&ast.FuncDecl{
 		Name: &ast.Ident{Name: "hideFatalErrors"},
-		Type: &ast.FuncType{
-			Params: &ast.FieldList{
-				List: []*ast.Field{
-					{
-						Names: []*ast.Ident{
-							{Name: "hide"},
-						},
-						Type: &ast.Ident{Name: "bool"},
-					},
-				},
+		Type: &ast.FuncType{Params: &ast.FieldList{
+			List: []*ast.Field{{
+				Names: []*ast.Ident{{Name: "hide"}},
+				Type:  &ast.Ident{Name: "bool"},
+			}},
+		}},
+		Body: &ast.BlockStmt{List: []ast.Stmt{
+			&ast.AssignStmt{
+				Lhs: []ast.Expr{&ast.Ident{Name: "fatalErrorsHidden"}},
+				Tok: token.ASSIGN,
+				Rhs: []ast.Expr{&ast.Ident{Name: "hide"}},
 			},
-		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{
-						&ast.Ident{Name: "fatalErrorsHidden"},
-					},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{
-						&ast.Ident{Name: "hide"},
-					},
-				},
-			},
-		},
+		}},
 	},
 }
 
 var printanyHexCase = &ast.CaseClause{
-	List: []ast.Expr{
-		&ast.Ident{Name: "hex"},
-	},
+	List: []ast.Expr{&ast.Ident{Name: "hex"}},
 	Body: []ast.Stmt{
-		&ast.ExprStmt{
-			X: &ast.CallExpr{
-				Fun: &ast.Ident{Name: "print"},
-				Args: []ast.Expr{
-					&ast.Ident{Name: "v"},
-				},
-			},
-		},
+		&ast.ExprStmt{X: &ast.CallExpr{
+			Fun:  &ast.Ident{Name: "print"},
+			Args: []ast.Expr{&ast.Ident{Name: "v"}},
+		}},
 	},
 }
 
 var panicprintDecl = &ast.FuncDecl{
 	Name: &ast.Ident{Name: "panicprint"},
 	Type: &ast.FuncType{Params: &ast.FieldList{
-		List: []*ast.Field{
-			{
-				Names: []*ast.Ident{
-					{Name: "args"},
-				},
-				Type: &ast.Ellipsis{Elt: &ast.InterfaceType{
-					Methods: &ast.FieldList{},
-				}},
-			},
-		},
+		List: []*ast.Field{{
+			Names: []*ast.Ident{{Name: "args"}},
+			Type: &ast.Ellipsis{Elt: &ast.InterfaceType{
+				Methods: &ast.FieldList{},
+			}},
+		}},
 	}},
 	Body: &ast.BlockStmt{List: []ast.Stmt{
 		&ast.IfStmt{
@@ -166,10 +137,8 @@ var panicprintDecl = &ast.FuncDecl{
 			X:     &ast.Ident{Name: "args"},
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.ExprStmt{X: &ast.CallExpr{
-					Fun: &ast.Ident{Name: "printany"},
-					Args: []ast.Expr{
-						&ast.Ident{Name: "arg"},
-					},
+					Fun:  &ast.Ident{Name: "printany"},
+					Args: []ast.Expr{&ast.Ident{Name: "arg"}},
 				}},
 			}},
 		},

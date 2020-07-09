@@ -317,7 +317,6 @@ func keyStmt(key []byte) *ast.GenDecl {
 }
 
 func constBlacklist(node ast.Node, info *types.Info, blacklist map[types.Object]struct{}) {
-
 	blacklistObjects := func(node ast.Node) bool {
 		ident, ok := node.(*ast.Ident)
 		if !ok {
