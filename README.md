@@ -69,14 +69,14 @@ to document the current shortcomings of this tool.
 ### Runtime API
 
 The tool adds additional functions to the runtime that can optionally be used to
-hide information during execution. The funcions added are:
+hide information during execution. The functions added are:
 
 ```go
-// HidePanics suppresses printing fatal panic messages when hide
-// is true. This behavior can be changed at any time by calling
-// HidePanics again. All other behaviors of panics remains the
-// same.
-func HidePanics(hide bool)
+// hideFatalErrors suppresses printing fatal error messages and
+// fatal panics when hide is true. This behavior can be changed at 
+// any time by calling hideFatalErrors again. All other behaviors of 
+// panics remains the same.
+func hideFatalErrors(hide bool)
 ```
 
 These functions must be used with the `linkname` compiler directive, like so:
