@@ -9,10 +9,10 @@ package main
 
 import _ "unsafe"
 
-//go:linkname hidePanics runtime.HidePanics
-func hidePanics(hide bool)
+//go:linkname hideFatalErrors runtime.hideFatalErrors
+func hideFatalErrors(hide bool)
 
-func init() { hidePanics(true) }
+func init() { hideFatalErrors(true) }
 
 func main() {
 	panic("ya like jazz?")

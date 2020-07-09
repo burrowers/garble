@@ -29,8 +29,8 @@ func addRuntimeAPI(filename string, file *ast.File) {
 
 	switch filename {
 	case "debug.go":
-		// Add HidePanics function and internal hidePanics variable
-		file.Decls = append(file.Decls, hidePanicsDecls...)
+		// Add hideFatalErrors function and internal fatalErrorsHidden variable
+		file.Decls = append(file.Decls, hideFatalErrorsDecls...)
 	case "error.go":
 		// Add a function panicprint, that does nothing if panics are
 		// hidden, otherwise forwards arguments to printany to print them
@@ -38,8 +38,8 @@ func addRuntimeAPI(filename string, file *ast.File) {
 		// nothing if panics are hidden, printany only takes one argument,
 		// and both print and printany are used to print panic messages.
 		// panicprint's entire purpose is to act as a replacement to print
-		// that respects HidePanics, and print is variadic, so print must be
-		// replaced by a variadic function, hence panicprint.
+		// that respects hideFatalErrors, and print is variadic, so print
+		// must be replaced by a variadic function, hence panicprint.
 		//
 		// We will also add two statements to printany:
 		// 1. An if statement that returns early if panics are hidden
@@ -60,46 +60,46 @@ func addRuntimeAPI(filename string, file *ast.File) {
 					break
 				}
 
-				funcDecl.Body.List = append([]ast.Stmt{hidePanicsCheckStmt}, funcDecl.Body.List...)
+				funcDecl.Body.List = append([]ast.Stmt{fatalErrorsHiddenCheckStmt}, funcDecl.Body.List...)
 				break
 			}
 		}
 
 		file.Decls = append(file.Decls, panicprintDecl)
-	case "panic.go", "traceback.go":
+	default:
 		// Change all calls to print, which we don't control, to
 		// panicprint, which we do control and does the same thing.
 		ast.Inspect(file, switchPanicPrints)
 	}
 }
 
-var hidePanicsCheckStmt = &ast.IfStmt{
-	Cond: &ast.Ident{Name: "hidePanics"},
+var fatalErrorsHiddenCheckStmt = &ast.IfStmt{
+	Cond: &ast.Ident{Name: "fatalErrorsHidden"},
 	Body: &ast.BlockStmt{List: []ast.Stmt{
 		&ast.ReturnStmt{},
 	}},
 }
 
-var hidePanicsDecls = []ast.Decl{
+var hideFatalErrorsDecls = []ast.Decl{
 	&ast.GenDecl{
 		Tok: token.VAR,
 		Specs: []ast.Spec{
 			&ast.ValueSpec{
 				Names: []*ast.Ident{
-					&ast.Ident{Name: "hidePanics"},
+					{Name: "fatalErrorsHidden"},
 				},
 				Type: &ast.Ident{Name: "bool"},
 			},
 		},
 	},
 	&ast.FuncDecl{
-		Name: &ast.Ident{Name: "HidePanics"},
+		Name: &ast.Ident{Name: "hideFatalErrors"},
 		Type: &ast.FuncType{
 			Params: &ast.FieldList{
 				List: []*ast.Field{
-					&ast.Field{
+					{
 						Names: []*ast.Ident{
-							&ast.Ident{Name: "hide"},
+							{Name: "hide"},
 						},
 						Type: &ast.Ident{Name: "bool"},
 					},
@@ -110,7 +110,7 @@ var hidePanicsDecls = []ast.Decl{
 			List: []ast.Stmt{
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{
-						&ast.Ident{Name: "hidePanics"},
+						&ast.Ident{Name: "fatalErrorsHidden"},
 					},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
@@ -142,21 +142,19 @@ var panicprintDecl = &ast.FuncDecl{
 	Name: &ast.Ident{Name: "panicprint"},
 	Type: &ast.FuncType{Params: &ast.FieldList{
 		List: []*ast.Field{
-			&ast.Field{
+			{
 				Names: []*ast.Ident{
-					&ast.Ident{Name: "args"},
+					{Name: "args"},
 				},
-				Type: &ast.Ellipsis{
-					Elt: &ast.InterfaceType{
-						Methods: &ast.FieldList{},
-					},
-				},
+				Type: &ast.Ellipsis{Elt: &ast.InterfaceType{
+					Methods: &ast.FieldList{},
+				}},
 			},
 		},
 	}},
 	Body: &ast.BlockStmt{List: []ast.Stmt{
 		&ast.IfStmt{
-			Cond: &ast.Ident{Name: "hidePanics"},
+			Cond: &ast.Ident{Name: "fatalErrorsHidden"},
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.ReturnStmt{},
 			}},
@@ -166,18 +164,14 @@ var panicprintDecl = &ast.FuncDecl{
 			Value: &ast.Ident{Name: "arg"},
 			Tok:   token.DEFINE,
 			X:     &ast.Ident{Name: "args"},
-			Body: &ast.BlockStmt{
-				List: []ast.Stmt{
-					&ast.ExprStmt{
-						X: &ast.CallExpr{
-							Fun: &ast.Ident{Name: "printany"},
-							Args: []ast.Expr{
-								&ast.Ident{Name: "arg"},
-							},
-						},
+			Body: &ast.BlockStmt{List: []ast.Stmt{
+				&ast.ExprStmt{X: &ast.CallExpr{
+					Fun: &ast.Ident{Name: "printany"},
+					Args: []ast.Expr{
+						&ast.Ident{Name: "arg"},
 					},
-				},
-			},
+				}},
+			}},
 		},
 	}},
 }
