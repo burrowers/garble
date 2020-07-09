@@ -327,10 +327,11 @@ func transformCompile(args []string) ([]string, error) {
 		return args, nil
 	}
 	pkgPath := flagValue(flags, "-p")
-	if pkgPath == "runtime/internal/sys" {
-		// Even though this package isn't private, we will still process
-		// it to remove the go version constant later. However, we only
-		// want flags to work on private packages.
+	if pkgPath == "runtime" || pkgPath == "runtime/internal/sys" {
+		// Even though these packages aren't private, we will still process
+		// them later to remove build information and add additional
+		// functions to the runtime. However, we only want flags to work on
+		// private packages.
 		envGarbleLiterals = false
 		envGarbleDebugDir = ""
 	} else if !isPrivate(pkgPath) {
@@ -356,13 +357,14 @@ func transformCompile(args []string) ([]string, error) {
 	if err := readBuildIDs(flags); err != nil {
 		return nil, err
 	}
-	// log.Printf("%#v", ids)
+
 	var files []*ast.File
 	for _, path := range paths {
 		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
 			return nil, err
 		}
+
 		files = append(files, file)
 	}
 
@@ -427,6 +429,9 @@ func transformCompile(args []string) ([]string, error) {
 		origName := filepath.Base(filepath.Clean(paths[i]))
 		name := origName
 		switch {
+		case pkgPath == "runtime":
+			// Add additional runtime API
+			addRuntimeAPI(origName, file)
 		case pkgPath == "runtime/internal/sys":
 			// The first declaration in zversion.go contains the Go
 			// version as follows. Replace it here, since the

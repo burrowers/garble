@@ -1,0 +1,21 @@
+garble build
+! exec ./main
+cmp stderr main.stderr
+
+-- go.mod --
+module test/main
+-- main.go --
+package main
+
+import _ "unsafe"
+
+//go:linkname hideFatalErrors runtime.hideFatalErrors
+func hideFatalErrors(hide bool)
+
+func init() { hideFatalErrors(true) }
+
+func main() {
+	panic("ya like jazz?")
+}
+
+-- main.stderr --

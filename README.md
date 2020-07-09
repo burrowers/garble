@@ -29,6 +29,8 @@ order to:
 * Strip filenames and shuffle position information
 * Obfuscate literals, if the `-literals` flag is given
 * Strip debugging information and symbol tables
+* Expose additional functions in the runtime that can optionally hide
+  information during execution
 
 ### Options
 
@@ -63,3 +65,33 @@ to document the current shortcomings of this tool.
 
 * Since `garble` forces `-trimpath`, plugins built with `-garble` must be loaded
   from Go programs built with `-trimpath` too.
+
+### Runtime API
+
+The tool adds additional functions to the runtime that can optionally be used to
+hide information during execution. The funcions added are:
+
+```go
+// HidePanics suppresses printing fatal panic messages when hide
+// is true. This behavior can be changed at any time by calling
+// HidePanics again. All other behaviors of panics remains the
+// same.
+func HidePanics(hide bool)
+```
+
+These functions must be used with the `linkname` compiler directive, like so:
+
+```go
+package main
+
+import _ "unsafe"
+
+//go:linkname hideFatalErrors runtime.hideFatalErrors
+func hideFatalErrors(hide bool)
+
+func init() { hideFatalErrors(true) }
+
+func main() {
+	panic("ya like jazz?")
+}
+```
