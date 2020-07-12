@@ -831,7 +831,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 // do not differentiate these "external funcs" in any way.
 func implementedOutsideGo(obj *types.Func) bool {
 	return obj.Type().(*types.Signature).Recv() == nil &&
-		(obj.Scope() != nil && obj.Scope().Pos() == token.NoPos)
+		(obj.Scope() != nil && obj.Scope().End() == token.NoPos)
 }
 
 // named tries to obtain the *types.Named behind a type, if there is one.
