@@ -2,7 +2,7 @@
 garble -literals build
 exec ./main$exe
 cmp stderr main.stderr
-! binsubstr main$exe 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'stringTypeStruct'
+! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'stringTypeStruct'
 
 binsubstr main$exe 'Skip this block,' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap2 value' 'testMap3 value' 'testMap1 new value' 'testMap2 new value' 'testMap3 new value' 'stringType func param' 'stringType return'
 [short] stop # checking that the build is reproducible is slow
