@@ -282,12 +282,142 @@ var funcStmt = &ast.FuncDecl{
 	}},
 }
 
+const tempKeyType = "uint32"
+const tempKeyPrefix = "___garble_tmp"
+const arrVarName = tempKeyPrefix + "_arr"
+const maxTempKeyCount = 5
+
+func makeTempKeyName(i int) string {
+	return tempKeyPrefix + strconv.Itoa(i)
+}
+
+func makeEmbedFuncTemplateFunc(argCount uint32) *ast.FuncLit {
+	keyNames := make([]*ast.Ident, argCount)
+	for i := range keyNames {
+		keyNames[i] = &ast.Ident{Name: makeTempKeyName(i)}
+	}
+
+	return &ast.FuncLit{
+		Type: &ast.FuncType{
+			Params: &ast.FieldList{
+				List: []*ast.Field{{
+					Names: keyNames,
+					Type:  &ast.Ident{Name: tempKeyType},
+				}}},
+			Results: &ast.FieldList{List: []*ast.Field{{
+				Type: &ast.Ident{Name: "string"},
+			}}},
+		},
+	}
+}
+
+func generateTempKeys(keyCount uint32) ([]uint32, []ast.Expr) {
+	keys := make([]uint32, keyCount)
+	args := make([]ast.Expr, keyCount)
+
+	for i := range keys {
+		key := genRandUInt32()
+		keys[i] = key
+		args[i] = &ast.BasicLit{Kind: token.INT, Value: fmt.Sprint(key)}
+	}
+
+	return keys, args
+}
+
+func generateRandomCipherBlock(ciphertext []byte, keys []uint32) *ast.BlockStmt {
+	keyCount := uint32(len(keys))
+	stmtCount := int(keyCount + genRandUInt32Max(3*keyCount))
+
+	stmt := &ast.BlockStmt{List: make([]ast.Stmt, stmtCount)}
+
+	l := len(ciphertext)
+	for i := 0; i < stmtCount; i++ {
+		keyIdx := i % len(keys)
+		key := keys[keyIdx]
+
+		valShift := genRandUInt32Max(16)
+		posShift := 16 + genRandUInt32Max(16)
+
+		val := byte(key >> valShift)
+		pos := int(key>>posShift) % l
+
+		ciphertext[pos] ^= val
+
+		stmt.List[stmtCount-i-1] = &ast.AssignStmt{
+			Lhs: []ast.Expr{
+				&ast.IndexExpr{
+					X: &ast.Ident{Name: arrVarName},
+					Index: &ast.CallExpr{
+						Fun: &ast.Ident{Name: "int"},
+						Args: []ast.Expr{
+							&ast.BinaryExpr{
+								X: &ast.BinaryExpr{
+									X:  &ast.Ident{Name: makeTempKeyName(keyIdx)},
+									Op: token.SHR,
+									Y: &ast.BasicLit{
+										Kind:  token.INT,
+										Value: fmt.Sprint(posShift),
+									},
+								},
+								Op: token.REM,
+								Y: &ast.BasicLit{
+									Kind:  token.INT,
+									Value: fmt.Sprint(l),
+								},
+							},
+						}},
+				},
+			},
+			Tok: token.XOR_ASSIGN,
+			Rhs: []ast.Expr{
+				&ast.CallExpr{
+					Fun: &ast.Ident{Name: "byte"},
+					Args: []ast.Expr{
+						&ast.BinaryExpr{
+							X:  &ast.Ident{Name: makeTempKeyName(keyIdx)},
+							Op: token.SHR,
+							Y: &ast.BasicLit{
+								Kind:  token.INT,
+								Value: fmt.Sprint(valShift),
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	return stmt
+}
+
 func ciphertextStmt(ciphertext []byte) *ast.CallExpr {
-	ciphertextLit := dataToByteSlice(ciphertext)
+	keyCount := 1 + genRandUInt32Max(maxTempKeyCount)
+
+	embedFunc := makeEmbedFuncTemplateFunc(keyCount)
+	keys, args := generateTempKeys(keyCount)
+
+	decryptBlock := generateRandomCipherBlock(ciphertext, keys)
+
+	embedFunc.Body = &ast.BlockStmt{List: []ast.Stmt{
+		&ast.AssignStmt{
+			Lhs: []ast.Expr{
+				&ast.Ident{Name: arrVarName},
+			},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{dataToByteSlice(ciphertext)},
+		},
+		decryptBlock,
+		&ast.ReturnStmt{Results: []ast.Expr{
+			&ast.CallExpr{
+				Fun:  &ast.Ident{Name: "garbleDecrypt"},
+				Args: []ast.Expr{&ast.Ident{Name: arrVarName}},
+			},
+		}},
+	}}
 
 	return &ast.CallExpr{
-		Fun:  &ast.Ident{Name: "garbleDecrypt"},
-		Args: []ast.Expr{ciphertextLit},
+		Fun:  embedFunc,
+		Args: args,
 	}
 }
 

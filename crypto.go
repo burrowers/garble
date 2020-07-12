@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	mathrand "math/rand"
 	"strings"
@@ -36,6 +37,15 @@ func genRandBytes(size int) []byte {
 	}
 
 	return buffer
+}
+
+func genRandUInt32() uint32 {
+	bytes := genRandBytes(4)
+	return binary.LittleEndian.Uint32(bytes)
+}
+
+func genRandUInt32Max(max uint32) uint32 {
+	return genRandUInt32() % max
 }
 
 // encAES encrypt data with key in AES GCM mode.
