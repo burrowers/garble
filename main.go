@@ -723,22 +723,20 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		}
 	}
 
+	// Shuffle top level declarations if there are no remaining compiler
+	// directives.
 	if len(file.Comments) == 0 {
-		// Shuffle top level declarations,
-		// if the file contains no "//go:" compiler directives.
 		// TODO: Also allow files with compiler directives.
 		mathrand.Shuffle(len(file.Decls), func(i, j int) {
 			decl1 := file.Decls[i]
 			decl2 := file.Decls[j]
 
-			gendecl1, ok1 := decl1.(*ast.GenDecl)
-			gendecl2, ok2 := decl2.(*ast.GenDecl)
-			if (ok1 && gendecl1.Tok == token.IMPORT) ||
-				(ok2 && gendecl2.Tok == token.IMPORT) {
-				// Don't move import statements.
+			// Import declarations must remain at the top of the file.
+			gd1, ok1 := decl1.(*ast.GenDecl)
+			gd2, ok2 := decl2.(*ast.GenDecl)
+			if (ok1 && gd1.Tok == token.IMPORT) || (ok2 && gd2.Tok == token.IMPORT) {
 				return
 			}
-
 			file.Decls[i], file.Decls[j] = decl2, decl1
 		})
 	}
