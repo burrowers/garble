@@ -112,9 +112,12 @@ func listPackage(path string) (listedPackage, error) {
 		return pkg, fmt.Errorf("$GARBLE_DIR unset; did you run via 'garble build'?")
 	}
 	cmd.Dir = envGarbleDir
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
-		return pkg, fmt.Errorf("go list error: %v: %s", err, out)
+		if err, _ := err.(*exec.ExitError); err != nil {
+			return pkg, fmt.Errorf("go list error: %v: %s", err, err.Stderr)
+		}
+		return pkg, fmt.Errorf("go list error: %v", err)
 	}
 	if err := json.Unmarshal(out, &pkg); err != nil {
 		return pkg, err
@@ -230,7 +233,7 @@ func mainErr(args []string) error {
 		// If GOPRIVATE isn't set and we're in a module, use its module
 		// path as a GOPRIVATE default. Include a _test variant too.
 		if envGoPrivate == "" {
-			modpath, err := exec.Command("go", "list", "-m").CombinedOutput()
+			modpath, err := exec.Command("go", "list", "-m").Output()
 			if err == nil {
 				path := string(bytes.TrimSpace(modpath))
 				os.Setenv("GOPRIVATE", path+","+path+"_test")
@@ -620,9 +623,12 @@ func trimBuildID(id string) string {
 
 func buildidOf(path string) (string, error) {
 	cmd := exec.Command("go", "tool", "buildid", path)
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("%v: %s", err, out)
+		if err, _ := err.(*exec.ExitError); err != nil {
+			return "", fmt.Errorf("%v: %s", err, err.Stderr)
+		}
+		return "", err
 	}
 	return trimBuildID(string(bytes.TrimSpace(out))), nil
 }
