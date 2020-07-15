@@ -2,9 +2,9 @@
 garble -literals build
 exec ./main$exe
 cmp stderr main.stderr
-! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'stringTypeStruct'
+! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'stringTypeStruct' '2824583991413579605' '3735714531481032066'
 
-binsubstr main$exe 'Skip this block,' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap2 value' 'testMap3 value' 'testMap1 new value' 'testMap2 new value' 'testMap3 new value' 'stringType func param' 'stringType return'
+binsubstr main$exe 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap2 value' 'testMap3 value' 'testMap1 new value' 'testMap2 new value' 'testMap3 new value' 'stringType func param' 'stringType return'
 [short] stop # checking that the build is reproducible is slow
 
 # Also check that the binary is reproducible.
@@ -18,9 +18,6 @@ module test/main
 -- main.go --
 package main
 
-// The lack of imports is an edge case, since we have to add imports like
-// crypto/aes.
-
 type strucTest struct {
 	field        string
 	anotherfield string
@@ -33,8 +30,8 @@ Second Line`
 )
 
 const (
-	skip1 = "Skip this block,"
-	i     = 1
+	i       = 1
+	boolean = true
 )
 
 const (
@@ -58,7 +55,7 @@ func main() {
 	reassign := "first assign"
 	reassign = "second assign"
 
-	println(cnst)
+	println(cnst, boolean)
 	println(multiline)
 	println(localVar)
 	println(reassign)
@@ -75,10 +72,13 @@ func main() {
 	testMap["map key"] = "new value"
 	println(testMap["map key"])
 	println("another literal")
-	println(skip1, skip2)
-	println(i, foo, bar)
+	println(skip2)
+	println(boolean, i, foo, bar)
 	typedTest()
 	constantTest()
+	numTest()
+	byteTest()
+	boolTest()
 }
 
 type stringType string
@@ -152,13 +152,91 @@ func constantTest() {
 	const i = length + len(f)
 }
 
+func numTest() {
+	const a = 1 // skip
+
+	const b = a + 2 // skip
+
+	const c = 2824583991413579605
+
+	d := 4
+
+	var e = 5
+
+	var f int
+	f = 3735714531481032066
+
+	println(a, b, c, d, e, f)
+
+	var (
+		untypedInt       = -3453453534423 + 12
+		intVar     int   = -3453453534423
+		int8Var    int8  = -122.0
+		int16Var   int16 = 3534
+		int32Var   int32 = 333453534
+		int64Var   int64 = 3453453534423
+
+		uintVar    uint    = 3453453534423
+		uint8Var   uint8   = 34
+		uint16Var  uint16  = 3534
+		uint32Var  uint32  = 333453534
+		uint64Var  uint64  = 3453453534423
+		uintptrVar uintptr = 3453453534423
+
+		untypedFloat         = 3.0
+		floatVar     float64 = 75453453534
+		floatVar32   float32 = -435453453534
+
+		complexVar64  complex64  = -435453453534 // skip
+		complexVar128 complex128 = 1 + 4i        // skip
+	)
+
+	floatShort := -435453453534.0
+	println(untypedInt, intVar, int8Var, int16Var, int32Var, int64Var)
+	println(uintVar, uint8Var, uint16Var, uint32Var, uint64Var, uintptrVar)
+	println(untypedFloat, floatVar, floatShort, floatVar32)
+	println(complexVar64, complexVar128)
+
+}
+
+func byteTest() {
+	a := []byte{12, 13}
+	for _, elm := range a {
+		print(elm, ", ")
+	}
+	println()
+	var b = []byte{12, 13}
+	for _, elm := range b {
+		print(elm, ", ")
+	}
+	println()
+
+}
+
+func boolTest() {
+	const a = true // skip
+
+	const b = false == a // skip
+
+	const c bool = false
+
+	d := true
+
+	var e = true
+
+	var f bool
+	f = false
+
+	println(a, b, c, d, e, f)
+}
+
 func stringTypeFunc(s stringType) stringType {
 	println(s)
 	return "stringType return" // skip
 }
 
 -- main.stderr --
-Lorem
+Lorem true
 First Line
 Second Line
 dolor
@@ -167,8 +245,8 @@ second assign
 to obfuscate also obfuscate
 new value
 another literal
-Skip this block, also skip this
-1 0 1
+also skip this
+true 1 0 1
 skip typed const skip typed var skip typed var assign
 stringTypeField String stringTypeField strType
 stringType lambda func return
@@ -176,3 +254,11 @@ stringType func param
 stringType return
 foo
 foo
+1 3 2824583991413579605 4 5 3735714531481032066
+-3453453534411 -3453453534423 -122 3534 333453534 3453453534423
+3453453534423 34 3534 333453534 3453453534423 3453453534423
++3.000000e+000 +7.545345e+010 +1.844674e+019 +2.633204e+009
+(-4.354535e+011+0.000000e+000i) (+1.000000e+000+4.000000e+000i)
+12, 13, 
+12, 13, 
+true false false true true false

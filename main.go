@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
+	"mvdan.cc/garble/literals"
 )
 
 var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
@@ -383,8 +384,9 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	info := &types.Info{
-		Defs: make(map[*ast.Ident]types.Object),
-		Uses: make(map[*ast.Ident]types.Object),
+		Types: make(map[ast.Expr]types.TypeAndValue),
+		Defs:  make(map[*ast.Ident]types.Object),
+		Uses:  make(map[*ast.Ident]types.Object),
 	}
 	pkg, err := origTypesConfig.Check(pkgPath, fset, files, info)
 	if err != nil {
@@ -394,7 +396,7 @@ func transformCompile(args []string) ([]string, error) {
 	blacklist := buildBlacklist(files, info, pkg)
 
 	if envGarbleLiterals {
-		files = obfuscateLiterals(files, info, blacklist)
+		files = literals.Obfuscate(files, info, blacklist)
 		// ast changed so we need to typecheck again
 		pkg, err = origTypesConfig.Check(pkgPath, fset, files, info)
 		if err != nil {
@@ -575,38 +577,6 @@ func readBuildIDs(flags []string) error {
 	}
 	// log.Printf("%#v", buildInfo)
 
-	// Since string obfuscation adds crypto dependencies, ensure they are
-	// also part of the importcfg. Otherwise, the compiler or linker might
-	// error when trying to locate them.
-	// TODO: this means these packages can't be garbled. never garble std?
-	if envGarbleLiterals {
-		toAdd := []string{
-			"crypto/aes",
-			"crypto/cipher",
-		}
-		for len(toAdd) > 0 {
-			// Use a stack, to reuse memory.
-			path := toAdd[len(toAdd)-1]
-			toAdd = toAdd[:len(toAdd)-1]
-			if _, ok := buildInfo.imports[path]; ok {
-				continue
-			}
-			pkg, err := listPackage(path)
-			if err != nil {
-				return err
-			}
-			if pkg.Export == "" {
-				continue // e.g. unsafe
-			}
-			if _, err := fmt.Fprintf(f, "packagefile %s=%s\n", path, pkg.Export); err != nil {
-				return err
-			}
-			// Add their dependencies too, without adding duplicates.
-			buildInfo.imports[path] = importedPkg{packagefile: pkg.Export}
-			toAdd = append(toAdd, pkg.Deps...)
-		}
-	}
-
 	if err := f.Close(); err != nil {
 		return err
 	}
@@ -682,7 +652,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 
 	visit := func(node ast.Node) bool {
 		if envGarbleLiterals {
-			constBlacklist(node, info, blacklist)
+			literals.ConstBlacklist(node, info, blacklist)
 		}
 
 		call, ok := node.(*ast.CallExpr)
