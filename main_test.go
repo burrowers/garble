@@ -6,6 +6,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,7 +64,9 @@ func TestScripts(t *testing.T) {
 				binfile += ".exe"
 			}
 			if err := os.Symlink(os.Args[0], binfile); err != nil {
-				return err
+				if err := copyFile(os.Args[0], binfile); err != nil { // Fallback to copy if symlink failed. Useful for Windows not elevated processes
+					return err
+				}
 			}
 			env.Vars = append(env.Vars, fmt.Sprintf("PATH=%s%c%s", bindir, filepath.ListSeparator, os.Getenv("PATH")))
 			env.Vars = append(env.Vars, "TESTSCRIPT_COMMAND=garble")
@@ -79,6 +82,23 @@ func TestScripts(t *testing.T) {
 		t.Fatal(err)
 	}
 	testscript.Run(t, p)
+}
+
+func copyFile(from, to string) error {
+	writer, err := os.Create(to)
+	if err != nil {
+		return err
+	}
+	defer writer.Close()
+
+	reader, err := os.Open(from)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	_, err = io.Copy(writer, reader)
+	return err
 }
 
 func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
