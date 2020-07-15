@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"go/ast"
 	"go/token"
+	"math"
 )
 
 func getBoundsCheck(pos string) *ast.AssignStmt {
@@ -23,7 +24,7 @@ func getBoundsCheck(pos string) *ast.AssignStmt {
 }
 
 func obfuscateUint8(data uint8) *ast.CallExpr {
-	obfuscator := getObfuscator()
+	obfuscator := randObfuscator()
 	block := obfuscator.Obfuscate([]byte{byte(data)})
 	block.List = append(block.List,
 		&ast.ReturnStmt{
@@ -43,11 +44,11 @@ func obfuscateUint8(data uint8) *ast.CallExpr {
 			},
 		})
 
-	return getCallexpr(&ast.Ident{Name: "uint8"}, block)
+	return callExpr(&ast.Ident{Name: "uint8"}, block)
 }
 
 func obfuscateUint16(data uint16) *ast.CallExpr {
-	obfuscator := getObfuscator()
+	obfuscator := randObfuscator()
 	b := make([]byte, 2)
 	binary.LittleEndian.PutUint16(b, data)
 	block := obfuscator.Obfuscate(b)
@@ -87,13 +88,13 @@ func obfuscateUint16(data uint16) *ast.CallExpr {
 		},
 	}
 
-	block.List = append(block.List, getBoundsCheck("1"), getReturnStmt(convertExpr))
+	block.List = append(block.List, getBoundsCheck("1"), returnStmt(convertExpr))
 
-	return getCallexpr(&ast.Ident{Name: "uint16"}, block)
+	return callExpr(&ast.Ident{Name: "uint16"}, block)
 }
 
 func obfuscateUint32(data uint32) *ast.CallExpr {
-	obfuscator := getObfuscator()
+	obfuscator := randObfuscator()
 	b := make([]byte, 4)
 	binary.LittleEndian.PutUint32(b, data)
 	block := obfuscator.Obfuscate(b)
@@ -177,13 +178,13 @@ func obfuscateUint32(data uint32) *ast.CallExpr {
 		},
 	}
 
-	block.List = append(block.List, getBoundsCheck("3"), getReturnStmt(convertExpr))
+	block.List = append(block.List, getBoundsCheck("3"), returnStmt(convertExpr))
 
-	return getCallexpr(&ast.Ident{Name: "uint32"}, block)
+	return callExpr(&ast.Ident{Name: "uint32"}, block)
 }
 
 func obfuscateUint64(data uint64) *ast.CallExpr {
-	obfuscator := getObfuscator()
+	obfuscator := randObfuscator()
 	b := make([]byte, 8)
 	binary.LittleEndian.PutUint64(b, data)
 	block := obfuscator.Obfuscate(b)
@@ -354,9 +355,9 @@ func obfuscateUint64(data uint64) *ast.CallExpr {
 		},
 	}
 
-	block.List = append(block.List, getBoundsCheck("7"), getReturnStmt(convertExpr))
+	block.List = append(block.List, getBoundsCheck("7"), returnStmt(convertExpr))
 
-	return getCallexpr(&ast.Ident{Name: "uint64"}, block)
+	return callExpr(&ast.Ident{Name: "uint64"}, block)
 }
 
 func obfuscateUint(data uint) *ast.CallExpr {
@@ -436,24 +437,61 @@ func obfuscateInt(data int) *ast.CallExpr {
 	}
 }
 
-func obfuscateFloat32(data float32) *ast.CallExpr {
+func uintToFloat(uintExpr *ast.CallExpr, bits string) *ast.CallExpr {
 	return &ast.CallExpr{
-		Fun: &ast.Ident{
-			Name: "float32",
-		},
-		Args: []ast.Expr{
-			obfuscateUint32(uint32(data)),
+		Fun: &ast.FuncLit{
+			Type: &ast.FuncType{
+				Params: &ast.FieldList{},
+				Results: &ast.FieldList{
+					List: []*ast.Field{
+						{Type: &ast.Ident{Name: "float" + bits}},
+					},
+				},
+			},
+			Body: &ast.BlockStmt{
+				List: []ast.Stmt{
+					&ast.AssignStmt{
+						Lhs: []ast.Expr{&ast.Ident{Name: "result"}},
+						Tok: token.DEFINE,
+						Rhs: []ast.Expr{uintExpr},
+					},
+					&ast.ReturnStmt{
+						Results: []ast.Expr{
+							&ast.StarExpr{
+								X: &ast.CallExpr{
+									Fun: &ast.ParenExpr{
+										X: &ast.StarExpr{X: &ast.Ident{Name: "float" + bits}},
+									},
+									Args: []ast.Expr{
+										&ast.CallExpr{
+											Fun: &ast.SelectorExpr{
+												X:   &ast.Ident{Name: "unsafe"},
+												Sel: &ast.Ident{Name: "Pointer"},
+											},
+											Args: []ast.Expr{
+												&ast.UnaryExpr{
+													Op: token.AND,
+													X:  &ast.Ident{Name: "result"},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 }
 
+func obfuscateFloat32(data float32) *ast.CallExpr {
+	b := math.Float32bits(data)
+	return uintToFloat(obfuscateUint32(b), "32")
+}
+
 func obfuscateFloat64(data float64) *ast.CallExpr {
-	return &ast.CallExpr{
-		Fun: &ast.Ident{
-			Name: "float64",
-		},
-		Args: []ast.Expr{
-			obfuscateUint64(uint64(data)),
-		},
-	}
+	b := math.Float64bits(data)
+	return uintToFloat(obfuscateUint64(b), "64")
 }

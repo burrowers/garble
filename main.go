@@ -396,7 +396,7 @@ func transformCompile(args []string) ([]string, error) {
 	blacklist := buildBlacklist(files, info, pkg)
 
 	if envGarbleLiterals {
-		files = literals.Obfuscate(files, info, blacklist)
+		files = literals.Obfuscate(files, info, fset, blacklist)
 		// ast changed so we need to typecheck again
 		pkg, err = origTypesConfig.Check(pkgPath, fset, files, info)
 		if err != nil {

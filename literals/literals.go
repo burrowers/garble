@@ -14,7 +14,7 @@ import (
 	"mvdan.cc/garble/literals/obfuscators"
 )
 
-func getCallexpr(resultType ast.Expr, block *ast.BlockStmt) *ast.CallExpr {
+func callExpr(resultType ast.Expr, block *ast.BlockStmt) *ast.CallExpr {
 	return &ast.CallExpr{
 		Fun: &ast.FuncLit{
 			Type: &ast.FuncType{
@@ -30,12 +30,12 @@ func getCallexpr(resultType ast.Expr, block *ast.BlockStmt) *ast.CallExpr {
 	}
 }
 
-func getObfuscator() obfuscators.Obfuscator {
+func randObfuscator() obfuscators.Obfuscator {
 	randPos := mathrand.Intn(len(obfuscators.Obfuscators))
 	return obfuscators.Obfuscators[randPos]
 }
 
-func getReturnStmt(result ast.Expr) *ast.ReturnStmt {
+func returnStmt(result ast.Expr) *ast.ReturnStmt {
 	return &ast.ReturnStmt{
 		Results: []ast.Expr{result},
 	}
@@ -53,8 +53,6 @@ func isTypeDefStr(typ types.Type) bool {
 
 func containsTypeDefStr(expr ast.Expr, info *types.Info) bool {
 	typ := info.TypeOf(expr)
-	// log.Println(expr, typ, reflect.TypeOf(expr), reflect.TypeOf(typ))
-
 	if sig, ok := typ.(*types.Signature); ok {
 		for i := 0; i < sig.Params().Len(); i++ {
 			if isTypeDefStr(sig.Params().At(i).Type()) {
@@ -75,7 +73,7 @@ func containsTypeDefStr(expr ast.Expr, info *types.Info) bool {
 }
 
 // Obfuscate replace literals with obfuscated lambda functions
-func Obfuscate(files []*ast.File, info *types.Info, blacklist map[types.Object]struct{}) []*ast.File {
+func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blacklist map[types.Object]struct{}) []*ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
 		switch x := cursor.Node().(type) {
 		case *ast.ValueSpec:
@@ -180,7 +178,7 @@ func Obfuscate(files []*ast.File, info *types.Info, blacklist map[types.Object]s
 					data = append(data, byte(value))
 				}
 
-				cursor.Replace(obfuscateByte(data))
+				cursor.Replace(obfuscateBytes(data))
 			}
 		case *ast.UnaryExpr:
 			switch cursor.Name() {
@@ -220,12 +218,17 @@ func Obfuscate(files []*ast.File, info *types.Info, blacklist map[types.Object]s
 	}
 
 	for i := range files {
+		astutil.AddImport(fset, files[i], "unsafe")
 		files[i] = astutil.Apply(files[i], pre, post).(*ast.File)
+		if !astutil.UsesImport(files[i], "unsafe") {
+			astutil.DeleteImport(fset, files[i], "unsafe")
+		}
 	}
 	return files
 }
 
 func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info) error {
+	// TODO: Add support for obfuscation of hexadecimal and octal notation
 	var (
 		call     *ast.CallExpr
 		basic    *ast.BasicLit
@@ -266,18 +269,20 @@ func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info) error {
 	}
 
 	strValue := sign + basic.Value
+	// Literals can have underscores for better readabilty
+	strValue = strings.ReplaceAll(strValue, "_", "")
 
 	switch typeInfo {
 	case types.Typ[types.Float32]:
 		fV, err := strconv.ParseFloat(strValue, 32)
 		if err != nil {
-			panic(err)
+			return err
 		}
 		call = obfuscateFloat32(float32(fV))
 	case types.Typ[types.Float64], types.Typ[types.UntypedFloat]:
 		fV, err := strconv.ParseFloat(strValue, 64)
 		if err != nil {
-			panic(err)
+			return err
 		}
 		call = obfuscateFloat64(fV)
 	}
@@ -291,7 +296,7 @@ func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info) error {
 	splitStrValue := strings.Split(strValue, ".")
 	intValue, err := strconv.Atoi(splitStrValue[0])
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	switch typeInfo {

@@ -6,31 +6,25 @@ import (
 )
 
 func obfuscateString(data string) *ast.CallExpr {
-	obfuscator := getObfuscator()
+	obfuscator := randObfuscator()
 	block := obfuscator.Obfuscate([]byte(data))
 	block.List = append(block.List, &ast.ReturnStmt{
-		Results: []ast.Expr{
-			&ast.CallExpr{
-				Fun: &ast.Ident{Name: "string"},
-				Args: []ast.Expr{
-					&ast.Ident{Name: "data"},
-				},
-			},
-		},
+		Results: []ast.Expr{&ast.CallExpr{
+			Fun:  &ast.Ident{Name: "string"},
+			Args: []ast.Expr{&ast.Ident{Name: "data"}},
+		}},
 	})
 
-	return getCallexpr(&ast.Ident{Name: "string"}, block)
+	return callExpr(&ast.Ident{Name: "string"}, block)
 }
 
-func obfuscateByte(data []byte) *ast.CallExpr {
-	obfuscator := getObfuscator()
+func obfuscateBytes(data []byte) *ast.CallExpr {
+	obfuscator := randObfuscator()
 	block := obfuscator.Obfuscate(data)
 	block.List = append(block.List, &ast.ReturnStmt{
-		Results: []ast.Expr{
-			&ast.Ident{Name: "data"},
-		},
+		Results: []ast.Expr{&ast.Ident{Name: "data"}},
 	})
-	return getCallexpr(&ast.ArrayType{Elt: &ast.Ident{Name: "byte"}}, block)
+	return callExpr(&ast.ArrayType{Elt: &ast.Ident{Name: "byte"}}, block)
 }
 
 func obfuscateBool(data bool) *ast.BinaryExpr {
