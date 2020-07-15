@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/gob"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -96,32 +97,78 @@ var (
 	envGarbleDebugDir = os.Getenv("GARBLE_DEBUGDIR")
 	envGarbleSeed     = os.Getenv("GARBLE_SEED")
 	envGoPrivate      string // filled via 'go env' below to support 'go env -w'
+	envGarbleListPkgs = os.Getenv("GARBLE_LISTPKGS")
 
 	seed []byte
 )
 
-type listedPackage struct {
-	Export string
-	Deps   []string
+func saveListedPackages(w io.Writer, test bool, patterns ...string) error {
+	args := []string{"list", "-json", "-deps", "-export"}
+	if test {
+		args = append(args, "-test")
+	}
+	args = append(args, patterns...)
+	cmd := exec.Command("go", args...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("go list error: %v", err)
+	}
+	dec := json.NewDecoder(stdout)
+	listedPackages = make(map[string]*listedPackage)
+	for dec.More() {
+		var pkg listedPackage
+		if err := dec.Decode(&pkg); err != nil {
+			return err
+		}
+		listedPackages[pkg.ImportPath] = &pkg
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("go list error: %v: %s", err, stderr.Bytes())
+	}
+	if err := gob.NewEncoder(w).Encode(listedPackages); err != nil {
+		return err
+	}
+	return nil
 }
 
-// listPackage is a simple wrapper around 'go list -json'.
-func listPackage(path string) (listedPackage, error) {
-	var pkg listedPackage
-	cmd := exec.Command("go", "list", "-json", "-export", path)
-	if envGarbleDir == "" {
-		return pkg, fmt.Errorf("$GARBLE_DIR unset; did you run via 'garble build'?")
-	}
-	cmd.Dir = envGarbleDir
-	out, err := cmd.Output()
-	if err != nil {
-		if err, _ := err.(*exec.ExitError); err != nil {
-			return pkg, fmt.Errorf("go list error: %v: %s", err, err.Stderr)
+// listedPackages contains data obtained via 'go list -json -export -deps'. This
+// allows us to obtain the non-garbled export data of all dependencies, useful
+// for type checking of the packages as we obfuscate them.
+//
+// Note that we obtain this data once in saveListedPackages, store it into a
+// temporary file via gob encoding, and then reuse that file in each of the
+// garble processes that wrap a package compilation.
+var listedPackages map[string]*listedPackage
+
+type listedPackage struct {
+	ImportPath string
+	Export     string
+	Deps       []string
+}
+
+func listPackage(path string) (*listedPackage, error) {
+	if listedPackages == nil {
+		f, err := os.Open(envGarbleListPkgs)
+		if err != nil {
+			return nil, err
 		}
-		return pkg, fmt.Errorf("go list error: %v", err)
+		defer f.Close()
+		if err := gob.NewDecoder(f).Decode(&listedPackages); err != nil {
+			return nil, err
+		}
 	}
-	if err := json.Unmarshal(out, &pkg); err != nil {
-		return pkg, err
+	pkg, ok := listedPackages[path]
+	if !ok {
+		return nil, fmt.Errorf("path not found in listed packages: %s", path)
 	}
 	return pkg, nil
 }
@@ -187,8 +234,11 @@ func mainErr(args []string) error {
 	case "help":
 		flagSet.Usage()
 	case "build", "test":
-		if len(args) > 1 {
-			switch args[1] {
+		// Split the flags from the package arguments, since we'll need
+		// to run 'go list' on the same set of packages.
+		flags, args := splitFlagsFromArgs(args[1:])
+		for _, flag := range flags {
+			switch flag {
 			case "-h", "-help", "--help":
 				flagSet.Usage()
 			}
@@ -241,6 +291,21 @@ func mainErr(args []string) error {
 			}
 		}
 
+		f, err := ioutil.TempFile("", "garble-list-deps")
+		if err != nil {
+			return err
+		}
+		defer os.Remove(f.Name())
+		// TODO: Pass along flags that 'go list' understands too, such
+		// as -mod or -modfile.
+		if err := saveListedPackages(f, cmd == "test", args...); err != nil {
+			return err
+		}
+		os.Setenv("GARBLE_LISTPKGS", f.Name())
+		if err := f.Close(); err != nil {
+			return err
+		}
+
 		execPath, err := os.Executable()
 		if err != nil {
 			return err
@@ -256,7 +321,8 @@ func mainErr(args []string) error {
 			// disabled by default.
 			goArgs = append(goArgs, "-vet=off")
 		}
-		goArgs = append(goArgs, args[1:]...)
+		goArgs = append(goArgs, flags...)
+		goArgs = append(goArgs, args...)
 
 		cmd := exec.Command("go", goArgs...)
 		cmd.Stdout = os.Stdout
@@ -907,17 +973,58 @@ func transformLink(args []string) ([]string, error) {
 	return append(flags, paths...), nil
 }
 
+func splitFlagsFromArgs(all []string) (flags, args []string) {
+	for i := 0; i < len(all); i++ {
+		arg := all[i]
+		if !strings.HasPrefix(arg, "-") {
+			return all[:i], all[i:]
+		}
+		if booleanFlags[arg] || strings.Contains(arg, "=") {
+			// Either "-bool" or "-name=value".
+			continue
+		}
+		// "-name value", so the next arg is part of this flag.
+		i++
+	}
+	return all, nil
+}
+
+var booleanFlags = map[string]bool{
+	// Shared build flags.
+	"-a":          true,
+	"-i":          true,
+	"-n":          true,
+	"-v":          true,
+	"-x":          true,
+	"-race":       true,
+	"-msan":       true,
+	"-linkshared": true,
+	"-modcacherw": true,
+	"-trimpath":   true,
+
+	// Test flags (TODO: support its special -args flag)
+	"-c":        true,
+	"-json":     true,
+	"-cover":    true,
+	"-failfast": true,
+	"-short":    true,
+	"-benchmem": true,
+}
+
 // splitFlagsFromFiles splits args into a list of flag and file arguments. Since
 // we can't rely on "--" being present, and we don't parse all flags upfront, we
 // rely on finding the first argument that doesn't begin with "-" and that has
 // the extension we expect for the list of paths.
-func splitFlagsFromFiles(args []string, ext string) (flags, paths []string) {
-	for i, arg := range args {
+//
+// This function only makes sense for lower-level tool commands, such as
+// "compile" or "link", since their arguments are predictable.
+func splitFlagsFromFiles(all []string, ext string) (flags, paths []string) {
+	for i, arg := range all {
 		if !strings.HasPrefix(arg, "-") && strings.HasSuffix(arg, ext) {
-			return args[:i:i], args[i:]
+			return all[:i:i], all[i:]
 		}
 	}
-	return args, nil
+	return all, nil
 }
 
 // flagValue retrieves the value of a flag such as "-foo", from strings in the
