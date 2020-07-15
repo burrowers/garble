@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/rogpeppe/go-internal/goproxytest"
 	"github.com/rogpeppe/go-internal/gotooltest"
 	"github.com/rogpeppe/go-internal/testscript"
@@ -322,6 +323,49 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 
 	if err := printer.Fprint(codeFile, token.NewFileSet(), file); err != nil {
 		ts.Fatalf("%v", err)
+	}
+}
+
+func TestSplitFlagsFromArgs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+		want [2][]string
+	}{
+		{"Empty", []string{}, [2][]string{{}, nil}},
+		{
+			"JustFlags",
+			[]string{"-foo", "bar", "-baz"},
+			[2][]string{{"-foo", "bar", "-baz"}, nil},
+		},
+		{
+			"JustArgs",
+			[]string{"some", "pkgs"},
+			[2][]string{{}, {"some", "pkgs"}},
+		},
+		{
+			"FlagsAndArgs",
+			[]string{"-foo=bar", "baz"},
+			[2][]string{{"-foo=bar"}, {"baz"}},
+		},
+		{
+			"BoolFlagsAndArgs",
+			[]string{"-race", "pkg"},
+			[2][]string{{"-race"}, {"pkg"}},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			flags, args := splitFlagsFromArgs(test.args)
+			got := [2][]string{flags, args}
+
+			if diff := cmp.Diff(test.want, got); diff != "" {
+				t.Fatalf("splitFlagsFromArgs(%q) mismatch (-want +got):\n%s", test.args, diff)
+			}
+		})
 	}
 }
 
