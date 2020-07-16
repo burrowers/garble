@@ -9,10 +9,29 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
     - name: Install Go
-      uses: actions/setup-go@v1
+      uses: actions/setup-go@v2
       with:
         go-version: ${{ matrix.go-version }}
     - name: Checkout code
       uses: actions/checkout@v2
     - name: Test
-      run: go test ./...
+      run: |
+        go version
+        go test ./...
+
+  test-gotip:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install Go
+      run: |
+        git clone --depth=1 https://go.googlesource.com/go $HOME/gotip
+        cd $HOME/gotip/src
+        ./make.bash
+        echo "::set-env name=GOROOT::$HOME/gotip"
+        echo "::add-path::$HOME/gotip/bin"
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Test
+      run: |
+        go version
+        go test ./...
