@@ -1,10 +1,13 @@
-
+go run .
+cmp stderr main.stderr
+cp stderr normal.stderr
 garble -literals build
 exec ./main$exe
 cmp stderr main.stderr
+cmp stderr normal.stderr
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'stringTypeStruct'
 
-binsubstr main$exe 'Skip this block,' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap2 value' 'testMap3 value' 'testMap1 new value' 'testMap2 new value' 'testMap3 new value' 'stringType func param' 'stringType return'
+binsubstr main$exe 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return'
 [short] stop # checking that the build is reproducible is slow
 
 # Also check that the binary is reproducible.
@@ -18,9 +21,6 @@ module test/main
 -- main.go --
 package main
 
-// The lack of imports is an edge case, since we have to add imports like
-// crypto/aes.
-
 type strucTest struct {
 	field        string
 	anotherfield string
@@ -33,8 +33,8 @@ Second Line`
 )
 
 const (
-	skip1 = "Skip this block,"
-	i     = 1
+	i       = 1
+	boolean = true
 )
 
 const (
@@ -58,8 +58,10 @@ func main() {
 	reassign := "first assign"
 	reassign = "second assign"
 
-	println(cnst)
-	println(multiline)
+	add := "total" + " string"
+
+	println(cnst, boolean)
+	println(multiline, add)
 	println(localVar)
 	println(reassign)
 	println(empty)
@@ -68,6 +70,11 @@ func main() {
 		field:        "to obfuscate",
 		anotherfield: "also obfuscate",
 	}
+	
+	lambda := func() string {
+		return "😅 😅"
+	}()
+	println(lambda)
 
 	println(x.field, x.anotherfield)
 
@@ -75,10 +82,11 @@ func main() {
 	testMap["map key"] = "new value"
 	println(testMap["map key"])
 	println("another literal")
-	println(skip1, skip2)
+	println(skip2)
 	println(i, foo, bar)
 	typedTest()
 	constantTest()
+	byteTest()
 }
 
 type stringType string
@@ -112,8 +120,8 @@ func typedTest() {
 	testMap1 := map[string]stringType{"testMap1 key": "testMap1 value"} // skip
 	testMap1["testMap1 key"] = "testMap1 new value"                     // skip
 
-	testMap2 := map[stringType]string{"testMap2 key": "testMap2 value"} // skip
-	testMap2["testMap2 key"] = "testMap2 new value"                     // skip
+	testMap2 := map[stringType]string{"testMap2 key": "testMap2 value"} // skip key
+	testMap2["testMap2 key"] = "testMap2 new value"                     // skip key
 
 	testMap3 := map[stringType]stringType{"testMap3 key": "testMap3 value"} // skip
 	testMap3["testMap3 key"] = "testMap3 new value"                         // skip
@@ -152,22 +160,42 @@ func constantTest() {
 	const i = length + len(f)
 }
 
+func byteTest() {
+	a := []byte{12, 13}
+	for _, elm := range a {
+		print(elm, ", ")
+	}
+	println()
+	var b = []byte{12, 13}
+	for _, elm := range b {
+		print(elm, ", ")
+	}
+	println()
+
+	var c = [2]byte{12, 13}
+	for _, elm := range c {
+		print(elm, ", ")
+	}
+	println()
+}
+
 func stringTypeFunc(s stringType) stringType {
 	println(s)
 	return "stringType return" // skip
 }
 
 -- main.stderr --
-Lorem
+Lorem true
 First Line
-Second Line
+Second Line total string
 dolor
 second assign
 
+😅 😅
 to obfuscate also obfuscate
 new value
 another literal
-Skip this block, also skip this
+also skip this
 1 0 1
 skip typed const skip typed var skip typed var assign
 stringTypeField String stringTypeField strType
@@ -176,3 +204,6 @@ stringType func param
 stringType return
 foo
 foo
+12, 13, 
+12, 13, 
+12, 13, 
