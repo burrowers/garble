@@ -54,15 +54,20 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 				for _, name := range spec.Names {
 					obj := info.ObjectOf(name)
 
+					basic, ok := obj.Type().(*types.Basic)
+					if !ok {
+						// skip the block if it contains non basic types
+						return false
+					}
+
+					if basic.Info()&types.IsUntyped != 0 {
+						// skip the block if it contains untyped constants
+						return false
+					}
+
 					// The object itself is blacklisted, e.g. a value that needs to be constant
 					if _, ok := blacklist[obj]; ok {
 						return false
-					}
-				}
-
-				for _, val := range spec.Values {
-					if _, ok := val.(*ast.BasicLit); !ok {
-						return false // skip the block if it contains non basic literals
 					}
 				}
 			}
@@ -79,35 +84,53 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 		case *ast.CompositeLit:
 			byteType := types.Universe.Lookup("byte").Type()
 
-			switch x := info.TypeOf(x.Type).(type) {
+			switch y := info.TypeOf(x.Type).(type) {
 			case *types.Array:
-				if x.Elem() != byteType {
+				if y.Elem() != byteType {
 					return true
 				}
+
+				data := make([]byte, y.Len())
+
+				for i, el := range x.Elts {
+					lit, ok := el.(*ast.BasicLit)
+					if !ok {
+						return true
+					}
+
+					value, err := strconv.Atoi(lit.Value)
+					if err != nil {
+						return true
+					}
+
+					data[i] = byte(value)
+				}
+				cursor.Replace(obfuscateByteArray(data, y.Len()))
+
 			case *types.Slice:
-				if x.Elem() != byteType {
+				if y.Elem() != byteType {
 					return true
 				}
-			default:
-				return true
+
+				var data []byte
+
+				for _, el := range x.Elts {
+					lit, ok := el.(*ast.BasicLit)
+					if !ok {
+						return true
+					}
+
+					value, err := strconv.Atoi(lit.Value)
+					if err != nil {
+						return true
+					}
+
+					data = append(data, byte(value))
+				}
+				cursor.Replace(obfuscateByteSlice(data))
+
 			}
 
-			var data []byte
-			for _, el := range x.Elts {
-				lit, ok := el.(*ast.BasicLit)
-				if !ok {
-					return true
-				}
-
-				value, err := strconv.Atoi(lit.Value)
-				if err != nil {
-					return true
-				}
-
-				data = append(data, byte(value))
-			}
-
-			cursor.Replace(obfuscateBytes(data))
 		case *ast.BasicLit:
 			switch cursor.Name() {
 			case "Values", "Rhs", "Value", "Args", "X", "Y", "Results":
@@ -152,13 +175,63 @@ func obfuscateString(data string) *ast.CallExpr {
 	return callExpr(&ast.Ident{Name: "string"}, block)
 }
 
-func obfuscateBytes(data []byte) *ast.CallExpr {
+func obfuscateByteSlice(data []byte) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate(data)
 	block.List = append(block.List, &ast.ReturnStmt{
 		Results: []ast.Expr{&ast.Ident{Name: "data"}},
 	})
 	return callExpr(&ast.ArrayType{Elt: &ast.Ident{Name: "byte"}}, block)
+}
+
+func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
+	obfuscator := randObfuscator()
+	block := obfuscator.obfuscate(data)
+
+	arrayType := &ast.ArrayType{
+		Len: &ast.BasicLit{
+			Kind:  token.INT,
+			Value: strconv.Itoa(int(length)),
+		},
+		Elt: &ast.Ident{Name: "byte"},
+	}
+
+	sliceToArray := []ast.Stmt{
+		&ast.DeclStmt{
+			Decl: &ast.GenDecl{
+				Tok: token.VAR,
+				Specs: []ast.Spec{&ast.ValueSpec{
+					Names: []*ast.Ident{{Name: "newdata"}},
+					Type:  arrayType,
+				}},
+			},
+		},
+		&ast.RangeStmt{
+			Key: &ast.Ident{Name: "i"},
+			Tok: token.DEFINE,
+			X:   &ast.Ident{Name: "newdata"},
+			Body: &ast.BlockStmt{List: []ast.Stmt{
+				&ast.AssignStmt{
+					Lhs: []ast.Expr{&ast.IndexExpr{
+						X:     &ast.Ident{Name: "newdata"},
+						Index: &ast.Ident{Name: "i"},
+					}},
+					Tok: token.ASSIGN,
+					Rhs: []ast.Expr{&ast.IndexExpr{
+						X:     &ast.Ident{Name: "data"},
+						Index: &ast.Ident{Name: "i"},
+					}},
+				},
+			}},
+		},
+		&ast.ReturnStmt{Results: []ast.Expr{
+			&ast.Ident{Name: "newdata"},
+		}},
+	}
+
+	block.List = append(block.List, sliceToArray...)
+
+	return callExpr(arrayType, block)
 }
 
 // ConstBlacklist blacklist identifieres used in constant expressions
