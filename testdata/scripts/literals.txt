@@ -7,7 +7,7 @@ cmp stderr main.stderr
 cmp stderr normal.stderr
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'stringTypeStruct'
 
-binsubstr main$exe 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return'
+binsubstr main$exe 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
 [short] stop # checking that the build is reproducible is slow
 
 # Also check that the binary is reproducible.
@@ -28,7 +28,7 @@ type strucTest struct {
 
 const (
 	cnst      string = "Lorem"
-	multiline        = `First Line
+	multiline string = `First Line
 Second Line`
 )
 
@@ -70,7 +70,7 @@ func main() {
 		field:        "to obfuscate",
 		anotherfield: "also obfuscate",
 	}
-	
+
 	lambda := func() string {
 		return "😅 😅"
 	}()
@@ -98,6 +98,9 @@ type stringTypeStruct struct {
 
 // typedTest types defined from string broke previously
 func typedTest() {
+	const skipUntypedConst = "skip untyped const"
+	stringTypeFunc(skipUntypedConst)
+
 	const skipTypedConst stringType = "skip typed const" // skip
 	var skipTypedVar stringType = "skip typed var"       // skip
 
@@ -158,6 +161,7 @@ func constantTest() {
 
 	const f = "foo" // skip
 	const i = length + len(f)
+	println(length, i)
 }
 
 func byteTest() {
@@ -174,6 +178,14 @@ func byteTest() {
 
 	var c = [2]byte{12, 13}
 	for _, elm := range c {
+		print(elm, ", ")
+	}
+	println()
+
+	d := func() [4]byte {
+		return [4]byte{12, 13}
+	}()
+	for _, elm := range d {
 		print(elm, ", ")
 	}
 	println()
@@ -197,6 +209,7 @@ new value
 another literal
 also skip this
 1 0 1
+skip untyped const
 skip typed const skip typed var skip typed var assign
 stringTypeField String stringTypeField strType
 stringType lambda func return
@@ -204,6 +217,8 @@ stringType func param
 stringType return
 foo
 foo
+3 6
 12, 13, 
 12, 13, 
 12, 13, 
+12, 13, 0, 0, 
