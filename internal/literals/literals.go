@@ -11,36 +11,22 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 )
 
-func callExpr(resultType ast.Expr, block *ast.BlockStmt) *ast.CallExpr {
-	return &ast.CallExpr{Fun: &ast.FuncLit{
-		Type: &ast.FuncType{
-			Params: &ast.FieldList{},
-			Results: &ast.FieldList{
-				List: []*ast.Field{
-					{Type: resultType},
-				},
-			},
-		},
-		Body: block,
-	}}
-}
+var (
+	usesUnsafe     bool
+	universalTrue  = types.Universe.Lookup("true")
+	universalFalse = types.Universe.Lookup("false")
+)
 
 func randObfuscator() obfuscator {
 	randPos := mathrand.Intn(len(obfuscators))
 	return obfuscators[randPos]
 }
 
-func returnStmt(result ast.Expr) *ast.ReturnStmt {
-	return &ast.ReturnStmt{
-		Results: []ast.Expr{result},
-	}
-}
-
 // Obfuscate replace literals with obfuscated lambda functions
 func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blacklist map[types.Object]struct{}) []*ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
-		switch x := cursor.Node().(type) {
 
+		switch x := cursor.Node().(type) {
 		case *ast.GenDecl:
 			if x.Tok != token.CONST {
 				return true
@@ -84,6 +70,10 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 		case *ast.CompositeLit:
 			byteType := types.Universe.Lookup("byte").Type()
 
+			if len(x.Elts) == 0 {
+				return true
+			}
+
 			switch y := info.TypeOf(x.Type).(type) {
 			case *types.Array:
 				if y.Elem() != byteType {
@@ -112,7 +102,7 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 					return true
 				}
 
-				var data []byte
+				data := make([]byte, 0, len(x.Elts))
 
 				for _, el := range x.Elts {
 					lit, ok := el.(*ast.BasicLit)
@@ -139,6 +129,8 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 			}
 
 			switch x.Kind {
+			case token.FLOAT, token.INT:
+				obfuscateNumberLiteral(cursor, info)
 			case token.STRING:
 				typeInfo := info.TypeOf(x)
 				if typeInfo != types.Typ[types.String] && typeInfo != types.Typ[types.UntypedString] {
@@ -149,7 +141,28 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 					panic(fmt.Sprintf("cannot unquote string: %v", err))
 				}
 
+				if len(value) == 0 {
+					return true
+				}
+
 				cursor.Replace(obfuscateString(value))
+			}
+		case *ast.UnaryExpr:
+			switch cursor.Name() {
+			case "Values", "Rhs", "Value", "Args", "X":
+			default:
+				return true // we don't want to obfuscate imports etc.
+			}
+
+			obfuscateNumberLiteral(cursor, info)
+		case *ast.Ident:
+			obj := info.ObjectOf(x)
+			if obj == nil {
+				return true
+			}
+
+			if obj == universalTrue || obj == universalFalse {
+				cursor.Replace(obfuscateBool(x.Name == "true"))
 			}
 		}
 
@@ -157,7 +170,11 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 	}
 
 	for i := range files {
+		usesUnsafe = false
 		files[i] = astutil.Apply(files[i], pre, post).(*ast.File)
+		if usesUnsafe {
+			astutil.AddImport(fset, files[i], "unsafe")
+		}
 	}
 	return files
 }
@@ -165,23 +182,17 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 func obfuscateString(data string) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate([]byte(data))
-	block.List = append(block.List, &ast.ReturnStmt{
-		Results: []ast.Expr{&ast.CallExpr{
-			Fun:  &ast.Ident{Name: "string"},
-			Args: []ast.Expr{&ast.Ident{Name: "data"}},
-		}},
-	})
 
-	return callExpr(&ast.Ident{Name: "string"}, block)
+	block.List = append(block.List, returnStmt(callExpr(ident("string"), ident("data"))))
+
+	return lambdaCall(ident("string"), block)
 }
 
 func obfuscateByteSlice(data []byte) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate(data)
-	block.List = append(block.List, &ast.ReturnStmt{
-		Results: []ast.Expr{&ast.Ident{Name: "data"}},
-	})
-	return callExpr(&ast.ArrayType{Elt: &ast.Ident{Name: "byte"}}, block)
+	block.List = append(block.List, returnStmt(ident("data")))
+	return lambdaCall(&ast.ArrayType{Elt: ident("byte")}, block)
 }
 
 func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
@@ -189,11 +200,8 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 	block := obfuscator.obfuscate(data)
 
 	arrayType := &ast.ArrayType{
-		Len: &ast.BasicLit{
-			Kind:  token.INT,
-			Value: strconv.Itoa(int(length)),
-		},
-		Elt: &ast.Ident{Name: "byte"},
+		Len: intLiteral(strconv.Itoa(int(length))),
+		Elt: ident("byte"),
 	}
 
 	sliceToArray := []ast.Stmt{
@@ -201,37 +209,44 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 			Decl: &ast.GenDecl{
 				Tok: token.VAR,
 				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{{Name: "newdata"}},
+					Names: []*ast.Ident{ident("newdata")},
 					Type:  arrayType,
 				}},
 			},
 		},
 		&ast.RangeStmt{
-			Key: &ast.Ident{Name: "i"},
+			Key: ident("i"),
 			Tok: token.DEFINE,
-			X:   &ast.Ident{Name: "newdata"},
+			X:   ident("newdata"),
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{&ast.IndexExpr{
-						X:     &ast.Ident{Name: "newdata"},
-						Index: &ast.Ident{Name: "i"},
-					}},
+					Lhs: []ast.Expr{indexExpr("newdata", ident("i"))},
 					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{&ast.IndexExpr{
-						X:     &ast.Ident{Name: "data"},
-						Index: &ast.Ident{Name: "i"},
-					}},
+					Rhs: []ast.Expr{indexExpr("data", ident("i"))},
 				},
 			}},
 		},
-		&ast.ReturnStmt{Results: []ast.Expr{
-			&ast.Ident{Name: "newdata"},
-		}},
+		returnStmt(ident("newdata")),
 	}
 
 	block.List = append(block.List, sliceToArray...)
 
-	return callExpr(arrayType, block)
+	return lambdaCall(arrayType, block)
+}
+
+func obfuscateBool(data bool) *ast.BinaryExpr {
+	var dataUint64 uint64 = 0
+	if data {
+		dataUint64 = 1
+	}
+
+	intType := intTypes[types.Typ[types.Uint8]]
+
+	return &ast.BinaryExpr{
+		X:  genObfuscateInt(dataUint64, intType),
+		Op: token.EQL,
+		Y:  intLiteral("1"),
+	}
 }
 
 // ConstBlacklist blacklist identifieres used in constant expressions

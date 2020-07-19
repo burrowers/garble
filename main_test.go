@@ -4,15 +4,19 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rogpeppe/go-internal/goproxytest"
 	"github.com/rogpeppe/go-internal/gotooltest"
@@ -73,8 +77,10 @@ func TestScripts(t *testing.T) {
 			return nil
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
-			"binsubstr": binsubstr,
-			"bincmp":    bincmp,
+			"binsubstr":   binsubstr,
+			"bincmp":      bincmp,
+			"binsubint":   binsubint,
+			"binsubfloat": binsubfloat,
 		},
 		UpdateScripts: *update,
 	}
@@ -101,11 +107,35 @@ func copyFile(from, to string) error {
 	return err
 }
 
+type binaryCache struct {
+	name    string
+	modtime time.Time
+	content string
+}
+
+var cachedBinary binaryCache
+
+func readFile(ts *testscript.TestScript, file string) string {
+	file = ts.MkAbs(file)
+	info, err := os.Stat(file)
+	if err != nil {
+		ts.Fatalf("%v", err)
+	}
+
+	if cachedBinary.modtime == info.ModTime() && cachedBinary.name == file {
+		return cachedBinary.content
+	}
+
+	cachedBinary.name = file
+	cachedBinary.modtime = info.ModTime()
+	cachedBinary.content = ts.ReadFile(file)
+	return cachedBinary.content
+}
 func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
 	if len(args) < 2 {
 		ts.Fatalf("usage: binsubstr file substr...")
 	}
-	data := ts.ReadFile(args[0])
+	data := readFile(ts, args[0])
 	var failed []string
 	for _, substr := range args[1:] {
 		match := strings.Contains(data, substr)
@@ -119,6 +149,73 @@ func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
 		ts.Fatalf("unexpected match for %q in %s", failed, args[0])
 	} else if len(failed) > 0 {
 		ts.Fatalf("expected match for %q in %s", failed, args[0])
+	}
+}
+
+func binsubint(ts *testscript.TestScript, neg bool, args []string) {
+	if len(args) < 2 {
+		ts.Fatalf("usage: binsubint file subint...")
+	}
+
+	data := readFile(ts, args[0])
+	var failed []string
+	for _, subIntStr := range args[1:] {
+		subInt, err := strconv.Atoi(subIntStr)
+		if err != nil {
+			ts.Fatalf("%v", err)
+		}
+
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, uint64(subInt))
+
+		match := strings.Contains(data, string(b))
+		if !match {
+			binary.BigEndian.PutUint64(b, uint64(subInt))
+			match = strings.Contains(data, string(b))
+		}
+		if match && neg {
+			failed = append(failed, subIntStr)
+		} else if !match && !neg {
+			failed = append(failed, subIntStr)
+		}
+	}
+	if len(failed) > 0 && neg {
+		ts.Fatalf("unexpected match for %s in %s", failed, args[0])
+	} else if len(failed) > 0 {
+		ts.Fatalf("expected match for %s in %s", failed, args[0])
+	}
+}
+
+func binsubfloat(ts *testscript.TestScript, neg bool, args []string) {
+	if len(args) < 2 {
+		ts.Fatalf("usage: binsubint file binsubfloat...")
+	}
+	data := readFile(ts, args[0])
+	var failed []string
+	for _, subFloatStr := range args[1:] {
+		subFloat, err := strconv.ParseFloat(subFloatStr, 64)
+		if err != nil {
+			ts.Fatalf("%v", err)
+		}
+
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, math.Float64bits(subFloat))
+
+		match := strings.Contains(data, string(b))
+		if !match {
+			binary.BigEndian.PutUint64(b, math.Float64bits(subFloat))
+			match = strings.Contains(data, string(b))
+		}
+		if match && neg {
+			failed = append(failed, subFloatStr)
+		} else if !match && !neg {
+			failed = append(failed, subFloatStr)
+		}
+	}
+	if len(failed) > 0 && neg {
+		ts.Fatalf("unexpected match for %s in %s", failed, args[0])
+	} else if len(failed) > 0 {
+		ts.Fatalf("expected match for %s in %s", failed, args[0])
 	}
 }
 

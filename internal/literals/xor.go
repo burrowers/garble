@@ -20,34 +20,28 @@ func (x xor) obfuscate(data []byte) *ast.BlockStmt {
 
 	return &ast.BlockStmt{List: []ast.Stmt{
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "key"}},
+			Lhs: []ast.Expr{ident("key")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{dataToByteSlice(key)},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "data"}},
+			Lhs: []ast.Expr{ident("data")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{dataToByteSlice(data)},
 		},
 		&ast.RangeStmt{
-			Key:   &ast.Ident{Name: "i"},
-			Value: &ast.Ident{Name: "b"},
+			Key:   ident("i"),
+			Value: ident("b"),
 			Tok:   token.DEFINE,
-			X:     &ast.Ident{Name: "key"},
+			X:     ident("key"),
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{&ast.IndexExpr{
-						X:     &ast.Ident{Name: "data"},
-						Index: &ast.Ident{Name: "i"},
-					}},
+					Lhs: []ast.Expr{indexExpr("data", ident("i"))},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{&ast.BinaryExpr{
-						X: &ast.IndexExpr{
-							X:     &ast.Ident{Name: "data"},
-							Index: &ast.Ident{Name: "i"},
-						},
+						X:  indexExpr("data", ident("i")),
 						Op: token.XOR,
-						Y:  &ast.Ident{Name: "b"},
+						Y:  ident("b"),
 					}},
 				},
 			}},

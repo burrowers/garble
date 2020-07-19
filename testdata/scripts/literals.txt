@@ -1,13 +1,21 @@
-go run .
+go build
+exec ./main$exe
+binsubstr main$exe 'Lorem' 'dolor' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 
+
+binsubint main$exe '-7081390804778629748' '-301627827188279046' '7679634459002713443'
+binsubfloat main$exe '3684433217126772357.33' '-9015867427900753906'
 cmp stderr main.stderr
 cp stderr normal.stderr
 garble -literals build
 exec ./main$exe
 cmp stderr main.stderr
 cmp stderr normal.stderr
-! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'ipsum' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'stringTypeStruct'
+! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 
 
-binsubstr main$exe 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
+binsubstr main$exe 'Skip this block' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
+
+! binsubint main$exe '-7081390804778629748' '-301627827188279046' '7679634459002713443'
+! binsubfloat main$exe '3684433217126772357.33' '-9015867427900753906'
 [short] stop # checking that the build is reproducible is slow
 
 # Also check that the binary is reproducible.
@@ -35,6 +43,8 @@ Second Line`
 const (
 	i       = 1
 	boolean = true
+
+	skip1 = "Skip this block"
 )
 
 const (
@@ -82,11 +92,13 @@ func main() {
 	testMap["map key"] = "new value"
 	println(testMap["map key"])
 	println("another literal")
-	println(skip2)
+	println(skip1, skip2)
 	println(i, foo, bar)
 	typedTest()
 	constantTest()
 	byteTest()
+	numTest()
+	boolTest()
 }
 
 type stringType string
@@ -196,6 +208,80 @@ func stringTypeFunc(s stringType) stringType {
 	return "stringType return" // skip
 }
 
+func numTest() {
+	const a = 1 // skip
+
+	const b = a + 2 // skip
+
+	const c = 2824583991413579605
+
+	d := 4
+
+	var e = 5
+
+	var f int
+	f = 3735714531481032066
+
+	println(a, b, c, d, e, f)
+
+	var (
+		untypedInt       = -7081390804778629760 + 12
+		intVar     int   = -301627827188279046
+		int8Var    int8  = -122.0
+		int16Var   int16 = 3534
+		int32Var   int32 = 333453534
+		int64Var   int64 = 4568766098255857483
+
+		uintVar    uint    = 7679634459002713443
+		uint8Var   uint8   = 34
+		uint16Var  uint16  = 3534
+		uint32Var  uint32  = 333453534
+		uint64Var  uint64  = 5490982829161518439
+		uintptrVar uintptr = 7364326871810921708
+
+		untypedFloat         = 3684433217126772357.33
+		floatVar     float64 = -9015867427900753906
+		floatVar32   float32 = 6338507605633
+
+		complexVar64  complex64  = -435453453534 // skip
+		complexVar128 complex128 = 1 + 4i        // skip
+
+		underscoreInt   = 1_3_3_7
+		underscoreFloat = 1_3_3_7.0
+
+		hexInt   = 0x1337   // skip
+		hexFloat = 0x1337p0 // skip
+
+		octalInt   = 0o1337 // skip
+		octalFloat = 0o1337 // skip
+	)
+
+	floatShort := -435453453534.0
+	println(untypedInt, intVar, int8Var, int16Var, int32Var, int64Var)
+	println(uintVar, uint8Var, uint16Var, uint32Var, uint64Var, uintptrVar)
+	println(untypedFloat, floatVar, floatShort, floatVar32)
+	println(complexVar64, complexVar128)
+	println(underscoreInt, underscoreFloat, hexInt, hexFloat, octalInt, octalFloat)
+
+}
+
+func boolTest() {
+	const a = true // skip
+
+	const b = false == a // skip
+
+	const c bool = false
+
+	d := true
+
+	var e = true
+
+	var f bool
+	f = false
+
+	println(a, b, c, d, e, f)
+}
+
 -- main.stderr --
 Lorem true
 First Line
@@ -207,7 +293,7 @@ second assign
 to obfuscate also obfuscate
 new value
 another literal
-also skip this
+Skip this block also skip this
 1 0 1
 skip untyped const
 skip typed const skip typed var skip typed var assign
@@ -222,3 +308,10 @@ foo
 12, 13, 
 12, 13, 
 12, 13, 0, 0, 
+1 3 2824583991413579605 4 5 3735714531481032066
+-7081390804778629748 -301627827188279046 -122 3534 333453534 4568766098255857483
+7679634459002713443 34 3534 333453534 5490982829161518439 7364326871810921708
++3.684433e+018 -9.015867e+018 -4.354535e+011 +6.338508e+012
+(-4.354535e+011+0.000000e+000i) (+1.000000e+000+4.000000e+000i)
+1337 +1.337000e+003 4919 +4.919000e+003 735 735
+true false false true true false
