@@ -19,6 +19,7 @@ var (
 	// obfuscators contains all types which implement the obfuscator Interface
 	obfuscators = []obfuscator{
 		xor{},
+		swap{},
 	}
 	envGarbleSeed = os.Getenv("GARBLE_SEED")
 )
@@ -57,4 +58,16 @@ func genRandBytes(buffer []byte) {
 
 func genRandInt() int {
 	return mathrand.Int()
+}
+
+func genRandIntn(max int) int {
+	return mathrand.Intn(max)
+}
+
+func generateIntSlice(max, count int) []int {
+	indexes := make([]int, count)
+	for i := 0; i < count; i++ {
+		indexes[i] = genRandIntn(max)
+	}
+	return indexes
 }
