@@ -41,12 +41,13 @@ func positionsToSlice(data []int) *ast.CompositeLit {
 
 // Generates a random even swap count based on the length of data
 func generateSwapCount(dataLen int) int {
-	maxExtraPositions := dataLen / 2
-	if maxExtraPositions == 0 {
-		maxExtraPositions = 1
+	swapCount := dataLen
+
+	maxExtraPositions := dataLen / 2 // Limit the number of extra positions to half the data length
+	if maxExtraPositions > 1 {
+		swapCount += genRandIntn(maxExtraPositions)
 	}
-	swapCount := dataLen + genRandIntn(maxExtraPositions)
-	if swapCount%2 != 0 {
+	if swapCount%2 != 0 { // Swap count must be even
 		swapCount++
 	}
 	return swapCount
@@ -58,8 +59,8 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 
 	positions := generateIntSlice(len(data), swapCount)
 	for i := len(positions) - 2; i >= 0; i -= 2 {
-		localKey := byte(i) + byte(positions[i]^positions[i+1]) + shiftKey
-		data[positions[i]], data[positions[i+1]] = data[positions[i+1]]^localKey, data[positions[i]]^localKey
+		localKey := byte(i) + byte(positions[i]^positions[i+1]) + shiftKey                                    // Generate local key for xor based on random key and byte position
+		data[positions[i]], data[positions[i+1]] = data[positions[i+1]]^localKey, data[positions[i]]^localKey // Swap bytes from i+1 to i and xor using local key
 	}
 
 	return &ast.BlockStmt{List: []ast.Stmt{
