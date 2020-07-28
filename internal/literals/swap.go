@@ -11,13 +11,26 @@ type swap struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = swap{}
 
-func dataToIntSlice(data []int) *ast.CompositeLit {
+// Source: https://golang.org/ref/spec#Numeric_types
+const maxUInt8 = 255
+const maxUint16 = 65535
+
+func getIndexType(dataLen int) string {
+	switch {
+	case dataLen <= maxUInt8:
+		return "byte"
+	case dataLen <= maxUint16:
+		return "uint16"
+	default:
+		return "uint32"
+	}
+}
+
+func indexesToSlice(data []int) *ast.CompositeLit {
 	arr := &ast.CompositeLit{
 		Type: &ast.ArrayType{
 			Len: &ast.Ellipsis{}, // Performance optimization
-			Elt: &ast.Ident{
-				Name: "int",
-			},
+			Elt: ident(getIndexType(len(data))),
 		},
 		Elts: []ast.Expr{},
 	}
@@ -53,7 +66,7 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 			},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{
-				dataToIntSlice(indexes),
+				indexesToSlice(indexes),
 			},
 		},
 		&ast.ForStmt{
