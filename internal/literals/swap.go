@@ -18,8 +18,10 @@ func getIndexType(dataLen int) string {
 		return "byte"
 	case dataLen <= math.MaxUint16:
 		return "uint16"
-	default:
+	case dataLen <= math.MaxUint32:
 		return "uint32"
+	default:
+		return "uint64"
 	}
 }
 
