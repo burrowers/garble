@@ -9,10 +9,11 @@ import (
 func ident(name string) *ast.Ident {
 	return &ast.Ident{Name: name}
 }
-func intLiteral(value string) *ast.BasicLit {
+
+func intLiteral(value int) *ast.BasicLit {
 	return &ast.BasicLit{
 		Kind:  token.INT,
-		Value: value,
+		Value: strconv.Itoa(value),
 	}
 }
 
@@ -62,10 +63,9 @@ func returnStmt(results ...ast.Expr) *ast.ReturnStmt {
 
 // _ = data[pos]
 func boundsCheckData(pos int) *ast.AssignStmt {
-	posStr := strconv.Itoa(pos)
 	return &ast.AssignStmt{
 		Lhs: []ast.Expr{ident("_")},
 		Tok: token.ASSIGN,
-		Rhs: []ast.Expr{indexExpr("data", intLiteral(posStr))},
+		Rhs: []ast.Expr{indexExpr("data", intLiteral(pos))},
 	}
 }
