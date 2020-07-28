@@ -131,6 +131,7 @@ func readFile(ts *testscript.TestScript, file string) string {
 	cachedBinary.content = ts.ReadFile(file)
 	return cachedBinary.content
 }
+
 func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
 	if len(args) < 2 {
 		ts.Fatalf("usage: binsubstr file substr...")

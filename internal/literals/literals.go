@@ -25,7 +25,6 @@ func randObfuscator() obfuscator {
 // Obfuscate replace literals with obfuscated lambda functions
 func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blacklist map[types.Object]struct{}) []*ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
-
 		switch x := cursor.Node().(type) {
 		case *ast.GenDecl:
 			if x.Tok != token.CONST {

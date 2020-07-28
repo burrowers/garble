@@ -56,18 +56,10 @@ func genRandBytes(buffer []byte) {
 	}
 }
 
-func genRandInt() int {
-	return mathrand.Int()
-}
-
-func genRandIntn(max int) int {
-	return mathrand.Intn(max)
-}
-
-func generateIntSlice(max, count int) []int {
+func genRandIntSlice(max, count int) []int {
 	indexes := make([]int, count)
 	for i := 0; i < count; i++ {
-		indexes[i] = genRandIntn(max)
+		indexes[i] = mathrand.Intn(max)
 	}
 	return indexes
 }
