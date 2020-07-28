@@ -95,31 +95,17 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 						Rhs: []ast.Expr{
 							&ast.BinaryExpr{
 								X: &ast.BinaryExpr{
-									X: &ast.CallExpr{
-										Fun:  ident("byte"),
-										Args: []ast.Expr{ident("i")},
-									},
+									X:  callExpr(ident("byte"), ident("i")),
 									Op: token.ADD,
-									Y: &ast.CallExpr{
-										Fun: ident("byte"),
-										Args: []ast.Expr{
-											&ast.BinaryExpr{
-												X: &ast.IndexExpr{
-													X:     ident("positions"),
-													Index: ident("i"),
-												},
-												Op: token.XOR,
-												Y: &ast.IndexExpr{
-													X: ident("positions"),
-													Index: &ast.BinaryExpr{
-														X:  ident("i"),
-														Op: token.ADD,
-														Y:  intLiteral("1"),
-													},
-												},
-											},
-										},
-									},
+									Y: callExpr(ident("byte"), &ast.BinaryExpr{
+										X:  indexExpr("positions", ident("i")),
+										Op: token.XOR,
+										Y: indexExpr("positions", &ast.BinaryExpr{
+											X:  ident("i"),
+											Op: token.ADD,
+											Y:  intLiteral("1"),
+										}),
+									}),
 								},
 								Op: token.ADD,
 								Y:  intLiteral(strconv.Itoa(int(shiftKey))),
