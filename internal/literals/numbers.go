@@ -122,19 +122,17 @@ func bytesToUint(bits int) ast.Expr {
 
 	var expr ast.Expr
 	for i := 0; i < bytes; i++ {
-		posStr := strconv.Itoa(i)
-
 		if i == 0 {
-			expr = callExpr(ident("uint"+bitsStr), indexExpr("data", intLiteral(posStr)))
+			expr = callExpr(ident("uint"+bitsStr), indexExpr("data", intLiteral(i)))
 			continue
 		}
 
-		shiftValue := strconv.Itoa(i * 8)
+		shiftValue := i * 8
 		expr = &ast.BinaryExpr{
 			X:  expr,
 			Op: token.OR,
 			Y: &ast.BinaryExpr{
-				X:  callExpr(ident("uint"+bitsStr), indexExpr("data", intLiteral(posStr))),
+				X:  callExpr(ident("uint"+bitsStr), indexExpr("data", intLiteral(i))),
 				Op: token.SHL,
 				Y:  intLiteral(shiftValue),
 			},

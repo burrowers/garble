@@ -200,7 +200,7 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 	block := obfuscator.obfuscate(data)
 
 	arrayType := &ast.ArrayType{
-		Len: intLiteral(strconv.Itoa(int(length))),
+		Len: intLiteral(int(length)),
 		Elt: ident("byte"),
 	}
 
@@ -245,7 +245,7 @@ func obfuscateBool(data bool) *ast.BinaryExpr {
 	return &ast.BinaryExpr{
 		X:  genObfuscateInt(dataUint64, intType),
 		Op: token.EQL,
-		Y:  intLiteral("1"),
+		Y:  intLiteral(1),
 	}
 }
 
