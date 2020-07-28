@@ -3,6 +3,7 @@ package literals
 import (
 	"go/ast"
 	"go/token"
+	"math"
 	"strconv"
 )
 
@@ -11,22 +12,18 @@ type swap struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = swap{}
 
-// Source: https://golang.org/ref/spec#Numeric_types
-const maxUInt8 = 255
-const maxUint16 = 65535
-
 func getIndexType(dataLen int) string {
 	switch {
-	case dataLen <= maxUInt8:
+	case dataLen <= math.MaxUint8:
 		return "byte"
-	case dataLen <= maxUint16:
+	case dataLen <= math.MaxUint16:
 		return "uint16"
 	default:
 		return "uint32"
 	}
 }
 
-func indexesToSlice(data []int) *ast.CompositeLit {
+func positionsToSlice(data []int) *ast.CompositeLit {
 	arr := &ast.CompositeLit{
 		Type: &ast.ArrayType{
 			Len: &ast.Ellipsis{}, // Performance optimization
@@ -49,12 +46,12 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 	if count%2 != 0 {
 		count++
 	}
-	shiftKey := byte(genRandIntn(maxUInt8))
+	shiftKey := byte(genRandIntn(math.MaxUint8))
 
-	indexes := generateIntSlice(len(data), count)
-	for i := len(indexes) - 2; i >= 0; i -= 2 {
-		localKey := byte(i) + byte(indexes[i]^indexes[i+1]) + shiftKey
-		data[indexes[i]], data[indexes[i+1]] = data[indexes[i+1]]^localKey, data[indexes[i]]^localKey
+	positions := generateIntSlice(len(data), count)
+	for i := len(positions) - 2; i >= 0; i -= 2 {
+		localKey := byte(i) + byte(positions[i]^positions[i+1]) + shiftKey
+		data[positions[i]], data[positions[i+1]] = data[positions[i+1]]^localKey, data[positions[i]]^localKey
 	}
 
 	return &ast.BlockStmt{List: []ast.Stmt{
@@ -64,53 +61,37 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 			Rhs: []ast.Expr{dataToByteSlice(data)},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{
-				ident("indexes"),
-			},
+			Lhs: []ast.Expr{ident("positions")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{
-				indexesToSlice(indexes),
-			},
+			Rhs: []ast.Expr{positionsToSlice(positions)},
 		},
 		&ast.ForStmt{
 			Init: &ast.AssignStmt{
-				Lhs: []ast.Expr{
-					ident("i"),
-				},
+				Lhs: []ast.Expr{ident("i")},
 				Tok: token.DEFINE,
-				Rhs: []ast.Expr{
-					intLiteral("0"),
-				},
+				Rhs: []ast.Expr{intLiteral("0")},
 			},
 			Cond: &ast.BinaryExpr{
 				X:  ident("i"),
 				Op: token.LSS,
-				Y:  intLiteral(strconv.Itoa(len(indexes))),
+				Y:  intLiteral(strconv.Itoa(len(positions))),
 			},
 			Post: &ast.AssignStmt{
-				Lhs: []ast.Expr{
-					ident("i"),
-				},
+				Lhs: []ast.Expr{ident("i")},
 				Tok: token.ADD_ASSIGN,
-				Rhs: []ast.Expr{
-					intLiteral("2"),
-				},
+				Rhs: []ast.Expr{intLiteral("2")},
 			},
 			Body: &ast.BlockStmt{
 				List: []ast.Stmt{
 					&ast.AssignStmt{
-						Lhs: []ast.Expr{
-							ident("localKey"),
-						},
+						Lhs: []ast.Expr{ident("localKey")},
 						Tok: token.DEFINE,
 						Rhs: []ast.Expr{
 							&ast.BinaryExpr{
 								X: &ast.BinaryExpr{
 									X: &ast.CallExpr{
-										Fun: ident("byte"),
-										Args: []ast.Expr{
-											ident("i"),
-										},
+										Fun:  ident("byte"),
+										Args: []ast.Expr{ident("i")},
 									},
 									Op: token.ADD,
 									Y: &ast.CallExpr{
@@ -118,12 +99,12 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 										Args: []ast.Expr{
 											&ast.BinaryExpr{
 												X: &ast.IndexExpr{
-													X:     ident("indexes"),
+													X:     ident("positions"),
 													Index: ident("i"),
 												},
 												Op: token.XOR,
 												Y: &ast.IndexExpr{
-													X: ident("indexes"),
+													X: ident("positions"),
 													Index: &ast.BinaryExpr{
 														X:  ident("i"),
 														Op: token.ADD,
@@ -141,8 +122,8 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 					},
 					&ast.AssignStmt{
 						Lhs: []ast.Expr{
-							indexExpr("data", indexExpr("indexes", ident("i"))),
-							indexExpr("data", indexExpr("indexes", &ast.BinaryExpr{
+							indexExpr("data", indexExpr("positions", ident("i"))),
+							indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
 								X:  ident("i"),
 								Op: token.ADD,
 								Y:  intLiteral("1"),
@@ -151,7 +132,7 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 						Tok: token.ASSIGN,
 						Rhs: []ast.Expr{
 							&ast.BinaryExpr{
-								X: indexExpr("data", indexExpr("indexes", &ast.BinaryExpr{
+								X: indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
 									X:  ident("i"),
 									Op: token.ADD,
 									Y:  intLiteral("1"),
@@ -160,7 +141,7 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 								Y:  ident("localKey"),
 							},
 							&ast.BinaryExpr{
-								X:  indexExpr("data", indexExpr("indexes", ident("i"))),
+								X:  indexExpr("data", indexExpr("positions", ident("i"))),
 								Op: token.XOR,
 								Y:  ident("localKey"),
 							},
