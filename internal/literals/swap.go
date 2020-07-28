@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"math"
+	mathrand "math/rand"
 )
 
 type swap struct{}
@@ -44,7 +45,7 @@ func generateSwapCount(dataLen int) int {
 
 	maxExtraPositions := dataLen / 2 // Limit the number of extra positions to half the data length
 	if maxExtraPositions > 1 {
-		swapCount += genRandIntn(maxExtraPositions)
+		swapCount += mathrand.Intn(maxExtraPositions)
 	}
 	if swapCount%2 != 0 { // Swap count must be even
 		swapCount++
@@ -54,12 +55,14 @@ func generateSwapCount(dataLen int) int {
 
 func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 	swapCount := generateSwapCount(len(data))
-	shiftKey := byte(genRandIntn(math.MaxUint8))
+	shiftKey := byte(mathrand.Intn(math.MaxUint8))
 
-	positions := generateIntSlice(len(data), swapCount)
+	positions := genRandIntSlice(len(data), swapCount)
 	for i := len(positions) - 2; i >= 0; i -= 2 {
-		localKey := byte(i) + byte(positions[i]^positions[i+1]) + shiftKey                                    // Generate local key for xor based on random key and byte position
-		data[positions[i]], data[positions[i+1]] = data[positions[i+1]]^localKey, data[positions[i]]^localKey // Swap bytes from i+1 to i and xor using local key
+		// Generate local key for xor based on random key and byte position
+		localKey := byte(i) + byte(positions[i]^positions[i+1]) + shiftKey
+		// Swap bytes from i+1 to i and xor using local key
+		data[positions[i]], data[positions[i+1]] = data[positions[i+1]]^localKey, data[positions[i]]^localKey
 	}
 
 	return &ast.BlockStmt{List: []ast.Stmt{
@@ -89,60 +92,56 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 				Tok: token.ADD_ASSIGN,
 				Rhs: []ast.Expr{intLiteral(2)},
 			},
-			Body: &ast.BlockStmt{
-				List: []ast.Stmt{
-					&ast.AssignStmt{
-						Lhs: []ast.Expr{ident("localKey")},
-						Tok: token.DEFINE,
-						Rhs: []ast.Expr{
-							&ast.BinaryExpr{
-								X: &ast.BinaryExpr{
-									X:  callExpr(ident("byte"), ident("i")),
+			Body: &ast.BlockStmt{List: []ast.Stmt{
+				&ast.AssignStmt{
+					Lhs: []ast.Expr{ident("localKey")},
+					Tok: token.DEFINE,
+					Rhs: []ast.Expr{&ast.BinaryExpr{
+						X: &ast.BinaryExpr{
+							X:  callExpr(ident("byte"), ident("i")),
+							Op: token.ADD,
+							Y: callExpr(ident("byte"), &ast.BinaryExpr{
+								X:  indexExpr("positions", ident("i")),
+								Op: token.XOR,
+								Y: indexExpr("positions", &ast.BinaryExpr{
+									X:  ident("i"),
 									Op: token.ADD,
-									Y: callExpr(ident("byte"), &ast.BinaryExpr{
-										X:  indexExpr("positions", ident("i")),
-										Op: token.XOR,
-										Y: indexExpr("positions", &ast.BinaryExpr{
-											X:  ident("i"),
-											Op: token.ADD,
-											Y:  intLiteral(1),
-										}),
-									}),
-								},
-								Op: token.ADD,
-								Y:  intLiteral(int(shiftKey)),
-							},
+									Y:  intLiteral(1),
+								}),
+							}),
 						},
+						Op: token.ADD,
+						Y:  intLiteral(int(shiftKey)),
+					}},
+				},
+				&ast.AssignStmt{
+					Lhs: []ast.Expr{
+						indexExpr("data", indexExpr("positions", ident("i"))),
+						indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
+							X:  ident("i"),
+							Op: token.ADD,
+							Y:  intLiteral(1),
+						})),
 					},
-					&ast.AssignStmt{
-						Lhs: []ast.Expr{
-							indexExpr("data", indexExpr("positions", ident("i"))),
-							indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
+					Tok: token.ASSIGN,
+					Rhs: []ast.Expr{
+						&ast.BinaryExpr{
+							X: indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
 								X:  ident("i"),
 								Op: token.ADD,
 								Y:  intLiteral(1),
 							})),
+							Op: token.XOR,
+							Y:  ident("localKey"),
 						},
-						Tok: token.ASSIGN,
-						Rhs: []ast.Expr{
-							&ast.BinaryExpr{
-								X: indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
-									X:  ident("i"),
-									Op: token.ADD,
-									Y:  intLiteral(1),
-								})),
-								Op: token.XOR,
-								Y:  ident("localKey"),
-							},
-							&ast.BinaryExpr{
-								X:  indexExpr("data", indexExpr("positions", ident("i"))),
-								Op: token.XOR,
-								Y:  ident("localKey"),
-							},
+						&ast.BinaryExpr{
+							X:  indexExpr("data", indexExpr("positions", ident("i"))),
+							Op: token.XOR,
+							Y:  ident("localKey"),
 						},
 					},
 				},
-			},
+			}},
 		},
 	}}
 }
