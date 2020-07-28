@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/token"
 	"math"
-	"strconv"
 )
 
 type swap struct{}
@@ -34,7 +33,7 @@ func positionsToSlice(data []int) *ast.CompositeLit {
 		Elts: []ast.Expr{},
 	}
 	for _, data := range data {
-		arr.Elts = append(arr.Elts, intLiteral(strconv.Itoa(data)))
+		arr.Elts = append(arr.Elts, intLiteral(data))
 	}
 	return arr
 }
@@ -78,17 +77,17 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 			Init: &ast.AssignStmt{
 				Lhs: []ast.Expr{ident("i")},
 				Tok: token.DEFINE,
-				Rhs: []ast.Expr{intLiteral("0")},
+				Rhs: []ast.Expr{intLiteral(0)},
 			},
 			Cond: &ast.BinaryExpr{
 				X:  ident("i"),
 				Op: token.LSS,
-				Y:  intLiteral(strconv.Itoa(len(positions))),
+				Y:  intLiteral(len(positions)),
 			},
 			Post: &ast.AssignStmt{
 				Lhs: []ast.Expr{ident("i")},
 				Tok: token.ADD_ASSIGN,
-				Rhs: []ast.Expr{intLiteral("2")},
+				Rhs: []ast.Expr{intLiteral(2)},
 			},
 			Body: &ast.BlockStmt{
 				List: []ast.Stmt{
@@ -106,12 +105,12 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 										Y: indexExpr("positions", &ast.BinaryExpr{
 											X:  ident("i"),
 											Op: token.ADD,
-											Y:  intLiteral("1"),
+											Y:  intLiteral(1),
 										}),
 									}),
 								},
 								Op: token.ADD,
-								Y:  intLiteral(strconv.Itoa(int(shiftKey))),
+								Y:  intLiteral(int(shiftKey)),
 							},
 						},
 					},
@@ -121,7 +120,7 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 							indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
 								X:  ident("i"),
 								Op: token.ADD,
-								Y:  intLiteral("1"),
+								Y:  intLiteral(1),
 							})),
 						},
 						Tok: token.ASSIGN,
@@ -130,7 +129,7 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 								X: indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
 									X:  ident("i"),
 									Op: token.ADD,
-									Y:  intLiteral("1"),
+									Y:  intLiteral(1),
 								})),
 								Op: token.XOR,
 								Y:  ident("localKey"),
