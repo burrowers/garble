@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"golang.org/x/tools/go/ast/astutil"
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 var (
@@ -182,16 +183,16 @@ func obfuscateString(data string) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate([]byte(data))
 
-	block.List = append(block.List, returnStmt(callExpr(ident("string"), ident("data"))))
+	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ah.Ident("string"), ah.Ident("data"))))
 
-	return lambdaCall(ident("string"), block)
+	return ah.LambdaCall(ah.Ident("string"), block)
 }
 
 func obfuscateByteSlice(data []byte) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate(data)
-	block.List = append(block.List, returnStmt(ident("data")))
-	return lambdaCall(&ast.ArrayType{Elt: ident("byte")}, block)
+	block.List = append(block.List, ah.ReturnStmt(ah.Ident("data")))
+	return ah.LambdaCall(&ast.ArrayType{Elt: ah.Ident("byte")}, block)
 }
 
 func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
@@ -199,8 +200,8 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 	block := obfuscator.obfuscate(data)
 
 	arrayType := &ast.ArrayType{
-		Len: intLiteral(int(length)),
-		Elt: ident("byte"),
+		Len: ah.IntLit(int(length)),
+		Elt: ah.Ident("byte"),
 	}
 
 	sliceToArray := []ast.Stmt{
@@ -208,29 +209,29 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 			Decl: &ast.GenDecl{
 				Tok: token.VAR,
 				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{ident("newdata")},
+					Names: []*ast.Ident{ah.Ident("newdata")},
 					Type:  arrayType,
 				}},
 			},
 		},
 		&ast.RangeStmt{
-			Key: ident("i"),
+			Key: ah.Ident("i"),
 			Tok: token.DEFINE,
-			X:   ident("newdata"),
+			X:   ah.Ident("newdata"),
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{indexExpr("newdata", ident("i"))},
+					Lhs: []ast.Expr{ah.IndexExpr("newdata", ah.Ident("i"))},
 					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{indexExpr("data", ident("i"))},
+					Rhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("i"))},
 				},
 			}},
 		},
-		returnStmt(ident("newdata")),
+		ah.ReturnStmt(ah.Ident("newdata")),
 	}
 
 	block.List = append(block.List, sliceToArray...)
 
-	return lambdaCall(arrayType, block)
+	return ah.LambdaCall(arrayType, block)
 }
 
 func obfuscateBool(data bool) *ast.BinaryExpr {
@@ -244,7 +245,7 @@ func obfuscateBool(data bool) *ast.BinaryExpr {
 	return &ast.BinaryExpr{
 		X:  genObfuscateInt(dataUint64, intType),
 		Op: token.EQL,
-		Y:  intLiteral(1),
+		Y:  ah.IntLit(1),
 	}
 }
 

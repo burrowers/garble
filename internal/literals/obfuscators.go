@@ -4,7 +4,6 @@ import (
 	cryptrand "crypto/rand"
 	"fmt"
 	"go/ast"
-	"go/token"
 	mathrand "math/rand"
 	"os"
 	"strings"
@@ -23,20 +22,6 @@ var (
 	}
 	envGarbleSeed = os.Getenv("GARBLE_SEED")
 )
-
-// dataToByteSlice turns a byte slice like []byte{1, 2, 3} into an AST
-// expression
-func dataToByteSlice(data []byte) *ast.CallExpr {
-	return &ast.CallExpr{
-		Fun: &ast.ArrayType{
-			Elt: &ast.Ident{Name: "byte"},
-		},
-		Args: []ast.Expr{&ast.BasicLit{
-			Kind:  token.STRING,
-			Value: fmt.Sprintf("%q", data),
-		}},
-	}
-}
 
 // If math/rand.Seed() is not called, the generator behaves as if seeded by rand.Seed(1),
 // so the generator is deterministic.
