@@ -3,6 +3,8 @@ package main
 import (
 	"go/ast"
 	"go/token"
+
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 // addRuntimeAPI exposes additional functions in the runtime
@@ -71,50 +73,45 @@ func addRuntimeAPI(filename string, file *ast.File) {
 }
 
 var fatalErrorsHiddenCheckStmt = &ast.IfStmt{
-	Cond: &ast.Ident{Name: "fatalErrorsHidden"},
-	Body: &ast.BlockStmt{List: []ast.Stmt{
-		&ast.ReturnStmt{},
-	}},
+	Cond: ah.Ident("fatalErrorsHidden"),
+	Body: ah.BlockStmt(ah.ReturnStmt()),
 }
 
 var hideFatalErrorsDecls = []ast.Decl{
 	&ast.GenDecl{
 		Tok: token.VAR,
 		Specs: []ast.Spec{&ast.ValueSpec{
-			Names: []*ast.Ident{{Name: "fatalErrorsHidden"}},
-			Type:  &ast.Ident{Name: "bool"},
+			Names: []*ast.Ident{ah.Ident("fatalErrorsHidden")},
+			Type:  ah.Ident("bool"),
 		}},
 	},
 	&ast.FuncDecl{
-		Name: &ast.Ident{Name: "hideFatalErrors"},
+		Name: ah.Ident("hideFatalErrors"),
 		Type: &ast.FuncType{Params: &ast.FieldList{
 			List: []*ast.Field{{
-				Names: []*ast.Ident{{Name: "hide"}},
-				Type:  &ast.Ident{Name: "bool"},
+				Names: []*ast.Ident{ah.Ident("hide")},
+				Type:  ah.Ident("bool"),
 			}},
 		}},
-		Body: &ast.BlockStmt{List: []ast.Stmt{
+		Body: ah.BlockStmt(
 			&ast.AssignStmt{
-				Lhs: []ast.Expr{&ast.Ident{Name: "fatalErrorsHidden"}},
+				Lhs: []ast.Expr{ah.Ident("fatalErrorsHidden")},
 				Tok: token.ASSIGN,
-				Rhs: []ast.Expr{&ast.Ident{Name: "hide"}},
+				Rhs: []ast.Expr{ah.Ident("hide")},
 			},
-		}},
+		),
 	},
 }
 
 var printanyHexCase = &ast.CaseClause{
-	List: []ast.Expr{&ast.Ident{Name: "hex"}},
+	List: []ast.Expr{ah.Ident("hex")},
 	Body: []ast.Stmt{
-		&ast.ExprStmt{X: &ast.CallExpr{
-			Fun:  &ast.Ident{Name: "print"},
-			Args: []ast.Expr{&ast.Ident{Name: "v"}},
-		}},
+		ah.ExprStmt(ah.CallExpr(ah.Ident("print"), ah.Ident("v"))),
 	},
 }
 
 var panicprintDecl = &ast.FuncDecl{
-	Name: &ast.Ident{Name: "panicprint"},
+	Name: ah.Ident("panicprint"),
 	Type: &ast.FuncType{Params: &ast.FieldList{
 		List: []*ast.Field{{
 			Names: []*ast.Ident{{Name: "args"}},
@@ -123,24 +120,19 @@ var panicprintDecl = &ast.FuncDecl{
 			}},
 		}},
 	}},
-	Body: &ast.BlockStmt{List: []ast.Stmt{
+	Body: ah.BlockStmt(
 		&ast.IfStmt{
-			Cond: &ast.Ident{Name: "fatalErrorsHidden"},
-			Body: &ast.BlockStmt{List: []ast.Stmt{
-				&ast.ReturnStmt{},
-			}},
+			Cond: ah.Ident("fatalErrorsHidden"),
+			Body: ah.BlockStmt(ah.ReturnStmt()),
 		},
 		&ast.RangeStmt{
-			Key:   &ast.Ident{Name: "_"},
-			Value: &ast.Ident{Name: "arg"},
+			Key:   ah.Ident("_"),
+			Value: ah.Ident("arg"),
 			Tok:   token.DEFINE,
-			X:     &ast.Ident{Name: "args"},
-			Body: &ast.BlockStmt{List: []ast.Stmt{
-				&ast.ExprStmt{X: &ast.CallExpr{
-					Fun:  &ast.Ident{Name: "printany"},
-					Args: []ast.Expr{&ast.Ident{Name: "arg"}},
-				}},
-			}},
+			X:     ah.Ident("args"),
+			Body: ah.BlockStmt(
+				ah.ExprStmt(ah.CallExpr(ah.Ident("printany"), ah.Ident("arg"))),
+			),
 		},
-	}},
+	),
 }

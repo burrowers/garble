@@ -3,6 +3,8 @@ package literals
 import (
 	"go/ast"
 	"go/token"
+
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 type xor struct{}
@@ -20,28 +22,28 @@ func (x xor) obfuscate(data []byte) *ast.BlockStmt {
 
 	return &ast.BlockStmt{List: []ast.Stmt{
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ident("key")},
+			Lhs: []ast.Expr{ah.Ident("key")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSlice(key)},
+			Rhs: []ast.Expr{ah.DataToByteSlice(key)},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ident("data")},
+			Lhs: []ast.Expr{ah.Ident("data")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSlice(data)},
+			Rhs: []ast.Expr{ah.DataToByteSlice(data)},
 		},
 		&ast.RangeStmt{
-			Key:   ident("i"),
-			Value: ident("b"),
+			Key:   ah.Ident("i"),
+			Value: ah.Ident("b"),
 			Tok:   token.DEFINE,
-			X:     ident("key"),
+			X:     ah.Ident("key"),
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{indexExpr("data", ident("i"))},
+					Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("i"))},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{&ast.BinaryExpr{
-						X:  indexExpr("data", ident("i")),
+						X:  ah.IndexExpr("data", ah.Ident("i")),
 						Op: token.XOR,
-						Y:  ident("b"),
+						Y:  ah.Ident("b"),
 					}},
 				},
 			}},

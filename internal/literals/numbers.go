@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"golang.org/x/tools/go/ast/astutil"
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 var intTypes = map[types.Type]reflect.Type{
@@ -123,7 +124,7 @@ func bytesToUint(bits int) ast.Expr {
 	var expr ast.Expr
 	for i := 0; i < bytes; i++ {
 		if i == 0 {
-			expr = callExpr(ident("uint"+bitsStr), indexExpr("data", intLiteral(i)))
+			expr = ah.CallExpr(ah.Ident("uint"+bitsStr), ah.IndexExpr("data", ah.IntLit(i)))
 			continue
 		}
 
@@ -132,9 +133,9 @@ func bytesToUint(bits int) ast.Expr {
 			X:  expr,
 			Op: token.OR,
 			Y: &ast.BinaryExpr{
-				X:  callExpr(ident("uint"+bitsStr), indexExpr("data", intLiteral(i))),
+				X:  ah.CallExpr(ah.Ident("uint"+bitsStr), ah.IndexExpr("data", ah.IntLit(i))),
 				Op: token.SHL,
-				Y:  intLiteral(shiftValue),
+				Y:  ah.IntLit(shiftValue),
 			},
 		}
 	}
@@ -166,26 +167,26 @@ func genObfuscateInt(data uint64, typeInfo reflect.Type) *ast.CallExpr {
 	block := obfuscator.obfuscate(b)
 	convertExpr := bytesToUint(bitsize)
 
-	block.List = append(block.List, boundsCheckData(byteSize-1), returnStmt(callExpr(ident(typeInfo.Name()), convertExpr)))
+	block.List = append(block.List, ah.BoundsCheck("data", byteSize-1), ah.ReturnStmt(ah.CallExpr(ah.Ident(typeInfo.Name()), convertExpr)))
 
-	return lambdaCall(ident(typeInfo.Name()), block)
+	return ah.LambdaCall(ah.Ident(typeInfo.Name()), block)
 }
 
 func uintToFloat(uintExpr *ast.CallExpr, typeStr string) *ast.CallExpr {
 	usesUnsafe = true
 	convert := &ast.StarExpr{
-		X: callExpr(
+		X: ah.CallExpr(
 			&ast.ParenExpr{
-				X: &ast.StarExpr{X: ident(typeStr)},
+				X: &ast.StarExpr{X: ah.Ident(typeStr)},
 			},
-			callExpr(
+			ah.CallExpr(
 				&ast.SelectorExpr{
-					X:   ident("unsafe"),
-					Sel: ident("Pointer"),
+					X:   ah.Ident("unsafe"),
+					Sel: ah.Ident("Pointer"),
 				},
 				&ast.UnaryExpr{
 					Op: token.AND,
-					X:  ident("result"),
+					X:  ah.Ident("result"),
 				},
 			),
 		),
@@ -193,14 +194,14 @@ func uintToFloat(uintExpr *ast.CallExpr, typeStr string) *ast.CallExpr {
 
 	block := &ast.BlockStmt{List: []ast.Stmt{
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{&ast.Ident{Name: "result"}},
+			Lhs: []ast.Expr{ah.Ident("result")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{uintExpr},
 		},
-		returnStmt(convert),
+		ah.ReturnStmt(convert),
 	}}
 
-	return lambdaCall(ident(typeStr), block)
+	return ah.LambdaCall(ah.Ident(typeStr), block)
 }
 
 func genObfuscateFloat(data interface{}) *ast.CallExpr {

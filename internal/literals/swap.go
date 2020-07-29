@@ -5,6 +5,8 @@ import (
 	"go/token"
 	"math"
 	mathrand "math/rand"
+
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 type swap struct{}
@@ -29,12 +31,12 @@ func positionsToSlice(data []int) *ast.CompositeLit {
 	arr := &ast.CompositeLit{
 		Type: &ast.ArrayType{
 			Len: &ast.Ellipsis{}, // Performance optimization
-			Elt: ident(getIndexType(len(data))),
+			Elt: ah.Ident(getIndexType(len(data))),
 		},
 		Elts: []ast.Expr{},
 	}
 	for _, data := range data {
-		arr.Elts = append(arr.Elts, intLiteral(data))
+		arr.Elts = append(arr.Elts, ah.IntLit(data))
 	}
 	return arr
 }
@@ -65,83 +67,83 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 		data[positions[i]], data[positions[i+1]] = data[positions[i+1]]^localKey, data[positions[i]]^localKey
 	}
 
-	return &ast.BlockStmt{List: []ast.Stmt{
+	return ah.BlockStmt(
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ident("data")},
+			Lhs: []ast.Expr{ah.Ident("data")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSlice(data)},
+			Rhs: []ast.Expr{ah.DataToByteSlice(data)},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ident("positions")},
+			Lhs: []ast.Expr{ah.Ident("positions")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{positionsToSlice(positions)},
 		},
 		&ast.ForStmt{
 			Init: &ast.AssignStmt{
-				Lhs: []ast.Expr{ident("i")},
+				Lhs: []ast.Expr{ah.Ident("i")},
 				Tok: token.DEFINE,
-				Rhs: []ast.Expr{intLiteral(0)},
+				Rhs: []ast.Expr{ah.IntLit(0)},
 			},
 			Cond: &ast.BinaryExpr{
-				X:  ident("i"),
+				X:  ah.Ident("i"),
 				Op: token.LSS,
-				Y:  intLiteral(len(positions)),
+				Y:  ah.IntLit(len(positions)),
 			},
 			Post: &ast.AssignStmt{
-				Lhs: []ast.Expr{ident("i")},
+				Lhs: []ast.Expr{ah.Ident("i")},
 				Tok: token.ADD_ASSIGN,
-				Rhs: []ast.Expr{intLiteral(2)},
+				Rhs: []ast.Expr{ah.IntLit(2)},
 			},
-			Body: &ast.BlockStmt{List: []ast.Stmt{
+			Body: ah.BlockStmt(
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ident("localKey")},
+					Lhs: []ast.Expr{ah.Ident("localKey")},
 					Tok: token.DEFINE,
 					Rhs: []ast.Expr{&ast.BinaryExpr{
 						X: &ast.BinaryExpr{
-							X:  callExpr(ident("byte"), ident("i")),
+							X:  ah.CallExpr(ah.Ident("byte"), ah.Ident("i")),
 							Op: token.ADD,
-							Y: callExpr(ident("byte"), &ast.BinaryExpr{
-								X:  indexExpr("positions", ident("i")),
+							Y: ah.CallExpr(ah.Ident("byte"), &ast.BinaryExpr{
+								X:  ah.IndexExpr("positions", ah.Ident("i")),
 								Op: token.XOR,
-								Y: indexExpr("positions", &ast.BinaryExpr{
-									X:  ident("i"),
+								Y: ah.IndexExpr("positions", &ast.BinaryExpr{
+									X:  ah.Ident("i"),
 									Op: token.ADD,
-									Y:  intLiteral(1),
+									Y:  ah.IntLit(1),
 								}),
 							}),
 						},
 						Op: token.ADD,
-						Y:  intLiteral(int(shiftKey)),
+						Y:  ah.IntLit(int(shiftKey)),
 					}},
 				},
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{
-						indexExpr("data", indexExpr("positions", ident("i"))),
-						indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
-							X:  ident("i"),
+						ah.IndexExpr("data", ah.IndexExpr("positions", ah.Ident("i"))),
+						ah.IndexExpr("data", ah.IndexExpr("positions", &ast.BinaryExpr{
+							X:  ah.Ident("i"),
 							Op: token.ADD,
-							Y:  intLiteral(1),
+							Y:  ah.IntLit(1),
 						})),
 					},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
 						&ast.BinaryExpr{
-							X: indexExpr("data", indexExpr("positions", &ast.BinaryExpr{
-								X:  ident("i"),
+							X: ah.IndexExpr("data", ah.IndexExpr("positions", &ast.BinaryExpr{
+								X:  ah.Ident("i"),
 								Op: token.ADD,
-								Y:  intLiteral(1),
+								Y:  ah.IntLit(1),
 							})),
 							Op: token.XOR,
-							Y:  ident("localKey"),
+							Y:  ah.Ident("localKey"),
 						},
 						&ast.BinaryExpr{
-							X:  indexExpr("data", indexExpr("positions", ident("i"))),
+							X:  ah.IndexExpr("data", ah.IndexExpr("positions", ah.Ident("i"))),
 							Op: token.XOR,
-							Y:  ident("localKey"),
+							Y:  ah.Ident("localKey"),
 						},
 					},
 				},
-			}},
+			),
 		},
-	}}
+	)
 }
