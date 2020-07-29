@@ -1,19 +1,20 @@
+generate-literals extraLiterals.go 500 printExtraLiterals
+
 go build
 exec ./main$exe
-binsubstr main$exe 'Lorem' 'dolor' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 
 
+binsubstr main$exe 'Lorem' 'dolor' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
 binsubint main$exe '-7081390804778629748' '-301627827188279046' '7679634459002713443'
 binsubfloat main$exe '3684433217126772357.33' '-9015867427900753906'
-cmp stderr main.stderr
+
 cp stderr normal.stderr
+
 garble -literals build
 exec ./main$exe
-cmp stderr main.stderr
 cmp stderr normal.stderr
-! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 
 
 binsubstr main$exe 'Skip this block' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
-
+! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
 ! binsubint main$exe '-7081390804778629748' '-301627827188279046' '7679634459002713443'
 ! binsubfloat main$exe '3684433217126772357.33' '-9015867427900753906'
 [short] stop # checking that the build is reproducible is slow
@@ -23,6 +24,23 @@ cp main$exe main_old$exe
 rm main$exe
 garble -literals build
 bincmp main$exe main_old$exe
+
+# Also check that the binary is true random.
+rm main$exe
+garble -literals -debugdir=.obf-src -seed=8J+Ri/Cfh6fwn4e+ build
+! bincmp main$exe main_old$exe
+
+exec ./main$exe
+cmp stderr normal.stderr
+
+# Check obfuscators
+
+# Xor obfuscator. Detect a[i] = a[i] ^ b[i]
+grep '^\s+\w+\[\w+\] = \w+\[\w+\] \^ \w+$' .obf-src/main/z0.go
+
+# Swap obfuscator. Detect [...]byte|uint16|uint32|uint64{...}
+grep '^\s+\w+\s:=\s\[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' .obf-src/main/z0.go
+
 
 -- go.mod --
 module test/main
@@ -99,6 +117,8 @@ func main() {
 	byteTest()
 	numTest()
 	boolTest()
+
+	printExtraLiterals()
 }
 
 type stringType string
@@ -281,37 +301,3 @@ func boolTest() {
 
 	println(a, b, c, d, e, f)
 }
-
--- main.stderr --
-Lorem true
-First Line
-Second Line total string
-dolor
-second assign
-
-😅 😅
-to obfuscate also obfuscate
-new value
-another literal
-Skip this block also skip this
-1 0 1
-skip untyped const
-skip typed const skip typed var skip typed var assign
-stringTypeField String stringTypeField strType
-stringType lambda func return
-stringType func param
-stringType return
-foo
-foo
-3 6
-12, 13, 
-12, 13, 
-12, 13, 
-12, 13, 0, 0, 
-1 3 2824583991413579605 4 5 3735714531481032066
--7081390804778629748 -301627827188279046 -122 3534 333453534 4568766098255857483
-7679634459002713443 34 3534 333453534 5490982829161518439 7364326871810921708
-+3.684433e+018 -9.015867e+018 -4.354535e+011 +6.338508e+012
-(-4.354535e+011+0.000000e+000i) (+1.000000e+000+4.000000e+000i)
-1337 +1.337000e+003 4919 +4.919000e+003 735 735
-true false false true true false

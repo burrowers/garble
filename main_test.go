@@ -292,11 +292,11 @@ var literalGenerators = []func() *ast.BasicLit{
 }
 
 func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
-	if len(args) != 2 {
-		ts.Fatalf("usage: generate-literals file.go literalCount")
+	if len(args) != 3 {
+		ts.Fatalf("usage: generate-literals file.go literalCount funcName")
 	}
 
-	codePath := args[0]
+	codePath, funcName := args[0], args[2]
 
 	literalCount, err := strconv.Atoi(args[1])
 	if err != nil {
@@ -315,7 +315,7 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 		Name: ah.Ident("main"),
 		Decls: []ast.Decl{
 			&ast.FuncDecl{
-				Name: ah.Ident("main"),
+				Name: ah.Ident(funcName),
 				Type: &ast.FuncType{
 					Params: &ast.FieldList{},
 				},
