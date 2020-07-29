@@ -1,0 +1,27 @@
+generate-literals main.go 500
+
+go build
+exec ./main$exe
+
+cp stderr normal.stderr
+
+garble -literals -debugdir=.obf-src -seed=8J+Ri/Cfh6fwn4e+ build
+exec ./main$exe
+
+cmp stderr normal.stderr
+
+cp main$exe main_old$exe
+rm main$exe
+
+garble -literals -debugdir=.obf-src -seed=SfCfmI3wn6WU build
+! bincmp main$exe main_old$exe
+
+# Xor obfuscator. Detect a[i] = a[i] ^ b[i]
+grep ^\s+\w+\[\w+\]\s=\s\w+\[\w+]\s\^\s\w+$ .obf-src/main/z0.go
+
+# Swap obfuscator. Detect [...]byte|uint16|uint32|uint64{...}
+grep ^\s+\w+\s:=\s\[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$ .obf-src/main/z0.go
+
+
+-- go.mod --
+module test/main

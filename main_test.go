@@ -4,11 +4,16 @@
 package main
 
 import (
+	"encoding/base32"
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/printer"
+	"go/token"
 	"io"
 	"math"
+	mathrand "math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +26,8 @@ import (
 	"github.com/rogpeppe/go-internal/goproxytest"
 	"github.com/rogpeppe/go-internal/gotooltest"
 	"github.com/rogpeppe/go-internal/testscript"
+
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 var proxyURL string
@@ -77,10 +84,11 @@ func TestScripts(t *testing.T) {
 			return nil
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
-			"binsubstr":   binsubstr,
-			"bincmp":      bincmp,
-			"binsubint":   binsubint,
-			"binsubfloat": binsubfloat,
+			"binsubstr":         binsubstr,
+			"bincmp":            bincmp,
+			"binsubint":         binsubint,
+			"binsubfloat":       binsubfloat,
+			"generate-literals": generateLiterals,
 		},
 		UpdateScripts: *update,
 	}
@@ -130,6 +138,14 @@ func readFile(ts *testscript.TestScript, file string) string {
 	cachedBinary.modtime = info.ModTime()
 	cachedBinary.content = ts.ReadFile(file)
 	return cachedBinary.content
+}
+
+func createFile(ts *testscript.TestScript, path string) *os.File {
+	file, err := os.Create(ts.MkAbs(path))
+	if err != nil {
+		ts.Fatalf("%v", err)
+	}
+	return file
 }
 
 func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
@@ -242,6 +258,79 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 		sizeDiff := len(data2) - len(data1)
 		ts.Fatalf("%s and %s differ; diffoscope above, size diff: %+d",
 			args[0], args[1], sizeDiff)
+	}
+}
+
+var literalGenerators = []func() *ast.BasicLit{
+	func() *ast.BasicLit {
+		buffer := make([]byte, 1+mathrand.Intn(math.MaxUint8))
+		_, err := mathrand.Read(buffer)
+		if err != nil {
+			panic(err)
+		}
+		str := base32.StdEncoding.EncodeToString(buffer)
+		return ah.StringLit(str)
+	},
+	func() *ast.BasicLit {
+		i := mathrand.Int()
+		return ah.IntLit(i)
+	},
+	func() *ast.BasicLit {
+		f := fmt.Sprint(mathrand.NormFloat64())
+		return &ast.BasicLit{
+			Kind:  token.FLOAT,
+			Value: fmt.Sprint(f),
+		}
+	},
+	func() *ast.BasicLit {
+		f := fmt.Sprint(mathrand.Float32())
+		return &ast.BasicLit{
+			Kind:  token.FLOAT,
+			Value: fmt.Sprint(f),
+		}
+	},
+}
+
+func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
+	if len(args) != 2 {
+		ts.Fatalf("usage: generate-literals file.go literalCount")
+	}
+
+	codePath := args[0]
+
+	literalCount, err := strconv.Atoi(args[1])
+	if err != nil {
+		ts.Fatalf("%v", err)
+	}
+
+	var statements []ast.Stmt
+	for i := 0; i < literalCount; i++ {
+		literal := literalGenerators[i%len(literalGenerators)]()
+		statements = append(statements, &ast.ExprStmt{
+			X: ah.CallExpr(ah.Ident("println"), literal),
+		})
+	}
+
+	file := &ast.File{
+		Name: ah.Ident("main"),
+		Decls: []ast.Decl{
+			&ast.FuncDecl{
+				Name: ah.Ident("main"),
+				Type: &ast.FuncType{
+					Params: &ast.FieldList{},
+				},
+				Body: &ast.BlockStmt{
+					List: statements,
+				},
+			},
+		},
+	}
+
+	codeFile := createFile(ts, codePath)
+	defer codeFile.Close()
+
+	if err := printer.Fprint(codeFile, token.NewFileSet(), file); err != nil {
+		ts.Fatalf("%v", err)
 	}
 }
 
