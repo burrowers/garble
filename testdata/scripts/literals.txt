@@ -39,7 +39,7 @@ cmp stderr normal.stderr
 grep '^\s+\w+\[\w+\] = \w+\[\w+\] \^ \w+$' .obf-src/main/z0.go
 
 # Swap obfuscator. Detect [...]byte|uint16|uint32|uint64{...}
-grep '^\s+\w+\s:=\s\[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' .obf-src/main/z0.go
+grep '^\s+\w+ := \[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' .obf-src/main/z0.go
 
 
 -- go.mod --
