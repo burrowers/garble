@@ -263,7 +263,7 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 
 var literalGenerators = []func() *ast.BasicLit{
 	func() *ast.BasicLit {
-		buffer := make([]byte, 1+mathrand.Intn(math.MaxUint8))
+		buffer := make([]byte, 1+mathrand.Intn(255))
 		_, err := mathrand.Read(buffer)
 		if err != nil {
 			panic(err)
@@ -276,24 +276,19 @@ var literalGenerators = []func() *ast.BasicLit{
 		return ah.IntLit(i)
 	},
 	func() *ast.BasicLit {
-		f := fmt.Sprint(mathrand.NormFloat64())
-		return &ast.BasicLit{
-			Kind:  token.FLOAT,
-			Value: fmt.Sprint(f),
-		}
+		return ah.Float64Lit(mathrand.NormFloat64())
 	},
 	func() *ast.BasicLit {
-		f := fmt.Sprint(mathrand.Float32())
-		return &ast.BasicLit{
-			Kind:  token.FLOAT,
-			Value: fmt.Sprint(f),
-		}
+		return ah.Float32Lit(mathrand.Float32())
 	},
 }
 
 func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("unsupported: ! generate-literals")
+	}
 	if len(args) != 3 {
-		ts.Fatalf("usage: generate-literals file.go literalCount funcName")
+		ts.Fatalf("usage: generate-literals file literalCount funcName")
 	}
 
 	codePath, funcName := args[0], args[2]
@@ -306,9 +301,7 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 	var statements []ast.Stmt
 	for i := 0; i < literalCount; i++ {
 		literal := literalGenerators[i%len(literalGenerators)]()
-		statements = append(statements, &ast.ExprStmt{
-			X: ah.CallExpr(ah.Ident("println"), literal),
-		})
+		statements = append(statements, ah.ExprStmt(ah.CallExpr(ah.Ident("println"), literal)))
 	}
 
 	file := &ast.File{
@@ -319,9 +312,7 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 				Type: &ast.FuncType{
 					Params: &ast.FieldList{},
 				},
-				Body: &ast.BlockStmt{
-					List: statements,
-				},
+				Body: ah.BlockStmt(statements...),
 			},
 		},
 	}

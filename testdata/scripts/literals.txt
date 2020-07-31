@@ -1,3 +1,4 @@
+# Generate and write random literals into a separate file
 generate-literals extraLiterals.go 500 printExtraLiterals
 
 go build
@@ -25,7 +26,7 @@ rm main$exe
 garble -literals build
 bincmp main$exe main_old$exe
 
-# Also check that the binary is true random.
+# Also check that the binary is different from previous builds.
 rm main$exe
 garble -literals -debugdir=.obf-src -seed=8J+Ri/Cfh6fwn4e+ build
 ! bincmp main$exe main_old$exe
@@ -117,7 +118,6 @@ func main() {
 	byteTest()
 	numTest()
 	boolTest()
-
 	printExtraLiterals()
 }
 
