@@ -730,11 +730,6 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		}
 		obj := info.ObjectOf(node)
 		if obj == nil {
-			switch cursor.Parent().(type) {
-			case *ast.AssignStmt:
-				// symbolic var v in v := expr.(type)
-				node.Name = hashWith(buildInfo.buildID, node.Name)
-			}
 			return true
 		}
 		pkg := obj.Pkg()
@@ -771,8 +766,17 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 				// encoding/json without struct tags
 				return true
 			}
-		case *types.Const:
+
+			if obj.Parent() != pkg.Scope() {
+				// identifiers of non-global variables never show up in the binary
+				return true
+			}
+
 		case *types.TypeName:
+			if obj.Parent() != pkg.Scope() {
+				// identifiers of non-global types never show up in the binary
+				return true
+			}
 		case *types.Func:
 			sign := obj.Type().(*types.Signature)
 			if obj.Exported() && sign.Recv() != nil {

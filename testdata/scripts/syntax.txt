@@ -1,9 +1,20 @@
-garble build main.go
-exec ./main
+go build
+exec ./main$exe
 cmp stderr main.stderr
 
-! binsubstr main$exe 'valuable information'
+binsubstr main$exe 'globalVar' # 'globalType' only matches on go < 1.15 
+! binsubstr main$exe 'localName' 'globalConst'
 
+garble -debugdir=debug build
+exec ./main$exe
+cmp stderr main.stderr
+
+! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information'
+
+binsubstr debug/main/z1.go 'localName' 'globalConst'
+
+-- go.mod --
+module test/main
 -- main.go --
 package main
 
@@ -53,7 +64,41 @@ func main() {
 
 	enc, _ := json.Marshal(EncodingT{Foo: 3})
 	println(string(enc))
+	scopesTest()
 }
+
+-- scopes.go --
+package main
+
+const globalConst = 1
+
+type globalType int
+
+var (
+	globalVar                 = 1
+	globalVarTyped globalType = 1
+)
+
+func scopesTest() {
+	println(globalVar, globalConst, globalVarTyped)
+	const localNameConst = 1
+
+	localNameShort := 4
+
+	type localNameType int
+
+	var (
+		localNameVar                   = 5
+		localNameTypeVar localNameType = 1
+	)
+
+	println(localNameConst, localNameShort, localNameVar, localNameTypeVar, input("input"))
+}
+
+func input(localNameParam string) (localNameReturn string) { return localNameParam }
+
 -- main.stderr --
 nil case
 {"Foo":3}
+1 1 1
+1 4 5 1 input
