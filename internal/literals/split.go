@@ -8,8 +8,10 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-const maxChunkSize = 4
-const minCaseCount = 3
+const (
+	maxChunkSize = 4
+	minCaseCount = 3
+)
 
 type split struct{}
 
@@ -44,11 +46,23 @@ func splitIntoOneByteChunks(data []byte) [][]byte {
 
 // Shuffles the passed array and returns it back.
 // Applies for inline declaration of randomly shuffled statement arrays
-func shuffleStmts(stmts []ast.Stmt) []ast.Stmt {
+func shuffleStmts(stmts ...ast.Stmt) []ast.Stmt {
 	mathrand.Shuffle(len(stmts), func(i, j int) {
 		stmts[i], stmts[j] = stmts[j], stmts[i]
 	})
 	return stmts
+}
+
+// Xor encrypt chunks based on key and position
+func encryptChunks(chunks [][]byte, key int) {
+	idx := 0
+	for chunkIdx := range chunks {
+		chunk := chunks[chunkIdx]
+		for i := range chunk {
+			chunk[i] ^= byte(key ^ idx)
+			idx++
+		}
+	}
 }
 
 func (x split) obfuscate(data []byte) *ast.BlockStmt {
@@ -69,19 +83,13 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 	for i, index := range indexes[:len(indexes)-1] {
 		decryptKey ^= index * i
 	}
+	encryptChunks(chunks, decryptKey)
 
 	decryptIndex := indexes[len(indexes)-2]
 	exitIndex := indexes[len(indexes)-1]
-	for chunkIdx := range chunks {
-		chunk := chunks[chunkIdx]
-		for i := range chunk { // Encrypt all data with the decryptKey key
-			chunk[i] ^= byte(decryptKey)
-		}
-	}
-
 	switchCases := []ast.Stmt{&ast.CaseClause{
 		List: []ast.Expr{ah.IntLit(decryptIndex)},
-		Body: shuffleStmts([]ast.Stmt{
+		Body: shuffleStmts(
 			&ast.AssignStmt{
 				Lhs: []ast.Expr{ah.Ident("i")},
 				Tok: token.ASSIGN,
@@ -94,10 +102,14 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 				Body: ah.BlockStmt(&ast.AssignStmt{
 					Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("y"))},
 					Tok: token.XOR_ASSIGN,
-					Rhs: []ast.Expr{ah.CallExpr(ah.Ident("byte"), ah.Ident("decryptKey"))},
+					Rhs: []ast.Expr{ah.CallExpr(ah.Ident("byte"), &ast.BinaryExpr{
+						X:  ah.Ident("decryptKey"),
+						Op: token.XOR,
+						Y:  ah.Ident("y"),
+					})},
 				}),
 			},
-		}),
+		),
 	}}
 	for i := range chunks {
 		index := indexes[i]
@@ -117,7 +129,7 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 
 		switchCases = append(switchCases, &ast.CaseClause{
 			List: []ast.Expr{ah.IntLit(index)},
-			Body: shuffleStmts([]ast.Stmt{
+			Body: shuffleStmts(
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{ah.Ident("i")},
 					Tok: token.ASSIGN,
@@ -136,7 +148,7 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 						},
 					},
 				},
-			}),
+			),
 		})
 	}
 
@@ -189,7 +201,7 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 				},
 				&ast.SwitchStmt{
 					Tag:  ah.Ident("i"),
-					Body: ah.BlockStmt(shuffleStmts(switchCases)...),
+					Body: ah.BlockStmt(shuffleStmts(switchCases...)...),
 				}),
 		})
 }
