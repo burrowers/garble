@@ -12,6 +12,8 @@ const (
 	minCaseCount = 3
 )
 
+// Split obfuscator splits data into chunks of random length and shuffles them,
+// then encrypts them using xor.
 type split struct{}
 
 // check that the obfuscator interface is implemented
