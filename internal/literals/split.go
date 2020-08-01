@@ -1,0 +1,198 @@
+package literals
+
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+	mathrand "math/rand"
+	ah "mvdan.cc/garble/internal/asthelper"
+)
+
+const maxChunkSize = 4
+const minCaseCount = 3
+
+type split struct{}
+
+// check that the obfuscator interface is implemented
+var _ obfuscator = split{}
+
+func splitIntoRandomChunks(data []byte) [][]byte {
+	if len(data) == 1 {
+		return [][]byte{data}
+	}
+
+	var chunks [][]byte
+	for {
+		if len(data) == 0 {
+			break
+		}
+		chunkSize := 1 + mathrand.Intn(maxChunkSize)
+		if chunkSize > len(data) {
+			chunkSize = len(data)
+		}
+
+		chunks = append(chunks, data[:chunkSize])
+		data = data[chunkSize:]
+	}
+	return chunks
+}
+
+func splitIntoOneByteChunks(data []byte) [][]byte {
+	var chunks [][]byte
+	for _, d := range data {
+		chunks = append(chunks, []byte{d})
+	}
+	return chunks
+}
+
+func shuffleStmts(stmts []ast.Stmt) []ast.Stmt {
+	mathrand.Shuffle(len(stmts), func(i, j int) {
+		stmts[i], stmts[j] = stmts[j], stmts[i]
+	})
+	return stmts
+}
+
+func (x split) obfuscate(data []byte) *ast.BlockStmt {
+	var chunks [][]byte
+	if len(data)/maxChunkSize < minCaseCount { // Short arrays should be divided into single-byte fragments
+		chunks = splitIntoOneByteChunks(data)
+	} else {
+		chunks = splitIntoRandomChunks(data)
+	}
+
+	// Generate indexes for cases chunk count + 1 decrypt case + 1 exit case
+	indexes := mathrand.Perm(len(chunks) + 2)
+
+	decryptKeyInitial := mathrand.Int()
+	decryptKey := decryptKeyInitial
+	// Calculate decrypt key based on indexes and position. Ignore exit index
+	for i, index := range indexes[:len(indexes)-1] {
+		decryptKey ^= index * i
+	}
+
+	decryptIndex := indexes[len(indexes)-2]
+	exitIndex := indexes[len(indexes)-1]
+	for chunkIdx := range chunks {
+		chunk := chunks[chunkIdx]
+		for i := range chunk { // Encrypt all data with the decryptKey key
+			chunk[i] ^= byte(decryptKey)
+		}
+	}
+
+	switchCases := []ast.Stmt{
+		&ast.CaseClause{
+			List: []ast.Expr{ah.IntLit(decryptIndex)},
+			Body: shuffleStmts([]ast.Stmt{
+				&ast.AssignStmt{
+					Lhs: []ast.Expr{ah.Ident("i")},
+					Tok: token.ASSIGN,
+					Rhs: []ast.Expr{ah.IntLit(exitIndex)},
+				},
+				&ast.RangeStmt{
+					Key: ah.Ident("y"),
+					Tok: token.DEFINE,
+					X:   ah.Ident("data"),
+					Body: ah.BlockStmt(&ast.AssignStmt{
+						Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("y"))},
+						Tok: token.XOR_ASSIGN,
+						Rhs: []ast.Expr{ah.CallExpr(ah.Ident("byte"), ah.Ident("decryptKey"))},
+					}),
+				},
+			}),
+		},
+	}
+	for i := range chunks {
+		index := indexes[i]
+		nextIndex := indexes[i+1]
+		chunk := chunks[i]
+
+		var literal *ast.BasicLit
+		if len(chunk) != 1 {
+			literal = &ast.BasicLit{
+				Kind: token.STRING,
+				// TODO: Is it correct to generate append(arr, "str"...) expressions like this?
+				Value: fmt.Sprintf("%q...", chunk),
+			}
+		} else {
+			literal = ah.IntLit(int(chunk[0]))
+		}
+
+		switchCases = append(switchCases, &ast.CaseClause{
+			List: []ast.Expr{ah.IntLit(index)},
+			Body: shuffleStmts([]ast.Stmt{
+				&ast.AssignStmt{
+					Lhs: []ast.Expr{ah.Ident("i")},
+					Tok: token.ASSIGN,
+					Rhs: []ast.Expr{ah.IntLit(nextIndex)},
+				},
+				&ast.AssignStmt{
+					Lhs: []ast.Expr{ah.Ident("data")},
+					Tok: token.ASSIGN,
+					Rhs: []ast.Expr{
+						&ast.CallExpr{
+							Fun: ah.Ident("append"),
+							Args: []ast.Expr{
+								ah.Ident("data"),
+								literal,
+							},
+						},
+					},
+				},
+			}),
+		})
+	}
+
+	return ah.BlockStmt(&ast.DeclStmt{
+		Decl: &ast.GenDecl{
+			Tok: token.VAR,
+			Specs: []ast.Spec{
+				&ast.ValueSpec{
+					Names: []*ast.Ident{ah.Ident("data")},
+					Type:  &ast.ArrayType{Elt: ah.Ident("byte")},
+				},
+			},
+		},
+	},
+		&ast.AssignStmt{
+			Lhs: []ast.Expr{ah.Ident("i")},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{ah.IntLit(indexes[0])},
+		},
+		&ast.AssignStmt{
+			Lhs: []ast.Expr{ah.Ident("decryptKey")},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{ah.IntLit(decryptKeyInitial)},
+		},
+		&ast.ForStmt{
+			Init: &ast.AssignStmt{
+				Lhs: []ast.Expr{ah.Ident("counter")},
+				Tok: token.DEFINE,
+				Rhs: []ast.Expr{ah.IntLit(0)},
+			},
+			Cond: &ast.BinaryExpr{
+				X:  ah.Ident("i"),
+				Op: token.NEQ,
+				Y:  ah.IntLit(indexes[len(indexes)-1]),
+			},
+			Post: &ast.IncDecStmt{
+				X:   ah.Ident("counter"),
+				Tok: token.INC,
+			},
+			Body: ah.BlockStmt(
+				&ast.AssignStmt{
+					Lhs: []ast.Expr{ah.Ident("decryptKey")},
+					Tok: token.XOR_ASSIGN,
+					Rhs: []ast.Expr{
+						&ast.BinaryExpr{
+							X:  ah.Ident("i"),
+							Op: token.MUL,
+							Y:  ah.Ident("counter"),
+						},
+					},
+				},
+				&ast.SwitchStmt{
+					Tag:  ah.Ident("i"),
+					Body: ah.BlockStmt(shuffleStmts(switchCases)...),
+				}),
+		})
+}
