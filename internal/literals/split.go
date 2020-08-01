@@ -1,7 +1,6 @@
 package literals
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 	mathrand "math/rand"
@@ -116,15 +115,16 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 		nextIndex := indexes[i+1]
 		chunk := chunks[i]
 
-		var literal *ast.BasicLit
+		appendCallExpr := &ast.CallExpr{
+			Fun:  ah.Ident("append"),
+			Args: []ast.Expr{ah.Ident("data")},
+		}
+
 		if len(chunk) != 1 {
-			literal = &ast.BasicLit{
-				Kind: token.STRING,
-				// TODO: Is it correct to generate append(arr, "str"...) expressions like this?
-				Value: fmt.Sprintf("%q...", chunk),
-			}
+			appendCallExpr.Args = append(appendCallExpr.Args, ah.StringLit(string(chunk)))
+			appendCallExpr.Ellipsis = 1
 		} else {
-			literal = ah.IntLit(int(chunk[0]))
+			appendCallExpr.Args = append(appendCallExpr.Args, ah.IntLit(int(chunk[0])))
 		}
 
 		switchCases = append(switchCases, &ast.CaseClause{
@@ -138,15 +138,7 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{ah.Ident("data")},
 					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{
-						&ast.CallExpr{
-							Fun: ah.Ident("append"),
-							Args: []ast.Expr{
-								ah.Ident("data"),
-								literal,
-							},
-						},
-					},
+					Rhs: []ast.Expr{appendCallExpr},
 				},
 			),
 		})
