@@ -22,10 +22,7 @@ func splitIntoRandomChunks(data []byte) [][]byte {
 	}
 
 	var chunks [][]byte
-	for {
-		if len(data) == 0 {
-			break
-		}
+	for len(data) > 0 {
 		chunkSize := 1 + mathrand.Intn(maxChunkSize)
 		if chunkSize > len(data) {
 			chunkSize = len(data)
@@ -45,6 +42,8 @@ func splitIntoOneByteChunks(data []byte) [][]byte {
 	return chunks
 }
 
+// Shuffles the passed array and returns it back.
+// Applies for inline declaration of randomly shuffled statement arrays
 func shuffleStmts(stmts []ast.Stmt) []ast.Stmt {
 	mathrand.Shuffle(len(stmts), func(i, j int) {
 		stmts[i], stmts[j] = stmts[j], stmts[i]
@@ -54,7 +53,8 @@ func shuffleStmts(stmts []ast.Stmt) []ast.Stmt {
 
 func (x split) obfuscate(data []byte) *ast.BlockStmt {
 	var chunks [][]byte
-	if len(data)/maxChunkSize < minCaseCount { // Short arrays should be divided into single-byte fragments
+	// Short arrays should be divided into single-byte fragments
+	if len(data)/maxChunkSize < minCaseCount {
 		chunks = splitIntoOneByteChunks(data)
 	} else {
 		chunks = splitIntoRandomChunks(data)
@@ -79,28 +79,26 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 		}
 	}
 
-	switchCases := []ast.Stmt{
-		&ast.CaseClause{
-			List: []ast.Expr{ah.IntLit(decryptIndex)},
-			Body: shuffleStmts([]ast.Stmt{
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.Ident("i")},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{ah.IntLit(exitIndex)},
-				},
-				&ast.RangeStmt{
-					Key: ah.Ident("y"),
-					Tok: token.DEFINE,
-					X:   ah.Ident("data"),
-					Body: ah.BlockStmt(&ast.AssignStmt{
-						Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("y"))},
-						Tok: token.XOR_ASSIGN,
-						Rhs: []ast.Expr{ah.CallExpr(ah.Ident("byte"), ah.Ident("decryptKey"))},
-					}),
-				},
-			}),
-		},
-	}
+	switchCases := []ast.Stmt{&ast.CaseClause{
+		List: []ast.Expr{ah.IntLit(decryptIndex)},
+		Body: shuffleStmts([]ast.Stmt{
+			&ast.AssignStmt{
+				Lhs: []ast.Expr{ah.Ident("i")},
+				Tok: token.ASSIGN,
+				Rhs: []ast.Expr{ah.IntLit(exitIndex)},
+			},
+			&ast.RangeStmt{
+				Key: ah.Ident("y"),
+				Tok: token.DEFINE,
+				X:   ah.Ident("data"),
+				Body: ah.BlockStmt(&ast.AssignStmt{
+					Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("y"))},
+					Tok: token.XOR_ASSIGN,
+					Rhs: []ast.Expr{ah.CallExpr(ah.Ident("byte"), ah.Ident("decryptKey"))},
+				}),
+			},
+		}),
+	}}
 	for i := range chunks {
 		index := indexes[i]
 		nextIndex := indexes[i+1]
@@ -142,8 +140,8 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 		})
 	}
 
-	return ah.BlockStmt(&ast.DeclStmt{
-		Decl: &ast.GenDecl{
+	return ah.BlockStmt(
+		&ast.DeclStmt{Decl: &ast.GenDecl{
 			Tok: token.VAR,
 			Specs: []ast.Spec{
 				&ast.ValueSpec{
@@ -151,8 +149,7 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 					Type:  &ast.ArrayType{Elt: ah.Ident("byte")},
 				},
 			},
-		},
-	},
+		}},
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ah.Ident("i")},
 			Tok: token.DEFINE,
