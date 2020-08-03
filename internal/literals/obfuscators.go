@@ -19,6 +19,7 @@ var (
 	obfuscators = []obfuscator{
 		xor{},
 		swap{},
+		split{},
 	}
 	envGarbleSeed = os.Getenv("GARBLE_SEED")
 )
