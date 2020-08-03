@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	maxChunkSize = 4
+	maxChunkSize = 5
 	minCaseCount = 3
 )
 
@@ -26,7 +26,7 @@ func splitIntoRandomChunks(data []byte) [][]byte {
 
 	var chunks [][]byte
 	for len(data) > 0 {
-		chunkSize := 1 + mathrand.Intn(maxChunkSize)
+		chunkSize := 1 + mathrand.Intn(maxChunkSize-1)
 		if chunkSize > len(data) {
 			chunkSize = len(data)
 		}
