@@ -4,11 +4,12 @@ import (
 	"go/ast"
 	"go/token"
 	mathrand "math/rand"
+
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 const (
-	maxChunkSize = 5
+	maxChunkSize = 4
 	minCaseCount = 3
 )
 
@@ -26,7 +27,7 @@ func splitIntoRandomChunks(data []byte) [][]byte {
 
 	var chunks [][]byte
 	for len(data) > 0 {
-		chunkSize := 1 + mathrand.Intn(maxChunkSize-1)
+		chunkSize := 1 + mathrand.Intn(maxChunkSize)
 		if chunkSize > len(data) {
 			chunkSize = len(data)
 		}
