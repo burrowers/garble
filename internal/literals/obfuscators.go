@@ -20,6 +20,7 @@ var (
 		xor{},
 		swap{},
 		split{},
+		xor2{},
 	}
 	envGarbleSeed = os.Getenv("GARBLE_SEED")
 )
