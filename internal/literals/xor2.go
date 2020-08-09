@@ -17,17 +17,16 @@ func (x xor2) obfuscate(data []byte) *ast.BlockStmt {
 	key := make([]byte, len(data))
 	genRandBytes(key)
 
-	fullData := make([]byte, len(data))
+	fullData := make([]byte, len(data)+len(key))
 	for i, b := range key {
-		fullData[i] = data[i] ^ b
+		fullData[i], fullData[i+len(data)] = data[i]^b, b
 	}
-	fullData = append(fullData, key...)
 
 	shuffledIdxs := mathrand.Perm(len(fullData))
 
 	shuffledFullData := make([]byte, len(fullData))
-	for i := range fullData {
-		shuffledFullData[shuffledIdxs[i]] = fullData[i]
+	for i, b := range fullData {
+		shuffledFullData[shuffledIdxs[i]] = b
 	}
 
 	args := []ast.Expr{ah.Ident("data")}
@@ -39,7 +38,7 @@ func (x xor2) obfuscate(data []byte) *ast.BlockStmt {
 		})
 	}
 
-	return &ast.BlockStmt{List: []ast.Stmt{
+	return ah.BlockStmt(
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ah.Ident("fullData")},
 			Tok: token.DEFINE,
@@ -59,5 +58,5 @@ func (x xor2) obfuscate(data []byte) *ast.BlockStmt {
 			Tok: token.ASSIGN,
 			Rhs: []ast.Expr{ah.CallExpr(ah.Ident("append"), args...)},
 		},
-	}}
+	)
 }
