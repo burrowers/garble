@@ -102,11 +102,9 @@ var (
 	seed []byte
 )
 
-func saveListedPackages(w io.Writer, test bool, patterns ...string) error {
+func saveListedPackages(w io.Writer, flags, patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export"}
-	if test {
-		args = append(args, "-test")
-	}
+	args = append(args, flags...)
 	args = append(args, patterns...)
 	cmd := exec.Command("go", args...)
 
@@ -295,9 +293,14 @@ func mainErr(args []string) error {
 			return err
 		}
 		defer os.Remove(f.Name())
-		// TODO: Pass along flags that 'go list' understands too, such
-		// as -mod or -modfile.
-		if err := saveListedPackages(f, cmd == "test", args...); err != nil {
+
+		// Note that we also need to pass build flags to 'go list', such
+		// as -tags.
+		listFlags := filterBuildFlags(flags)
+		if cmd == "test" {
+			listFlags = append(listFlags, "-test")
+		}
+		if err := saveListedPackages(f, listFlags, args); err != nil {
 			return err
 		}
 		os.Setenv("GARBLE_LISTPKGS", f.Name())
@@ -959,6 +962,35 @@ func splitFlagsFromArgs(all []string) (flags, args []string) {
 	return all, nil
 }
 
+// buildFlags is obtained from 'go help build' as of Go 1.15.
+var buildFlags = map[string]bool{
+	"-a":             true,
+	"-n":             true,
+	"-p":             true,
+	"-race":          true,
+	"-msan":          true,
+	"-v":             true,
+	"-work":          true,
+	"-x":             true,
+	"-asmflags":      true,
+	"-buildmode":     true,
+	"-compiler":      true,
+	"-gccgoflags":    true,
+	"-gcflags":       true,
+	"-installsuffix": true,
+	"-ldflags":       true,
+	"-linkshared":    true,
+	"-mod":           true,
+	"-modcacherw":    true,
+	"-modfile":       true,
+	"-pkgdir":        true,
+	"-tags":          true,
+	"-trimpath":      true,
+	"-toolexec":      true,
+}
+
+// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go
+// 1.15.
 var booleanFlags = map[string]bool{
 	// Shared build flags.
 	"-a":          true,
@@ -979,6 +1011,30 @@ var booleanFlags = map[string]bool{
 	"-failfast": true,
 	"-short":    true,
 	"-benchmem": true,
+}
+
+func filterBuildFlags(flags []string) (filtered []string) {
+	for i := 0; i < len(flags); i++ {
+		arg := flags[i]
+		name := arg
+		if i := strings.IndexByte(arg, '='); i > 0 {
+			name = arg[:i]
+		}
+
+		buildFlag := buildFlags[name]
+		if buildFlag {
+			filtered = append(filtered, arg)
+		}
+		if booleanFlags[arg] || strings.Contains(arg, "=") {
+			// Either "-bool" or "-name=value".
+			continue
+		}
+		// "-name value", so the next arg is part of this flag.
+		if i++; i < len(flags) {
+			filtered = append(filtered, flags[i])
+		}
+	}
+	return filtered
 }
 
 // splitFlagsFromFiles splits args into a list of flag and file arguments. Since
