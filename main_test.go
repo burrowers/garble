@@ -354,6 +354,11 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 			[]string{"-race", "pkg"},
 			[2][]string{{"-race"}, {"pkg"}},
 		},
+		{
+			"ExplicitBoolFlag",
+			[]string{"-race=true", "pkg"},
+			[2][]string{{"-race=true"}, {"pkg"}},
+		},
 	}
 	for _, test := range tests {
 		test := test
@@ -364,6 +369,38 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 
 			if diff := cmp.Diff(test.want, got); diff != "" {
 				t.Fatalf("splitFlagsFromArgs(%q) mismatch (-want +got):\n%s", test.args, diff)
+			}
+		})
+	}
+}
+
+func TestFilterBuildFlags(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		flags []string
+		want  []string
+	}{
+		{"Empty", []string{}, nil},
+		{
+			"NoBuild",
+			[]string{"-short", "-json"},
+			nil,
+		},
+		{
+			"Mixed",
+			[]string{"-short", "-tags", "foo", "-mod=readonly", "-json"},
+			[]string{"-tags", "foo", "-mod=readonly"},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := filterBuildFlags(test.flags)
+
+			if diff := cmp.Diff(test.want, got); diff != "" {
+				t.Fatalf("filterBuildFlags(%q) mismatch (-want +got):\n%s", test.flags, diff)
 			}
 		})
 	}

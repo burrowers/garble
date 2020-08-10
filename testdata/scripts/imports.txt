@@ -1,4 +1,4 @@
-garble build
+garble build -tags buildtag
 exec ./main
 cmp stdout main.stdout
 
@@ -9,10 +9,10 @@ cmp stdout main.stdout
 # Also check that the binary is reproducible when many imports are involved.
 cp main$exe main_old$exe
 rm main$exe
-garble build
+garble build -tags buildtag
 bincmp main$exe main_old$exe
 
-go build
+go build -tags buildtag
 exec ./main
 cmp stdout main.stdout
 
@@ -55,6 +55,20 @@ func main() {
 	linkedPrintln(nil)
 	fmt.Println(quote.Go())
 }
+-- notag_fail.go --
+// +build !buildtag
+
+package main
+
+var foo int = "should be omitted by -tags"
+-- withtag_success.go --
+// +build buildtag
+
+package main
+
+import "fmt"
+
+func init() { fmt.Println("buildtag init func") }
 -- imported/imported.go --
 package imported
 
@@ -92,6 +106,7 @@ var _ = reflect.TypeOf(ReflectValueOfVar)
 type ImportedType int
 
 -- main.stdout --
+buildtag init func
 imported var value
 imported const value
 x
