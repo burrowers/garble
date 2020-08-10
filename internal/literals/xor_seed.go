@@ -3,8 +3,6 @@ package literals
 import (
 	"go/ast"
 	"go/token"
-	"math"
-	mathrand "math/rand"
 
 	ah "mvdan.cc/garble/internal/asthelper"
 )
@@ -15,20 +13,23 @@ type xorSeed struct{}
 var _ obfuscator = xorSeed{}
 
 func (x xorSeed) obfuscate(data []byte) *ast.BlockStmt {
-	seed := byte(mathrand.Intn(math.MaxUint8))
+	preSeed := make([]byte, 1)
+	genRandBytes(preSeed)
+
+	seed := preSeed[0]
 	originalSeed := seed
 
 	var callExpr *ast.CallExpr
-
 	for i, b := range data {
 		encB := b ^ seed
-		seed += seed ^ encB
+		seed += encB
 
 		if i == 0 {
 			callExpr = ah.CallExpr(ah.Ident("fnc"), ah.IntLit(int(encB)))
-		} else {
-			callExpr = ah.CallExpr(callExpr, ah.IntLit(int(encB)))
+			continue
 		}
+
+		callExpr = ah.CallExpr(callExpr, ah.IntLit(int(encB)))
 	}
 
 	return ah.BlockStmt(
@@ -52,16 +53,12 @@ func (x xorSeed) obfuscate(data []byte) *ast.BlockStmt {
 				Specs: []ast.Spec{&ast.TypeSpec{
 					Name: ah.Ident("decFunc"),
 					Type: &ast.FuncType{
-						Params: &ast.FieldList{
-							List: []*ast.Field{{
-								Type: ah.Ident("byte"),
-							}},
-						},
-						Results: &ast.FieldList{
-							List: []*ast.Field{{
-								Type: ah.Ident("decFunc"),
-							}},
-						},
+						Params: &ast.FieldList{List: []*ast.Field{
+							{Type: ah.Ident("byte")},
+						}},
+						Results: &ast.FieldList{List: []*ast.Field{
+							{Type: ah.Ident("decFunc")},
+						}},
 					},
 				}},
 			},
@@ -97,26 +94,20 @@ func (x xorSeed) obfuscate(data []byte) *ast.BlockStmt {
 						&ast.AssignStmt{
 							Lhs: []ast.Expr{ah.Ident("data")},
 							Tok: token.ASSIGN,
-							Rhs: []ast.Expr{ah.CallExpr(ah.Ident("append"), ah.Ident("data"), &ast.BinaryExpr{
-								X:  ah.Ident("x"),
-								Op: token.XOR,
-								Y:  ah.Ident("seed"),
-							})},
+							Rhs: []ast.Expr{
+								ah.CallExpr(ah.Ident("append"), ah.Ident("data"), &ast.BinaryExpr{
+									X:  ah.Ident("x"),
+									Op: token.XOR,
+									Y:  ah.Ident("seed"),
+								}),
+							},
 						},
 						&ast.AssignStmt{
 							Lhs: []ast.Expr{ah.Ident("seed")},
 							Tok: token.ADD_ASSIGN,
-							Rhs: []ast.Expr{
-								&ast.BinaryExpr{
-									X:  ah.Ident("seed"),
-									Op: token.XOR,
-									Y:  ah.Ident("x"),
-								},
-							},
+							Rhs: []ast.Expr{ah.Ident("x")},
 						},
-						&ast.ReturnStmt{
-							Results: []ast.Expr{ah.Ident("fnc")},
-						},
+						ah.ReturnStmt(ah.Ident("fnc")),
 					),
 				},
 			},
