@@ -48,6 +48,9 @@ grep '^\s+\w+ \^= \w+ \* \w+$' .obf-src/main/z0.go
 # XorShuffle obfuscator. Detect data = append(data, x ^ y...)
 grep '^\s+\w+ = append\(\w+,(\s+\w+\[\d+\]\^\w+\[\d+\],?)+\)$' .obf-src/main/z0.go
 
+# XorSeed obfuscator. Detect type decFunc func(byte) decFunc
+grep '^\s+type \w+ func\(byte\) \w+$' .obf-src/main/z0.go
+
 
 -- go.mod --
 module test/main
