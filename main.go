@@ -915,7 +915,7 @@ func transformLink(args []string) ([]string, error) {
 		}
 		name := val[:i]
 		str := val[i+1:]
-		j := strings.IndexByte(name, '.')
+		j := strings.LastIndexByte(name, '.')
 		if j <= 0 {
 			return
 		}
