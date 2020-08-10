@@ -1,22 +1,22 @@
-garble build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=test/main/imported.ExportedVar=replaced'
+garble build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=domain.test/main/imported.ExportedVar=replaced'
 exec ./main
 cmp stderr main.stderr
 ! binsubstr main$exe 'unexportedVersion'
 
 [short] stop # no need to verify this with -short
 
-exec go build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=test/main/imported.ExportedVar=replaced'
+exec go build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=domain.test/main/imported.ExportedVar=replaced'
 exec ./main
 cmp stderr main.stderr
 binsubstr main$exe 'unexportedVersion'
 
 -- go.mod --
-module test/main
+module domain.test/main
 -- main.go --
 package main
 
 import (
-	"test/main/imported"
+	"domain.test/main/imported"
 )
 
 var unexportedVersion = "unknown"
