@@ -72,8 +72,8 @@ var (
 	deferred []func() error
 	fset     = token.NewFileSet()
 
-	b64           = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
-	printerConfig = printer.Config{Mode: printer.RawFormat}
+	b64         = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
+	printConfig = printer.Config{Mode: printer.RawFormat}
 
 	// listPackage helps implement a types.Importer which finds the export
 	// data for the original dependencies, not their garbled counterparts.
@@ -253,8 +253,7 @@ func mainErr(args []string) error {
 		if flagSeed == "random" {
 			seed = make([]byte, 16) // random 128 bit seed
 
-			_, err = rand.Read(seed)
-			if err != nil {
+			if _, err := rand.Read(seed); err != nil {
 				return fmt.Errorf("Error generating random seed: %v", err)
 			}
 
@@ -339,10 +338,7 @@ func mainErr(args []string) error {
 	if runtime.GOOS == "windows" {
 		tool = strings.TrimSuffix(tool, ".exe")
 	}
-	transform, ok := transformFuncs[tool]
-	if !ok {
-		return fmt.Errorf("unknown tool: %q", tool)
-	}
+	transform := transformFuncs[tool]
 	transformed := args[1:]
 	// log.Println(tool, transformed)
 	if transform != nil {
@@ -370,23 +366,6 @@ func mainErr(args []string) error {
 var transformFuncs = map[string]func([]string) ([]string, error){
 	"compile": transformCompile,
 	"link":    transformLink,
-
-	"addr2line": nil,
-	"api":       nil,
-	"asm":       nil,
-	"buildid":   nil,
-	"cgo":       nil,
-	"cover":     nil,
-	"dist":      nil,
-	"doc":       nil,
-	"fix":       nil,
-	"nm":        nil,
-	"objdump":   nil,
-	"pack":      nil,
-	"pprof":     nil,
-	"test2json": nil,
-	"trace":     nil,
-	"vet":       nil,
 }
 
 func transformCompile(args []string) ([]string, error) {
@@ -489,8 +468,7 @@ func transformCompile(args []string) ([]string, error) {
 	if envGarbleDebugDir != "" {
 		osPkgPath := filepath.FromSlash(pkgPath)
 		pkgDebugDir = filepath.Join(envGarbleDebugDir, osPkgPath)
-		err = os.MkdirAll(pkgDebugDir, 0o755)
-		if err != nil {
+		if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
 			return nil, err
 		}
 	}
@@ -528,37 +506,29 @@ func transformCompile(args []string) ([]string, error) {
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
-			// if err := printerConfig.Fprint(os.Stderr, fset, file); err != nil {
+			// if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
 			// 	return nil, err
 			// }
 		}
-		tempFilePath := filepath.Join(tempDir, name)
-		tempFile, err := os.Create(tempFilePath)
+		tempFile, err := os.Create(filepath.Join(tempDir, name))
 		if err != nil {
 			return nil, err
 		}
 		defer tempFile.Close()
 
-		var (
-			fW        io.Writer
-			debugFile *os.File
-		)
-
-		fW = tempFile
-
+		var printWriter io.Writer = tempFile
+		var debugFile *os.File
 		if pkgDebugDir != "" {
-			debugFilePath := filepath.Join(pkgDebugDir, name)
-
-			debugFile, err = os.Create(debugFilePath)
+			debugFile, err = os.Create(filepath.Join(pkgDebugDir, name))
 			if err != nil {
 				return nil, err
 			}
 			defer debugFile.Close()
 
-			fW = io.MultiWriter(tempFile, debugFile)
+			printWriter = io.MultiWriter(tempFile, debugFile)
 		}
 
-		if err := printerConfig.Fprint(fW, fset, file); err != nil {
+		if err := printConfig.Fprint(printWriter, fset, file); err != nil {
 			return nil, err
 		}
 		if err := tempFile.Close(); err != nil {
