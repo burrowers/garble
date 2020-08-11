@@ -36,8 +36,8 @@ cmp stderr normal.stderr
 
 # Check obfuscators
 
-# Xor obfuscator. Detect a[i] = a[i] ^ b[i]
-grep '^\s+\w+\[\w+\] = \w+\[\w+\] \^ \w+$' .obf-src/main/z0.go
+# Xor obfuscator. Detect a[i] = a[i] (^|-|+) b[i]
+grep '^\s+\w+\[\w+\] = \w+\[\w+\] [\^\-+] \w+$' .obf-src/main/z0.go
 
 # Swap obfuscator. Detect [...]byte|uint16|uint32|uint64{...}
 grep '^\s+\w+ := \[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' .obf-src/main/z0.go
