@@ -16,7 +16,7 @@ func (x xor) obfuscate(data []byte) *ast.BlockStmt {
 	key := make([]byte, len(data))
 	genRandBytes(key)
 
-	op := genRandOperator()
+	op := randOperator()
 	for i, b := range key {
 		data[i] = evalOperator(op, data[i], b)
 	}
@@ -41,7 +41,7 @@ func (x xor) obfuscate(data []byte) *ast.BlockStmt {
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("i"))},
 					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{getReversedOperator(op, ah.IndexExpr("data", ah.Ident("i")), ah.Ident("b"))},
+					Rhs: []ast.Expr{operatorToReversedBinaryExpr(op, ah.IndexExpr("data", ah.Ident("i")), ah.Ident("b"))},
 				},
 			}},
 		},

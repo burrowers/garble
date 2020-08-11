@@ -76,7 +76,7 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 		chunks = splitIntoRandomChunks(data)
 	}
 
-	decryptOp := genRandOperator()
+	decryptOp := randOperator()
 
 	// Generate indexes for cases chunk count + 1 decrypt case + 1 exit case
 	indexes := mathrand.Perm(len(chunks) + 2)
@@ -107,7 +107,7 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 					Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("y"))},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
-						getReversedOperator(decryptOp, ah.IndexExpr("data", ah.Ident("y")), ah.CallExpr(ah.Ident("byte"), &ast.BinaryExpr{
+						operatorToReversedBinaryExpr(decryptOp, ah.IndexExpr("data", ah.Ident("y")), ah.CallExpr(ah.Ident("byte"), &ast.BinaryExpr{
 							X:  ah.Ident("decryptKey"),
 							Op: token.XOR,
 							Y:  ah.Ident("y"),

@@ -19,7 +19,7 @@ func (x xorSeed) obfuscate(data []byte) *ast.BlockStmt {
 	seed := preSeed[0]
 	originalSeed := seed
 
-	op := genRandOperator()
+	op := randOperator()
 
 	var callExpr *ast.CallExpr
 	for i, b := range data {
@@ -97,7 +97,7 @@ func (x xorSeed) obfuscate(data []byte) *ast.BlockStmt {
 							Lhs: []ast.Expr{ah.Ident("data")},
 							Tok: token.ASSIGN,
 							Rhs: []ast.Expr{
-								ah.CallExpr(ah.Ident("append"), ah.Ident("data"), getReversedOperator(op, ah.Ident("x"), ah.Ident("seed"))),
+								ah.CallExpr(ah.Ident("append"), ah.Ident("data"), operatorToReversedBinaryExpr(op, ah.Ident("x"), ah.Ident("seed"))),
 							},
 						},
 						&ast.AssignStmt{

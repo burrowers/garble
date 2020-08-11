@@ -53,9 +53,9 @@ func genRandIntSlice(max, count int) []int {
 	return indexes
 }
 
-var allOperators = []token.Token{token.XOR, token.ADD, token.SUB}
+var allOperators = [...]token.Token{token.XOR, token.ADD, token.SUB}
 
-func genRandOperator() token.Token {
+func randOperator() token.Token {
 	return allOperators[mathrand.Intn(len(allOperators))]
 }
 
@@ -68,15 +68,12 @@ func evalOperator(t token.Token, x, y byte) byte {
 	case token.SUB:
 		return x - y
 	default:
-		panic("unknown operator")
+		panic(fmt.Sprintf("unknown operator: %s", t))
 	}
 }
 
-func getReversedOperator(t token.Token, x, y ast.Expr) *ast.BinaryExpr {
-	expr := &ast.BinaryExpr{
-		X: x,
-		Y: y,
-	}
+func operatorToReversedBinaryExpr(t token.Token, x, y ast.Expr) *ast.BinaryExpr {
+	expr := &ast.BinaryExpr{X: x, Y: y}
 
 	switch t {
 	case token.XOR:
@@ -86,7 +83,7 @@ func getReversedOperator(t token.Token, x, y ast.Expr) *ast.BinaryExpr {
 	case token.SUB:
 		expr.Op = token.ADD
 	default:
-		panic("unknown operator")
+		panic(fmt.Sprintf("unknown operator: %s", t))
 	}
 
 	return expr
