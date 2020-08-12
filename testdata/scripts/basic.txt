@@ -27,7 +27,7 @@ stdout 'unknown'
 ! stdout $gofullversion
 
 # The binary can't contain the version string either.
-! binsubstr main$exe ${WORK@R} 'globalVar' 'globalFunc' $gofullversion
+! binsubstr main$exe ${WORK@R} 'globalVar' 'globalFunc' $gofullversion 'z0.go'
 
 [short] stop # checking that the build is reproducible is slow
 

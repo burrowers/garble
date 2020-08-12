@@ -37,6 +37,7 @@ var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
 
 var (
 	flagGarbleLiterals bool
+	flagGarbleTiny     bool
 	flagDebugDir       string
 	flagSeed           string
 )
@@ -44,6 +45,7 @@ var (
 func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Encrypt all literals with AES, currently only literal strings are supported")
+	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Encrypt all literals with AES, currently only literal strings are supported")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a given directory: '-debugdir=./debug'")
 	flagSet.StringVar(&flagSeed, "seed", "", "Provide a custom base64-encoded seed: '-seed=o9WDTZ4CN4w=' \nFor a random seed provide: '-seed=random'")
 }
@@ -72,7 +74,8 @@ var (
 	deferred []func() error
 	fset     = token.NewFileSet()
 
-	b64         = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
+	nameCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z"
+	b64         = base64.NewEncoding(nameCharset)
 	printConfig = printer.Config{Mode: printer.RawFormat}
 
 	// listPackage helps implement a types.Importer which finds the export
@@ -94,6 +97,7 @@ var (
 
 	envGarbleDir      = os.Getenv("GARBLE_DIR")
 	envGarbleLiterals = os.Getenv("GARBLE_LITERALS") == "true"
+	envGarbleTiny     = os.Getenv("GARBLE_TINY") == "true"
 	envGarbleDebugDir = os.Getenv("GARBLE_DEBUGDIR")
 	envGarbleSeed     = os.Getenv("GARBLE_SEED")
 	envGoPrivate      string // filled via 'go env' below to support 'go env -w'
@@ -247,6 +251,7 @@ func mainErr(args []string) error {
 		}
 		os.Setenv("GARBLE_DIR", wd)
 		os.Setenv("GARBLE_LITERALS", fmt.Sprint(flagGarbleLiterals))
+		os.Setenv("GARBLE_TINY", fmt.Sprint(flagGarbleTiny))
 
 		if flagSeed == "random" {
 			seed = make([]byte, 16) // random 128 bit seed
@@ -457,7 +462,7 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 	deferred = append(deferred, func() error {
-		return os.RemoveAll(tempDir)
+		return nil //return os.RemoveAll(tempDir)
 	})
 
 	// Add our temporary dir to the beginning of -trimpath, so that we don't
@@ -504,6 +509,7 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
+			file = transformLineInfo(i, file)
 			file = transformGo(file, info, blacklist)
 			name = fmt.Sprintf("z%d.go", i)
 
@@ -655,6 +661,16 @@ func hashWith(salt, value string) string {
 		return "Z" + sum[:length]
 	}
 	return "z" + sum[:length]
+}
+
+func hashWithAsUint64(salt, value string, min, max uint64) uint64 {
+	d := sha256.New()
+	io.WriteString(d, salt)
+	d.Write(seed)
+	io.WriteString(d, value)
+	sum := d.Sum(nil)
+	val := binary.LittleEndian.Uint64(sum)
+	return min + (val % (max - min))
 }
 
 // buildBlacklist collects all the objects in a package which are known to be
