@@ -57,12 +57,11 @@ func shuffleStmts(stmts ...ast.Stmt) []ast.Stmt {
 
 // Encrypt chunks based on key and position
 func encryptChunks(chunks [][]byte, op token.Token, key int) {
-	idx := 0
-	for chunkIdx := range chunks {
-		chunk := chunks[chunkIdx]
+	byteOffset := 0
+	for _, chunk := range chunks {
 		for i := range chunk {
-			chunk[i] = evalOperator(op, chunk[i], byte(key^idx))
-			idx++
+			chunk[i] = evalOperator(op, chunk[i], byte(key^byteOffset))
+			byteOffset++
 		}
 	}
 }
@@ -76,8 +75,6 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 		chunks = splitIntoRandomChunks(data)
 	}
 
-	decryptOp := randOperator()
-
 	// Generate indexes for cases chunk count + 1 decrypt case + 1 exit case
 	indexes := mathrand.Perm(len(chunks) + 2)
 
@@ -87,7 +84,9 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 	for i, index := range indexes[:len(indexes)-1] {
 		decryptKey ^= index * i
 	}
-	encryptChunks(chunks, decryptOp, decryptKey)
+
+	op := randOperator()
+	encryptChunks(chunks, op, decryptKey)
 
 	decryptIndex := indexes[len(indexes)-2]
 	exitIndex := indexes[len(indexes)-1]
@@ -107,7 +106,7 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 					Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("y"))},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
-						operatorToReversedBinaryExpr(decryptOp, ah.IndexExpr("data", ah.Ident("y")), ah.CallExpr(ah.Ident("byte"), &ast.BinaryExpr{
+						operatorToReversedBinaryExpr(op, ah.IndexExpr("data", ah.Ident("y")), ah.CallExpr(ah.Ident("byte"), &ast.BinaryExpr{
 							X:  ah.Ident("decryptKey"),
 							Op: token.XOR,
 							Y:  ah.Ident("y"),

@@ -39,8 +39,8 @@ func (x xorShuffle) obfuscate(data []byte) *ast.BlockStmt {
 		args = append(args, operatorToReversedBinaryExpr(
 			operators[i],
 			ah.IndexExpr("fullData", ah.IntLit(shuffledIdxs[i])),
-			ah.IndexExpr("fullData", ah.IntLit(shuffledIdxs[len(data)+i]))),
-		)
+			ah.IndexExpr("fullData", ah.IntLit(shuffledIdxs[len(data)+i])),
+		))
 	}
 
 	return ah.BlockStmt(

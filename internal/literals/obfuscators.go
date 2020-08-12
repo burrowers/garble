@@ -53,10 +53,9 @@ func genRandIntSlice(max, count int) []int {
 	return indexes
 }
 
-var allOperators = [...]token.Token{token.XOR, token.ADD, token.SUB}
-
 func randOperator() token.Token {
-	return allOperators[mathrand.Intn(len(allOperators))]
+	var operatorTokens = [...]token.Token{token.XOR, token.ADD, token.SUB}
+	return operatorTokens[mathrand.Intn(len(operatorTokens))]
 }
 
 func evalOperator(t token.Token, x, y byte) byte {
