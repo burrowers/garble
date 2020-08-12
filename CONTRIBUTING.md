@@ -4,7 +4,7 @@ Thank you for your interest in contributing! Here are some ground rules:
 
 1. The tool's design decisions are in the [README](README.md)
 2. New features or major changes should be opened as an issue first
-3. Non-trivial contributions should be done in PRs with code review and CI
+3. All contributions are done in PRs with at least one review and CI
 4. We use the `#obfuscation` channel over at the [Gophers Slack](https://invite.slack.golangbridge.org/) to chat
 
 ### Testing
