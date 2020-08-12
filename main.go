@@ -1030,7 +1030,7 @@ func filterBuildFlags(flags []string) (filtered []string) {
 			continue
 		}
 		// "-name value", so the next arg is part of this flag.
-		if i++; i < len(flags) {
+		if i++; buildFlag && i < len(flags) {
 			filtered = append(filtered, flags[i])
 		}
 	}

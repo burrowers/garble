@@ -392,6 +392,11 @@ func TestFilterBuildFlags(t *testing.T) {
 			[]string{"-short", "-tags", "foo", "-mod=readonly", "-json"},
 			[]string{"-tags", "foo", "-mod=readonly"},
 		},
+		{
+			"NonBinarySkipped",
+			[]string{"-o", "binary", "-tags", "foo"},
+			[]string{"-tags", "foo"},
+		},
 	}
 	for _, test := range tests {
 		test := test
