@@ -59,8 +59,8 @@ func shuffleStmts(stmts ...ast.Stmt) []ast.Stmt {
 func encryptChunks(chunks [][]byte, op token.Token, key int) {
 	byteOffset := 0
 	for _, chunk := range chunks {
-		for i := range chunk {
-			chunk[i] = evalOperator(op, chunk[i], byte(key^byteOffset))
+		for i, b := range chunk {
+			chunk[i] = evalOperator(op, b, byte(key^byteOffset))
 			byteOffset++
 		}
 	}
