@@ -7,13 +7,15 @@ import (
 	mathrand "math/rand"
 )
 
-// PosMax is the largest line or column value that can be represented without loss.
-// Incoming values (arguments) larger than PosMax will be set to PosMax.
-// Source: https://golang.org/src/cmd/compile/internal/syntax/pos.go
-const PosMax = 1 << 30
-const PosMin = 1
+const (
+	// PosMax is the largest line or column value that can be represented without loss.
+	// Source: https://golang.org/src/cmd/compile/internal/syntax/pos.go
+	PosMax = 1 << 30
 
-var emptyLine = &ast.CommentGroup{List: []*ast.Comment{{Text: "//line :1"}}}
+	// PosMin is the smallest correct value for the line number.
+	// Source: https://github.com/golang/go/blob/2001685ec01c240eda84762a3bc612ddd3ca93fe/src/cmd/compile/internal/syntax/parser_test.go#L229
+	PosMin = 1
+)
 
 func transformLineInfo(fileIndex int, file *ast.File) *ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
@@ -28,12 +30,12 @@ func transformLineInfo(fileIndex int, file *ast.File) *ast.File {
 		}
 
 		if envGarbleTiny {
-			funcDecl.Doc = emptyLine
+			funcDecl.Doc = &ast.CommentGroup{List: []*ast.Comment{{Text: "//line :1"}}}
 			return true
 		}
 
-		line := hashWithAsUint64(buildInfo.buildID, fmt.Sprintf("%d:%s", fileIndex, funcDecl.Name), PosMin, PosMax)
-		comment := &ast.Comment{Text: fmt.Sprintf("//line %c.go:%d", nameCharset[mathrand.Intn(len(nameCharset))], line)}
+		linePos := hashWithAsUint64(buildInfo.buildID, fmt.Sprintf("%d:%s", fileIndex, funcDecl.Name), PosMin, PosMax)
+		comment := &ast.Comment{Text: fmt.Sprintf("//line %c.go:%d", nameCharset[mathrand.Intn(len(nameCharset))], linePos)}
 		funcDecl.Doc = &ast.CommentGroup{List: []*ast.Comment{comment}}
 		return true
 	}

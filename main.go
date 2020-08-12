@@ -45,7 +45,7 @@ var (
 func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Encrypt all literals with AES, currently only literal strings are supported")
-	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Encrypt all literals with AES, currently only literal strings are supported")
+	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Removes information about file names and line numbers irretrievably")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a given directory: '-debugdir=./debug'")
 	flagSet.StringVar(&flagSeed, "seed", "", "Provide a custom base64-encoded seed: '-seed=o9WDTZ4CN4w=' \nFor a random seed provide: '-seed=random'")
 }
@@ -462,7 +462,7 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 	deferred = append(deferred, func() error {
-		return nil //return os.RemoveAll(tempDir)
+		return os.RemoveAll(tempDir)
 	})
 
 	// Add our temporary dir to the beginning of -trimpath, so that we don't
