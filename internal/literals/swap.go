@@ -57,7 +57,7 @@ func generateSwapCount(dataLen int) int {
 
 func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 	swapCount := generateSwapCount(len(data))
-	shiftKey := byte(mathrand.Intn(math.MaxUint8))
+	shiftKey := genRandByte()
 
 	op := randOperator()
 
@@ -138,7 +138,8 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 									Y:  ah.IntLit(1),
 								}),
 							),
-							ah.Ident("localKey")),
+							ah.Ident("localKey"),
+						),
 						operatorToReversedBinaryExpr(
 							op,
 							ah.IndexExpr("data", ah.IndexExpr("positions", ah.Ident("i"))),

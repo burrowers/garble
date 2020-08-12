@@ -45,6 +45,12 @@ func genRandBytes(buffer []byte) {
 	}
 }
 
+func genRandByte() byte {
+	bytes := make([]byte, 1)
+	genRandBytes(bytes)
+	return bytes[0]
+}
+
 func genRandIntSlice(max, count int) []int {
 	indexes := make([]int, count)
 	for i := 0; i < count; i++ {
@@ -54,7 +60,7 @@ func genRandIntSlice(max, count int) []int {
 }
 
 func randOperator() token.Token {
-	var operatorTokens = [...]token.Token{token.XOR, token.ADD, token.SUB}
+	operatorTokens := [...]token.Token{token.XOR, token.ADD, token.SUB}
 	return operatorTokens[mathrand.Intn(len(operatorTokens))]
 }
 

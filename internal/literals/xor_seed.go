@@ -13,10 +13,7 @@ type xorSeed struct{}
 var _ obfuscator = xorSeed{}
 
 func (x xorSeed) obfuscate(data []byte) *ast.BlockStmt {
-	preSeed := make([]byte, 1)
-	genRandBytes(preSeed)
-
-	seed := preSeed[0]
+	seed := genRandByte()
 	originalSeed := seed
 
 	op := randOperator()
