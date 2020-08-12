@@ -18,8 +18,13 @@ func (x xorShuffle) obfuscate(data []byte) *ast.BlockStmt {
 	genRandBytes(key)
 
 	fullData := make([]byte, len(data)+len(key))
+	operators := make([]token.Token, len(fullData))
+	for i := range operators {
+		operators[i] = randOperator()
+	}
+
 	for i, b := range key {
-		fullData[i], fullData[i+len(data)] = data[i]^b, b
+		fullData[i], fullData[i+len(data)] = evalOperator(operators[i], data[i], b), b
 	}
 
 	shuffledIdxs := mathrand.Perm(len(fullData))
@@ -31,11 +36,11 @@ func (x xorShuffle) obfuscate(data []byte) *ast.BlockStmt {
 
 	args := []ast.Expr{ah.Ident("data")}
 	for i := range data {
-		args = append(args, &ast.BinaryExpr{
-			X:  ah.IndexExpr("fullData", ah.IntLit(shuffledIdxs[i])),
-			Op: token.XOR,
-			Y:  ah.IndexExpr("fullData", ah.IntLit(shuffledIdxs[len(data)+i])),
-		})
+		args = append(args, operatorToReversedBinaryExpr(
+			operators[i],
+			ah.IndexExpr("fullData", ah.IntLit(shuffledIdxs[i])),
+			ah.IndexExpr("fullData", ah.IntLit(shuffledIdxs[len(data)+i])),
+		))
 	}
 
 	return ah.BlockStmt(

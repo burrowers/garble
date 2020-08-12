@@ -13,15 +13,14 @@ type xorSeed struct{}
 var _ obfuscator = xorSeed{}
 
 func (x xorSeed) obfuscate(data []byte) *ast.BlockStmt {
-	preSeed := make([]byte, 1)
-	genRandBytes(preSeed)
-
-	seed := preSeed[0]
+	seed := genRandByte()
 	originalSeed := seed
+
+	op := randOperator()
 
 	var callExpr *ast.CallExpr
 	for i, b := range data {
-		encB := b ^ seed
+		encB := evalOperator(op, b, seed)
 		seed += encB
 
 		if i == 0 {
@@ -95,11 +94,7 @@ func (x xorSeed) obfuscate(data []byte) *ast.BlockStmt {
 							Lhs: []ast.Expr{ah.Ident("data")},
 							Tok: token.ASSIGN,
 							Rhs: []ast.Expr{
-								ah.CallExpr(ah.Ident("append"), ah.Ident("data"), &ast.BinaryExpr{
-									X:  ah.Ident("x"),
-									Op: token.XOR,
-									Y:  ah.Ident("seed"),
-								}),
+								ah.CallExpr(ah.Ident("append"), ah.Ident("data"), operatorToReversedBinaryExpr(op, ah.Ident("x"), ah.Ident("seed"))),
 							},
 						},
 						&ast.AssignStmt{

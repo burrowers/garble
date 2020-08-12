@@ -36,8 +36,8 @@ cmp stderr normal.stderr
 
 # Check obfuscators
 
-# Xor obfuscator. Detect a[i] = a[i] ^ b[i]
-grep '^\s+\w+\[\w+\] = \w+\[\w+\] \^ \w+$' .obf-src/main/z0.go
+# Xor obfuscator. Detect a[i] = a[i] (^|-|+) b[i]
+grep '^\s+\w+\[\w+\] = \w+\[\w+\] [\^\-+] \w+$' .obf-src/main/z0.go
 
 # Swap obfuscator. Detect [...]byte|uint16|uint32|uint64{...}
 grep '^\s+\w+ := \[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' .obf-src/main/z0.go
@@ -45,8 +45,8 @@ grep '^\s+\w+ := \[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' .obf-src/ma
 # Split obfuscator. Detect decryptKey ^= i * counter
 grep '^\s+\w+ \^= \w+ \* \w+$' .obf-src/main/z0.go
 
-# XorShuffle obfuscator. Detect data = append(data, x ^ y...)
-grep '^\s+\w+ = append\(\w+,(\s+\w+\[\d+\]\^\w+\[\d+\],?)+\)$' .obf-src/main/z0.go
+# XorShuffle obfuscator. Detect data = append(data, x (^|-|+) y...)
+grep '^\s+\w+ = append\(\w+,(\s+\w+\[\d+\][\^\-+]\w+\[\d+\],?)+\)$' .obf-src/main/z0.go
 
 # XorSeed obfuscator. Detect type decFunc func(byte) decFunc
 grep '^\s+type \w+ func\(byte\) \w+$' .obf-src/main/z0.go

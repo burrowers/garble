@@ -57,14 +57,16 @@ func generateSwapCount(dataLen int) int {
 
 func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 	swapCount := generateSwapCount(len(data))
-	shiftKey := byte(mathrand.Intn(math.MaxUint8))
+	shiftKey := genRandByte()
+
+	op := randOperator()
 
 	positions := genRandIntSlice(len(data), swapCount)
 	for i := len(positions) - 2; i >= 0; i -= 2 {
 		// Generate local key for xor based on random key and byte position
 		localKey := byte(i) + byte(positions[i]^positions[i+1]) + shiftKey
-		// Swap bytes from i+1 to i and xor using local key
-		data[positions[i]], data[positions[i+1]] = data[positions[i+1]]^localKey, data[positions[i]]^localKey
+		// Swap bytes from i+1 to i and encrypt using operator and local key
+		data[positions[i]], data[positions[i+1]] = evalOperator(op, data[positions[i+1]], localKey), evalOperator(op, data[positions[i]], localKey)
 	}
 
 	return ah.BlockStmt(
@@ -127,20 +129,22 @@ func (x swap) obfuscate(data []byte) *ast.BlockStmt {
 					},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
-						&ast.BinaryExpr{
-							X: ah.IndexExpr("data", ah.IndexExpr("positions", &ast.BinaryExpr{
-								X:  ah.Ident("i"),
-								Op: token.ADD,
-								Y:  ah.IntLit(1),
-							})),
-							Op: token.XOR,
-							Y:  ah.Ident("localKey"),
-						},
-						&ast.BinaryExpr{
-							X:  ah.IndexExpr("data", ah.IndexExpr("positions", ah.Ident("i"))),
-							Op: token.XOR,
-							Y:  ah.Ident("localKey"),
-						},
+						operatorToReversedBinaryExpr(
+							op,
+							ah.IndexExpr("data",
+								ah.IndexExpr("positions", &ast.BinaryExpr{
+									X:  ah.Ident("i"),
+									Op: token.ADD,
+									Y:  ah.IntLit(1),
+								}),
+							),
+							ah.Ident("localKey"),
+						),
+						operatorToReversedBinaryExpr(
+							op,
+							ah.IndexExpr("data", ah.IndexExpr("positions", ah.Ident("i"))),
+							ah.Ident("localKey"),
+						),
 					},
 				},
 			),
