@@ -18,11 +18,11 @@ type obfuscator interface {
 var (
 	// obfuscators contains all types which implement the obfuscator Interface
 	obfuscators = []obfuscator{
-		xor{},
+		simple{},
 		swap{},
 		split{},
-		xorShuffle{},
-		xorSeed{},
+		shuffle{},
+		seed{},
 	}
 	envGarbleSeed = os.Getenv("GARBLE_SEED")
 )

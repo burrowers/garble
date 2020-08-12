@@ -55,7 +55,7 @@ func generateSwapCount(dataLen int) int {
 	return swapCount
 }
 
-func (x swap) obfuscate(data []byte) *ast.BlockStmt {
+func (swap) obfuscate(data []byte) *ast.BlockStmt {
 	swapCount := generateSwapCount(len(data))
 	shiftKey := genRandByte()
 

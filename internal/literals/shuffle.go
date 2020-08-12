@@ -8,12 +8,12 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-type xorShuffle struct{}
+type shuffle struct{}
 
 // check that the obfuscator interface is implemented
-var _ obfuscator = xorShuffle{}
+var _ obfuscator = shuffle{}
 
-func (x xorShuffle) obfuscate(data []byte) *ast.BlockStmt {
+func (shuffle) obfuscate(data []byte) *ast.BlockStmt {
 	key := make([]byte, len(data))
 	genRandBytes(key)
 
