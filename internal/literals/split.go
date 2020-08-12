@@ -66,7 +66,7 @@ func encryptChunks(chunks [][]byte, op token.Token, key byte) {
 	}
 }
 
-func (x split) obfuscate(data []byte) *ast.BlockStmt {
+func (split) obfuscate(data []byte) *ast.BlockStmt {
 	var chunks [][]byte
 	// Short arrays should be divided into single-byte fragments
 	if len(data)/maxChunkSize < minCaseCount {
@@ -205,5 +205,6 @@ func (x split) obfuscate(data []byte) *ast.BlockStmt {
 					Tag:  ah.Ident("i"),
 					Body: ah.BlockStmt(shuffleStmts(switchCases...)...),
 				}),
-		})
+		},
+	)
 }

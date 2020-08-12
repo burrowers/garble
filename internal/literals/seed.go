@@ -7,12 +7,12 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-type xorSeed struct{}
+type seed struct{}
 
 // check that the obfuscator interface is implemented
-var _ obfuscator = xorSeed{}
+var _ obfuscator = seed{}
 
-func (x xorSeed) obfuscate(data []byte) *ast.BlockStmt {
+func (seed) obfuscate(data []byte) *ast.BlockStmt {
 	seed := genRandByte()
 	originalSeed := seed
 

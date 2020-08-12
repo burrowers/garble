@@ -7,12 +7,12 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-type xor struct{}
+type simple struct{}
 
 // check that the obfuscator interface is implemented
-var _ obfuscator = xor{}
+var _ obfuscator = simple{}
 
-func (x xor) obfuscate(data []byte) *ast.BlockStmt {
+func (simple) obfuscate(data []byte) *ast.BlockStmt {
 	key := make([]byte, len(data))
 	genRandBytes(key)
 
@@ -21,7 +21,7 @@ func (x xor) obfuscate(data []byte) *ast.BlockStmt {
 		data[i] = evalOperator(op, data[i], b)
 	}
 
-	return &ast.BlockStmt{List: []ast.Stmt{
+	return ah.BlockStmt(
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ah.Ident("key")},
 			Tok: token.DEFINE,
@@ -45,5 +45,5 @@ func (x xor) obfuscate(data []byte) *ast.BlockStmt {
 				},
 			}},
 		},
-	}}
+	)
 }
