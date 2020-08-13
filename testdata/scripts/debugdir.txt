@@ -1,8 +1,7 @@
 garble -debugdir ./test1 build
-exists 'test1/test/imported/z0.go' 'test1/main/z0.go'
-! grep ImportedFunc $WORK/test1/test/imported/z0.go
-! grep ImportedFunc $WORK/test1/main/z0.go 
-
+exists 'test1/test/imported/imported.go' 'test1/main/main.go'
+! grep ImportedFunc $WORK/test1/test/imported/imported.go
+! grep ImportedFunc $WORK/test1/main/main.go
 
 -- go.mod --
 module test

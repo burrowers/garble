@@ -513,7 +513,6 @@ func transformCompile(args []string) ([]string, error) {
 			protectFileName = true
 			file = transformLineInfo(i, file)
 			file = transformGo(file, info, blacklist)
-			name = fmt.Sprintf("z%d.go", i)
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
