@@ -28,6 +28,7 @@ func prependComment(group *ast.CommentGroup, comment *ast.Comment) *ast.CommentG
 	return group
 }
 
+// Remove all comments from CommentGroup except //go: directives.
 func clearCommentGroup(group *ast.CommentGroup) *ast.CommentGroup {
 	if group == nil {
 		return nil
@@ -46,6 +47,7 @@ func clearCommentGroup(group *ast.CommentGroup) *ast.CommentGroup {
 	return &ast.CommentGroup{List: comments}
 }
 
+// Remove all comments from Doc (if any) except //go: directives.
 func clearNodeComments(node ast.Node) {
 	switch n := node.(type) {
 	case *ast.Field:
