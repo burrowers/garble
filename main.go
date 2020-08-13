@@ -739,38 +739,19 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 
 // transformGo garbles the provided Go syntax node.
 func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}) *ast.File {
-	// Remove all comments, minus the "//go:" compiler directives.
-	// The final binary should still not contain comment text, but removing
-	// it helps ensure that (and makes position info less predictable).
-	origComments := file.Comments
-	file.Comments = nil
-	for _, commentGroup := range origComments {
-		for _, comment := range commentGroup.List {
-			if strings.HasPrefix(comment.Text, "//go:") {
-				file.Comments = append(file.Comments, &ast.CommentGroup{
-					List: []*ast.Comment{comment},
-				})
-			}
+	// Shuffle top level declarations
+	mathrand.Shuffle(len(file.Decls), func(i, j int) {
+		decl1 := file.Decls[i]
+		decl2 := file.Decls[j]
+
+		// Import declarations must remain at the top of the file.
+		gd1, ok1 := decl1.(*ast.GenDecl)
+		gd2, ok2 := decl2.(*ast.GenDecl)
+		if (ok1 && gd1.Tok == token.IMPORT) || (ok2 && gd2.Tok == token.IMPORT) {
+			return
 		}
-	}
-
-	// Shuffle top level declarations if there are no remaining compiler
-	// directives.
-	if len(file.Comments) == 0 {
-		// TODO: Also allow files with compiler directives.
-		mathrand.Shuffle(len(file.Decls), func(i, j int) {
-			decl1 := file.Decls[i]
-			decl2 := file.Decls[j]
-
-			// Import declarations must remain at the top of the file.
-			gd1, ok1 := decl1.(*ast.GenDecl)
-			gd2, ok2 := decl2.(*ast.GenDecl)
-			if (ok1 && gd1.Tok == token.IMPORT) || (ok2 && gd2.Tok == token.IMPORT) {
-				return
-			}
-			file.Decls[i], file.Decls[j] = decl2, decl1
-		})
-	}
+		file.Decls[i], file.Decls[j] = decl2, decl1
+	})
 
 	pre := func(cursor *astutil.Cursor) bool {
 		node, ok := cursor.Node().(*ast.Ident)
