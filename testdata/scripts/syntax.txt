@@ -11,7 +11,7 @@ cmp stderr main.stderr
 
 ! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information'
 
-binsubstr debug/main/z1.go 'localName' 'globalConst'
+binsubstr debug/main/scopes.go 'localName' 'globalConst'
 
 -- go.mod --
 module test/main

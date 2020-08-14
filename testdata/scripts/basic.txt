@@ -27,7 +27,7 @@ stdout 'unknown'
 ! stdout $gofullversion
 
 # The binary can't contain the version string either.
-! binsubstr main$exe ${WORK@R} 'globalVar' 'globalFunc' $gofullversion
+! binsubstr main$exe ${WORK@R} 'main.go' 'globalVar' 'globalFunc' $gofullversion
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -50,7 +50,7 @@ cmp stderr main.stderr
 
 # The default build includes full non-trimmed paths, as well as our names.
 # Only check $WORK on non-windows, because it's difficult to do it there.
-binsubstr main$exe 'globalVar' 'globalFunc' $gofullversion
+binsubstr main$exe 'main.go' 'globalVar' 'globalFunc' $gofullversion
 [!windows] binsubstr main$exe ${WORK@R}
 
 -- main.go --

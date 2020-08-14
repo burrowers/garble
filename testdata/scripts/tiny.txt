@@ -1,0 +1,41 @@
+env TINY_PATTERN='^\/\/line :1$'
+env DEFAULT_PATTERN='^\/\/line \w\.go:[1-9][0-9]*$'
+env DEFAULT_STACK_PATTERN='^\t\w\.go:[1-9][0-9]*(\s\+0x[0-9a-f]+)?'
+env TINY_STACK_PATTERN='^\t\?\?:[0-9][0-9]*(\s\+0x[0-9a-f]+)?$'
+
+# Tiny mode
+garble -tiny -debugdir=.obf-src build
+
+grep $TINY_PATTERN .obf-src/main/main.go
+! grep $DEFAULT_PATTERN .obf-src/main/main.go
+
+! exec ./main$exe
+! stderr 'main\.go'
+! stderr $DEFAULT_STACK_PATTERN
+stderr $TINY_STACK_PATTERN
+
+[short] stop # no need to verify this with -short
+
+# Default mode
+
+garble -debugdir=.obf-src build
+
+# Check for file name leak protection
+grep $TINY_PATTERN .obf-src/main/main.go
+
+# Check for default line obfuscation
+grep $DEFAULT_PATTERN .obf-src/main/main.go
+
+! exec ./main$exe
+! stderr 'main\.go'
+! stderr $TINY_STACK_PATTERN
+stderr $DEFAULT_STACK_PATTERN
+
+-- go.mod --
+module main
+-- main.go --
+package main
+
+func main() {
+	panic("Test")
+}

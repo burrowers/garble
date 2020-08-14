@@ -37,6 +37,7 @@ var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
 
 var (
 	flagGarbleLiterals bool
+	flagGarbleTiny     bool
 	flagDebugDir       string
 	flagSeed           string
 )
@@ -44,6 +45,7 @@ var (
 func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Encrypt all literals with AES, currently only literal strings are supported")
+	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing the ability to reverse the process")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a given directory: '-debugdir=./debug'")
 	flagSet.StringVar(&flagSeed, "seed", "", "Provide a custom base64-encoded seed: '-seed=o9WDTZ4CN4w=' \nFor a random seed provide: '-seed=random'")
 }
@@ -72,7 +74,8 @@ var (
 	deferred []func() error
 	fset     = token.NewFileSet()
 
-	b64         = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z")
+	nameCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z"
+	b64         = base64.NewEncoding(nameCharset)
 	printConfig = printer.Config{Mode: printer.RawFormat}
 
 	// listPackage helps implement a types.Importer which finds the export
@@ -94,6 +97,7 @@ var (
 
 	envGarbleDir      = os.Getenv("GARBLE_DIR")
 	envGarbleLiterals = os.Getenv("GARBLE_LITERALS") == "true"
+	envGarbleTiny     = os.Getenv("GARBLE_TINY") == "true"
 	envGarbleDebugDir = os.Getenv("GARBLE_DEBUGDIR")
 	envGarbleSeed     = os.Getenv("GARBLE_SEED")
 	envGoPrivate      string // filled via 'go env' below to support 'go env -w'
@@ -247,6 +251,7 @@ func mainErr(args []string) error {
 		}
 		os.Setenv("GARBLE_DIR", wd)
 		os.Setenv("GARBLE_LITERALS", fmt.Sprint(flagGarbleLiterals))
+		os.Setenv("GARBLE_TINY", fmt.Sprint(flagGarbleTiny))
 
 		if flagSeed == "random" {
 			seed = make([]byte, 16) // random 128 bit seed
@@ -478,6 +483,7 @@ func transformCompile(args []string) ([]string, error) {
 	// TODO: randomize the order and names of the files
 	newPaths := make([]string, 0, len(files))
 	for i, file := range files {
+		var extraComments []string
 		origName := filepath.Base(filepath.Clean(paths[i]))
 		name := origName
 		switch {
@@ -504,8 +510,8 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
+			extraComments, file = transformLineInfo(i, file)
 			file = transformGo(file, info, blacklist)
-			name = fmt.Sprintf("z%d.go", i)
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
@@ -531,6 +537,13 @@ func transformCompile(args []string) ([]string, error) {
 			printWriter = io.MultiWriter(tempFile, debugFile)
 		}
 
+		if len(extraComments) > 0 {
+			for _, comment := range extraComments {
+				if _, err = printWriter.Write([]byte(comment + "\n")); err != nil {
+					return nil, err
+				}
+			}
+		}
 		if err := printConfig.Fprint(printWriter, fset, file); err != nil {
 			return nil, err
 		}
@@ -654,6 +667,16 @@ func hashWith(salt, value string) string {
 	return "z" + sum[:length]
 }
 
+func hashWithAsUint64(salt, value string, min, max uint64) uint64 {
+	d := sha256.New()
+	io.WriteString(d, salt)
+	d.Write(seed)
+	io.WriteString(d, value)
+	sum := d.Sum(nil)
+	val := binary.LittleEndian.Uint64(sum)
+	return min + (val % (max - min))
+}
+
 // buildBlacklist collects all the objects in a package which are known to be
 // used with reflect.TypeOf or reflect.ValueOf. Since we obfuscate one package
 // at a time, we only detect those if the type definition and the reflect usage
@@ -720,38 +743,19 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 
 // transformGo garbles the provided Go syntax node.
 func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}) *ast.File {
-	// Remove all comments, minus the "//go:" compiler directives.
-	// The final binary should still not contain comment text, but removing
-	// it helps ensure that (and makes position info less predictable).
-	origComments := file.Comments
-	file.Comments = nil
-	for _, commentGroup := range origComments {
-		for _, comment := range commentGroup.List {
-			if strings.HasPrefix(comment.Text, "//go:") {
-				file.Comments = append(file.Comments, &ast.CommentGroup{
-					List: []*ast.Comment{comment},
-				})
-			}
+	// Shuffle top level declarations
+	mathrand.Shuffle(len(file.Decls), func(i, j int) {
+		decl1 := file.Decls[i]
+		decl2 := file.Decls[j]
+
+		// Import declarations must remain at the top of the file.
+		gd1, ok1 := decl1.(*ast.GenDecl)
+		gd2, ok2 := decl2.(*ast.GenDecl)
+		if (ok1 && gd1.Tok == token.IMPORT) || (ok2 && gd2.Tok == token.IMPORT) {
+			return
 		}
-	}
-
-	// Shuffle top level declarations if there are no remaining compiler
-	// directives.
-	if len(file.Comments) == 0 {
-		// TODO: Also allow files with compiler directives.
-		mathrand.Shuffle(len(file.Decls), func(i, j int) {
-			decl1 := file.Decls[i]
-			decl2 := file.Decls[j]
-
-			// Import declarations must remain at the top of the file.
-			gd1, ok1 := decl1.(*ast.GenDecl)
-			gd2, ok2 := decl2.(*ast.GenDecl)
-			if (ok1 && gd1.Tok == token.IMPORT) || (ok2 && gd2.Tok == token.IMPORT) {
-				return
-			}
-			file.Decls[i], file.Decls[j] = decl2, decl1
-		})
-	}
+		file.Decls[i], file.Decls[j] = decl2, decl1
+	})
 
 	pre := func(cursor *astutil.Cursor) bool {
 		node, ok := cursor.Node().(*ast.Ident)
