@@ -67,7 +67,22 @@ func clearNodeComments(node ast.Node) {
 	}
 }
 
-func transformLineInfo(fileIndex int, file *ast.File) *ast.File {
+func findBuildTags(commentGroups []*ast.CommentGroup) (buildTags []string) {
+	for _, group := range commentGroups {
+		for _, comment := range group.List {
+			if !strings.Contains(comment.Text, "+build") {
+				continue
+			}
+			buildTags = append(buildTags, comment.Text)
+		}
+	}
+	return buildTags
+}
+
+func transformLineInfo(fileIndex int, file *ast.File) ([]string, *ast.File) {
+	// Save build tags and add file name leak protection
+	extraComments := append(findBuildTags(file.Comments), "", "//line :1")
+
 	file.Comments = nil
 	pre := func(cursor *astutil.Cursor) bool {
 		node := cursor.Node()
@@ -89,5 +104,5 @@ func transformLineInfo(fileIndex int, file *ast.File) *ast.File {
 		return true
 	}
 
-	return astutil.Apply(file, pre, nil).(*ast.File)
+	return extraComments, astutil.Apply(file, pre, nil).(*ast.File)
 }

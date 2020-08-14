@@ -483,7 +483,7 @@ func transformCompile(args []string) ([]string, error) {
 
 	// TODO: randomize the order and names of the files
 	for i, file := range files {
-		protectFileName := false
+		var extraComments []string
 		origName := filepath.Base(filepath.Clean(paths[i]))
 		name := origName
 		switch {
@@ -510,8 +510,7 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
-			protectFileName = true
-			file = transformLineInfo(i, file)
+			extraComments, file = transformLineInfo(i, file)
 			file = transformGo(file, info, blacklist)
 
 			// Uncomment for some quick debugging. Do not delete.
@@ -538,11 +537,12 @@ func transformCompile(args []string) ([]string, error) {
 			printWriter = io.MultiWriter(tempFile, debugFile)
 		}
 
-		if protectFileName {
-			// File name leak protection
-			_, err = printWriter.Write([]byte("//line :1\n"))
-			if err != nil {
-				return nil, err
+		if len(extraComments) > 0 {
+			for _, comment := range extraComments {
+				_, err = printWriter.Write([]byte(comment + "\n"))
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 		if err := printConfig.Fprint(printWriter, fset, file); err != nil {
