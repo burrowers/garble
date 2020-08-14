@@ -45,7 +45,7 @@ var (
 func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Encrypt all literals with AES, currently only literal strings are supported")
-	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Removes information about file names and line numbers irretrievably")
+	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing the ability to reverse the process")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a given directory: '-debugdir=./debug'")
 	flagSet.StringVar(&flagSeed, "seed", "", "Provide a custom base64-encoded seed: '-seed=o9WDTZ4CN4w=' \nFor a random seed provide: '-seed=random'")
 }
@@ -539,8 +539,7 @@ func transformCompile(args []string) ([]string, error) {
 
 		if len(extraComments) > 0 {
 			for _, comment := range extraComments {
-				_, err = printWriter.Write([]byte(comment + "\n"))
-				if err != nil {
+				if _, err = printWriter.Write([]byte(comment + "\n")); err != nil {
 					return nil, err
 				}
 			}

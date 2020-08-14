@@ -11,11 +11,11 @@ import (
 
 const (
 	// PosMax is the largest line or column value that can be represented without loss.
-	// Source: https://golang.org/src/cmd/compile/internal/syntax/pos.go
+	// Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/syntax/pos.go#11
 	PosMax = 1 << 30
 
 	// PosMin is the smallest correct value for the line number.
-	// Source: https://github.com/golang/go/blob/2001685ec01c240eda84762a3bc612ddd3ca93fe/src/cmd/compile/internal/syntax/parser_test.go#L229
+	// Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/syntax/parser_test.go#229
 	PosMin = 1
 )
 
@@ -98,6 +98,7 @@ func transformLineInfo(fileIndex int, file *ast.File) ([]string, *ast.File) {
 			return true
 		}
 
+		// TODO: Optimize the generated values of line numbers to reduce space usage.
 		linePos := hashWithAsUint64(buildInfo.buildID, fmt.Sprintf("%d:%s", fileIndex, funcDecl.Name), PosMin, PosMax)
 		comment := &ast.Comment{Text: fmt.Sprintf("//line %c.go:%d", nameCharset[mathrand.Intn(len(nameCharset))], linePos)}
 		funcDecl.Doc = prependComment(funcDecl.Doc, comment)
