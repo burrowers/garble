@@ -378,6 +378,11 @@ func transformCompile(args []string) ([]string, error) {
 		// Nothing to transform; probably just ["-V=full"].
 		return args, nil
 	}
+
+	// We will force the linker to drop DWARF via -w, so don't spend time
+	// generating it.
+	flags = append(flags, "-dwarf=false")
+
 	pkgPath := flagValue(flags, "-p")
 	if pkgPath == "runtime" || pkgPath == "runtime/internal/sys" {
 		// Even though these packages aren't private, we will still process
@@ -387,7 +392,7 @@ func transformCompile(args []string) ([]string, error) {
 		envGarbleLiterals = false
 		envGarbleDebugDir = ""
 	} else if !isPrivate(pkgPath) {
-		return args, nil
+		return append(flags, paths...), nil
 	}
 	for i, path := range paths {
 		if filepath.Base(path) == "_gomod_.go" {
@@ -397,7 +402,7 @@ func transformCompile(args []string) ([]string, error) {
 		}
 	}
 	if len(paths) == 1 && filepath.Base(paths[0]) == "_testmain.go" {
-		return args, nil
+		return append(flags, paths...), nil
 	}
 
 	// If the value of -trimpath doesn't contain the separator ';', the 'go
@@ -465,7 +470,6 @@ func transformCompile(args []string) ([]string, error) {
 	// shorter prefixes later in the list, such as $PWD if TMPDIR=$PWD/tmp.
 	flags = flagSetValue(flags, "-trimpath", tempDir+"=>;"+trimpath)
 	// log.Println(flags)
-	args = flags
 
 	pkgDebugDir := ""
 	if envGarbleDebugDir != "" {
@@ -477,6 +481,7 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	// TODO: randomize the order and names of the files
+	newPaths := make([]string, 0, len(files))
 	for i, file := range files {
 		origName := filepath.Base(filepath.Clean(paths[i]))
 		name := origName
@@ -539,13 +544,10 @@ func transformCompile(args []string) ([]string, error) {
 		}
 		debugFile.Close() // this is ok to error if no file is supplied
 
-		args = append(args, tempFile.Name())
+		newPaths = append(newPaths, tempFile.Name())
 	}
 
-	// We will force the linker to drop DWARF via -w, so don't spend time
-	// generating it.
-	flags = append(flags, "-dwarf=false")
-	return args, nil
+	return append(flags, newPaths...), nil
 }
 
 // isPrivate checks if GOPRIVATE matches pkgPath.
@@ -950,7 +952,7 @@ func splitFlagsFromArgs(all []string) (flags, args []string) {
 	for i := 0; i < len(all); i++ {
 		arg := all[i]
 		if !strings.HasPrefix(arg, "-") {
-			return all[:i], all[i:]
+			return all[:i:i], all[i:]
 		}
 		if booleanFlags[arg] || strings.Contains(arg, "=") {
 			// Either "-bool" or "-name=value".
