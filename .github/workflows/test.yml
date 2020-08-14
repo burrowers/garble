@@ -41,3 +41,10 @@ jobs:
       run: |
         go version
         go test ./...
+  code-checks:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Test that only LF line endings are used
+      run: bash crlf_test.sh
