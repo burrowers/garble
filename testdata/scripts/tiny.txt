@@ -18,6 +18,8 @@ grep $DEFAULT_PATTERN .obf-src/main/main.go
 ! stderr $TINY_STACK_PATTERN
 stderr $DEFAULT_STACK_PATTERN
 
+[short] stop # no need to verify this with -short
+
 # Tiny mode
 
 garble -tiny -debugdir=.obf-src build
