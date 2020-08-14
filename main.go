@@ -95,12 +95,13 @@ var (
 		return os.Open(buildInfo.imports[path].packagefile)
 	}).(types.ImporterFrom)
 
+	envGoPrivate = os.Getenv("GOPRIVATE") // complemented by 'go env' later
+
 	envGarbleDir      = os.Getenv("GARBLE_DIR")
 	envGarbleLiterals = os.Getenv("GARBLE_LITERALS") == "true"
 	envGarbleTiny     = os.Getenv("GARBLE_TINY") == "true"
 	envGarbleDebugDir = os.Getenv("GARBLE_DEBUGDIR")
 	envGarbleSeed     = os.Getenv("GARBLE_SEED")
-	envGoPrivate      string // filled via 'go env' below to support 'go env -w'
 	envGarbleListPkgs = os.Getenv("GARBLE_LISTPKGS")
 
 	seed []byte
@@ -225,14 +226,6 @@ func main1() int {
 }
 
 func mainErr(args []string) error {
-	// TODO(mvdan): only run this once at the very beginning, then set the
-	// GOPRIVATE env var.
-	out, err := exec.Command("go", "env", "GOPRIVATE").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%v: %s", err, out)
-	}
-	envGoPrivate = string(bytes.TrimSpace(out))
-
 	// If we recognise an argument, we're not running within -toolexec.
 	switch cmd := args[0]; cmd {
 	case "help":
@@ -285,15 +278,26 @@ func mainErr(args []string) error {
 
 		os.Setenv("GARBLE_DEBUGDIR", flagDebugDir)
 
+		if envGoPrivate == "" {
+			// Try 'go env' too, to query ${CONFIG}/go/env as well.
+			out, err := exec.Command("go", "env", "GOPRIVATE").CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%v: %s", err, out)
+			}
+			envGoPrivate = string(bytes.TrimSpace(out))
+		}
 		// If GOPRIVATE isn't set and we're in a module, use its module
 		// path as a GOPRIVATE default. Include a _test variant too.
 		if envGoPrivate == "" {
 			modpath, err := exec.Command("go", "list", "-m").Output()
 			if err == nil {
 				path := string(bytes.TrimSpace(modpath))
-				os.Setenv("GOPRIVATE", path+","+path+"_test")
+				envGoPrivate = path+","+path+"_test"
 			}
 		}
+		// Explicitly set GOPRIVATE, since future garble processes won't
+		// query 'go env' again.
+		os.Setenv("GOPRIVATE", envGoPrivate)
 
 		f, err := ioutil.TempFile("", "garble-list-deps")
 		if err != nil {
