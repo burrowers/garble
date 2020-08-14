@@ -76,7 +76,7 @@ func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info) error {
 		}
 
 	default:
-		return errors.New("Wrong node Type")
+		return errors.New("wrong node Type")
 	}
 
 	strValue := sign + basic.Value
@@ -108,7 +108,7 @@ func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info) error {
 
 	intType, ok := intTypes[typeInfo]
 	if !ok {
-		return errors.New("Wrong type")
+		return errors.New("wrong type")
 	}
 
 	call = genObfuscateInt(uint64(intValue), intType)
