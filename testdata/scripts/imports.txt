@@ -16,6 +16,11 @@ go build -tags buildtag
 exec ./main
 cmp stdout main.stdout
 
+# Also check that -literals doesn't break anything
+garble -literals build -tags buildtag
+exec ./main
+cmp stdout main.stdout
+
 -- go.mod --
 module test/main
 -- main.go --

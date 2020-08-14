@@ -450,11 +450,6 @@ func transformCompile(args []string) ([]string, error) {
 
 	if envGarbleLiterals {
 		files = literals.Obfuscate(files, info, fset, blacklist)
-		// ast changed so we need to typecheck again
-		pkg, err = origTypesConfig.Check(pkgPath, fset, files, info)
-		if err != nil {
-			return nil, fmt.Errorf("typecheck error: %v", err)
-		}
 	}
 
 	tempDir, err := ioutil.TempDir("", "garble-build")
