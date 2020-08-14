@@ -2,7 +2,7 @@ go build
 exec ./main$exe
 cmp stderr main.stderr
 
-binsubstr main$exe 'globalVar' # 'globalType' only matches on go < 1.15 
+binsubstr main$exe 'globalVar' # 'globalType' only matches on go < 1.15
 ! binsubstr main$exe 'localName' 'globalConst'
 
 garble -debugdir=debug build

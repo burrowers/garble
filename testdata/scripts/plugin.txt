@@ -9,7 +9,6 @@ go build -trimpath
 exec ./main
 cmp stderr main.stderr
 binsubstr main$exe 'PublicVar' 'PublicFunc'
-! binsubstr plugin.so 'privateFunc'
 
 [short] stop # no need to verify this with -short
 
