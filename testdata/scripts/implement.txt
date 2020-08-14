@@ -1,13 +1,15 @@
-garble build main.go
+garble build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 
 ! binsubstr main$exe 'unexportedMethod' 'privateIface'
 
+-- go.mod --
+module test/main
 -- main.go --
 package main
 
-import "fmt"
+import "test/main/tinyfmt"
 
 type T string
 
@@ -28,9 +30,28 @@ func (T) privateIface() {}
 var _ privateInterface = T("")
 
 func main() {
-	fmt.Println(T("foo"))
-	fmt.Println(T("foo").unexportedMethod())
+	tinyfmt.Println(T("foo"))
+	tinyfmt.Println(T("foo").unexportedMethod())
 }
--- main.stdout --
+-- tinyfmt/fmt.go --
+package tinyfmt
+
+// Println emulates fmt.Println, and allows the main package to indirectly use
+// T.String in a realistic way. We don't want to import fmt to avoid compiling
+// too many packages, since we don't have build caching yet.
+func Println(args ...interface{}) {
+	for _, arg := range args {
+		switch arg := arg.(type) {
+		case interface{String() string}:
+			print(arg.String())
+		case string:
+			print(arg)
+		default:
+			panic("unsupported type")
+		}
+	}
+	println()
+}
+-- main.stderr --
 String method for foo
 unexported method for foo
