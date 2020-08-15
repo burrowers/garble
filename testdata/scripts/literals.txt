@@ -10,7 +10,7 @@ binsubfloat main$exe '3684433217126772357.33' '-9015867427900753906'
 
 cp stderr normal.stderr
 
-garble -literals build
+garble -literals=all build
 exec ./main$exe
 cmp stderr normal.stderr
 
@@ -23,12 +23,12 @@ binsubstr main$exe 'Skip this block' 'also skip this' 'skip typed const' 'skip t
 # Also check that the binary is reproducible.
 cp main$exe main_old$exe
 rm main$exe
-garble -literals build
+garble -literals=all build
 bincmp main$exe main_old$exe
 
 # Also check that the binary is different from previous builds.
 rm main$exe
-garble -literals -debugdir=.obf-src -seed=8J+Ri/Cfh6fwn4e+ build
+garble -literals=all -debugdir=.obf-src -seed=8J+Ri/Cfh6fwn4e+ build
 ! bincmp main$exe main_old$exe
 
 exec ./main$exe

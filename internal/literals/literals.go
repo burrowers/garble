@@ -7,6 +7,8 @@ import (
 	"go/types"
 	mathrand "math/rand"
 	"strconv"
+	"strings"
+	_ "unsafe"
 
 	"golang.org/x/tools/go/ast/astutil"
 	ah "mvdan.cc/garble/internal/asthelper"
@@ -24,7 +26,31 @@ func randObfuscator() obfuscator {
 }
 
 // Obfuscate replace literals with obfuscated lambda functions
-func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blacklist map[types.Object]struct{}) []*ast.File {
+func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, garbleLiterals string, blacklist map[types.Object]struct{}) []*ast.File {
+	var obfStrings, obfBytes, obfInts, obfFloats, obfBools bool
+	litOptions := strings.Split(garbleLiterals, ",")
+	for _, op := range litOptions {
+		switch op {
+		case "all":
+			obfStrings = true
+			obfBytes = true
+			obfInts = true
+			obfFloats = true
+			obfBools = true
+			break
+		case "strings":
+			obfStrings = true
+		case "bytes":
+			obfBytes = true
+		case "ints":
+			obfInts = true
+		case "floats":
+			obfFloats = true
+		case "bools":
+			obfBools = true
+		}
+	}
+
 	pre := func(cursor *astutil.Cursor) bool {
 		switch x := cursor.Node().(type) {
 		case *ast.GenDecl:
@@ -95,8 +121,9 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 
 					data[i] = byte(value)
 				}
-				cursor.Replace(obfuscateByteArray(data, y.Len()))
-
+				if obfBytes {
+					cursor.Replace(obfuscateByteArray(data, y.Len()))
+				}
 			case *types.Slice:
 				if y.Elem() != byteType {
 					return true
@@ -117,10 +144,10 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 
 					data = append(data, byte(value))
 				}
-				cursor.Replace(obfuscateByteSlice(data))
-
+				if obfBytes {
+					cursor.Replace(obfuscateByteSlice(data))
+				}
 			}
-
 		case *ast.BasicLit:
 			switch cursor.Name() {
 			case "Values", "Rhs", "Value", "Args", "X", "Y", "Results":
@@ -129,9 +156,19 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 			}
 
 			switch x.Kind {
-			case token.FLOAT, token.INT:
-				obfuscateNumberLiteral(cursor, info)
+			case token.INT:
+				if obfInts {
+					obfuscateNumberLiteral(cursor, info)
+				}
+			case token.FLOAT:
+				if obfFloats {
+					obfuscateNumberLiteral(cursor, info)
+				}
 			case token.STRING:
+				if !obfStrings {
+					return true
+				}
+
 				typeInfo := info.TypeOf(x)
 				if typeInfo != types.Typ[types.String] && typeInfo != types.Typ[types.UntypedString] {
 					return true
@@ -154,14 +191,17 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 				return true // we don't want to obfuscate imports etc.
 			}
 
-			obfuscateNumberLiteral(cursor, info)
+			typeInfo := info.TypeOf(x)
+			if (isInteger(typeInfo) && obfInts) || (isFloat(typeInfo) && obfFloats) {
+				obfuscateNumberLiteral(cursor, info)
+			}
 		case *ast.Ident:
 			obj := info.ObjectOf(x)
 			if obj == nil {
 				return true
 			}
 
-			if obj == universalTrue || obj == universalFalse {
+			if obfBools && (obj == universalTrue || obj == universalFalse) {
 				cursor.Replace(obfuscateBool(x.Name == "true"))
 			}
 		}
@@ -178,6 +218,12 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 	}
 	return files
 }
+
+//go:linkname isInteger go/types.isInteger
+func isInteger(typ types.Type) bool
+
+//go:linkname isFloat go/types.isFloat
+func isFloat(typ types.Type) bool
 
 func obfuscateString(data string) *ast.CallExpr {
 	obfuscator := randObfuscator()

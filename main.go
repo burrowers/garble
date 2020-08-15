@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -36,7 +37,7 @@ import (
 var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
 
 var (
-	flagGarbleLiterals bool
+	flagGarbleLiterals string
 	flagGarbleTiny     bool
 	flagDebugDir       string
 	flagSeed           string
@@ -44,7 +45,7 @@ var (
 
 func init() {
 	flagSet.Usage = usage
-	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Encrypt all literals with AES, currently only literal strings are supported")
+	flagSet.StringVar(&flagGarbleLiterals, "literals", "none", "Obfuscate literals and literal expressions \nValid options are 'all', 'strings', 'bytes', 'ints', 'floats', 'bools', or 'none',\nseparated by a comma: '-literals=strings,ints'")
 	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing the ability to reverse the process")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a given directory: '-debugdir=./debug'")
 	flagSet.StringVar(&flagSeed, "seed", "", "Provide a custom base64-encoded seed: '-seed=o9WDTZ4CN4w=' \nFor a random seed provide: '-seed=random'")
@@ -98,7 +99,7 @@ var (
 	envGoPrivate = os.Getenv("GOPRIVATE") // complemented by 'go env' later
 
 	envGarbleDir      = os.Getenv("GARBLE_DIR")
-	envGarbleLiterals = os.Getenv("GARBLE_LITERALS") == "true"
+	envGarbleLiterals = os.Getenv("GARBLE_LITERALS")
 	envGarbleTiny     = os.Getenv("GARBLE_TINY") == "true"
 	envGarbleDebugDir = os.Getenv("GARBLE_DEBUGDIR")
 	envGarbleSeed     = os.Getenv("GARBLE_SEED")
@@ -213,6 +214,11 @@ func main1() int {
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
 		return 2
 	}
+	if err := validateOptions(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 3
+	}
+
 	log.SetPrefix("[garble] ")
 	args := flagSet.Args()
 	if len(args) < 1 {
@@ -223,6 +229,41 @@ func main1() int {
 		return 1
 	}
 	return 0
+}
+
+func validateOptions() error {
+	var allPassed, nonePassed bool
+	litOptions := strings.Split(flagGarbleLiterals, ",")
+	for i, op := range litOptions {
+		switch op {
+		case "none":
+			if allPassed {
+				return errors.New("error parsing -literals flag: 'all' and 'none' are mutually exclusive")
+			} else if i != 0 {
+				return errors.New("error parsing -literals flag: no other options can be passed with 'none'")
+			}
+
+			nonePassed = true
+		case "all":
+			if nonePassed {
+				return errors.New("error parsing -literals flag: 'all' and 'none' are mutually exclusive")
+			} else if i != 0 {
+				return errors.New("error parsing -literals flag: no other options can be passed with 'all'")
+			}
+
+			allPassed = true
+		case "strings", "bytes", "ints", "floats", "bools":
+			if allPassed {
+				return errors.New("error parsing -literals flag: no other options can be passed with 'all'")
+			} else if nonePassed {
+				return errors.New("error parsing -literals flag: no other options can be passed with 'none'")
+			}
+		default:
+			return fmt.Errorf("error parsing -literals flag: %s", op)
+		}
+	}
+
+	return nil
 }
 
 func mainErr(args []string) error {
@@ -245,7 +286,7 @@ func mainErr(args []string) error {
 			return err
 		}
 		os.Setenv("GARBLE_DIR", wd)
-		os.Setenv("GARBLE_LITERALS", fmt.Sprint(flagGarbleLiterals))
+		os.Setenv("GARBLE_LITERALS", flagGarbleLiterals)
 		os.Setenv("GARBLE_TINY", fmt.Sprint(flagGarbleTiny))
 
 		if flagSeed == "random" {
@@ -292,7 +333,7 @@ func mainErr(args []string) error {
 			modpath, err := exec.Command("go", "list", "-m").Output()
 			if err == nil {
 				path := string(bytes.TrimSpace(modpath))
-				envGoPrivate = path+","+path+"_test"
+				envGoPrivate = path + "," + path + "_test"
 			}
 		}
 		// Explicitly set GOPRIVATE, since future garble processes won't
@@ -400,7 +441,7 @@ func transformCompile(args []string) ([]string, error) {
 		// them later to remove build information and add additional
 		// functions to the runtime. However, we only want flags to work on
 		// private packages.
-		envGarbleLiterals = false
+		envGarbleLiterals = "none"
 		envGarbleDebugDir = ""
 	} else if !isPrivate(pkgPath) {
 		return append(flags, paths...), nil
@@ -459,8 +500,8 @@ func transformCompile(args []string) ([]string, error) {
 
 	blacklist := buildBlacklist(files, info, pkg)
 
-	if envGarbleLiterals {
-		files = literals.Obfuscate(files, info, fset, blacklist)
+	if envGarbleLiterals != "none" {
+		files = literals.Obfuscate(files, info, fset, envGarbleLiterals, blacklist)
 	}
 
 	tempDir, err := ioutil.TempDir("", "garble-build")
@@ -716,7 +757,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 	}
 
 	visit := func(node ast.Node) bool {
-		if envGarbleLiterals {
+		if envGarbleLiterals != "none" {
 			literals.ConstBlacklist(node, info, blacklist)
 		}
 
