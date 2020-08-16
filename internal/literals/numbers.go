@@ -9,6 +9,7 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
 	ah "mvdan.cc/garble/internal/asthelper"
@@ -109,14 +110,14 @@ func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info, obfLits ob
 		return false, nil
 	}
 
-	intValue, err := strconv.ParseInt(strValue, 0, 64)
+	intValue, err := strconv.ParseInt(strings.Split(strValue, ".")[0], 0, 64)
 	if err != nil {
 		return false, err
 	}
 
 	intType, ok := intTypes[typeInfo]
 	if !ok {
-		return false, errors.New("wrong type")
+		return false, nil
 	}
 
 	call = genObfuscateInt(uint64(intValue), intType)
