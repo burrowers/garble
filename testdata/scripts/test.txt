@@ -1,3 +1,6 @@
+# Note that we need bar_test too.
+env GOPRIVATE=test/bar,test/bar_test
+
 # build the test binary
 garble test -c
 binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'

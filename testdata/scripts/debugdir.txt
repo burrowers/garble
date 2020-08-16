@@ -1,14 +1,16 @@
+env GOPRIVATE=test/main
+
 garble -debugdir ./test1 build
-exists 'test1/test/imported/imported.go' 'test1/main/main.go'
-! grep ImportedFunc $WORK/test1/test/imported/imported.go
+exists 'test1/test/main/imported/imported.go' 'test1/main/main.go'
+! grep ImportedFunc $WORK/test1/test/main/imported/imported.go
 ! grep ImportedFunc $WORK/test1/main/main.go
 
 -- go.mod --
-module test
+module test/main
 -- main.go --
 package main
 
-import "test/imported"
+import "test/main/imported"
 
 func main() {
 	imported.ImportedFunc()

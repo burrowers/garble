@@ -2,7 +2,7 @@
 ! exec go build -a -toolexec=garble main.go
 stderr 'should be used alongside -trimpath'
 
-# Check that the simplest use of garble works.
+# Check that the simplest use of garble works. Note the lack of a module or GOPRIVATE.
 garble build main.go
 exec ./main
 cmp stderr main.stderr

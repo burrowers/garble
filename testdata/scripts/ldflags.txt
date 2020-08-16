@@ -1,3 +1,6 @@
+# Note the proper domain, since the dot adds an edge case.
+env GOPRIVATE=domain.test/main
+
 garble build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=domain.test/main/imported.ExportedVar=replaced'
 exec ./main
 cmp stderr main.stderr
