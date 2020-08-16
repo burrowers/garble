@@ -1,3 +1,5 @@
+env GOPRIVATE=test/main
+
 garble build
 ! exec ./main
 cmp stderr main.stderr

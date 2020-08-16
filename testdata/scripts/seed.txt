@@ -1,3 +1,5 @@
+env GOPRIVATE=test/main
+
 # Check the binary with a given base64 encoded seed
 garble -literals -seed=OQg9kACEECQ= build
 exec ./main$exe

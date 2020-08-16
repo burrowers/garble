@@ -1,3 +1,5 @@
+env GOPRIVATE=test/main
+
 # Generate and write random literals into a separate file
 generate-literals extraLiterals.go 500 printExtraLiterals
 

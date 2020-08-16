@@ -1,3 +1,5 @@
+env GOPRIVATE=test/main
+
 env TINY_PATTERN='^\/\/line :1$'
 env DEFAULT_PATTERN='^\/\/line \w\.go:[1-9][0-9]*$'
 env DEFAULT_STACK_PATTERN='^\t\w\.go:[1-9][0-9]*(\s\+0x[0-9a-f]+)?'
@@ -32,7 +34,7 @@ grep $DEFAULT_PATTERN .obf-src/main/main.go
 stderr $DEFAULT_STACK_PATTERN
 
 -- go.mod --
-module main
+module test/main
 -- main.go --
 package main
 
