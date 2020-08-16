@@ -29,7 +29,7 @@ var intTypes = map[types.Type]reflect.Type{
 	types.Typ[types.Uintptr]:    reflect.TypeOf(uintptr(0)),
 }
 
-func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info) error {
+func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info, obfLits obfuscateLiterals) (bool, error) {
 	var (
 		call     *ast.CallExpr
 		basic    *ast.BasicLit
@@ -44,12 +44,12 @@ func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info) error {
 	case *ast.UnaryExpr:
 		basic, ok = x.X.(*ast.BasicLit)
 		if !ok {
-			return errors.New("UnaryExpr doesn't contain basic literal")
+			return false, errors.New("UnaryExpr doesn't contain basic literal")
 		}
 		typeInfo = info.TypeOf(x)
 
 		if x.Op != token.SUB {
-			return errors.New("UnaryExpr has a non SUB token")
+			return false, errors.New("UnaryExpr has a non SUB token")
 		}
 		sign = "-"
 
@@ -71,50 +71,58 @@ func obfuscateNumberLiteral(cursor *astutil.Cursor, info *types.Info) error {
 			// this guards against the case where the ast.BasicLit is inside an ast.UnaryExpr
 			// and the BasicLit gets evaluated before the UnaryExpr
 			if _, ok := cursor.Parent().(*ast.UnaryExpr); ok {
-				return nil
+				return true, nil
 			}
 		}
 
 	default:
-		return errors.New("wrong node Type")
+		return false, errors.New("wrong node Type")
 	}
 
 	strValue := sign + basic.Value
 
 	switch typeInfo {
 	case types.Typ[types.Float32]:
-		fV, err := strconv.ParseFloat(strValue, 32)
-		if err != nil {
-			return err
+		if obfLits&obfuscateFloats != 0 {
+			fV, err := strconv.ParseFloat(strValue, 32)
+			if err != nil {
+				return false, err
+			}
+			call = genObfuscateFloat(float32(fV))
 		}
-		call = genObfuscateFloat(float32(fV))
 	case types.Typ[types.Float64], types.Typ[types.UntypedFloat]:
-		fV, err := strconv.ParseFloat(strValue, 64)
-		if err != nil {
-			return err
+		if obfLits&obfuscateFloats != 0 {
+			fV, err := strconv.ParseFloat(strValue, 64)
+			if err != nil {
+				return false, err
+			}
+			call = genObfuscateFloat(fV)
 		}
-		call = genObfuscateFloat(fV)
 	}
 
 	if call != nil {
 		cursor.Replace(call)
-		return nil
+		return true, nil
+	}
+
+	if obfLits&obfuscateIntegers == 0 {
+		return false, nil
 	}
 
 	intValue, err := strconv.ParseInt(strValue, 0, 64)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	intType, ok := intTypes[typeInfo]
 	if !ok {
-		return errors.New("wrong type")
+		return false, errors.New("wrong type")
 	}
 
 	call = genObfuscateInt(uint64(intValue), intType)
 
 	cursor.Replace(call)
-	return nil
+	return true, nil
 }
 
 func bytesToUint(bits int) ast.Expr {
