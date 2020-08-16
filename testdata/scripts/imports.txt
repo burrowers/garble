@@ -1,3 +1,6 @@
+# Note that this is the only test with a module where we rely on the detection
+# of GOPRIVATE.
+
 garble build -tags buildtag
 exec ./main
 cmp stdout main.stdout
