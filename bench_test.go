@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 )
@@ -29,6 +30,10 @@ func BenchmarkBuild(b *testing.B) {
 	defer os.RemoveAll(tdir)
 
 	garbleBin := filepath.Join(tdir, "garble")
+	if runtime.GOOS == "windows" {
+		garbleBin += ".exe"
+	}
+
 	if err := exec.Command("go", "build", "-o="+garbleBin).Run(); err != nil {
 		b.Fatalf("building garble: %v", err)
 	}
