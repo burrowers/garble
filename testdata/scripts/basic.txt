@@ -1,7 +1,3 @@
-# Check that we fail if the user ran with -toolexec but without -trimpath.
-! exec go build -a -toolexec=garble main.go
-stderr 'should be used alongside -trimpath'
-
 # Check that the simplest use of garble works. Note the lack of a module or GOPRIVATE.
 garble build main.go
 exec ./main
@@ -30,6 +26,10 @@ stdout 'unknown'
 ! binsubstr main$exe ${WORK@R} 'main.go' 'globalVar' 'globalFunc' $gofullversion
 
 [short] stop # checking that the build is reproducible is slow
+
+# Check that we fail if the user ran with -toolexec but without -trimpath.
+! exec go build -a -toolexec=garble main.go
+stderr 'should be used alongside -trimpath'
 
 # Also check that the binary is reproducible.
 cp main$exe main_old$exe
