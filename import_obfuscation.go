@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"path"
 	"sort"
 	"strings"
 
@@ -18,6 +19,14 @@ type pkgInfo struct {
 	pkg  *goobj2.Package
 	path string
 }
+
+type dataType uint8
+
+const (
+	other dataType = iota
+	importPath
+	namedata
+)
 
 func obfuscateImports(objPath, importCfgPath string) error {
 	importCfg, err := goobj2.ParseImportCfg(importCfgPath)
@@ -48,9 +57,9 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		var privateImports []string
 		if p.pkg.ImportPath != "main" && isPrivate(p.pkg.ImportPath) {
 			privateImports = append(privateImports, p.pkg.ImportPath)
-			/*if strings.ContainsRune(p.pkg.ImportPath, '/') {
+			if strings.ContainsRune(p.pkg.ImportPath, '/') {
 				privateImports = append(privateImports, path.Base(p.pkg.ImportPath))
-			}*/
+			}
 		}
 		for i := range p.pkg.Imports {
 			if isPrivate(p.pkg.Imports[i].Pkg) {
@@ -81,10 +90,14 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		lists := [][]*goobj2.Sym{p.pkg.SymDefs, p.pkg.NonPkgSymDefs, p.pkg.NonPkgSymRefs}
 		for _, list := range lists {
 			for _, s := range list {
-				// TODO: other symbol's data might have import paths?
 				if int(s.Kind) == 2 && s.Data != nil { // read only static data
-					isImportSym := strings.HasPrefix(s.Name, "type..importpath.")
-					s.Data = garbleSymData(s.Data, privateImports, isImportSym, &buf)
+					var dataTyp dataType
+					if strings.HasPrefix(s.Name, "type..importpath.") {
+						dataTyp = importPath
+					} else if strings.HasPrefix(s.Name, "type..namedata.") {
+						dataTyp = namedata
+					}
+					s.Data = garbleSymData(s.Data, privateImports, dataTyp, &buf)
 
 					if s.Size != 0 {
 						s.Size = uint32(len(s.Data))
@@ -184,7 +197,7 @@ func privateImportIndex(symName string, privateImports []string) (int, int) {
 	return -1, 0
 }
 
-func garbleSymData(data []byte, privateImports []string, isImportSym bool, buf *bytes.Buffer) (b []byte) {
+func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *bytes.Buffer) (b []byte) {
 	var off int
 	for {
 		o, l := privateImportIndex(string(data[off:]), privateImports)
@@ -195,13 +208,17 @@ func garbleSymData(data []byte, privateImports []string, isImportSym bool, buf *
 			break
 		}
 
-		if isImportSym {
+		switch dataTyp {
+		case importPath:
 			return createImportPathData(hashWith("fakebuildID", string(data[o:o+l])))
+		case namedata:
+			return patchReflectData(hashWith("fakebuildID", string(data[o:o+l])), l, data)
+		default:
+			buf.Write(data[off : off+o])
+			buf.WriteString(hashWith("fakebuildID", string(data[off+o:off+o+l])))
+			off += o + l
 		}
 
-		buf.Write(data[off : off+o])
-		buf.WriteString(hashWith("fakebuildID", string(data[off+o:off+o+l])))
-		off += o + l
 	}
 
 	if buf.Len() == 0 {
@@ -224,4 +241,11 @@ func createImportPathData(importPath string) []byte {
 	copy(b[3:], importPath)
 
 	return b
+}
+
+func patchReflectData(name string, oldNameLen int, data []byte) []byte {
+	data[1] = uint8(len(name) >> 8)
+	data[2] = uint8(len(name))
+
+	return append(data[:3], append([]byte(name), data[3+oldNameLen:]...)...)
 }
