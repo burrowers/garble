@@ -41,12 +41,16 @@ func obfuscateImports(objPath, importCfgPath string) error {
 	}
 
 	var sb strings.Builder
+	var buf bytes.Buffer
 	for _, p := range pkgs {
 		fmt.Printf("++ Obfuscating object file for %s ++\n", p.pkg.ImportPath)
 
 		var privateImports []string
 		if p.pkg.ImportPath != "main" && isPrivate(p.pkg.ImportPath) {
 			privateImports = append(privateImports, p.pkg.ImportPath)
+			/*if strings.ContainsRune(p.pkg.ImportPath, '/') {
+				privateImports = append(privateImports, path.Base(p.pkg.ImportPath))
+			}*/
 		}
 		for i := range p.pkg.Imports {
 			if isPrivate(p.pkg.Imports[i].Pkg) {
@@ -59,6 +63,9 @@ func obfuscateImports(objPath, importCfgPath string) error {
 				p.pkg.Packages[i] = hashWith("fakebuildID", p.pkg.Packages[i])
 			}
 		}
+		// move imports that contain another import as a substring to the front,
+		// so that the shorter import will not match first and leak part of an
+		// import path
 		sort.Slice(privateImports, func(i, j int) bool {
 			if strings.Contains(privateImports[i], privateImports[j]) {
 				return true
@@ -74,11 +81,16 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		lists := [][]*goobj2.Sym{p.pkg.SymDefs, p.pkg.NonPkgSymDefs, p.pkg.NonPkgSymRefs}
 		for _, list := range lists {
 			for _, s := range list {
+				// TODO: other symbol's data might have import paths?
+				if int(s.Kind) == 2 && s.Data != nil { // read only static data
+					isImportSym := strings.HasPrefix(s.Name, "type..importpath.")
+					s.Data = garbleSymData(s.Data, privateImports, isImportSym, &buf)
+
+					if s.Size != 0 {
+						s.Size = uint32(len(s.Data))
+					}
+				}
 				s.Name = garbleSymbolName(s.Name, privateImports, &sb)
-				/*s.Data = garbleSymData(s.Data, privateImports)
-				if s.Size != 0 {
-					s.Size = uint32(len(s.Data))
-				}*/
 
 				for i := range s.Reloc {
 					s.Reloc[i].Name = garbleSymbolName(s.Reloc[i].Name, privateImports, &sb)
@@ -102,31 +114,30 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		}
 	}
 
-	if err = goobj2.WriteObjFile2(pkgs[0].pkg, "/home/capnspacehook/Documents/obf_binclude.o"); err != nil {
+	/*if err = goobj2.WriteObjFile2(pkgs[0].pkg, "/home/capnspacehook/Documents/obf_binclude.o"); err != nil {
 		return err
-	}
+	}*/
 
-	var cfgBuf bytes.Buffer
 	for pkgPath, info := range importCfg {
 		if isPrivate(pkgPath) {
 			pkgPath = hashWith("fakebuildID", pkgPath)
 		}
 		if info.IsSharedLib {
-			cfgBuf.WriteString("packageshlib")
+			buf.WriteString("packageshlib")
 		} else {
-			cfgBuf.WriteString("packagefile")
+			buf.WriteString("packagefile")
 		}
 
-		cfgBuf.WriteRune(' ')
-		cfgBuf.WriteString(pkgPath)
-		cfgBuf.WriteRune('=')
-		cfgBuf.WriteString(info.Path)
-		cfgBuf.WriteRune('\n')
+		buf.WriteRune(' ')
+		buf.WriteString(pkgPath)
+		buf.WriteRune('=')
+		buf.WriteString(info.Path)
+		buf.WriteRune('\n')
 	}
 
 	fmt.Print("\n\n")
 
-	if err = ioutil.WriteFile(importCfgPath, cfgBuf.Bytes(), 0644); err != nil {
+	if err = ioutil.WriteFile(importCfgPath, buf.Bytes(), 0644); err != nil {
 		return err
 	}
 
@@ -156,7 +167,7 @@ func garbleSymbolName(symName string, privateImports []string, sb *strings.Build
 	s = sb.String()
 	sb.Reset()
 
-	fmt.Printf("Garbled symbol: %s as %s\n", symName, s)
+	//fmt.Printf("Garbled symbol: %s as %s\n", symName, s)
 
 	return s
 }
@@ -173,18 +184,44 @@ func privateImportIndex(symName string, privateImports []string) (int, int) {
 	return -1, 0
 }
 
-func garbleSymData(data []byte, privateImports []string) []byte {
-	off := -1
-	for _, privateImport := range privateImports {
-		off = bytes.Index(data, []byte(privateImport))
-		if off == -1 {
-			continue
+func garbleSymData(data []byte, privateImports []string, isImportSym bool, buf *bytes.Buffer) (b []byte) {
+	var off int
+	for {
+		o, l := privateImportIndex(string(data[off:]), privateImports)
+		if o == -1 {
+			if buf.Len() != 0 {
+				buf.Write(data[off:])
+			}
+			break
 		}
 
-		l := len(privateImport)
-		garbled := hashWith("fakebuildID", string(data[off:off+l]))
-		data = append(data[:off], append([]byte(garbled), data[off+l:]...)...)
+		if isImportSym {
+			return createImportPathData(hashWith("fakebuildID", string(data[o:o+l])))
+		}
+
+		buf.Write(data[off : off+o])
+		buf.WriteString(hashWith("fakebuildID", string(data[off+o:off+o+l])))
+		off += o + l
 	}
 
-	return data
+	if buf.Len() == 0 {
+		return data
+	}
+
+	b = buf.Bytes()
+	buf.Reset()
+
+	return b
+}
+
+func createImportPathData(importPath string) []byte {
+	var bits byte
+	l := 1 + 2 + len(importPath)
+	b := make([]byte, l)
+	b[0] = bits
+	b[1] = uint8(len(importPath) >> 8)
+	b[2] = uint8(len(importPath))
+	copy(b[3:], importPath)
+
+	return b
 }
