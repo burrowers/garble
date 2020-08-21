@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
+
 	"mvdan.cc/garble/internal/literals"
 )
 
@@ -292,7 +293,7 @@ func mainErr(args []string) error {
 			modpath, err := exec.Command("go", "list", "-m").Output()
 			if err == nil {
 				path := string(bytes.TrimSpace(modpath))
-				envGoPrivate = path+","+path+"_test"
+				envGoPrivate = path + "," + path + "_test"
 			}
 		}
 		// Explicitly set GOPRIVATE, since future garble processes won't
@@ -920,6 +921,11 @@ func transformLink(args []string) ([]string, error) {
 	if len(paths) == 0 {
 		// Nothing to transform; probably just ["-V=full"].
 		return args, nil
+	}
+
+	importCfgPath := flagValue(flags, "-importcfg")
+	if err := obfuscateImports(paths[0], importCfgPath); err != nil {
+		return nil, err
 	}
 
 	// Make sure -X works with garbled identifiers. To cover both garbled
