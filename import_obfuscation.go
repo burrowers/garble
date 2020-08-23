@@ -186,15 +186,24 @@ func garbleSymbolName(symName string, privateImports []string, sb *strings.Build
 }
 
 func privateImportIndex(symName string, privateImports []string) (int, int) {
+	firstOff, l := -1, 0
 	for _, privateImport := range privateImports {
 		off := strings.Index(symName, privateImport)
 		if off == -1 {
 			continue
 		}
-		return off, len(privateImport)
+
+		if off < firstOff || firstOff == -1 {
+			firstOff = off
+			l = len(privateImport)
+		}
 	}
 
-	return -1, 0
+	if firstOff == -1 {
+		return -1, 0
+	}
+
+	return firstOff, l
 }
 
 func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *bytes.Buffer) (b []byte) {
