@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 	mathrand "math/rand"
 	"strings"
 
@@ -80,12 +79,12 @@ func findBuildTags(commentGroups []*ast.CommentGroup) (buildTags []string) {
 	return buildTags
 }
 
-func transformLineInfo(file *ast.File, fset *token.FileSet) ([]string, *ast.File) {
+func transformLineInfo(file *ast.File) ([]string, *ast.File) {
 	// Save build tags and add file name leak protection
 	extraComments := append(findBuildTags(file.Comments), "", "//line :1")
 	file.Comments = nil
 
-	newLines := mathrand.Perm(fset.File(file.Package).LineCount())
+	newLines := mathrand.Perm(len(file.Decls))
 
 	funcCounter := 0
 	pre := func(cursor *astutil.Cursor) bool {
