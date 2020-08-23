@@ -79,11 +79,14 @@ func findBuildTags(commentGroups []*ast.CommentGroup) (buildTags []string) {
 	return buildTags
 }
 
-func transformLineInfo(fileIndex int, file *ast.File) ([]string, *ast.File) {
+func transformLineInfo(file *ast.File) ([]string, *ast.File) {
 	// Save build tags and add file name leak protection
 	extraComments := append(findBuildTags(file.Comments), "", "//line :1")
-
 	file.Comments = nil
+
+	newLines := mathrand.Perm(len(file.Decls))
+
+	funcCounter := 0
 	pre := func(cursor *astutil.Cursor) bool {
 		node := cursor.Node()
 		clearNodeComments(node)
@@ -98,10 +101,9 @@ func transformLineInfo(fileIndex int, file *ast.File) ([]string, *ast.File) {
 			return true
 		}
 
-		// TODO: Optimize the generated values of line numbers to reduce space usage.
-		linePos := hashWithAsUint64(buildInfo.buildID, fmt.Sprintf("%d:%s", fileIndex, funcDecl.Name), PosMin, PosMax)
-		comment := &ast.Comment{Text: fmt.Sprintf("//line %c.go:%d", nameCharset[mathrand.Intn(len(nameCharset))], linePos)}
+		comment := &ast.Comment{Text: fmt.Sprintf("//line %c.go:%d", nameCharset[mathrand.Intn(len(nameCharset))], 1+newLines[funcCounter])}
 		funcDecl.Doc = prependComment(funcDecl.Doc, comment)
+		funcCounter++
 		return true
 	}
 
