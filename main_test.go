@@ -4,7 +4,6 @@
 package main
 
 import (
-	"encoding/base32"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -262,26 +261,14 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 	}
 }
 
-var literalGenerators = []func() *ast.BasicLit{
-	func() *ast.BasicLit {
-		buffer := make([]byte, 1+mathrand.Intn(255))
-		_, err := mathrand.Read(buffer)
-		if err != nil {
-			panic(err)
-		}
-		str := base32.StdEncoding.EncodeToString(buffer)
-		return ah.StringLit(str)
-	},
-	func() *ast.BasicLit {
-		i := mathrand.Int()
-		return ah.IntLit(i)
-	},
-	func() *ast.BasicLit {
-		return ah.Float64Lit(mathrand.NormFloat64())
-	},
-	func() *ast.BasicLit {
-		return ah.Float32Lit(mathrand.Float32())
-	},
+func generateStringLit() *ast.BasicLit {
+	buffer := make([]byte, 1+mathrand.Intn(255))
+	_, err := mathrand.Read(buffer)
+	if err != nil {
+		panic(err)
+	}
+
+	return ah.StringLit(string(buffer))
 }
 
 func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
@@ -301,7 +288,7 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 
 	var statements []ast.Stmt
 	for i := 0; i < literalCount; i++ {
-		literal := literalGenerators[i%len(literalGenerators)]()
+		literal := generateStringLit()
 		statements = append(statements, ah.ExprStmt(ah.CallExpr(ah.Ident("println"), literal)))
 	}
 
