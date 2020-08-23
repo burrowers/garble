@@ -526,7 +526,7 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
-			extraComments, file = transformLineInfo(origName, file, fset)
+			extraComments, file = transformLineInfo(file, fset)
 			file = transformGo(file, info, blacklist)
 
 			// Uncomment for some quick debugging. Do not delete.
