@@ -1,14 +1,12 @@
 env GOPRIVATE=test/main
 
 # Generate and write random literals into a separate file
-generate-literals extraLiterals.go 500 printExtraLiterals
+generate-literals extraLiterals.go 100 printExtraLiterals
 
 go build
 exec ./main$exe
 
 binsubstr main$exe 'Lorem' 'dolor' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
-binsubint main$exe '-7081390804778629748' '-301627827188279046' '7679634459002713443'
-binsubfloat main$exe '3684433217126772357.33' '-9015867427900753906'
 
 cp stderr normal.stderr
 
@@ -18,8 +16,6 @@ cmp stderr normal.stderr
 
 binsubstr main$exe 'Skip this block' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
-! binsubint main$exe '-7081390804778629748' '-301627827188279046' '7679634459002713443'
-! binsubfloat main$exe '3684433217126772357.33' '-9015867427900753906'
 [short] stop # checking that the build is reproducible is slow
 
 # Also check that the binary is reproducible.
@@ -127,9 +123,6 @@ func main() {
 	typedTest()
 	constantTest()
 	byteTest()
-	numTest()
-	boolTest()
-	printExtraLiterals()
 }
 
 type stringType string
@@ -237,78 +230,4 @@ func byteTest() {
 func stringTypeFunc(s stringType) stringType {
 	println(s)
 	return "stringType return" // skip
-}
-
-func numTest() {
-	const a = 1 // skip
-
-	const b = a + 2 // skip
-
-	const c = 2824583991413579605
-
-	d := 4
-
-	var e = 5
-
-	var f int
-	f = 3735714531481032066
-
-	println(a, b, c, d, e, f)
-
-	var (
-		untypedInt       = -7081390804778629760 + 12
-		intVar     int   = -301627827188279046
-		int8Var    int8  = -122.0
-		int16Var   int16 = 3534
-		int32Var   int32 = 333453534
-		int64Var   int64 = 4568766098255857483
-
-		uintVar    uint    = 7679634459002713443
-		uint8Var   uint8   = 34
-		uint16Var  uint16  = 3534
-		uint32Var  uint32  = 333453534
-		uint64Var  uint64  = 5490982829161518439
-		uintptrVar uintptr = 7364326871810921708
-
-		untypedFloat         = 3684433217126772357.33
-		floatVar     float64 = -9015867427900753906
-		floatVar32   float32 = 6338507605633
-
-		complexVar64  complex64  = -435453453534 // skip
-		complexVar128 complex128 = 1 + 4i        // skip
-
-		underscoreInt   = 1_3_3_7
-		underscoreFloat = 1_3_3_7.0
-
-		hexInt   = 0x1337   // skip
-		hexFloat = 0x1337p0 // skip
-
-		octalInt   = 0o1337 // skip
-		octalFloat = 0o1337 // skip
-	)
-
-	floatShort := -435453453534.0
-	println(untypedInt, intVar, int8Var, int16Var, int32Var, int64Var)
-	println(uintVar, uint8Var, uint16Var, uint32Var, uint64Var, uintptrVar)
-	println(untypedFloat, floatVar, floatShort, floatVar32)
-	println(complexVar64, complexVar128)
-	println(underscoreInt, underscoreFloat, hexInt, hexFloat, octalInt, octalFloat)
-
-}
-
-func boolTest() {
-	const a = true // skip
-
-	const b = false == a // skip
-
-	const c bool = false
-
-	d := true
-
-	var e = true
-
-	var f bool
-	f = false
-
-	println(a, b, c, d, e, f)
 }

@@ -129,8 +129,6 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 			}
 
 			switch x.Kind {
-			case token.FLOAT, token.INT:
-				obfuscateNumberLiteral(cursor, info)
 			case token.STRING:
 				typeInfo := info.TypeOf(x)
 				if typeInfo != types.Typ[types.String] && typeInfo != types.Typ[types.UntypedString] {
@@ -146,23 +144,6 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 				}
 
 				cursor.Replace(obfuscateString(value))
-			}
-		case *ast.UnaryExpr:
-			switch cursor.Name() {
-			case "Values", "Rhs", "Value", "Args", "X":
-			default:
-				return true // we don't want to obfuscate imports etc.
-			}
-
-			obfuscateNumberLiteral(cursor, info)
-		case *ast.Ident:
-			obj := info.ObjectOf(x)
-			if obj == nil {
-				return true
-			}
-
-			if obj == universalTrue || obj == universalFalse {
-				cursor.Replace(obfuscateBool(x.Name == "true"))
 			}
 		}
 
@@ -232,21 +213,6 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 	block.List = append(block.List, sliceToArray...)
 
 	return ah.LambdaCall(arrayType, block)
-}
-
-func obfuscateBool(data bool) *ast.BinaryExpr {
-	var dataUint64 uint64 = 0
-	if data {
-		dataUint64 = 1
-	}
-
-	intType := intTypes[types.Typ[types.Uint8]]
-
-	return &ast.BinaryExpr{
-		X:  genObfuscateInt(dataUint64, intType),
-		Op: token.EQL,
-		Y:  ah.IntLit(1),
-	}
 }
 
 // ConstBlacklist blacklist identifieres used in constant expressions
