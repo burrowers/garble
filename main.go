@@ -683,16 +683,6 @@ func hashWith(salt, value string) string {
 	return "z" + sum[:length]
 }
 
-func hashWithAsInt64(salt, value string) int64 {
-	d := sha256.New()
-	io.WriteString(d, salt)
-	d.Write(seed)
-	io.WriteString(d, value)
-	sum := d.Sum(nil)
-	val := binary.LittleEndian.Uint64(sum)
-	return int64(val)
-}
-
 // buildBlacklist collects all the objects in a package which are known to be
 // used with reflect.TypeOf or reflect.ValueOf. Since we obfuscate one package
 // at a time, we only detect those if the type definition and the reflect usage
