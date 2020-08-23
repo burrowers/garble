@@ -292,7 +292,7 @@ func mainErr(args []string) error {
 			modpath, err := exec.Command("go", "list", "-m").Output()
 			if err == nil {
 				path := string(bytes.TrimSpace(modpath))
-				envGoPrivate = path+","+path+"_test"
+				envGoPrivate = path + "," + path + "_test"
 			}
 		}
 		// Explicitly set GOPRIVATE, since future garble processes won't
@@ -526,7 +526,7 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
-			extraComments, file = transformLineInfo(i, file)
+			extraComments, file = transformLineInfo(origName, file, fset)
 			file = transformGo(file, info, blacklist)
 
 			// Uncomment for some quick debugging. Do not delete.
@@ -683,14 +683,14 @@ func hashWith(salt, value string) string {
 	return "z" + sum[:length]
 }
 
-func hashWithAsUint64(salt, value string, min, max uint64) uint64 {
+func hashWithAsInt64(salt, value string) int64 {
 	d := sha256.New()
 	io.WriteString(d, salt)
 	d.Write(seed)
 	io.WriteString(d, value)
 	sum := d.Sum(nil)
 	val := binary.LittleEndian.Uint64(sum)
-	return min + (val % (max - min))
+	return int64(val)
 }
 
 // buildBlacklist collects all the objects in a package which are known to be
