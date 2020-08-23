@@ -69,6 +69,9 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		for i := range p.pkg.Packages {
 			if isPrivate(p.pkg.Packages[i]) {
 				privateImports = append(privateImports, p.pkg.Packages[i])
+				if strings.ContainsRune(p.pkg.Packages[i], '/') {
+					privateImports = append(privateImports, path.Base(p.pkg.Packages[i]))
+				}
 				p.pkg.Packages[i] = hashWith("fakebuildID", p.pkg.Packages[i])
 			}
 		}
@@ -112,6 +115,9 @@ func obfuscateImports(objPath, importCfgPath string) error {
 					s.Type.Name = garbleSymbolName(s.Type.Name, privateImports, &sb)
 				}
 				if s.Func != nil {
+					for i := range s.Func.FuncData {
+						s.Func.FuncData[i].Sym.Name = garbleSymbolName(s.Func.FuncData[i].Sym.Name, privateImports, &sb)
+					}
 					for _, inl := range s.Func.InlTree {
 						inl.Func.Name = garbleSymbolName(inl.Func.Name, privateImports, &sb)
 					}
