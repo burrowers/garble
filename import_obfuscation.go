@@ -93,7 +93,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		lists := [][]*goobj2.Sym{p.pkg.SymDefs, p.pkg.NonPkgSymDefs, p.pkg.NonPkgSymRefs}
 		for _, list := range lists {
 			for _, s := range list {
-				if int(s.Kind) == 2 && s.Data != nil { // read only static data
+				if int(s.Kind) == 2 && s.Data != nil && !strings.HasPrefix(s.Name, "go.string.") { // text sections and read only static data
 					var dataTyp dataType
 					if strings.HasPrefix(s.Name, "type..importpath.") {
 						dataTyp = importPath
@@ -227,7 +227,7 @@ func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *
 		case importPath:
 			return createImportPathData(hashWith("fakebuildID", string(data[o:o+l])))
 		case namedata:
-			return patchReflectData(hashWith("fakebuildID", string(data[o:o+l])), l, data)
+			return patchReflectData(hashWith("fakebuildID", string(data[o:o+l])), o, data)
 		default:
 			buf.Write(data[off : off+o])
 			buf.WriteString(hashWith("fakebuildID", string(data[off+o:off+o+l])))
@@ -258,9 +258,12 @@ func createImportPathData(importPath string) []byte {
 	return b
 }
 
-func patchReflectData(name string, oldNameLen int, data []byte) []byte {
-	data[1] = uint8(len(name) >> 8)
-	data[2] = uint8(len(name))
+func patchReflectData(garbledImp string, off int, data []byte) []byte {
+	oldNameLen := int(uint16(data[1])<<8 | uint16(data[2]))
+	newName := string(data[3:off]) + garbledImp + string(data[off+len(garbledImp)-1:3+oldNameLen])
 
-	return append(data[:3], append([]byte(name), data[3+oldNameLen:]...)...)
+	data[1] = uint8(len(newName) >> 8)
+	data[2] = uint8(len(newName))
+
+	return append(data[:3], append([]byte(newName), data[3+oldNameLen:]...)...)
 }
