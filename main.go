@@ -405,14 +405,12 @@ func transformCompile(args []string) ([]string, error) {
 	flags = append(flags, "-dwarf=false")
 
 	pkgPath := flagValue(flags, "-p")
+	privatePkg := isPrivate(pkgPath)
 	if pkgPath == "runtime" || pkgPath == "runtime/internal/sys" {
-		// Even though these packages aren't private, we will still process
-		// them later to remove build information and add additional
-		// functions to the runtime. However, we only want flags to work on
-		// private packages.
-		envGarbleLiterals = false
-		envGarbleDebugDir = ""
-	} else if !isPrivate(pkgPath) {
+		// Even though these packages may not be private, we will still
+		// process them later to remove build information and add
+		// additional functions to the runtime.
+	} else if !privatePkg {
 		return append(flags, paths...), nil
 	}
 	for i, path := range paths {
@@ -441,6 +439,10 @@ func transformCompile(args []string) ([]string, error) {
 		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
 			return nil, err
+		}
+		if pkgPath == "runtime" {
+			// Add additional runtime API.
+			addRuntimeAPI(filepath.Base(path), file)
 		}
 
 		files = append(files, file)
@@ -503,9 +505,6 @@ func transformCompile(args []string) ([]string, error) {
 		origName := filepath.Base(filepath.Clean(paths[i]))
 		name := origName
 		switch {
-		case pkgPath == "runtime":
-			// Add additional runtime API
-			addRuntimeAPI(origName, file)
 		case pkgPath == "runtime/internal/sys":
 			// The first declaration in zversion.go contains the Go
 			// version as follows. Replace it here, since the
@@ -525,6 +524,10 @@ func transformCompile(args []string) ([]string, error) {
 			// garble it, since it's just generated code and it gets
 			// messy.
 			name = "_cgo_" + name
+		case !privatePkg:
+			// We modified the source of this package earlier (e.g.
+			// the runtime package), but we don't want to obfuscate
+			// it as it's not in GOPRIVATE.
 		default:
 			extraComments, file = transformLineInfo(file)
 			file = transformGo(file, info, blacklist)
