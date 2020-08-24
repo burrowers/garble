@@ -59,11 +59,9 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		fmt.Printf("++ Obfuscating object file for %s ++\n", p.pkg.ImportPath)
 
 		var privateImports []string
-		if p.pkg.ImportPath != "main" && isPrivate(p.pkg.ImportPath) {
-			privateImports = append(privateImports, p.pkg.ImportPath)
-			if strings.ContainsRune(p.pkg.ImportPath, '/') {
-				privateImports = append(privateImports, path.Base(p.pkg.ImportPath))
-			}
+		privateImports = append(privateImports, p.pkg.ImportPath)
+		if strings.ContainsRune(p.pkg.ImportPath, '/') {
+			privateImports = append(privateImports, path.Base(p.pkg.ImportPath))
 		}
 		for i := range p.pkg.Imports {
 			if isPrivate(p.pkg.Imports[i].Pkg) {
@@ -97,7 +95,9 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		lists := [][]*goobj2.Sym{p.pkg.SymDefs, p.pkg.NonPkgSymDefs, p.pkg.NonPkgSymRefs}
 		for _, list := range lists {
 			for _, s := range list {
-				if int(s.Kind) == 2 && s.Data != nil && !strings.HasPrefix(s.Name, "go.string.") { // text sections and read only static data
+				// garble read only static data, but not strings. If import paths are in strings,
+				// that means garbling strings might effect the behavior of the compiled binary
+				if int(s.Kind) == 2 && s.Data != nil && !strings.HasPrefix(s.Name, "go.string.") {
 					var dataTyp dataType
 					if strings.HasPrefix(s.Name, "type..importpath.") {
 						dataTyp = importPath
@@ -141,6 +141,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		return err
 	}*/
 
+	// garble importcfg so the linker knows where to find garbled imports
 	for pkgPath, info := range importCfg {
 		if isPrivate(pkgPath) {
 			pkgPath = hashImport(pkgPath)
@@ -198,6 +199,15 @@ func garbleSymbolName(symName string, privateImports []string, sb *strings.Build
 func privateImportIndex(symName string, privateImports []string) (int, int) {
 	firstOff, l := -1, 0
 	for _, privateImport := range privateImports {
+		// search for the package name plus a period if the
+		// package name doesn't have slashes, to minimize the
+		// likelihood that the package isn't matched as a
+		// substring of another ident name.
+		// ex: privateImport = main, symName = "domainname"
+		if !strings.ContainsRune(privateImport, '/') {
+			privateImport += "."
+		}
+
 		off := strings.Index(symName, privateImport)
 		if off == -1 {
 			continue
