@@ -28,6 +28,10 @@ const (
 	namedata
 )
 
+func hashImport(pkg string) string {
+	return hashWith(buildInfo.imports[pkg].buildID, pkg)
+}
+
 func obfuscateImports(objPath, importCfgPath string) error {
 	importCfg, err := goobj2.ParseImportCfg(importCfgPath)
 	if err != nil {
@@ -63,7 +67,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		}
 		for i := range p.pkg.Imports {
 			if isPrivate(p.pkg.Imports[i].Pkg) {
-				p.pkg.Imports[i].Pkg = hashWith("fakebuildID", p.pkg.Imports[i].Pkg)
+				p.pkg.Imports[i].Pkg = hashImport(p.pkg.Imports[i].Pkg)
 			}
 		}
 		for i := range p.pkg.Packages {
@@ -72,7 +76,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 				if strings.ContainsRune(p.pkg.Packages[i], '/') {
 					privateImports = append(privateImports, path.Base(p.pkg.Packages[i]))
 				}
-				p.pkg.Packages[i] = hashWith("fakebuildID", p.pkg.Packages[i])
+				p.pkg.Packages[i] = hashImport(p.pkg.Packages[i])
 			}
 		}
 		// move imports that contain another import as a substring to the front,
@@ -139,7 +143,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 
 	for pkgPath, info := range importCfg {
 		if isPrivate(pkgPath) {
-			pkgPath = hashWith("fakebuildID", pkgPath)
+			pkgPath = hashImport(pkgPath)
 		}
 		if info.IsSharedLib {
 			buf.WriteString("packageshlib")
@@ -175,7 +179,7 @@ func garbleSymbolName(symName string, privateImports []string, sb *strings.Build
 		}
 
 		sb.WriteString(symName[off : off+o])
-		sb.WriteString(hashWith("fakebuildID", symName[off+o:off+o+l]))
+		sb.WriteString(hashImport(symName[off+o : off+o+l]))
 		off += o + l
 	}
 
@@ -225,12 +229,12 @@ func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *
 
 		switch dataTyp {
 		case importPath:
-			return createImportPathData(hashWith("fakebuildID", string(data[o:o+l])))
+			return createImportPathData(hashImport(string(data[o : o+l])))
 		case namedata:
-			return patchReflectData(hashWith("fakebuildID", string(data[o:o+l])), o, data)
+			return patchReflectData(hashImport(string(data[o:o+l])), o, data)
 		default:
 			buf.Write(data[off : off+o])
-			buf.WriteString(hashWith("fakebuildID", string(data[off+o:off+o+l])))
+			buf.WriteString(hashImport(string(data[off+o : off+o+l])))
 			off += o + l
 		}
 
