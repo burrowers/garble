@@ -469,6 +469,10 @@ func transformCompile(args []string) ([]string, error) {
 
 	blacklist := buildBlacklist(files, info, pkg)
 
+	// unsafe.Pointer is a special type that doesn't exist as a plain Go
+	// type definition, so we can't change its name.
+	blacklist[types.Unsafe.Scope().Lookup("Pointer")] = struct{}{}
+
 	if envGarbleLiterals {
 		files = literals.Obfuscate(files, info, fset, blacklist)
 	}
