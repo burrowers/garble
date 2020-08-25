@@ -578,11 +578,16 @@ func transformCompile(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
+const privateBlacklist = "runtime,internal/cpu,internal/bytealg"
+
 // isPrivate checks if GOPRIVATE matches path.
 //
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(path string) bool {
+	if GlobsMatchPath(privateBlacklist, path) {
+		return false
+	}
 	if path == "main" || path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
 		// TODO: why don't we see the full package path for main
 		// packages? The linker has it at the top of -importcfg, but not

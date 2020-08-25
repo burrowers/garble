@@ -4,9 +4,8 @@ stderr 'does not match any packages'
 
 [short] stop
 
-# TODO: https://github.com/mvdan/garble/issues/108
-# env GOPRIVATE='*'
-# garble build  -o bin ./standalone
+env GOPRIVATE='*'
+garble build  -o bin ./standalone
 
 -- go.mod --
 module test/main
