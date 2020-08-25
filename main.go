@@ -471,7 +471,11 @@ func transformCompile(args []string) ([]string, error) {
 
 	blacklist := buildBlacklist(files, info, pkg)
 
-	if envGarbleLiterals {
+	// unsafe.Pointer is a special type that doesn't exist as a plain Go
+	// type definition, so we can't change its name.
+	blacklist[types.Unsafe.Scope().Lookup("Pointer")] = struct{}{}
+
+	if envGarbleLiterals && privatePkg {
 		files = literals.Obfuscate(files, info, fset, blacklist)
 	}
 
@@ -577,11 +581,29 @@ func transformCompile(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
+var blacklistedPackages = [...]string{
+	// Hardcoded variables and methods names
+	"runtime",
+
+	// Constants in asm code
+	"internal∕cpu",
+	"internal/bytealg",
+}
+
 // isPrivate checks if GOPRIVATE matches path.
 //
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(path string) bool {
+	println(path)
+	for _, blacklistedPackage := range blacklistedPackages {
+		if path == blacklistedPackage || strings.HasPrefix(path, blacklistedPackage+"/") {
+			return false
+		}
+	}
+	if strings.HasPrefix(path, "runtime") || path == "internal/cpu" {
+		return false
+	}
 	if path == "main" || path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
 		// TODO: why don't we see the full package path for main
 		// packages? The linker has it at the top of -importcfg, but not
