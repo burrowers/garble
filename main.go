@@ -578,24 +578,15 @@ func transformCompile(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
-var blacklistedPackages = [...]string{
-	// Hardcoded variables and methods names
-	"runtime",
-
-	// Constants in asm code
-	"internal/cpu",
-	"internal/bytealg",
-}
+const privateBlacklist = "runtime,internal/cpu,internal/bytealg"
 
 // isPrivate checks if GOPRIVATE matches path.
 //
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(path string) bool {
-	for _, blacklistedPackage := range blacklistedPackages {
-		if path == blacklistedPackage || strings.HasPrefix(path, blacklistedPackage+"/") {
-			return false
-		}
+	if GlobsMatchPath(privateBlacklist, path) {
+		return false
 	}
 	if path == "main" || path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
 		// TODO: why don't we see the full package path for main
