@@ -597,7 +597,6 @@ func isPrivate(path string) bool {
 			return false
 		}
 	}
-	println(path)
 	if path == "main" || path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
 		// TODO: why don't we see the full package path for main
 		// packages? The linker has it at the top of -importcfg, but not
