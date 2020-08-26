@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
-	"path"
 	"sort"
 	"strings"
 
@@ -28,10 +27,6 @@ const (
 	namedata
 )
 
-func hashImport(pkg string) string {
-	return hashWith(buildInfo.imports[pkg].buildID, pkg)
-}
-
 func obfuscateImports(objPath, importCfgPath string) error {
 	importCfg, err := goobj2.ParseImportCfg(importCfgPath)
 	if err != nil {
@@ -43,6 +38,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 	}
 	privatePkgs := []pkgInfo{{mainPkg, objPath}}
 
+	// build list of imported packages that are private
 	for pkgPath, info := range importCfg {
 		if isPrivate(pkgPath) {
 			pkg, err := goobj2.Parse(info.Path, pkgPath, importCfg)
@@ -57,19 +53,24 @@ func obfuscateImports(objPath, importCfgPath string) error {
 	var sb strings.Builder
 	var buf bytes.Buffer
 	for _, p := range privatePkgs {
-		fmt.Printf("++ Obfuscating object file for %s ++\n", p.pkg.ImportPath)
+		fmt.Printf("\n\n++ Obfuscating object file for %s ++\n", p.pkg.ImportPath)
 		for _, am := range p.pkg.ArchiveMembers {
 			if am.IsCompilerObj() {
 				continue
 			}
 
+			// add all private import paths to a list to garble
 			var privateImports []string
 			privateImports = append(privateImports, p.pkg.ImportPath)
 			if strings.ContainsRune(p.pkg.ImportPath, '/') {
-				privateImports = append(privateImports, path.Base(p.pkg.ImportPath))
+				privateImports = append(privateImports, importPathCombos(p.pkg.ImportPath)...)
 			}
 			for i := range am.Imports {
 				if isPrivate(am.Imports[i].Pkg) {
+					privateImports = append(privateImports, am.Imports[i].Pkg)
+					if strings.ContainsRune(am.Imports[i].Pkg, '/') {
+						privateImports = append(privateImports, importPathCombos(am.Imports[i].Pkg)...)
+					}
 					am.Imports[i].Pkg = hashImport(am.Imports[i].Pkg)
 				}
 			}
@@ -77,23 +78,32 @@ func obfuscateImports(objPath, importCfgPath string) error {
 				if isPrivate(am.Packages[i]) {
 					privateImports = append(privateImports, am.Packages[i])
 					if strings.ContainsRune(am.Packages[i], '/') {
-						privateImports = append(privateImports, path.Base(am.Packages[i]))
+						privateImports = append(privateImports, importPathCombos(am.Packages[i])...)
 					}
 					am.Packages[i] = hashImport(am.Packages[i])
 				}
 			}
+
 			// move imports that contain another import as a substring to the front,
 			// so that the shorter import will not match first and leak part of an
 			// import path
 			sort.Slice(privateImports, func(i, j int) bool {
-				return privateImports[i] > privateImports[j]
+				iSlashes := strings.Count(privateImports[i], "/")
+				jSlashes := strings.Count(privateImports[j], "/")
+				if iSlashes == 0 && jSlashes == 0 {
+					return privateImports[i] > privateImports[j]
+				}
+				return iSlashes > jSlashes
 			})
+			privateImports = dedupImportPaths(privateImports)
 
+			// no private import paths, nothing to garble
 			fmt.Printf("== Private imports: %v ==\n", privateImports)
 			if len(privateImports) == 0 {
 				continue
 			}
 
+			// garble all private import paths in all symbol names
 			lists := [][]*goobj2.Sym{am.SymDefs, am.NonPkgSymDefs, am.NonPkgSymRefs}
 			for _, list := range lists {
 				for _, s := range list {
@@ -158,13 +168,76 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		buf.WriteRune('\n')
 	}
 
-	//fmt.Print("\n\n")
+	fmt.Print("\n\n")
 
 	if err = ioutil.WriteFile(importCfgPath, buf.Bytes(), 0644); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// importPathCombos returns a list of import paths that
+// could all potentially be in symbol names of the
+// package that imported 'path'.
+func importPathCombos(path string) []string {
+	paths := strings.Split(path, "/")
+	combos := make([]string, 0, len(paths))
+
+	var restPrivate bool
+	if isPrivate(paths[0]) {
+		combos = append(combos, paths[0])
+		restPrivate = true
+	}
+
+	// find first private match
+	privateIdx := 1
+	if !restPrivate {
+		newPath := paths[0]
+		for i := 1; i < len(paths); i++ {
+			newPath += "/" + paths[i]
+			if isPrivate(newPath) {
+				combos = append(combos, paths[i])
+				combos = append(combos, newPath)
+
+				privateIdx = i + 1
+				restPrivate = true
+				break
+			}
+		}
+
+		if !restPrivate {
+			return nil
+		}
+	}
+
+	lastComboIdx := 2
+	for i := privateIdx; i < len(paths)-1; i++ {
+		combos = append(combos, paths[i])
+		combos = append(combos, combos[lastComboIdx-1]+"/"+paths[i])
+		lastComboIdx += 2
+	}
+	combos = append(combos, paths[len(paths)-1])
+
+	return combos
+}
+
+func dedupImportPaths(paths []string) []string {
+	seen := make(map[string]struct{}, len(paths))
+	j := 0
+	for _, v := range paths {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		paths[j] = v
+		j++
+	}
+	return paths[:j]
+}
+
+func hashImport(pkg string) string {
+	return hashWith(buildInfo.imports[pkg].buildID, pkg)
 }
 
 func garbleSymbolName(symName string, privateImports []string, sb *strings.Builder) (s string) {
@@ -203,18 +276,31 @@ func privateImportIndex(symName string, privateImports []string) (int, int) {
 		// likelihood that the package isn't matched as a
 		// substring of another ident name.
 		// ex: privateImport = main, symName = "domainname"
+		var noSlashes bool
 		if !strings.ContainsRune(privateImport, '/') {
 			privateImport += "."
+			noSlashes = true
 		}
 
 		off := strings.Index(symName, privateImport)
 		if off == -1 {
+			continue
+			// check that we didn't match inside an import path. If the
+			// byte before the start of the match is not a small set of
+			// symbols that can make up a symbol name, we must have matched
+			// inside of an ident name as a substring. Or, if the byte
+			// before the start of the match is a forward slash, we are
+			// definitely inside of an input path.
+		} else if off != 0 && (!isSymbol(symName[off-1]) || symName[off-1] == '/') {
 			continue
 		}
 
 		if off < firstOff || firstOff == -1 {
 			firstOff = off
 			l = len(privateImport)
+			if noSlashes {
+				l--
+			}
 		}
 	}
 
@@ -223,6 +309,14 @@ func privateImportIndex(symName string, privateImports []string) (int, int) {
 	}
 
 	return firstOff, l
+}
+
+func isSymbol(c byte) bool {
+	return c == 32 || // ' '
+		(c >= 40 && c <= 42) || // '(', ')', '*'
+		c == 91 || c == 93 || c == 95 || // '[', ']', '_'
+		c == 123 || c == 125 // '{', '}'
+
 }
 
 func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *bytes.Buffer) (b []byte) {
@@ -240,7 +334,9 @@ func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *
 		case importPath:
 			return createImportPathData(hashImport(string(data[o : o+l])))
 		case namedata:
-			return patchReflectData(hashImport(string(data[o:o+l])), o, data)
+			//fmt.Printf("$$$ Reflectdata: %s\n", string(data[o:o+l]))
+			//return patchReflectData(hashImport(string(data[o:o+l])), o, data)
+			return data
 		default:
 			buf.Write(data[off : off+o])
 			buf.WriteString(hashImport(string(data[off+o : off+o+l])))
