@@ -41,105 +41,104 @@ func obfuscateImports(objPath, importCfgPath string) error {
 	if err != nil {
 		return err
 	}
-	pkgs := []pkgInfo{{mainPkg, objPath}}
+	privatePkgs := []pkgInfo{{mainPkg, objPath}}
 
 	for pkgPath, info := range importCfg {
 		if isPrivate(pkgPath) {
 			pkg, err := goobj2.Parse(info.Path, pkgPath, importCfg)
 			if err != nil {
-				return err
+				return fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
 			}
-			pkgs = append(pkgs, pkgInfo{pkg, info.Path})
+
+			privatePkgs = append(privatePkgs, pkgInfo{pkg, info.Path})
 		}
 	}
 
 	var sb strings.Builder
 	var buf bytes.Buffer
-	for _, p := range pkgs {
+	for _, p := range privatePkgs {
 		fmt.Printf("++ Obfuscating object file for %s ++\n", p.pkg.ImportPath)
-
-		var privateImports []string
-		privateImports = append(privateImports, p.pkg.ImportPath)
-		if strings.ContainsRune(p.pkg.ImportPath, '/') {
-			privateImports = append(privateImports, path.Base(p.pkg.ImportPath))
-		}
-		for i := range p.pkg.Imports {
-			if isPrivate(p.pkg.Imports[i].Pkg) {
-				p.pkg.Imports[i].Pkg = hashImport(p.pkg.Imports[i].Pkg)
+		for _, am := range p.pkg.ArchiveMembers {
+			if am.IsCompilerObj() {
+				continue
 			}
-		}
-		for i := range p.pkg.Packages {
-			if isPrivate(p.pkg.Packages[i]) {
-				privateImports = append(privateImports, p.pkg.Packages[i])
-				if strings.ContainsRune(p.pkg.Packages[i], '/') {
-					privateImports = append(privateImports, path.Base(p.pkg.Packages[i]))
-				}
-				p.pkg.Packages[i] = hashImport(p.pkg.Packages[i])
+
+			var privateImports []string
+			privateImports = append(privateImports, p.pkg.ImportPath)
+			if strings.ContainsRune(p.pkg.ImportPath, '/') {
+				privateImports = append(privateImports, path.Base(p.pkg.ImportPath))
 			}
-		}
-		// move imports that contain another import as a substring to the front,
-		// so that the shorter import will not match first and leak part of an
-		// import path
-		sort.Slice(privateImports, func(i, j int) bool {
-			if strings.Contains(privateImports[i], privateImports[j]) {
-				return true
-			}
-			return false
-		})
-
-		fmt.Printf("== Private imports: %v ==\n", privateImports)
-		if len(privateImports) == 0 {
-			continue
-		}
-
-		lists := [][]*goobj2.Sym{p.pkg.SymDefs, p.pkg.NonPkgSymDefs, p.pkg.NonPkgSymRefs}
-		for _, list := range lists {
-			for _, s := range list {
-				// garble read only static data, but not strings. If import paths are in strings,
-				// that means garbling strings might effect the behavior of the compiled binary
-				if int(s.Kind) == 2 && s.Data != nil && !strings.HasPrefix(s.Name, "go.string.") {
-					var dataTyp dataType
-					if strings.HasPrefix(s.Name, "type..importpath.") {
-						dataTyp = importPath
-					} else if strings.HasPrefix(s.Name, "type..namedata.") {
-						dataTyp = namedata
-					}
-					s.Data = garbleSymData(s.Data, privateImports, dataTyp, &buf)
-
-					if s.Size != 0 {
-						s.Size = uint32(len(s.Data))
-					}
-				}
-				s.Name = garbleSymbolName(s.Name, privateImports, &sb)
-
-				for i := range s.Reloc {
-					s.Reloc[i].Name = garbleSymbolName(s.Reloc[i].Name, privateImports, &sb)
-				}
-				if s.Type != nil {
-					s.Type.Name = garbleSymbolName(s.Type.Name, privateImports, &sb)
-				}
-				if s.Func != nil {
-					for i := range s.Func.FuncData {
-						s.Func.FuncData[i].Sym.Name = garbleSymbolName(s.Func.FuncData[i].Sym.Name, privateImports, &sb)
-					}
-					for _, inl := range s.Func.InlTree {
-						inl.Func.Name = garbleSymbolName(inl.Func.Name, privateImports, &sb)
-					}
+			for i := range am.Imports {
+				if isPrivate(am.Imports[i].Pkg) {
+					am.Imports[i].Pkg = hashImport(am.Imports[i].Pkg)
 				}
 			}
-		}
-		for i := range p.pkg.SymRefs {
-			p.pkg.SymRefs[i].Name = garbleSymbolName(p.pkg.SymRefs[i].Name, privateImports, &sb)
-		}
+			for i := range am.Packages {
+				if isPrivate(am.Packages[i]) {
+					privateImports = append(privateImports, am.Packages[i])
+					if strings.ContainsRune(am.Packages[i], '/') {
+						privateImports = append(privateImports, path.Base(am.Packages[i]))
+					}
+					am.Packages[i] = hashImport(am.Packages[i])
+				}
+			}
+			// move imports that contain another import as a substring to the front,
+			// so that the shorter import will not match first and leak part of an
+			// import path
+			sort.Slice(privateImports, func(i, j int) bool {
+				return privateImports[i] > privateImports[j]
+			})
 
-		if err = goobj2.WriteObjFile2(p.pkg, p.path); err != nil {
-			return err
+			fmt.Printf("== Private imports: %v ==\n", privateImports)
+			if len(privateImports) == 0 {
+				continue
+			}
+
+			lists := [][]*goobj2.Sym{am.SymDefs, am.NonPkgSymDefs, am.NonPkgSymRefs}
+			for _, list := range lists {
+				for _, s := range list {
+					// garble read only static data, but not strings. If import paths are in strings,
+					// that means garbling strings might effect the behavior of the compiled binary
+					if int(s.Kind) == 2 && s.Data != nil && !strings.HasPrefix(s.Name, "go.string.") {
+						var dataTyp dataType
+						if strings.HasPrefix(s.Name, "type..importpath.") {
+							dataTyp = importPath
+						} else if strings.HasPrefix(s.Name, "type..namedata.") {
+							dataTyp = namedata
+						}
+						s.Data = garbleSymData(s.Data, privateImports, dataTyp, &buf)
+
+						if s.Size != 0 {
+							s.Size = uint32(len(s.Data))
+						}
+					}
+					s.Name = garbleSymbolName(s.Name, privateImports, &sb)
+
+					for i := range s.Reloc {
+						s.Reloc[i].Name = garbleSymbolName(s.Reloc[i].Name, privateImports, &sb)
+					}
+					if s.Type != nil {
+						s.Type.Name = garbleSymbolName(s.Type.Name, privateImports, &sb)
+					}
+					if s.Func != nil {
+						for i := range s.Func.FuncData {
+							s.Func.FuncData[i].Sym.Name = garbleSymbolName(s.Func.FuncData[i].Sym.Name, privateImports, &sb)
+						}
+						for _, inl := range s.Func.InlTree {
+							inl.Func.Name = garbleSymbolName(inl.Func.Name, privateImports, &sb)
+						}
+					}
+				}
+			}
+			for i := range am.SymRefs {
+				am.SymRefs[i].Name = garbleSymbolName(am.SymRefs[i].Name, privateImports, &sb)
+			}
+
+			if err = goobj2.WriteObjFile2(p.pkg, p.path); err != nil {
+				return err
+			}
 		}
 	}
-
-	/*if err = goobj2.WriteObjFile2(pkgs[0].pkg, "/home/capnspacehook/Documents/obf_binclude.o"); err != nil {
-		return err
-	}*/
 
 	// garble importcfg so the linker knows where to find garbled imports
 	for pkgPath, info := range importCfg {
@@ -159,7 +158,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		buf.WriteRune('\n')
 	}
 
-	fmt.Print("\n\n")
+	//fmt.Print("\n\n")
 
 	if err = ioutil.WriteFile(importCfgPath, buf.Bytes(), 0644); err != nil {
 		return err
