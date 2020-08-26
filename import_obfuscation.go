@@ -10,10 +10,6 @@ import (
 	"github.com/Binject/debug/goobj2"
 )
 
-const (
-	goFilePrefix = "gofile.."
-)
-
 type pkgInfo struct {
 	pkg  *goobj2.Package
 	path string
@@ -241,31 +237,72 @@ func hashImport(pkg string) string {
 }
 
 func garbleSymbolName(symName string, privateImports []string, sb *strings.Builder) (s string) {
+	prefix, name, skipSym := splitSymbolPrefix(symName)
+	if skipSym {
+		return symName
+	}
+
 	var off int
 	for {
-		o, l := privateImportIndex(symName[off:], privateImports)
+		o, l := privateImportIndex(name[off:], privateImports)
 		if o == -1 {
 			if sb.Len() != 0 {
-				sb.WriteString(symName[off:])
+				sb.WriteString(name[off:])
 			}
 			break
 		}
 
-		sb.WriteString(symName[off : off+o])
-		sb.WriteString(hashImport(symName[off+o : off+o+l]))
+		sb.WriteString(name[off : off+o])
+		sb.WriteString(hashImport(name[off+o : off+o+l]))
 		off += o + l
 	}
 
 	if sb.Len() == 0 {
 		return symName
 	}
+	defer sb.Reset()
 
-	s = sb.String()
-	sb.Reset()
-
-	//fmt.Printf("Garbled symbol: %s as %s\n", symName, s)
+	s = prefix + sb.String()
 
 	return s
+}
+
+var skipPrefixes = [...]string{
+	"gclocals·",
+	"go.constinfo.",
+	"go.cuinfo.",
+	"go.info.",
+	"go.string",
+}
+
+var symPrefixes = [...]string{
+	"go.builtin.",
+	"go.itab.",
+	"go.itablink.",
+	"go.interface.",
+	"go.map.",
+	"gofile..",
+	"type.",
+}
+
+func splitSymbolPrefix(symName string) (string, string, bool) {
+	if symName == "" {
+		return "", "", true
+	}
+
+	for _, prefix := range skipPrefixes {
+		if strings.HasPrefix(symName, prefix) {
+			return "", "", true
+		}
+	}
+
+	for _, prefix := range symPrefixes {
+		if strings.HasPrefix(symName, prefix) {
+			return symName[:len(prefix)], symName[len(prefix):], false
+		}
+	}
+
+	return "", symName, false
 }
 
 func privateImportIndex(symName string, privateImports []string) (int, int) {
@@ -313,53 +350,55 @@ func privateImportIndex(symName string, privateImports []string) (int, int) {
 
 func isSymbol(c byte) bool {
 	return c == 32 || // ' '
-		(c >= 40 && c <= 42) || // '(', ')', '*'
+		(c >= 40 && c <= 42) || c == 44 || // '(', ')', '*', ','
 		c == 91 || c == 93 || c == 95 || // '[', ']', '_'
 		c == 123 || c == 125 // '{', '}'
 
 }
 
 func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *bytes.Buffer) (b []byte) {
+	symData := data
+	if dataTyp == namedata {
+		oldNameLen := int(uint16(data[1])<<8 | uint16(data[2]))
+		symData = data[3 : 3+oldNameLen]
+	}
+
 	var off int
 	for {
-		o, l := privateImportIndex(string(data[off:]), privateImports)
+		o, l := privateImportIndex(string(symData[off:]), privateImports)
 		if o == -1 {
 			if buf.Len() != 0 {
-				buf.Write(data[off:])
+				buf.Write(symData[off:])
 			}
 			break
 		}
 
-		switch dataTyp {
-		case importPath:
-			return createImportPathData(hashImport(string(data[o : o+l])))
-		case namedata:
-			//fmt.Printf("$$$ Reflectdata: %s\n", string(data[o:o+l]))
-			//return patchReflectData(hashImport(string(data[o:o+l])), o, data)
-			return data
-		default:
-			buf.Write(data[off : off+o])
-			buf.WriteString(hashImport(string(data[off+o : off+o+l])))
-			off += o + l
+		if dataTyp == importPath {
+			return createImportPathData(hashImport(string(symData[o : o+l])))
 		}
+
+		buf.Write(symData[off : off+o])
+		buf.WriteString(hashImport(string(symData[off+o : off+o+l])))
+		off += o + l
 
 	}
 
 	if buf.Len() == 0 {
 		return data
 	}
+	defer buf.Reset()
 
-	b = buf.Bytes()
-	buf.Reset()
+	if dataTyp == namedata {
+		return patchReflectData(buf.Bytes(), data)
+	}
 
-	return b
+	return buf.Bytes()
 }
 
 func createImportPathData(importPath string) []byte {
-	var bits byte
-	l := 1 + 2 + len(importPath)
+	l := 3 + len(importPath)
 	b := make([]byte, l)
-	b[0] = bits
+	b[0] = 0
 	b[1] = uint8(len(importPath) >> 8)
 	b[2] = uint8(len(importPath))
 	copy(b[3:], importPath)
@@ -367,12 +406,11 @@ func createImportPathData(importPath string) []byte {
 	return b
 }
 
-func patchReflectData(garbledImp string, off int, data []byte) []byte {
+func patchReflectData(newName []byte, data []byte) []byte {
 	oldNameLen := int(uint16(data[1])<<8 | uint16(data[2]))
-	newName := string(data[3:off]) + garbledImp + string(data[off+len(garbledImp)-1:3+oldNameLen])
 
 	data[1] = uint8(len(newName) >> 8)
 	data[2] = uint8(len(newName))
 
-	return append(data[:3], append([]byte(newName), data[3+oldNameLen:]...)...)
+	return append(data[:3], append(newName, data[3+oldNameLen:]...)...)
 }
