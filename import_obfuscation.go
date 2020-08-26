@@ -357,10 +357,15 @@ func isSymbol(c byte) bool {
 }
 
 func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *bytes.Buffer) (b []byte) {
-	symData := data
-	if dataTyp == namedata {
+	var symData []byte
+	switch dataTyp {
+	case importPath:
+		symData = data[3:]
+	case namedata:
 		oldNameLen := int(uint16(data[1])<<8 | uint16(data[2]))
 		symData = data[3 : 3+oldNameLen]
+	default:
+		symData = data
 	}
 
 	var off int
