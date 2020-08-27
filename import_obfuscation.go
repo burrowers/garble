@@ -236,7 +236,7 @@ func hashImport(pkg string) string {
 	return hashWith(buildInfo.imports[pkg].buildID, pkg)
 }
 
-func garbleSymbolName(symName string, privateImports []string, sb *strings.Builder) (s string) {
+func garbleSymbolName(symName string, privateImports []string, sb *strings.Builder) string {
 	prefix, name, skipSym := splitSymbolPrefix(symName)
 	if skipSym {
 		return symName
@@ -262,9 +262,7 @@ func garbleSymbolName(symName string, privateImports []string, sb *strings.Build
 	}
 	defer sb.Reset()
 
-	s = prefix + sb.String()
-
-	return s
+	return prefix + sb.String()
 }
 
 var skipPrefixes = [...]string{
@@ -282,6 +280,11 @@ var symPrefixes = [...]string{
 	"go.interface.",
 	"go.map.",
 	"gofile..",
+	"type..eq.",
+	"type..eqfunc.",
+	"type..hash.",
+	"type..importpath.",
+	"type..namedata.",
 	"type.",
 }
 
@@ -356,7 +359,7 @@ func isSymbol(c byte) bool {
 
 }
 
-func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *bytes.Buffer) (b []byte) {
+func garbleSymData(data []byte, privateImports []string, dataTyp dataType, buf *bytes.Buffer) []byte {
 	var symData []byte
 	switch dataTyp {
 	case importPath:
