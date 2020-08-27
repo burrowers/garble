@@ -30,7 +30,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 	}
 	mainPkg, err := goobj2.Parse(objPath, "main", importCfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("error parsing main objfile: %v", err)
 	}
 	privatePkgs := []pkgInfo{{mainPkg, objPath}}
 
@@ -49,7 +49,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 	var sb strings.Builder
 	var buf bytes.Buffer
 	for _, p := range privatePkgs {
-		fmt.Printf("\n\n++ Obfuscating object file for %s ++\n", p.pkg.ImportPath)
+		// log.Printf("\n\n++ Obfuscating object file for %s ++\n", p.pkg.ImportPath)
 		for _, am := range p.pkg.ArchiveMembers {
 			if am.IsCompilerObj() {
 				continue
@@ -94,7 +94,7 @@ func obfuscateImports(objPath, importCfgPath string) error {
 			privateImports = dedupImportPaths(privateImports)
 
 			// no private import paths, nothing to garble
-			fmt.Printf("== Private imports: %v ==\n", privateImports)
+			// log.Printf("== Private imports: %v ==\n", privateImports)
 			if len(privateImports) == 0 {
 				continue
 			}
@@ -140,8 +140,8 @@ func obfuscateImports(objPath, importCfgPath string) error {
 				am.SymRefs[i].Name = garbleSymbolName(am.SymRefs[i].Name, privateImports, &sb)
 			}
 
-			if err = goobj2.WriteObjFile2(p.pkg, p.path); err != nil {
-				return err
+			if err = p.pkg.Write(p.path); err != nil {
+				return fmt.Errorf("error writing objfile %s at %s: %v", p.pkg.ImportPath, p.path, err)
 			}
 		}
 	}
@@ -164,10 +164,8 @@ func obfuscateImports(objPath, importCfgPath string) error {
 		buf.WriteRune('\n')
 	}
 
-	fmt.Print("\n\n")
-
 	if err = ioutil.WriteFile(importCfgPath, buf.Bytes(), 0644); err != nil {
-		return err
+		return fmt.Errorf("error writing importcfg: %v", err)
 	}
 
 	return nil
@@ -288,6 +286,10 @@ var symPrefixes = [...]string{
 	"type.",
 }
 
+// splitSymbolPrefix returns the symbol name prefix Go uses
+// to help designate the type of the symbol, and the rest of
+// the symbol name. Additionally, a bool is returned that
+// signifies whether garbling the symbol name should be skipped.
 func splitSymbolPrefix(symName string) (string, string, bool) {
 	if symName == "" {
 		return "", "", true
