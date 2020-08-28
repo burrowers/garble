@@ -29,7 +29,9 @@ import (
 	"runtime"
 	"strings"
 
+	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/ast/astutil"
+
 	"mvdan.cc/garble/internal/literals"
 )
 
@@ -585,7 +587,7 @@ const privateBlacklist = "runtime,internal/cpu,internal/bytealg"
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(path string) bool {
-	if GlobsMatchPath(privateBlacklist, path) {
+	if module.MatchPrefixPatterns(privateBlacklist, path) {
 		return false
 	}
 	if path == "main" || path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
@@ -594,7 +596,7 @@ func isPrivate(path string) bool {
 		// the compiler.
 		return true
 	}
-	return GlobsMatchPath(envGoPrivate, path)
+	return module.MatchPrefixPatterns(envGoPrivate, path)
 }
 
 func readBuildIDs(flags []string) error {
