@@ -1,9 +1,10 @@
 module mvdan.cc/garble
 
-go 1.14
+go 1.15
 
 require (
-	github.com/google/go-cmp v0.5.1
-	github.com/rogpeppe/go-internal v1.6.0
-	golang.org/x/tools v0.0.0-20200622203043-20e05c1c8ffa
+	github.com/google/go-cmp v0.5.2
+	github.com/rogpeppe/go-internal v1.6.1
+	golang.org/x/mod v0.3.1-0.20200828183125-ce943fd02449
+	golang.org/x/tools v0.0.0-20200828161849-5deb26317202
 )
