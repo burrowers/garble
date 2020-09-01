@@ -21,12 +21,17 @@ func addRuntimeAPI(filename string, file *ast.File) {
 			return true
 		}
 
-		if id.Name == "print" {
+		switch id.Name {
+		case "print":
 			id.Name = "panicprint"
 			return false
+		case "println":
+			id.Name = "panicprint"
+			call.Args = append(call.Args, &ast.BasicLit{Kind: token.STRING, Value: `"\n"`})
+			return false
+		default:
+			return true
 		}
-
-		return true
 	}
 
 	switch filename {
