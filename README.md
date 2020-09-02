@@ -64,8 +64,9 @@ to document the current shortcomings of this tool.
 * Functions implemented outside Go, such as assembly, aren't garbled since we
   currently only transform the input Go source.
 
-* Since `garble` forces `-trimpath`, plugins built with `-garble` must be loaded
-  from Go programs built with `-trimpath` too.
+* ~~Since `garble` forces `-trimpath`, plugins built with `-garble` must be loaded
+  from Go programs built with `-trimpath` too.~~ Plugins currently do not always
+  work with well with `garble`, period.
 
 ### Runtime API
 
