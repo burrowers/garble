@@ -66,7 +66,7 @@ to document the current shortcomings of this tool.
 
 * ~~Since `garble` forces `-trimpath`, plugins built with `-garble` must be loaded
   from Go programs built with `-trimpath` too.~~ Plugins currently do not always
-  work with well with `garble`, period.
+  work with well with `garble`. See issue #87
 
 ### Runtime API
 
