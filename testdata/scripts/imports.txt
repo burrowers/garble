@@ -1,11 +1,13 @@
 # Note that this is the only test with a module where we rely on the detection
 # of GOPRIVATE.
 
+env GOPRIVATE='test/*,rsc.io/*'
+
 garble build -tags buildtag
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'imported.go'
+! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'test/main' 'imported.' 'rsc.io'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -31,6 +33,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"reflect"
 	_ "unsafe"
 
@@ -48,11 +51,11 @@ func main() {
 	fmt.Println(imported.ImportedFunc('x'))
 	fmt.Println(imported.ImportedType(3))
 
-	fmt.Printf("%T\n", imported.ReflectTypeOf(2))
-	fmt.Printf("%T\n", imported.ReflectTypeOfIndirect(4))
+	fmt.Print(discardPackageName(fmt.Sprintf("%T\n", imported.ReflectTypeOf(2))))
+	fmt.Print(discardPackageName(fmt.Sprintf("%T\n", imported.ReflectTypeOfIndirect(4))))
 
 	v := imported.ReflectValueOfVar
-	fmt.Printf("%#v\n", v)
+	fmt.Print(discardPackageName(fmt.Sprintf("%#v\n", v)))
 	method := reflect.ValueOf(&v).MethodByName("ExportedMethodName")
 	if method.IsValid() {
 		fmt.Println(method.Call(nil))
@@ -62,6 +65,10 @@ func main() {
 
 	linkedPrintln(nil)
 	fmt.Println(quote.Go())
+}
+
+func discardPackageName(s string) string {
+	return strings.Split(s, ".")[1]
 }
 -- notag_fail.go --
 // +build !buildtag
@@ -119,9 +126,9 @@ imported var value
 imported const value
 x
 3
-imported.ReflectTypeOf
-imported.ReflectTypeOfIndirect
-imported.ReflectValueOf{ExportedField:"abc", unexportedField:""}
+ReflectTypeOf
+ReflectTypeOfIndirect
+ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
 <nil>
 Don't communicate by sharing memory, share memory by communicating.

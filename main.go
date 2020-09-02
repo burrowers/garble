@@ -923,11 +923,20 @@ func transformLink(args []string) ([]string, error) {
 		return args, nil
 	}
 
-	// Make sure -X works with garbled identifiers. To cover both garbled
-	// and non-garbled names, duplicate each flag with a garbled version.
 	if err := readBuildIDs(flags); err != nil {
 		return nil, err
 	}
+
+	importCfgPath := flagValue(flags, "-importcfg")
+	// there should only ever be one archive/object file passed to the linker,
+	// the file for the main package or entrypoint
+	garbledImports, err := obfuscateImports(paths[0], importCfgPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Make sure -X works with garbled identifiers. To cover both garbled
+	// and non-garbled names, duplicate each flag with a garbled version.
 	flagValueIter(flags, "-X", func(val string) {
 		// val is in the form of "pkg.name=str"
 		i := strings.IndexByte(val, '=')
@@ -950,8 +959,9 @@ func transformLink(args []string) ([]string, error) {
 			pkgPath = buildInfo.firstImport
 		}
 		if id := buildInfo.imports[pkgPath].buildID; id != "" {
+			garbledPkg := garbledImports[pkg]
 			name = hashWith(id, name)
-			flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", pkg, name, str))
+			flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", garbledPkg, name, str))
 		}
 	})
 
