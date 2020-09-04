@@ -1,13 +1,11 @@
 # Note that this is the only test with a module where we rely on the detection
 # of GOPRIVATE.
 
-env GOPRIVATE='test/*,rsc.io/*'
-
 garble build -tags buildtag
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'test/main' 'imported.' 'rsc.io'
+! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'test/main' 'imported.'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -51,11 +49,11 @@ func main() {
 	fmt.Println(imported.ImportedFunc('x'))
 	fmt.Println(imported.ImportedType(3))
 
-	fmt.Print(discardPackageName(fmt.Sprintf("%T\n", imported.ReflectTypeOf(2))))
-	fmt.Print(discardPackageName(fmt.Sprintf("%T\n", imported.ReflectTypeOfIndirect(4))))
+	printfWithoutPackage("%T\n", imported.ReflectTypeOf(2))
+	printfWithoutPackage("%T\n", imported.ReflectTypeOfIndirect(4))
 
 	v := imported.ReflectValueOfVar
-	fmt.Print(discardPackageName(fmt.Sprintf("%#v\n", v)))
+	printfWithoutPackage("%#v\n", v)
 	method := reflect.ValueOf(&v).MethodByName("ExportedMethodName")
 	if method.IsValid() {
 		fmt.Println(method.Call(nil))
@@ -67,8 +65,8 @@ func main() {
 	fmt.Println(quote.Go())
 }
 
-func discardPackageName(s string) string {
-	return strings.Split(s, ".")[1]
+func printfWithoutPackage(format string, v interface{}) {
+	fmt.Print(strings.Split(fmt.Sprintf(format, v), ".")[1])
 }
 -- notag_fail.go --
 // +build !buildtag

@@ -1,10 +1,10 @@
-env GOPRIVATE=test/main
+env GOPRIVATE='test/main,rsc.io/*'
 
 garble -debugdir=debug build
 exec ./main$exe
 cmp stderr main.stderr
 
-! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information'
+! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'rsc.io'
 
 binsubstr debug/main/scopes.go 'localName' 'globalConst'
 
@@ -26,6 +26,8 @@ package main
 import (
 	"encoding/json"
 	"go/ast"
+
+	"rsc.io/quote"
 )
 
 // This comment contains valuable information. Ensure it's not in the final binary.
@@ -70,6 +72,7 @@ func main() {
 	enc, _ := json.Marshal(EncodingT{Foo: 3})
 	println(string(enc))
 	scopesTest()
+	println(quote.Go())
 }
 
 -- scopes.go --
@@ -107,3 +110,4 @@ nil case
 {"Foo":3}
 1 1 1
 1 4 5 1 input
+Don't communicate by sharing memory, share memory by communicating.
