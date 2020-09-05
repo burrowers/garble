@@ -105,13 +105,15 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) 
 				am.Packages[i] = initImport(am.Packages[i])
 			}
 
+			privImports.privatePaths = dedupStrings(privImports.privatePaths)
+			privImports.privateNames = dedupStrings(privImports.privateNames)
 			// move imports that contain another import as a substring to the front,
 			// so that the shorter import will not match first and leak part of an
 			// import path
 			sort.Slice(privImports.privatePaths, func(i, j int) bool {
 				iSlashes := strings.Count(privImports.privatePaths[i], "/")
 				jSlashes := strings.Count(privImports.privatePaths[j], "/")
-				// sort by number of slashes first, then alphabetically
+				// sort by number of slashes unless equal, then sort reverse alphabetically
 				if iSlashes == jSlashes {
 					return privImports.privatePaths[i] > privImports.privatePaths[j]
 				}
@@ -120,8 +122,6 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) 
 			sort.Slice(privImports.privateNames, func(i, j int) bool {
 				return privImports.privateNames[i] > privImports.privateNames[j]
 			})
-			privImports.privatePaths = dedupStrings(privImports.privatePaths)
-			privImports.privateNames = dedupStrings(privImports.privateNames)
 
 			// no private import paths, nothing to garble
 			if len(privImports.privatePaths) == 0 {
@@ -130,70 +130,7 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) 
 			// log.Printf("\t== Private imports: %v ==\n", privImports)
 
 			// garble all private import paths in all symbol names
-			lists := [][]*goobj2.Sym{am.SymDefs, am.NonPkgSymDefs, am.NonPkgSymRefs}
-			for _, list := range lists {
-				for _, s := range list {
-					// skip debug symbols, and remove the debug symbol's data to save space
-					if s.Kind >= goobj2.SDWARFINFO && s.Kind <= goobj2.SDWARFLINES {
-						s.Data = nil
-						continue
-					}
-
-					// skip local asm symbols. For some reason garbling these breaks things
-					// add the symbol name to a blacklist, so we don't garble related symbols
-					if s.Kind == goobj2.SABIALIAS {
-						if parts := strings.SplitN(s.Name, ".", 2); parts[0] == "main" {
-							skipPrefixes = append(skipPrefixes, s.Name)
-							skipPrefixes = append(skipPrefixes, `"".`+parts[1])
-							continue
-						}
-					}
-
-					// garble read only static data, but not strings. If import paths are in strings,
-					// that means garbling strings might effect the behavior of the compiled binary
-					if s.Kind == goobj2.SRODATA && s.Data != nil && !strings.HasPrefix(s.Name, "go.string.") {
-						var dataTyp dataType
-						if strings.HasPrefix(s.Name, "type..importpath.") {
-							dataTyp = importPath
-						} else if strings.HasPrefix(s.Name, "type..namedata.") {
-							dataTyp = namedata
-						}
-						s.Data = garbleSymData(s.Data, privImports, garbledImports, dataTyp, &buf)
-
-						if s.Size != 0 {
-							s.Size = uint32(len(s.Data))
-						}
-					}
-					s.Name = garbleSymbolName(s.Name, privImports, garbledImports, &sb)
-
-					for i := range s.Reloc {
-						s.Reloc[i].Name = garbleSymbolName(s.Reloc[i].Name, privImports, garbledImports, &sb)
-					}
-					if s.Type != nil {
-						s.Type.Name = garbleSymbolName(s.Type.Name, privImports, garbledImports, &sb)
-					}
-					if s.Func != nil {
-						for i := range s.Func.FuncData {
-							s.Func.FuncData[i].Sym.Name = garbleSymbolName(s.Func.FuncData[i].Sym.Name, privImports, garbledImports, &sb)
-						}
-						for _, inl := range s.Func.InlTree {
-							inl.Func.Name = garbleSymbolName(inl.Func.Name, privImports, garbledImports, &sb)
-						}
-
-						// remove unneeded debug aux symbols
-						s.Func.DwarfInfo = nil
-						s.Func.DwarfLoc = nil
-						s.Func.DwarfRanges = nil
-						s.Func.DwarfDebugLines = nil
-					}
-				}
-			}
-			for i := range am.SymRefs {
-				am.SymRefs[i].Name = garbleSymbolName(am.SymRefs[i].Name, privImports, garbledImports, &sb)
-			}
-
-			// remove dwarf file list, it isn't needed as we pass "-w, -s" to the linker
-			am.DWARFFileList = nil
+			garbleSymbols(&am, privImports, garbledImports, &buf, &sb)
 		}
 
 		if err := p.pkg.Write(p.path); err != nil {
@@ -202,40 +139,19 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) 
 	}
 
 	// garble importcfg so the linker knows where to find garbled imports
-	newCfg, err := os.Create(importCfgPath)
-	if err != nil {
-		return nil, fmt.Errorf("error creating importcfg: %v", err)
-	}
-	defer newCfg.Close()
-	newCfgWr := bufio.NewWriter(newCfg)
-
-	for pkgPath, info := range importCfg {
-		if isPrivate(pkgPath) {
-			pkgPath = hashImport(pkgPath, garbledImports)
-		}
-		if info.IsSharedLib {
-			newCfgWr.WriteString("packageshlib")
-		} else {
-			newCfgWr.WriteString("packagefile")
-		}
-
-		newCfgWr.WriteRune(' ')
-		newCfgWr.WriteString(pkgPath)
-		newCfgWr.WriteRune('=')
-		newCfgWr.WriteString(info.Path)
-		newCfgWr.WriteRune('\n')
-	}
-
-	if err := newCfgWr.Flush(); err != nil {
-		return nil, fmt.Errorf("error writing importcfg: %v", err)
+	if err := garbleImportCfg(importCfgPath, importCfg, garbledImports); err != nil {
+		return nil, err
 	}
 
 	return garbledImports, nil
 }
 
-// explodeImportPath returns a list of import paths that
-// could all potentially be in symbol names of the
-// package that imported 'path'.
+// explodeImportPath returns lists of import paths
+// and package names that could all potentially be
+// in symbol names of the package that imported 'path'.
+// ex. path=github.com/foo/bar/baz, GOPRIVATE=github.com/*
+// pkgPaths=[github.com/foo/bar, github.com/foo]
+// pkgNames=[foo, bar, baz]
 // TODO: last element returned should get same buildID
 // as full path?
 // ie github.com/foo/bar.buildID == bar.buildID
@@ -317,6 +233,77 @@ func hashImport(pkg string, garbledImports map[string]string) string {
 	garbledImports[pkg] = garbledPkg
 
 	return garbledPkg
+}
+
+// garbleSymbols replaces all private import paths/package names in symbol names
+// and data of an archive member.
+func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, garbledImports map[string]string, buf *bytes.Buffer, sb *strings.Builder) {
+	lists := [][]*goobj2.Sym{am.SymDefs, am.NonPkgSymDefs, am.NonPkgSymRefs}
+	for _, list := range lists {
+		for _, s := range list {
+			// skip debug symbols, and remove the debug symbol's data to save space
+			if s.Kind >= goobj2.SDWARFINFO && s.Kind <= goobj2.SDWARFLINES {
+				s.Data = nil
+				continue
+			}
+
+			// skip local asm symbols. For some reason garbling these breaks things
+			// add the symbol name to a blacklist, so we don't garble related symbols
+			// TODO: don't add duplicates
+			if s.Kind == goobj2.SABIALIAS {
+				if parts := strings.SplitN(s.Name, ".", 2); parts[0] == "main" {
+					skipPrefixes = append(skipPrefixes, s.Name)
+					skipPrefixes = append(skipPrefixes, `"".`+parts[1])
+					continue
+				}
+			}
+
+			// garble read-only static data, but not strings. If import paths are in string
+			// symbols, that means garbling string symbols might effect the behavior of the
+			// compiled binary
+			if s.Kind == goobj2.SRODATA && s.Data != nil && !strings.HasPrefix(s.Name, "go.string.") {
+				var dataTyp dataType
+				if strings.HasPrefix(s.Name, "type..importpath.") {
+					dataTyp = importPath
+				} else if strings.HasPrefix(s.Name, "type..namedata.") {
+					dataTyp = namedata
+				}
+				s.Data = garbleSymData(s.Data, privImports, garbledImports, dataTyp, buf)
+
+				if s.Size != 0 {
+					s.Size = uint32(len(s.Data))
+				}
+			}
+			s.Name = garbleSymbolName(s.Name, privImports, garbledImports, sb)
+
+			for i := range s.Reloc {
+				s.Reloc[i].Name = garbleSymbolName(s.Reloc[i].Name, privImports, garbledImports, sb)
+			}
+			if s.Type != nil {
+				s.Type.Name = garbleSymbolName(s.Type.Name, privImports, garbledImports, sb)
+			}
+			if s.Func != nil {
+				for i := range s.Func.FuncData {
+					s.Func.FuncData[i].Sym.Name = garbleSymbolName(s.Func.FuncData[i].Sym.Name, privImports, garbledImports, sb)
+				}
+				for _, inl := range s.Func.InlTree {
+					inl.Func.Name = garbleSymbolName(inl.Func.Name, privImports, garbledImports, sb)
+				}
+
+				// remove unneeded debug aux symbols
+				s.Func.DwarfInfo = nil
+				s.Func.DwarfLoc = nil
+				s.Func.DwarfRanges = nil
+				s.Func.DwarfDebugLines = nil
+			}
+		}
+	}
+	for i := range am.SymRefs {
+		am.SymRefs[i].Name = garbleSymbolName(am.SymRefs[i].Name, privImports, garbledImports, sb)
+	}
+
+	// remove dwarf file list, it isn't needed as we pass "-w, -s" to the linker
+	am.DWARFFileList = nil
 }
 
 // garbleSymbolName finds all private imports in a symbol name, garbles them,
@@ -505,8 +492,8 @@ func isSymbol(c byte) bool {
 	}
 }
 
-// garbleSymData finds all private imports a symbol's data, garbles them, and
-// returns the modified symbol data.
+// garbleSymData finds all private imports in a symbol's data blob,
+// garbles them, and returns the modified symbol data.
 func garbleSymData(data []byte, privImports privateImports, garbledImports map[string]string, dataTyp dataType, buf *bytes.Buffer) []byte {
 	var symData []byte
 	switch dataTyp {
@@ -551,6 +538,8 @@ func garbleSymData(data []byte, privImports privateImports, garbledImports map[s
 	return buf.Bytes()
 }
 
+//createImportPathData creates reflection data for an
+// import path
 func createImportPathData(importPath string) []byte {
 	l := 3 + len(importPath)
 	b := make([]byte, l)
@@ -562,6 +551,8 @@ func createImportPathData(importPath string) []byte {
 	return b
 }
 
+// patchReflectData replaces the name of a struct field or
+// method in reflection namedata
 func patchReflectData(newName []byte, data []byte) []byte {
 	oldNameLen := int(uint16(data[1])<<8 | uint16(data[2]))
 
@@ -569,4 +560,37 @@ func patchReflectData(newName []byte, data []byte) []byte {
 	data[2] = uint8(len(newName))
 
 	return append(data[:3], append(newName, data[3+oldNameLen:]...)...)
+}
+
+// garbleImportCfg writes a new importcfg with private import paths garbled.
+func garbleImportCfg(path string, importCfg goobj2.ImportCfg, garbledImports map[string]string) error {
+	newCfg, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("error creating importcfg: %v", err)
+	}
+	defer newCfg.Close()
+	newCfgWr := bufio.NewWriter(newCfg)
+
+	for pkgPath, info := range importCfg {
+		if isPrivate(pkgPath) {
+			pkgPath = hashImport(pkgPath, garbledImports)
+		}
+		if info.IsSharedLib {
+			newCfgWr.WriteString("packageshlib")
+		} else {
+			newCfgWr.WriteString("packagefile")
+		}
+
+		newCfgWr.WriteRune(' ')
+		newCfgWr.WriteString(pkgPath)
+		newCfgWr.WriteRune('=')
+		newCfgWr.WriteString(info.Path)
+		newCfgWr.WriteRune('\n')
+	}
+
+	if err := newCfgWr.Flush(); err != nil {
+		return fmt.Errorf("error writing importcfg: %v", err)
+	}
+
+	return nil
 }
