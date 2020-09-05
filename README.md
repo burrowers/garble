@@ -26,6 +26,7 @@ The tool wraps calls to the Go compiler and linker to transform the Go build, in
 order to:
 
 * Replace as many useful identifiers as possible with short base64 hashes
+* Replace package paths with short base64 hashes
 * Remove all [build](https://golang.org/pkg/runtime/#Version) and [module](https://golang.org/pkg/runtime/debug/#ReadBuildInfo) information
 * Strip filenames and shuffle position information
 * Obfuscate literals, if the `-literals` flag is given
@@ -43,9 +44,6 @@ packages to garble, set `GOPRIVATE`, documented at `go help module-private`.
 
 Most of these can improve with time and effort. The purpose of this section is
 to document the current shortcomings of this tool.
-
-* Package import path names are never garbled, since we require the original
-  paths for the build system to work. See #13 to investigate alternatives.
 
 * The `-a` flag for `go build` is required, since `-toolexec` doesn't work well
   with the build cache; see [golang/go#27628](https://github.com/golang/go/issues/27628).
