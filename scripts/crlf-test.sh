@@ -1,4 +1,5 @@
 #!/bin/bash
+
 if \
 	grep \
 		--recursive \
