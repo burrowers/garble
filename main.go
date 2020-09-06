@@ -49,7 +49,7 @@ func init() {
 	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Obfuscate literals such as strings")
 	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing the ability to reverse the process")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a directory, e.g. -debugdir=out")
-	flagSet.StringVar(&flagSeed, "seed", "", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w=\nFor a random seed, provide -seed=random")
+	flagSet.StringVar(&flagSeed, "seed", "", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
 
 func usage() {
@@ -261,7 +261,20 @@ func mainErr(args []string) error {
 			}
 
 			flagSeed = "random;" + base64.StdEncoding.EncodeToString(seed)
+		} else {
+			flagSeed = strings.TrimRight(flagSeed, "=")
+			seed, err := base64.RawStdEncoding.DecodeString(flagSeed)
+			if err != nil {
+				return fmt.Errorf("error decoding seed: %v", err)
+			}
+
+			if len(seed) != 0 && len(seed) < 8 {
+				return fmt.Errorf("the seed needs to be at least 8 bytes, but is only %v bytes", len(seed))
+			}
+
+			flagSeed = base64.StdEncoding.EncodeToString(seed)
 		}
+
 		os.Setenv("GARBLE_SEED", flagSeed)
 
 		if flagDebugDir != "" {
