@@ -14,8 +14,9 @@ import (
 // pkgInfo stores a parsed go archive/object file,
 // and the original path to which it was read from.
 type pkgInfo struct {
-	pkg  *goobj2.Package
-	path string
+	pkg     *goobj2.Package
+	path    string
+	private bool
 }
 
 // dataType signifies whether the Data portion of a
@@ -49,24 +50,26 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) 
 	if err != nil {
 		return nil, fmt.Errorf("error parsing main objfile: %v", err)
 	}
-	privatePkgs := []pkgInfo{{mainPkg, objPath}}
+	pkgs := []pkgInfo{{mainPkg, objPath, true}}
 
 	// build list of imported packages that are private
 	for pkgPath, info := range importCfg {
-		if isPrivate(pkgPath) {
+		// if the '-tiny' flag is passed, we will strip filename
+		// and position info of every package, but not garble anything
+		if private := isPrivate(pkgPath); envGarbleTiny || private {
 			pkg, err := goobj2.Parse(info.Path, pkgPath, importCfg)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
 			}
 
-			privatePkgs = append(privatePkgs, pkgInfo{pkg, info.Path})
+			pkgs = append(pkgs, pkgInfo{pkg, info.Path, private})
 		}
 	}
 
 	var sb strings.Builder
 	var buf bytes.Buffer
 	garbledImports := make(map[string]string)
-	for _, p := range privatePkgs {
+	for _, p := range pkgs {
 		// log.Printf("++ Obfuscating object file for %s ++", p.pkg.ImportPath)
 		for _, am := range p.pkg.ArchiveMembers {
 			// log.Printf("\t## Obfuscating archive member %s ##", am.ArchiveHeader.Name)
@@ -74,6 +77,13 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) 
 			// skip objects that are not used by the linker, or that do not contain
 			// any Go symbol info
 			if am.IsCompilerObj() || am.IsDataObj() {
+				continue
+			}
+
+			// not part of a private package, so just strip filename
+			// and position info and move on
+			if !p.private {
+				stripPCLinesAndNames(&am)
 				continue
 			}
 
@@ -144,6 +154,34 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) 
 	}
 
 	return garbledImports, nil
+}
+
+// stripPCLinesAndNames removes all filename and position info
+// from an archive member.
+func stripPCLinesAndNames(am *goobj2.ArchiveMember) {
+	lists := [][]*goobj2.Sym{am.SymDefs, am.NonPkgSymDefs, am.NonPkgSymRefs}
+	for _, list := range lists {
+		for _, s := range list {
+			if s.Func != nil {
+				for _, inl := range s.Func.InlTree {
+					inl.Line = 1
+				}
+
+				s.Func.PCFile = nil
+				s.Func.PCLine = nil
+				s.Func.PCInline = nil
+
+				// remove unneeded debug aux symbols
+				s.Func.DwarfInfo = nil
+				s.Func.DwarfLoc = nil
+				s.Func.DwarfRanges = nil
+				s.Func.DwarfDebugLines = nil
+			}
+		}
+	}
+
+	// remove dwarf file list, it isn't needed as we pass "-w, -s" to the linker
+	am.DWARFFileList = nil
 }
 
 // explodeImportPath returns lists of import paths
@@ -243,6 +281,7 @@ func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, garbled
 		for _, s := range list {
 			// skip debug symbols, and remove the debug symbol's data to save space
 			if s.Kind >= goobj2.SDWARFINFO && s.Kind <= goobj2.SDWARFLINES {
+				s.Size = 0
 				s.Data = nil
 				continue
 			}
@@ -288,6 +327,15 @@ func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, garbled
 				}
 				for _, inl := range s.Func.InlTree {
 					inl.Func.Name = garbleSymbolName(inl.Func.Name, privImports, garbledImports, sb)
+					if envGarbleTiny {
+						inl.Line = 1
+					}
+				}
+
+				if envGarbleTiny {
+					s.Func.PCFile = nil
+					s.Func.PCLine = nil
+					s.Func.PCInline = nil
 				}
 
 				// remove unneeded debug aux symbols
