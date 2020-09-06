@@ -46,27 +46,30 @@ var (
 
 func init() {
 	flagSet.Usage = usage
-	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Encrypt all literals with AES, currently only literal strings are supported")
+	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Obfuscate literals such as strings")
 	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing the ability to reverse the process")
-	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a given directory: '-debugdir=./debug'")
-	flagSet.StringVar(&flagSeed, "seed", "", "Provide a custom base64-encoded seed: '-seed=o9WDTZ4CN4w=' \nFor a random seed provide: '-seed=random'")
+	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a directory, e.g. -debugdir=out")
+	flagSet.StringVar(&flagSeed, "seed", "", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w=\nFor a random seed, provide -seed=random")
 }
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `
-Usage of garble:
+Garble obfuscates Go code by wrapping the Go toolchain.
 
-garble [flags] build [build flags] [packages]
+Usage:
 
-The tool supports wrapping the following Go commands - run "garble cmd [args]"
-instead of "go cmd [args]" to add obfuscation:
+	garble [flags] build [build flags] [packages]
 
-	build
-	test
+Aside from "build", the "test" command mirroring "go test" is also supported.
 
 garble accepts the following flags:
+
 `[1:])
 	flagSet.PrintDefaults()
+	fmt.Fprintf(os.Stderr, `
+
+For more information, see https://github.com/mvdan/garble.
+`[1:])
 	os.Exit(2)
 }
 
