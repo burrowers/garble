@@ -1,5 +1,5 @@
-// Copyright (c) 2020, Daniel Martí <mvdan@mvdan.cc>
-// See LICENSE for licensing information
+// Copyright (c) 2020, The Garble Authors.
+// See LICENSE for licensing information.
 
 package main
 
