@@ -12,11 +12,7 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-var (
-	usesUnsafe     bool
-	universalTrue  = types.Universe.Lookup("true")
-	universalFalse = types.Universe.Lookup("false")
-)
+var usesUnsafe bool
 
 func randObfuscator() obfuscator {
 	randPos := mathrand.Intn(len(obfuscators))

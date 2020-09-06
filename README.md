@@ -2,8 +2,8 @@
 
 	GO111MODULE=on go get mvdan.cc/garble
 
-Obfuscate a Go build. Requires Go 1.15 or later, since Go 1.14 uses an entirely
-different object format.
+Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.15 or later, since
+Go 1.14 uses an entirely different object format.
 
 	garble build [build flags] [packages]
 
@@ -29,10 +29,10 @@ order to:
 * Replace package paths with short base64 hashes
 * Remove all [build](https://golang.org/pkg/runtime/#Version) and [module](https://golang.org/pkg/runtime/debug/#ReadBuildInfo) information
 * Strip filenames and shuffle position information
-* Obfuscate literals, if the `-literals` flag is given
 * Strip debugging information and symbol tables
-* Expose additional functions in the runtime that can optionally hide
-  information during execution
+* Obfuscate literals, if the `-literals` flag is given
+* Expose [additional functions](#runtime-api) in the runtime package that can
+  optionally hide information during execution
 
 ### Options
 
@@ -45,26 +45,16 @@ packages to garble, set `GOPRIVATE`, documented at `go help module-private`.
 Most of these can improve with time and effort. The purpose of this section is
 to document the current shortcomings of this tool.
 
-* The `-a` flag for `go build` is required, since `-toolexec` doesn't work well
-  with the build cache; see [golang/go#27628](https://github.com/golang/go/issues/27628).
+* Build caching is not supported, so large projects will likely be slow to
+  build. See [golang/go#41145](https://github.com/golang/go/issues/41145).
 
-* Since no caching at all can take place right now (see the link above), fast
-  incremental builds aren't possible. Large projects might be slow to build.
-
-* Deciding what method names to garble is always going to be difficult, due to
-  interfaces that could be implemented up or down the package import tree. At
-  the moment, exported methods are never garbled.
-
-* Similarly to methods, exported struct fields are difficult to garble, as the
-  names might be relevant for reflection work like `encoding/json`. At the
-  moment, exported methods are never garbled.
+* Exported methods and fields are never garbled at the moment, since they could
+  be required by interfaces and reflection. This area is a work in progress.
 
 * Functions implemented outside Go, such as assembly, aren't garbled since we
   currently only transform the input Go source.
 
-* ~~Since `garble` forces `-trimpath`, plugins built with `-garble` must be loaded
-  from Go programs built with `-trimpath` too.~~ Plugins currently do not always
-  work with well with `garble`; see [#87](https://github.com/mvdan/garble/issues/87).
+* Go plugins are not currently supported; see [#87](https://github.com/mvdan/garble/issues/87).
 
 ### Runtime API
 

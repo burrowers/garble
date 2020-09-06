@@ -538,7 +538,7 @@ func garbleSymData(data []byte, privImports privateImports, garbledImports map[s
 	return buf.Bytes()
 }
 
-//createImportPathData creates reflection data for an
+// createImportPathData creates reflection data for an
 // import path
 func createImportPathData(importPath string) []byte {
 	l := 3 + len(importPath)
