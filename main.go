@@ -423,11 +423,10 @@ func transformCompile(args []string) ([]string, error) {
 	flags = append(flags, "-dwarf=false")
 
 	pkgPath := flagValue(flags, "-p")
-	if pkgPath == "runtime" || pkgPath == "runtime/internal/sys" {
+	if (pkgPath == "runtime" && envGarbleTiny) || pkgPath == "runtime/internal/sys" {
 		// Even though these packages aren't private, we will still process
-		// them later to remove build information and add additional
-		// functions to the runtime. However, we only want flags to work on
-		// private packages.
+		// them later to remove build information and strip code from the
+		// runtime. However, we only want flags to work on private packages.
 		envGarbleLiterals = false
 		envGarbleDebugDir = ""
 	} else if !isPrivate(pkgPath) {
@@ -526,8 +525,8 @@ func transformCompile(args []string) ([]string, error) {
 		name := origName
 		switch {
 		case pkgPath == "runtime":
-			// Add additional runtime API
-			addRuntimeAPI(origName, file)
+			// strip unneeded runtime code
+			stripRuntime(origName, file)
 		case pkgPath == "runtime/internal/sys":
 			// The first declaration in zversion.go contains the Go
 			// version as follows. Replace it here, since the

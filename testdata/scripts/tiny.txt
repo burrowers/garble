@@ -2,12 +2,15 @@ env GOPRIVATE=test/main
 
 # Tiny mode
 garble -tiny build
-exec ./main$exe
+env GODEBUG='allocfreetrace=1,gcpacertrace=1,gctrace=1,scavenge=1,scavtrace=1,scheddetail=1,schedtrace=10'
+! exec ./main$exe
+cmp stdout main.stdout
 stderr '\? 0'
 
 [short] stop # no need to verify this with -short
 
 # Default mode
+env GODEBUG=
 garble -debugdir=.obf-src build
 
 # Check for file name leak protection
@@ -15,8 +18,8 @@ grep '^\/\/line :1$' .obf-src/main/main.go
 
 # Check for default line obfuscation
 grep '^\/\/line \w\.go:[1-9][0-9]*$' .obf-src/main/main.go
-exec ./main$exe
-
+! exec ./main$exe
+cmp stdout main.stdout
 stderr '\w\.go [1-9]'
 
 -- go.mod --
@@ -24,9 +27,24 @@ module test/main
 -- main.go --
 package main
 
-import "runtime"
+import (
+	"fmt"
+	"runtime"
+)
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println(r)
+			panic("oh noes")
+		}
+	}()
+
 	_, file, line, _ := runtime.Caller(0)
 	println(file, line)
+
+	panic("ya like jazz?")
 }
+
+-- main.stdout --
+ya like jazz?

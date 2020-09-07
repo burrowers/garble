@@ -31,8 +31,7 @@ order to:
 * Strip filenames and shuffle position information
 * Strip debugging information and symbol tables
 * Obfuscate literals, if the `-literals` flag is given
-* Expose [additional functions](#runtime-api) in the runtime package that can
-  optionally hide information during execution
+* Removes [extra information](#tiny-mode) if the `-tiny` flag is given
 
 ### Options
 
@@ -56,32 +55,13 @@ to document the current shortcomings of this tool.
 
 * Go plugins are not currently supported; see [#87](https://github.com/burrowers/garble/issues/87).
 
-### Runtime API
+### Tiny Mode
 
-The tool adds additional functions to the runtime that can optionally be used to
-hide information during execution. The functions added are:
+When the `-tiny` flag is passed, extra information is stripped from the resulting 
+Go binary. This includes line numbers, filenames, and code in the runtime the 
+prints panics, fatal errors, and trace/debug info. All in all this can make binaries 
+6-10% smaller in our testing.
 
-```go
-// hideFatalErrors suppresses printing fatal error messages and
-// fatal panics when hide is true. This behavior can be changed at 
-// any time by calling hideFatalErrors again. All other behaviors of 
-// panics remains the same.
-func hideFatalErrors(hide bool)
-```
-
-These functions must be used with the `linkname` compiler directive, like so:
-
-```go
-package main
-
-import _ "unsafe"
-
-//go:linkname hideFatalErrors runtime.hideFatalErrors
-func hideFatalErrors(hide bool)
-
-func init() { hideFatalErrors(true) }
-
-func main() {
-	panic("ya like jazz?")
-}
-```
+Note: if `-tiny` is passed, no panics, fatal errors will ever be printed, but they can
+still be handled internally with `recover` as normal. In addition, the `GODEBUG` 
+environmental variable will be ignored.
