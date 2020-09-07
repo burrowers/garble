@@ -1,7 +1,7 @@
 env GOPRIVATE=test/main
 
 # Tiny mode
-garble -tiny -debugdir=.obf-src build
+garble -tiny build
 exec ./main$exe
 stderr '\? 0'
 
