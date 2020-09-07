@@ -18,7 +18,7 @@ grep '^\/\/line :1$' .obf-src/main/main.go
 grep '^\/\/line \w\.go:[1-9][0-9]*$' .obf-src/main/main.go
 exec ./main$exe
 
-stderr '\w\.go 3'
+stderr '\w\.go [1-9]'
 
 -- go.mod --
 module test/main
