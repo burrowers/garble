@@ -99,11 +99,6 @@ func transformLineInfo(file *ast.File) ([]string, *ast.File) {
 			return true
 		}
 
-		if envGarbleTiny {
-			funcDecl.Doc = prependComment(funcDecl.Doc, &ast.Comment{Text: "//line :1"})
-			return true
-		}
-
 		comment := &ast.Comment{Text: fmt.Sprintf("//line %c.go:%d", nameCharset[mathrand.Intn(len(nameCharset))], 1+newLines[funcCounter])}
 		funcDecl.Doc = prependComment(funcDecl.Doc, comment)
 		funcCounter++
