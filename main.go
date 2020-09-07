@@ -68,7 +68,7 @@ garble accepts the following flags:
 	flagSet.PrintDefaults()
 	fmt.Fprintf(os.Stderr, `
 
-For more information, see https://github.com/mvdan/garble.
+For more information, see https://github.com/burrowers/garble.
 `[1:])
 	os.Exit(2)
 }

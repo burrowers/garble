@@ -54,7 +54,7 @@ to document the current shortcomings of this tool.
 * Functions implemented outside Go, such as assembly, aren't garbled since we
   currently only transform the input Go source.
 
-* Go plugins are not currently supported; see [#87](https://github.com/mvdan/garble/issues/87).
+* Go plugins are not currently supported; see [#87](https://github.com/burrowers/garble/issues/87).
 
 ### Runtime API
 
