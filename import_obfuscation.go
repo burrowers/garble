@@ -162,21 +162,24 @@ func stripPCLinesAndNames(am *goobj2.ArchiveMember) {
 	lists := [][]*goobj2.Sym{am.SymDefs, am.NonPkgSymDefs, am.NonPkgSymRefs}
 	for _, list := range lists {
 		for _, s := range list {
-			if s.Func != nil {
-				for _, inl := range s.Func.InlTree {
-					inl.Line = 1
-				}
-
-				s.Func.PCFile = nil
-				s.Func.PCLine = nil
-				s.Func.PCInline = nil
-
-				// remove unneeded debug aux symbols
-				s.Func.DwarfInfo = nil
-				s.Func.DwarfLoc = nil
-				s.Func.DwarfRanges = nil
-				s.Func.DwarfDebugLines = nil
+			if s.Func == nil {
+				continue
 			}
+
+			for _, inl := range s.Func.InlTree {
+				inl.Line = 1
+			}
+
+			s.Func.PCFile = nil
+			s.Func.PCLine = nil
+			s.Func.PCInline = nil
+
+			// remove unneeded debug aux symbols
+			s.Func.DwarfInfo = nil
+			s.Func.DwarfLoc = nil
+			s.Func.DwarfRanges = nil
+			s.Func.DwarfDebugLines = nil
+
 		}
 	}
 
