@@ -68,6 +68,17 @@ func stripRuntime(filename string, file *ast.File) {
 					// sense keeping this function
 					x.Body.List = nil
 				}
+			case "traceback.go":
+				switch x.Name.Name {
+				case "tracebackdefers", "goroutineheader", "tracebackHexdump":
+					x.Body.List = nil
+				case "printOneCgoTraceback":
+					x.Body = ah.BlockStmt(ah.ReturnStmt(ah.IntLit(0)))
+				default:
+					if strings.HasPrefix(x.Name.Name, "print") {
+						x.Body.List = nil
+					}
+				}
 			default:
 				break
 			}
