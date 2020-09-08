@@ -44,15 +44,33 @@ func stripRuntime(filename string, file *ast.File) {
 				case "printany", "printanycustomtype":
 					x.Body.List = nil
 				}
+			case "mgcscavenge.go":
+				// used in tracing the scavenger
+				if x.Name.Name == "printScavTrace" {
+					x.Body.List = nil
+					break
+				}
 			case "mprof.go":
 				// remove all functions that print debug/tracing info
 				// of the runtime
 				if strings.HasPrefix(x.Name.Name, "trace") {
 					x.Body.List = nil
 				}
+			case "panic.go":
+				// used for printing panics
+				switch x.Name.Name {
+				case "preprintpanics", "printpanics":
+					x.Body.List = nil
+				}
 			case "print.go":
 				// only used in tracebacks
 				if x.Name.Name == "hexdumpWords" {
+					x.Body.List = nil
+					break
+				}
+			case "proc.go":
+				// used in tracing the scheduler
+				if x.Name.Name == "schedtrace" {
 					x.Body.List = nil
 					break
 				}
@@ -69,8 +87,10 @@ func stripRuntime(filename string, file *ast.File) {
 					x.Body.List = nil
 				}
 			case "traceback.go":
+				// only used for printing tracebacks
 				switch x.Name.Name {
-				case "tracebackdefers", "goroutineheader", "tracebackHexdump":
+				case "tracebackdefers", "traceback", "tracebacktrap", "traceback1",
+					"goroutineheader", "tracebackothers", "tracebackHexdump":
 					x.Body.List = nil
 				case "printOneCgoTraceback":
 					x.Body = ah.BlockStmt(ah.ReturnStmt(ah.IntLit(0)))
@@ -83,19 +103,19 @@ func stripRuntime(filename string, file *ast.File) {
 				break
 			}
 		case *ast.GenDecl:
-			if filename != "print.go" || x.Tok != token.IMPORT {
+			if x.Tok != token.IMPORT {
 				continue
 			}
 
-			for i, spec := range x.Specs {
-				imp := spec.(*ast.ImportSpec)
-				if imp.Path.Value == `"runtime/internal/sys"` {
-					// remove 'runtime/internal/sys' import, as it was used
-					// in hexdumpWords
-					x.Specs = append(x.Specs[:i], x.Specs[i+1:]...)
-					break
-				}
+			switch filename {
+			case "print.go":
+				// was used in hexdumpWords
+				x.Specs = removeImport(`"runtime/internal/sys"`, x.Specs)
+			case "traceback.go":
+				// was used in traceback1
+				x.Specs = removeImport(`"runtime/internal/atomic"`, x.Specs)
 			}
+
 		}
 	}
 
@@ -107,6 +127,18 @@ func stripRuntime(filename string, file *ast.File) {
 	// the runtime with an empty func, which will be
 	// optimized out by the compiler
 	ast.Inspect(file, stripPrints)
+}
+
+func removeImport(importPath string, specs []ast.Spec) []ast.Spec {
+	for i, spec := range specs {
+		imp := spec.(*ast.ImportSpec)
+		if imp.Path.Value == importPath {
+			specs = append(specs[:i], specs[i+1:]...)
+			break
+		}
+	}
+
+	return specs
 }
 
 var hidePrintDecl = &ast.FuncDecl{
