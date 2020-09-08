@@ -34,89 +34,68 @@ func stripRuntime(filename string, file *ast.File) {
 		}
 	}
 
-	switch filename {
-	case "error.go":
-		for _, decl := range file.Decls {
-			fun, ok := decl.(*ast.FuncDecl)
-			if !ok {
-				continue
-			}
-
-			// only used in panics
-			switch fun.Name.Name {
-			case "printany", "printanycustomtype":
-				fun.Body.List = nil
-			}
-		}
-	case "mprof.go":
-		for _, decl := range file.Decls {
-			fun, ok := decl.(*ast.FuncDecl)
-			if !ok {
-				continue
-			}
-
-			// remove all functions that print debug/tracing info
-			// of the runtime
-			switch {
-			case strings.HasPrefix(fun.Name.Name, "trace"):
-				fun.Body.List = nil
-			}
-		}
-	case "print.go":
-		for _, decl := range file.Decls {
-			fun, ok := decl.(*ast.FuncDecl)
-			if !ok {
-				gen, ok := decl.(*ast.GenDecl)
-				if !ok || gen.Tok != token.IMPORT {
-					continue
+	for _, decl := range file.Decls {
+		switch x := decl.(type) {
+		case *ast.FuncDecl:
+			switch filename {
+			case "error.go":
+				// only used in panics
+				switch x.Name.Name {
+				case "printany", "printanycustomtype":
+					x.Body.List = nil
 				}
-
-				for i, spec := range gen.Specs {
-					imp := spec.(*ast.ImportSpec)
-					if imp.Path.Value == `"runtime/internal/sys"` {
-						// remove 'runtime/internal/sys' import, as it was used
-						// in hexdumpWords
-						gen.Specs = append(gen.Specs[:i], gen.Specs[i+1:]...)
-						break
-					}
+			case "mprof.go":
+				// remove all functions that print debug/tracing info
+				// of the runtime
+				if strings.HasPrefix(x.Name.Name, "trace") {
+					x.Body.List = nil
 				}
-				continue
-			}
-
-			// only used in tracebacks
-			if fun.Name.Name == "hexdumpWords" {
-				fun.Body.List = nil
+			case "print.go":
+				// only used in tracebacks
+				if x.Name.Name == "hexdumpWords" {
+					x.Body.List = nil
+					break
+				}
+			case "runtime1.go":
+				switch x.Name.Name {
+				case "parsedebugvars":
+					// set defaults for GODEBUG cgocheck and
+					// invalidptr, remove code that reads in
+					// GODEBUG
+					x.Body = parsedebugvarsStmts
+				case "setTraceback":
+					// tracebacks are completely hidden, no
+					// sense keeping this function
+					x.Body.List = nil
+				}
+			default:
 				break
 			}
-		}
-
-		// add hidePrint declaration
-		file.Decls = append(file.Decls, hidePrintDecl)
-	case "runtime1.go":
-		for _, decl := range file.Decls {
-			fun, ok := decl.(*ast.FuncDecl)
-			if !ok {
+		case *ast.GenDecl:
+			if filename != "print.go" || x.Tok != token.IMPORT {
 				continue
 			}
 
-			switch fun.Name.Name {
-			case "parsedebugvars":
-				// set defaults for GODEBUG cgocheck and
-				// invalidptr, remove code that reads in
-				// GODEBUG
-				fun.Body = parsedebugvarsStmts
-			case "setTraceback":
-				// tracebacks are completely hidden, no
-				// sense keeping this function
-				fun.Body.List = nil
+			for i, spec := range x.Specs {
+				imp := spec.(*ast.ImportSpec)
+				if imp.Path.Value == `"runtime/internal/sys"` {
+					// remove 'runtime/internal/sys' import, as it was used
+					// in hexdumpWords
+					x.Specs = append(x.Specs[:i], x.Specs[i+1:]...)
+					break
+				}
 			}
 		}
-	default:
-		// replace all 'print' and 'println' statements in
-		// the runtime with an empty func, which will be
-		// optimized out by the compiler
-		ast.Inspect(file, stripPrints)
 	}
+
+	if filename == "print.go" {
+		file.Decls = append(file.Decls, hidePrintDecl)
+	}
+
+	// replace all 'print' and 'println' statements in
+	// the runtime with an empty func, which will be
+	// optimized out by the compiler
+	ast.Inspect(file, stripPrints)
 }
 
 var hidePrintDecl = &ast.FuncDecl{

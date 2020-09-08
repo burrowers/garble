@@ -31,7 +31,7 @@ order to:
 * Strip filenames and shuffle position information
 * Strip debugging information and symbol tables
 * Obfuscate literals, if the `-literals` flag is given
-* Removes unnecessary data if the `-tiny` flag is given
+* Removes [extra information](#tiny-mode) if the `-tiny` flag is given
 
 ### Options
 
@@ -57,9 +57,9 @@ to document the current shortcomings of this tool.
 
 ### Tiny Mode
 
-When the `-tiny` flag is passed, unneeded information from is stripped from the 
-resulting Go binary. This includes line numbers, filenames, and code in the runtime
-the prints panics, fatal errors, and trace/debug info. All in all this can make binaries 
+When the `-tiny` flag is passed, extra information is stripped from the resulting 
+Go binary. This includes line numbers, filenames, and code in the runtime the 
+prints panics, fatal errors, and trace/debug info. All in all this can make binaries 
 6-10% smaller in our testing.
 
 Note: if `-tiny` is passed, no panics, fatal errors will ever be printed, but they can
