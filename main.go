@@ -554,7 +554,7 @@ func transformCompile(args []string) ([]string, error) {
 			if !envGarbleTiny {
 				extraComments, file = transformLineInfo(file)
 			}
-			file = transformGo(file, info, blacklist, privateNameMap)
+			file = transformGo(file, info, blacklist, privateNameMap, pkgPath)
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
@@ -600,9 +600,12 @@ func transformCompile(args []string) ([]string, error) {
 
 	if len(privateNameMap) > 0 {
 		outputDirectory := filepath.Dir(flagValue(flags, "-o"))
-		data, _ := json.Marshal(privateNameMap)
-		err := ioutil.WriteFile(filepath.Join(outputDirectory, garbleMapFile), data, 0644)
+		data, err := json.Marshal(privateNameMap)
 		if err != nil {
+			return nil, err
+		}
+
+		if err := ioutil.WriteFile(filepath.Join(outputDirectory, garbleMapFile), data, 0644); err != nil {
 			return nil, err
 		}
 	}
@@ -726,13 +729,14 @@ func hashWith(salt, value string) string {
 
 func encodeIntToName(i int) string {
 	const privateNameCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
-	name := "z"
+	builder := strings.Builder{}
+	builder.WriteByte('_')
 	for i > 0 {
 		charIdx := i % len(privateNameCharset)
 		i -= charIdx + 1
-		name += string(privateNameCharset[charIdx])
+		builder.WriteByte(privateNameCharset[charIdx])
 	}
-	return name
+	return builder.String()
 }
 
 // buildBlacklist collects all the objects in a package which are known to be
@@ -800,7 +804,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, nameMap map[string]string) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, nameMap map[string]string, pkgPath string) *ast.File {
 	// Shuffle top level declarations
 	mathrand.Shuffle(len(file.Decls), func(i, j int) {
 		decl1 := file.Decls[i]
@@ -911,12 +915,14 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			buildID = id
 		}
 
-		if token.IsExported(node.Name) || !envGarbleTiny {
+		// Exported names cannot be shortened because it is impossible to synchronize the counter between packages
+		if token.IsExported(node.Name) {
 			node.Name = hashWith(buildID, node.Name)
 			return true
 		}
 
-		if name, ok := nameMap[node.Name]; ok {
+		fullName := pkgPath + "." + node.Name
+		if name, ok := nameMap[fullName]; ok {
 			node.Name = name
 			return true
 		}
@@ -924,7 +930,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		name := encodeIntToName(len(nameMap) + 1)
 
 		// orig := node.Name
-		nameMap[node.Name] = name
+		nameMap[fullName] = name
 		node.Name = name
 		// log.Printf("%q hashed with %q to %q", orig, buildID, node.Name)
 		return true
@@ -1014,7 +1020,7 @@ func transformLink(args []string) ([]string, error) {
 			pkgPath = buildInfo.firstImport
 		}
 		if id := buildInfo.imports[pkgPath].buildID; id != "" {
-			newName, ok := nameMap[pkgPath+"."+name]
+			newName, ok := nameMap[pkg+"."+name]
 			if !ok {
 				newName = hashWith(id, name)
 			}

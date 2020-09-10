@@ -48,31 +48,29 @@ type privateImports struct {
 	privateNames []string
 }
 
-func appendPrivateNameMap(nameMap map[string]string, pkg string, packageDirectory string) error {
+func appendPrivateNameMap(nameMap map[string]string, packageDirectory string) error {
 	mapFile := filepath.Join(packageDirectory, garbleMapFile)
 	data, err := ioutil.ReadFile(mapFile)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-
 	if err != nil {
 		return err
 	}
 
 	var localMap map[string]string
-	err = json.Unmarshal(data, &localMap)
-	if err != nil {
+	if err = json.Unmarshal(data, &localMap); err != nil {
 		return err
 	}
 
 	for oldName, newName := range localMap {
-		nameMap[pkg+"."+oldName] = newName
+		nameMap[oldName] = newName
 	}
 
 	return nil
 }
 
-func obfuscateImports(objPath, importCfgPath string) (map[string]string, map[string]string, error) {
+func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNameMap map[string]string, err error) {
 	importCfg, err := goobj2.ParseImportCfg(importCfgPath)
 	if err != nil {
 		return nil, nil, err
@@ -97,8 +95,7 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, map[str
 			pkgs = append(pkgs, pkgInfo{pkg, info.Path, private})
 
 			packageDir := filepath.Dir(info.Path)
-			err = appendPrivateNameMap(nameMap, pkgPath, packageDir)
-			if err != nil {
+			if err = appendPrivateNameMap(nameMap, packageDir); err != nil {
 				return nil, nil, fmt.Errorf("error parsing name map %s at %s: %v", pkgPath, info.Path, err)
 			}
 		}
@@ -106,7 +103,8 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, map[str
 
 	var sb strings.Builder
 	var buf bytes.Buffer
-	garbledImports := make(map[string]string)
+
+	garbledImports = make(map[string]string)
 	for _, p := range pkgs {
 		// log.Printf("++ Obfuscating object file for %s ++", p.pkg.ImportPath)
 		for _, am := range p.pkg.ArchiveMembers {
