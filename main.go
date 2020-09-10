@@ -600,12 +600,14 @@ func transformCompile(args []string) ([]string, error) {
 
 	if len(privateNameMap) > 0 {
 		outputDirectory := filepath.Dir(flagValue(flags, "-o"))
-		data, err := json.Marshal(privateNameMap)
+
+		file, err := os.Create(filepath.Join(outputDirectory, garbleMapFile))
 		if err != nil {
 			return nil, err
 		}
+		defer file.Close()
 
-		if err := ioutil.WriteFile(filepath.Join(outputDirectory, garbleMapFile), data, 0644); err != nil {
+		if err := gob.NewEncoder(file).Encode(privateNameMap); err != nil {
 			return nil, err
 		}
 	}

@@ -6,10 +6,9 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"encoding/gob"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -49,8 +48,7 @@ type privateImports struct {
 }
 
 func appendPrivateNameMap(nameMap map[string]string, packageDirectory string) error {
-	mapFile := filepath.Join(packageDirectory, garbleMapFile)
-	data, err := ioutil.ReadFile(mapFile)
+	file, err := os.Open(filepath.Join(packageDirectory, garbleMapFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -59,7 +57,7 @@ func appendPrivateNameMap(nameMap map[string]string, packageDirectory string) er
 	}
 
 	var localMap map[string]string
-	if err = json.Unmarshal(data, &localMap); err != nil {
+	if err = gob.NewDecoder(file).Decode(&localMap); err != nil {
 		return err
 	}
 
