@@ -607,7 +607,7 @@ func transformCompile(args []string) ([]string, error) {
 		}
 		defer file.Close()
 
-		if err := gob.NewEncoder(file).Encode(privateNameMap); err != nil {
+		if err := json.NewEncoder(file).Encode(privateNameMap); err != nil {
 			return nil, err
 		}
 	}

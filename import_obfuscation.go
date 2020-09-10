@@ -6,7 +6,7 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -55,16 +55,9 @@ func appendPrivateNameMap(nameMap map[string]string, packageDirectory string) er
 	if err != nil {
 		return err
 	}
-
-	var localMap map[string]string
-	if err = gob.NewDecoder(file).Decode(&localMap); err != nil {
+	if err := json.NewDecoder(file).Decode(&nameMap); err != nil {
 		return err
 	}
-
-	for oldName, newName := range localMap {
-		nameMap[oldName] = newName
-	}
-
 	return nil
 }
 
@@ -93,7 +86,7 @@ func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNam
 			pkgs = append(pkgs, pkgInfo{pkg, info.Path, private})
 
 			packageDir := filepath.Dir(info.Path)
-			if err = appendPrivateNameMap(nameMap, packageDir); err != nil {
+			if err := appendPrivateNameMap(nameMap, packageDir); err != nil {
 				return nil, nil, fmt.Errorf("error parsing name map %s at %s: %v", pkgPath, info.Path, err)
 			}
 		}
