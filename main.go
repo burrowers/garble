@@ -19,6 +19,8 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"golang.org/x/mod/module"
+	"golang.org/x/tools/go/ast/astutil"
 	"io"
 	"io/ioutil"
 	"log"
@@ -28,9 +30,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"golang.org/x/mod/module"
-	"golang.org/x/tools/go/ast/astutil"
+	"unicode"
 
 	"mvdan.cc/garble/internal/literals"
 )
@@ -110,9 +110,9 @@ var (
 	envGarbleListPkgs = os.Getenv("GARBLE_LISTPKGS")
 
 	seed []byte
-
-	garbleMapFile = "garble.map"
 )
+
+const garbleMapFile = "garble.map"
 
 func saveListedPackages(w io.Writer, flags, patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export"}
@@ -729,14 +729,33 @@ func hashWith(salt, value string) string {
 	return "z" + sum[:length]
 }
 
+func buildNameCharset() []rune {
+	var charset []rune
+
+	for _, r := range unicode.Letter.R16 {
+		for c := r.Lo; c <= r.Hi; c += r.Stride {
+			charset = append(charset, rune(c))
+		}
+	}
+
+	for _, r := range unicode.Digit.R16 {
+		for c := r.Lo; c <= r.Hi; c += r.Stride {
+			charset = append(charset, rune(c))
+		}
+	}
+
+	return charset
+}
+
+var privateNameCharset = buildNameCharset()
+
 func encodeIntToName(i int) string {
-	const privateNameCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 	builder := strings.Builder{}
 	builder.WriteByte('_')
 	for i > 0 {
 		charIdx := i % len(privateNameCharset)
 		i -= charIdx + 1
-		builder.WriteByte(privateNameCharset[charIdx])
+		builder.WriteRune(privateNameCharset[charIdx])
 	}
 	return builder.String()
 }
@@ -806,7 +825,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, nameMap map[string]string, pkgPath string) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, pkgPath string) *ast.File {
 	// Shuffle top level declarations
 	mathrand.Shuffle(len(file.Decls), func(i, j int) {
 		decl1 := file.Decls[i]
@@ -917,22 +936,22 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			buildID = id
 		}
 
-		// Exported names cannot be shortened because it is impossible to synchronize the counter between packages
+		// The exported names cannot be shortened as counter synchronization between packages is not currently implemented
 		if token.IsExported(node.Name) {
 			node.Name = hashWith(buildID, node.Name)
 			return true
 		}
 
 		fullName := pkgPath + "." + node.Name
-		if name, ok := nameMap[fullName]; ok {
+		if name, ok := privateNameMap[fullName]; ok {
 			node.Name = name
 			return true
 		}
 
-		name := encodeIntToName(len(nameMap) + 1)
+		name := encodeIntToName(len(privateNameMap) + 1)
 
 		// orig := node.Name
-		nameMap[fullName] = name
+		privateNameMap[fullName] = name
 		node.Name = name
 		// log.Printf("%q hashed with %q to %q", orig, buildID, node.Name)
 		return true
@@ -993,7 +1012,7 @@ func transformLink(args []string) ([]string, error) {
 	importCfgPath := flagValue(flags, "-importcfg")
 	// there should only ever be one archive/object file passed to the linker,
 	// the file for the main package or entrypoint
-	garbledImports, nameMap, err := obfuscateImports(paths[0], importCfgPath)
+	garbledImports, privateNameMap, err := obfuscateImports(paths[0], importCfgPath)
 	if err != nil {
 		return nil, err
 	}
@@ -1022,7 +1041,8 @@ func transformLink(args []string) ([]string, error) {
 			pkgPath = buildInfo.firstImport
 		}
 		if id := buildInfo.imports[pkgPath].buildID; id != "" {
-			newName, ok := nameMap[pkg+"."+name]
+			// If the name is not in the map file, it means that the name was not obfuscated or is public
+			newName, ok := privateNameMap[pkg+"."+name]
 			if !ok {
 				newName = hashWith(id, name)
 			}

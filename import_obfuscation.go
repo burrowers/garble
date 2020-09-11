@@ -55,6 +55,8 @@ func appendPrivateNameMap(nameMap map[string]string, packageDirectory string) er
 	if err != nil {
 		return err
 	}
+	defer file.Close()
+
 	if err := json.NewDecoder(file).Decode(&nameMap); err != nil {
 		return err
 	}
