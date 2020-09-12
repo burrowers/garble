@@ -74,7 +74,7 @@ func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNam
 	}
 	pkgs := []pkgInfo{{mainPkg, objPath, true}}
 
-	nameMap := make(map[string]string)
+	privateNameMap = make(map[string]string)
 	// build list of imported packages that are private
 	for pkgPath, info := range importCfg {
 		// if the '-tiny' flag is passed, we will strip filename
@@ -88,7 +88,7 @@ func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNam
 			pkgs = append(pkgs, pkgInfo{pkg, info.Path, private})
 
 			packageDir := filepath.Dir(info.Path)
-			if err := appendPrivateNameMap(nameMap, packageDir); err != nil {
+			if err := appendPrivateNameMap(privateNameMap, packageDir); err != nil {
 				return nil, nil, fmt.Errorf("error parsing name map %s at %s: %v", pkgPath, info.Path, err)
 			}
 		}
@@ -182,7 +182,7 @@ func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNam
 		return nil, nil, err
 	}
 
-	return garbledImports, nameMap, nil
+	return garbledImports, privateNameMap, nil
 }
 
 // stripPCLinesAndNames removes all filename and position info
