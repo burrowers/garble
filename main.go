@@ -20,6 +20,7 @@ import (
 	"go/token"
 	"go/types"
 	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 	"io"
 	"io/ioutil"
@@ -28,10 +29,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"mvdan.cc/garble/internal/literals"
@@ -115,11 +115,14 @@ var (
 )
 
 const (
-	garbleMapFile      = "garble.map"
-	minGoVersion       = 1.15
-	maxGoVersion       = 1.16
-	supportedGoVersion = "1.15.x"
+	garbleMapFile       = "garble.map"
+	minGoVersion        = "v1.15.0"
+	supportedGoVersions = "1.15.x"
+
+	gitDateLayout = "Mon Jan 2 15:04:05 2006 -0700"
 )
+
+var minGoVersionDate = time.Date(2020, 8, 11, 0, 0, 0, 0, time.UTC)
 
 func saveListedPackages(w io.Writer, flags, patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export"}
@@ -244,40 +247,38 @@ func checkGoVersion() bool {
 	if err != nil {
 		fmt.Printf(`Can't get go version: %v
 
-Possible reasons:
-1. Golang not installed
-2. Environment variables $PATH or $GOROOT set incorrectly
-3. Unsupported golang version installed (supported %s)
-`, err, supportedGoVersion)
+This is likely due to go not being installed/setup correctly.
+How to install go: https://golang.org/doc/install
+`, err)
 		return false
 	}
 
 	rawVersion := string(bytes.TrimPrefix(bytes.TrimSpace(out), []byte("go version ")))
-	if strings.Contains(rawVersion, "weekly") || strings.Contains(rawVersion, "devel") {
-		fmt.Printf(`You use the unstable "%s" golang version.
-Garble has not been tested on this version, recommend using supported golang version %s`, rawVersion, supportedGoVersion)
-		return true
-	}
 
-	versionStr := regexp.MustCompile(`go([1-9][0-9]*)(\.(0|[1-9][0-9]*))?`).FindString(rawVersion)
-	if versionStr == "" {
-		fmt.Printf(`Can't recognize golang version: %s
+	tagIdx := strings.IndexByte(rawVersion, ' ')
+	tag := rawVersion[:tagIdx]
+	if tag == "devel" {
+		commitAndDate := rawVersion[tagIdx+1:]
+		// Remove commit hash and architecture from version
+		date := commitAndDate[strings.IndexByte(commitAndDate, ' ')+1 : strings.LastIndexByte(commitAndDate, ' ')]
 
-Possible reasons:
-1. Incorrectly installed golang
-2. Unsupported golang version installed (supported %s)
-`, versionStr, supportedGoVersion)
+		versionDate, err := time.Parse(gitDateLayout, date)
+		if err != nil {
+			fmt.Printf(`Can't recognize devel build timestamp: %v`, err)
+			return true
+		}
+
+		if versionDate.After(minGoVersionDate) {
+			return true
+		}
+
+		fmt.Printf("You use the old unstable \"%s\" golang version, please upgrade golang to %s", rawVersion, supportedGoVersions)
 		return false
 	}
 
-	// Error while parsing version is impossible because earlier the string was checked through regexp
-	version, _ := strconv.ParseFloat(strings.TrimPrefix(versionStr, "go"), 64)
-	if version < minGoVersion {
-		fmt.Printf("Outdated golang version %.2f is used, please upgrade golang to %s", version, supportedGoVersion)
-		return false
-	}
-	if version >= maxGoVersion {
-		fmt.Printf("Too new golang version %.2f is used, please downgrade golang to %s or try upgrade garble", version, supportedGoVersion)
+	version := "v" + strings.TrimPrefix(tag, "go")
+	if semver.Compare(version, minGoVersion) < 0 {
+		fmt.Printf("Outdated golang version %s is used, please upgrade golang to %s", version, supportedGoVersions)
 		return false
 	}
 
