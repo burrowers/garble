@@ -30,6 +30,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -115,7 +116,9 @@ var (
 
 const (
 	garbleMapFile      = "garble.map"
-	supportedGoVersion = "go1.15"
+	minGoVersion       = 1.15
+	maxGoVersion       = 1.16
+	supportedGoVersion = "1.15.x"
 )
 
 func saveListedPackages(w io.Writer, flags, patterns []string) error {
@@ -236,27 +239,49 @@ func main1() int {
 	return 0
 }
 
-func checkGoVersion() error {
+func checkGoVersion() bool {
 	out, err := exec.Command("go", "version").CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%v: %s", err, out)
+		fmt.Printf(`Can't get go version: %v
+
+Possible reasons:
+1. Golang not installed
+2. Environment variables $PATH or $GOROOT set incorrectly
+3. Unsupported golang version installed (supported %s)
+`, err, supportedGoVersion)
+		return false
 	}
-	rawVersion := string(bytes.TrimSpace(out))
+
+	rawVersion := string(bytes.TrimPrefix(bytes.TrimSpace(out), []byte("go version ")))
 	if strings.Contains(rawVersion, "weekly") || strings.Contains(rawVersion, "devel") {
-		fmt.Printf("Warning! Unstable \"%s\" version is used", rawVersion)
-		return nil
+		fmt.Printf(`You use the unstable "%s" golang version.
+Garble has not been tested on this version, recommend using supported golang version %s`, rawVersion, supportedGoVersion)
+		return true
 	}
 
-	version := regexp.MustCompile(`go([1-9][0-9]*)(\.(0|[1-9][0-9]*))?`).FindString(rawVersion)
-	if version == "" {
-		return fmt.Errorf("unsupported \"%s\" version", rawVersion)
+	versionStr := regexp.MustCompile(`go([1-9][0-9]*)(\.(0|[1-9][0-9]*))?`).FindString(rawVersion)
+	if versionStr == "" {
+		fmt.Printf(`Can't recognize golang version: %s
+
+Possible reasons:
+1. Incorrectly installed golang
+2. Unsupported golang version installed (supported %s)
+`, versionStr, supportedGoVersion)
+		return false
 	}
 
-	if version != supportedGoVersion {
-		return fmt.Errorf("unsupported %s version", version)
+	// Error while parsing version is impossible because earlier the string was checked through regexp
+	version, _ := strconv.ParseFloat(strings.TrimPrefix(versionStr, "go"), 64)
+	if version < minGoVersion {
+		fmt.Printf("Outdated golang version %.2f is used, please upgrade golang to %s", version, supportedGoVersion)
+		return false
+	}
+	if version >= maxGoVersion {
+		fmt.Printf("Too new golang version %.2f is used, please downgrade golang to %s or try upgrade garble", version, supportedGoVersion)
+		return false
 	}
 
-	return nil
+	return true
 }
 
 func mainErr(args []string) error {
@@ -265,8 +290,8 @@ func mainErr(args []string) error {
 	case "help":
 		flagSet.Usage()
 	case "build", "test":
-		if err := checkGoVersion(); err != nil {
-			return err
+		if !checkGoVersion() {
+			return nil
 		}
 		// Split the flags from the package arguments, since we'll need
 		// to run 'go list' on the same set of packages.
