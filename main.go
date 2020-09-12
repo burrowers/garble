@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"unicode"
@@ -112,7 +113,10 @@ var (
 	seed []byte
 )
 
-const garbleMapFile = "garble.map"
+const (
+	garbleMapFile      = "garble.map"
+	supportedGoVersion = "go1.15"
+)
 
 func saveListedPackages(w io.Writer, flags, patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export"}
@@ -232,12 +236,38 @@ func main1() int {
 	return 0
 }
 
+func checkGoVersion() error {
+	out, err := exec.Command("go", "version").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, out)
+	}
+	rawVersion := string(bytes.TrimSpace(out))
+	if strings.Contains(rawVersion, "weekly") || strings.Contains(rawVersion, "devel") {
+		fmt.Printf("Warning! Unstable \"%s\" version is used", rawVersion)
+		return nil
+	}
+
+	version := regexp.MustCompile(`go([1-9][0-9]*)(\.(0|[1-9][0-9]*))?`).FindString(rawVersion)
+	if version == "" {
+		return fmt.Errorf("unsupported \"%s\" version", rawVersion)
+	}
+
+	if version != supportedGoVersion {
+		return fmt.Errorf("unsupported %s version", version)
+	}
+
+	return nil
+}
+
 func mainErr(args []string) error {
 	// If we recognise an argument, we're not running within -toolexec.
 	switch cmd := args[0]; cmd {
 	case "help":
 		flagSet.Usage()
 	case "build", "test":
+		if err := checkGoVersion(); err != nil {
+			return err
+		}
 		// Split the flags from the package arguments, since we'll need
 		// to run 'go list' on the same set of packages.
 		flags, args := splitFlagsFromArgs(args[1:])
