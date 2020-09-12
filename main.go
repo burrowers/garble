@@ -19,6 +19,8 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"golang.org/x/mod/module"
+	"golang.org/x/tools/go/ast/astutil"
 	"io"
 	"io/ioutil"
 	"log"
@@ -28,9 +30,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"golang.org/x/mod/module"
-	"golang.org/x/tools/go/ast/astutil"
+	"unicode"
 
 	"mvdan.cc/garble/internal/literals"
 )
@@ -111,6 +111,8 @@ var (
 
 	seed []byte
 )
+
+const garbleMapFile = "garble.map"
 
 func saveListedPackages(w io.Writer, flags, patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export"}
@@ -517,6 +519,8 @@ func transformCompile(args []string) ([]string, error) {
 		}
 	}
 
+	privateNameMap := make(map[string]string)
+
 	// TODO: randomize the order and names of the files
 	newPaths := make([]string, 0, len(files))
 	for i, file := range files {
@@ -550,7 +554,7 @@ func transformCompile(args []string) ([]string, error) {
 			if !envGarbleTiny {
 				extraComments, file = transformLineInfo(file)
 			}
-			file = transformGo(file, info, blacklist)
+			file = transformGo(file, info, blacklist, privateNameMap, pkgPath)
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
@@ -592,6 +596,20 @@ func transformCompile(args []string) ([]string, error) {
 		debugFile.Close() // this is ok to error if no file is supplied
 
 		newPaths = append(newPaths, tempFile.Name())
+	}
+
+	if len(privateNameMap) > 0 {
+		outputDirectory := filepath.Dir(flagValue(flags, "-o"))
+
+		file, err := os.Create(filepath.Join(outputDirectory, garbleMapFile))
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if err := json.NewEncoder(file).Encode(privateNameMap); err != nil {
+			return nil, err
+		}
 	}
 
 	return append(flags, newPaths...), nil
@@ -697,7 +715,7 @@ func buildidOf(path string) (string, error) {
 }
 
 func hashWith(salt, value string) string {
-	const length = 8
+	const length = 4
 
 	d := sha256.New()
 	io.WriteString(d, salt)
@@ -709,6 +727,37 @@ func hashWith(salt, value string) string {
 		return "Z" + sum[:length]
 	}
 	return "z" + sum[:length]
+}
+
+func buildNameCharset() []rune {
+	var charset []rune
+
+	for _, r := range unicode.Letter.R16 {
+		for c := r.Lo; c <= r.Hi; c += r.Stride {
+			charset = append(charset, rune(c))
+		}
+	}
+
+	for _, r := range unicode.Digit.R16 {
+		for c := r.Lo; c <= r.Hi; c += r.Stride {
+			charset = append(charset, rune(c))
+		}
+	}
+
+	return charset
+}
+
+var privateNameCharset = buildNameCharset()
+
+func encodeIntToName(i int) string {
+	builder := strings.Builder{}
+	builder.WriteByte('_')
+	for i > 0 {
+		charIdx := i % len(privateNameCharset)
+		i -= charIdx + 1
+		builder.WriteRune(privateNameCharset[charIdx])
+	}
+	return builder.String()
 }
 
 // buildBlacklist collects all the objects in a package which are known to be
@@ -776,7 +825,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, pkgPath string) *ast.File {
 	// Shuffle top level declarations
 	mathrand.Shuffle(len(file.Decls), func(i, j int) {
 		decl1 := file.Decls[i]
@@ -886,8 +935,24 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			}
 			buildID = id
 		}
+
+		// The exported names cannot be shortened as counter synchronization between packages is not currently implemented
+		if token.IsExported(node.Name) {
+			node.Name = hashWith(buildID, node.Name)
+			return true
+		}
+
+		fullName := pkgPath + "." + node.Name
+		if name, ok := privateNameMap[fullName]; ok {
+			node.Name = name
+			return true
+		}
+
+		name := encodeIntToName(len(privateNameMap) + 1)
+
 		// orig := node.Name
-		node.Name = hashWith(buildID, node.Name)
+		privateNameMap[fullName] = name
+		node.Name = name
 		// log.Printf("%q hashed with %q to %q", orig, buildID, node.Name)
 		return true
 	}
@@ -947,7 +1012,7 @@ func transformLink(args []string) ([]string, error) {
 	importCfgPath := flagValue(flags, "-importcfg")
 	// there should only ever be one archive/object file passed to the linker,
 	// the file for the main package or entrypoint
-	garbledImports, err := obfuscateImports(paths[0], importCfgPath)
+	garbledImports, privateNameMap, err := obfuscateImports(paths[0], importCfgPath)
 	if err != nil {
 		return nil, err
 	}
@@ -976,9 +1041,13 @@ func transformLink(args []string) ([]string, error) {
 			pkgPath = buildInfo.firstImport
 		}
 		if id := buildInfo.imports[pkgPath].buildID; id != "" {
+			// If the name is not in the map file, it means that the name was not obfuscated or is public
+			newName, ok := privateNameMap[pkg+"."+name]
+			if !ok {
+				newName = hashWith(id, name)
+			}
 			garbledPkg := garbledImports[pkg]
-			name = hashWith(id, name)
-			flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", garbledPkg, name, str))
+			flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", garbledPkg, newName, str))
 		}
 	})
 

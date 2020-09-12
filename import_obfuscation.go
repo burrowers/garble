@@ -6,8 +6,11 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -44,17 +47,34 @@ type privateImports struct {
 	privateNames []string
 }
 
-func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) {
+func appendPrivateNameMap(nameMap map[string]string, packageDirectory string) error {
+	file, err := os.Open(filepath.Join(packageDirectory, garbleMapFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if err := json.NewDecoder(file).Decode(&nameMap); err != nil {
+		return err
+	}
+	return nil
+}
+
+func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNameMap map[string]string, err error) {
 	importCfg, err := goobj2.ParseImportCfg(importCfgPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	mainPkg, err := goobj2.Parse(objPath, "main", importCfg)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing main objfile: %v", err)
+		return nil, nil, fmt.Errorf("error parsing main objfile: %v", err)
 	}
 	pkgs := []pkgInfo{{mainPkg, objPath, true}}
 
+	privateNameMap = make(map[string]string)
 	// build list of imported packages that are private
 	for pkgPath, info := range importCfg {
 		// if the '-tiny' flag is passed, we will strip filename
@@ -62,16 +82,22 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) 
 		if private := isPrivate(pkgPath); envGarbleTiny || private {
 			pkg, err := goobj2.Parse(info.Path, pkgPath, importCfg)
 			if err != nil {
-				return nil, fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
+				return nil, nil, fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
 			}
 
 			pkgs = append(pkgs, pkgInfo{pkg, info.Path, private})
+
+			packageDir := filepath.Dir(info.Path)
+			if err := appendPrivateNameMap(privateNameMap, packageDir); err != nil {
+				return nil, nil, fmt.Errorf("error parsing name map %s at %s: %v", pkgPath, info.Path, err)
+			}
 		}
 	}
 
 	var sb strings.Builder
 	var buf bytes.Buffer
-	garbledImports := make(map[string]string)
+
+	garbledImports = make(map[string]string)
 	for _, p := range pkgs {
 		// log.Printf("++ Obfuscating object file for %s ++", p.pkg.ImportPath)
 		for _, am := range p.pkg.ArchiveMembers {
@@ -147,16 +173,16 @@ func obfuscateImports(objPath, importCfgPath string) (map[string]string, error) 
 		}
 
 		if err := p.pkg.Write(p.path); err != nil {
-			return nil, fmt.Errorf("error writing objfile %s at %s: %v", p.pkg.ImportPath, p.path, err)
+			return nil, nil, fmt.Errorf("error writing objfile %s at %s: %v", p.pkg.ImportPath, p.path, err)
 		}
 	}
 
 	// garble importcfg so the linker knows where to find garbled imports
 	if err := garbleImportCfg(importCfgPath, importCfg, garbledImports); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return garbledImports, nil
+	return garbledImports, privateNameMap, nil
 }
 
 // stripPCLinesAndNames removes all filename and position info
