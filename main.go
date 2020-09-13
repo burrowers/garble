@@ -241,7 +241,7 @@ func checkGoVersion() bool {
 
 		gitTimeFormat = "Mon Jan 2 15:04:05 2006 -0700"
 	)
-	var minGoVersionDate = time.Date(2020, 8, 11, 0, 0, 0, 0, time.UTC)
+	minGoVersionDate := time.Date(2020, 8, 11, 0, 0, 0, 0, time.UTC)
 
 	out, err := exec.Command("go", "version").CombinedOutput()
 	if err != nil {
