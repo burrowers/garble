@@ -20,6 +20,7 @@ import (
 	"go/token"
 	"go/types"
 	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 	"io"
 	"io/ioutil"
@@ -30,6 +31,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 	"unicode"
 
 	"mvdan.cc/garble/internal/literals"
@@ -232,12 +234,67 @@ func main1() int {
 	return 0
 }
 
+func checkGoVersion() bool {
+	const (
+		minGoVersion        = "v1.15.0"
+		supportedGoVersions = "1.15.x"
+
+		gitTimeFormat = "Mon Jan 2 15:04:05 2006 -0700"
+	)
+	minGoVersionDate := time.Date(2020, 8, 11, 0, 0, 0, 0, time.UTC)
+
+	out, err := exec.Command("go", "version").CombinedOutput()
+	if err != nil {
+		fmt.Printf(`Can't get go version: %v
+
+This is likely due to go not being installed/setup correctly.
+
+How to install go: https://golang.org/doc/install
+`, err)
+		return false
+	}
+
+	rawVersion := string(bytes.TrimPrefix(bytes.TrimSpace(out), []byte("go version ")))
+
+	tagIdx := strings.IndexByte(rawVersion, ' ')
+	tag := rawVersion[:tagIdx]
+	if tag == "devel" {
+		commitAndDate := rawVersion[tagIdx+1:]
+		// Remove commit hash and architecture from version
+		date := commitAndDate[strings.IndexByte(commitAndDate, ' ')+1 : strings.LastIndexByte(commitAndDate, ' ')]
+
+		versionDate, err := time.Parse(gitTimeFormat, date)
+		if err != nil {
+			fmt.Printf(`Can't recognize devel build timestamp: %v`, err)
+			return true
+		}
+
+		if versionDate.After(minGoVersionDate) {
+			return true
+		}
+
+		fmt.Printf("You use the old unstable \"%s\" go version, please upgrade go to %s", rawVersion, supportedGoVersions)
+		return false
+	}
+
+	version := "v" + strings.TrimPrefix(tag, "go")
+	if semver.Compare(version, minGoVersion) < 0 {
+		fmt.Printf("Outdated go version %s is used, please upgrade go to %s", version, supportedGoVersions)
+		return false
+	}
+
+	return true
+}
+
 func mainErr(args []string) error {
 	// If we recognise an argument, we're not running within -toolexec.
 	switch cmd := args[0]; cmd {
 	case "help":
 		flagSet.Usage()
 	case "build", "test":
+		if !checkGoVersion() {
+			return nil
+		}
 		// Split the flags from the package arguments, since we'll need
 		// to run 'go list' on the same set of packages.
 		flags, args := splitFlagsFromArgs(args[1:])
