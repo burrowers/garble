@@ -114,15 +114,7 @@ var (
 	seed []byte
 )
 
-const (
-	garbleMapFile       = "garble.map"
-	minGoVersion        = "v1.15.0"
-	supportedGoVersions = "1.15.x"
-
-	gitDateLayout = "Mon Jan 2 15:04:05 2006 -0700"
-)
-
-var minGoVersionDate = time.Date(2020, 8, 11, 0, 0, 0, 0, time.UTC)
+const garbleMapFile = "garble.map"
 
 func saveListedPackages(w io.Writer, flags, patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export"}
@@ -243,11 +235,20 @@ func main1() int {
 }
 
 func checkGoVersion() bool {
+	const (
+		minGoVersion        = "v1.15.0"
+		supportedGoVersions = "1.15.x"
+
+		gitTimeFormat = "Mon Jan 2 15:04:05 2006 -0700"
+	)
+	var minGoVersionDate = time.Date(2020, 8, 11, 0, 0, 0, 0, time.UTC)
+
 	out, err := exec.Command("go", "version").CombinedOutput()
 	if err != nil {
 		fmt.Printf(`Can't get go version: %v
 
 This is likely due to go not being installed/setup correctly.
+
 How to install go: https://golang.org/doc/install
 `, err)
 		return false
@@ -262,7 +263,7 @@ How to install go: https://golang.org/doc/install
 		// Remove commit hash and architecture from version
 		date := commitAndDate[strings.IndexByte(commitAndDate, ' ')+1 : strings.LastIndexByte(commitAndDate, ' ')]
 
-		versionDate, err := time.Parse(gitDateLayout, date)
+		versionDate, err := time.Parse(gitTimeFormat, date)
 		if err != nil {
 			fmt.Printf(`Can't recognize devel build timestamp: %v`, err)
 			return true
@@ -272,13 +273,13 @@ How to install go: https://golang.org/doc/install
 			return true
 		}
 
-		fmt.Printf("You use the old unstable \"%s\" golang version, please upgrade golang to %s", rawVersion, supportedGoVersions)
+		fmt.Printf("You use the old unstable \"%s\" go version, please upgrade go to %s", rawVersion, supportedGoVersions)
 		return false
 	}
 
 	version := "v" + strings.TrimPrefix(tag, "go")
 	if semver.Compare(version, minGoVersion) < 0 {
-		fmt.Printf("Outdated golang version %s is used, please upgrade golang to %s", version, supportedGoVersions)
+		fmt.Printf("Outdated go version %s is used, please upgrade go to %s", version, supportedGoVersions)
 		return false
 	}
 
