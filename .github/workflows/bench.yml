@@ -1,4 +1,10 @@
 name: Benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      dummy:
+        description: Dummy
+        required: false
 jobs:
   test:
     runs-on: ubuntu-latest
