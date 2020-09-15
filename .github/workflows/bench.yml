@@ -1,10 +1,11 @@
-name: Benchmark
 on:
-  workflow_dispatch:
-    inputs:
-      dummy:
-        description: Dummy
-        required: false
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+name: Benchmark
 jobs:
   test:
     runs-on: ubuntu-latest
