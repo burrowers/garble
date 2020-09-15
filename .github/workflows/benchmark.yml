@@ -18,7 +18,7 @@ jobs:
         repository: dominikh/go-tools
         ref: 8040d28b8db8066b19e5b7b89dcb7d59373a203c
         path: 'go-tools'
-    - name: Test
+    - name: Benchmark
       run: |
         go version
         go run scripts/benchmark/benchmark.go $GITHUB_SHA scripts/benchmark/BENCHMARK.template.md BENCHMARK.md
