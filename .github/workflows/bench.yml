@@ -17,7 +17,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
     - name: Build garble
-      run: go build
+      run: |
+        go build -o garble
+        export PATH=$PATH:$PWD
     - name: Checkout staticcheck
       uses: actions/checkout@v2
       with:
