@@ -27,13 +27,12 @@ jobs:
     - name: Benchmark
       run: |
         export PATH=$PATH:$PWD
-        ls
-        go version
         go run scripts/benchmark/benchmark.go $GITHUB_SHA scripts/benchmark/BENCHMARK.template.md BENCHMARK.md
     - name: Commit files
       run: |
         git config --local user.email "actions@github.com"
         git config --local user.name "Automatic benchmark"
+        git add BENCHMARK.md
         git commit -m "Update BENCHMARK.md" BENCHMARK.md
     - name: Push changes
       uses: ad-m/github-push-action@master
