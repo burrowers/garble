@@ -18,6 +18,8 @@ jobs:
       uses: actions/checkout@v2
       with:
         fetch-depth: 0
+    - name: Switch to current branch
+      run: git checkout ${branch#refs/heads/}
     - name: Build garble
       run: go build -o garble
     - name: Checkout staticcheck
