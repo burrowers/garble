@@ -20,6 +20,8 @@ jobs:
       run: |
         go build -o garble
         export PATH=$PATH:$PWD
+        echo $PATH
+        ls
     - name: Checkout staticcheck
       uses: actions/checkout@v2
       with:
