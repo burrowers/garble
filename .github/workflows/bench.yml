@@ -27,7 +27,6 @@ jobs:
     - name: Benchmark
       run: |
         export PATH=$PATH:$PWD
-        garble help
         ls
         go version
         go run scripts/benchmark/benchmark.go $GITHUB_SHA scripts/benchmark/BENCHMARK.template.md BENCHMARK.md
