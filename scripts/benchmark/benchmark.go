@@ -26,19 +26,22 @@ type project struct {
 	targetPackage string
 }
 
-var projects = []*project{
-	{"staticcheck", "go-tools", "./cmd/staticcheck"},
-	{"keyify", "go-tools", "./cmd/keyify"},
-	{"micro", "micro", "./cmd/micro"},
+type command struct {
+	bin  string
+	args []string
 }
 
-var binarySizeCommands = [][]string{
-	{"go", "build"},
-	{"go", "build", "-ldflags", "-s -w"},
-	{"garble", seedParam, "build"},
-	{"garble", seedParam, "-tiny", "build"},
-	{"garble", seedParam, "-literals", "build"},
-	{"garble", seedParam, "-tiny", "-literals", "build"},
+var projects = []*project{
+	{"staticcheck", "go-tools", "./cmd/staticcheck"},
+}
+
+var binarySizeCommands = []command{
+	{"go", []string{"build"}},
+	{"go", []string{"build", "-trimpath", "-ldflags", "-s -w"}},
+	{"garble", []string{"build"}},
+	{"garble", []string{"-tiny", "build"}},
+	{"garble", []string{"-literals", "build"}},
+	{"garble", []string{"-tiny", "-literals", "build"}},
 }
 
 const (
@@ -75,8 +78,9 @@ func fileSize(path string) (int64, error) {
 	return fi.Size(), nil
 }
 
-func formatSize(firstSize int64) string {
-	return fmt.Sprintf("%d", firstSize)
+//TODO: Add comma formating
+func formatSize(size int64) string {
+	return fmt.Sprintf("%d", size)
 }
 
 func diffSize(firstSize, secondSize int64) string {
@@ -107,10 +111,15 @@ func processProject(p *project) ([]string, error) {
 		tempOutputFile.Close()
 		tempFiles = append(tempFiles, tempOutputFile.Name())
 
-		buildCommand := append(command, "-o", tempOutputFile.Name(), p.targetPackage)
+		buildCommand := []string{command.bin}
 		if runtime.GOOS == "windows" {
 			buildCommand[0] += ".exe"
 		}
+		if command.bin == "garble" {
+			buildCommand = append(buildCommand, seedParam)
+		}
+		buildCommand = append(buildCommand, command.args...)
+		buildCommand = append(buildCommand, "-o", tempOutputFile.Name(), p.targetPackage)
 
 		cmd := exec.Command(buildCommand[0], buildCommand[1:]...)
 		cmd.Dir = p.path
@@ -154,9 +163,7 @@ func main() {
 	}
 
 	for _, command := range binarySizeCommands {
-		header := strings.Join(command, " ")
-		header = strings.ReplaceAll(header, seedParam, "")
-		header = strings.ReplaceAll(header, "  ", " ")
+		header := command.bin + " " + strings.Join(command.args, " ")
 		r.Headers = append(r.Headers, header)
 	}
 
