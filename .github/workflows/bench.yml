@@ -17,11 +17,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
     - name: Build garble
-      run: |
-        go build -o garble
-        export PATH=$PATH:$PWD
-        echo $PATH
-        ls
+      run: go build -o garble
     - name: Checkout staticcheck
       uses: actions/checkout@v2
       with:
@@ -30,6 +26,9 @@ jobs:
         path: 'go-tools'
     - name: Benchmark
       run: |
+        export PATH=$PATH:$PWD
+        garble help
+        ls
         go version
         go run scripts/benchmark/benchmark.go $GITHUB_SHA scripts/benchmark/BENCHMARK.template.md BENCHMARK.md
     - name: Commit files
