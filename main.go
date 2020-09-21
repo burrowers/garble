@@ -19,9 +19,6 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
-	"golang.org/x/mod/module"
-	"golang.org/x/mod/semver"
-	"golang.org/x/tools/go/ast/astutil"
 	"io"
 	"io/ioutil"
 	"log"
@@ -33,6 +30,10 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
+	"golang.org/x/tools/go/ast/astutil"
 
 	"mvdan.cc/garble/internal/literals"
 )
@@ -234,13 +235,14 @@ func main1() int {
 	return 0
 }
 
-func checkGoVersion() bool {
+func goVersionOK() bool {
 	const (
 		minGoVersion        = "v1.15.0"
 		supportedGoVersions = "1.15.x"
 
 		gitTimeFormat = "Mon Jan 2 15:04:05 2006 -0700"
 	)
+	// Go 1.15 was released on August 11th, 2020.
 	minGoVersionDate := time.Date(2020, 8, 11, 0, 0, 0, 0, time.UTC)
 
 	out, err := exec.Command("go", "version").CombinedOutput()
@@ -265,7 +267,7 @@ How to install go: https://golang.org/doc/install
 
 		versionDate, err := time.Parse(gitTimeFormat, date)
 		if err != nil {
-			fmt.Printf(`Can't recognize devel build timestamp: %v`, err)
+			fmt.Printf("Can't recognize devel build timestamp: %v\n", err)
 			return true
 		}
 
@@ -273,13 +275,13 @@ How to install go: https://golang.org/doc/install
 			return true
 		}
 
-		fmt.Printf("You use the old unstable \"%s\" go version, please upgrade go to %s", rawVersion, supportedGoVersions)
+		fmt.Printf("You use the old unstable %q Go version, please upgrade Go to %s\n", rawVersion, supportedGoVersions)
 		return false
 	}
 
 	version := "v" + strings.TrimPrefix(tag, "go")
 	if semver.Compare(version, minGoVersion) < 0 {
-		fmt.Printf("Outdated go version %s is used, please upgrade go to %s", version, supportedGoVersions)
+		fmt.Printf("Outdated Go version %q is used, please upgrade Go to %s\n", version, supportedGoVersions)
 		return false
 	}
 
@@ -292,7 +294,7 @@ func mainErr(args []string) error {
 	case "help":
 		flagSet.Usage()
 	case "build", "test":
-		if !checkGoVersion() {
+		if !goVersionOK() {
 			return nil
 		}
 		// Split the flags from the package arguments, since we'll need
