@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -235,7 +236,7 @@ func main1() int {
 	return 0
 }
 
-func goVersionOK() bool {
+func checkGoVersion() error {
 	const (
 		minGoVersion        = "v1.15.0"
 		supportedGoVersions = "1.15.x"
@@ -247,13 +248,12 @@ func goVersionOK() bool {
 
 	out, err := exec.Command("go", "version").CombinedOutput()
 	if err != nil {
-		fmt.Printf(`Can't get go version: %v
+		return fmt.Errorf(`Can't get Go version: %v
 
 This is likely due to go not being installed/setup correctly.
 
-How to install go: https://golang.org/doc/install
+How to install Go: https://golang.org/doc/install
 `, err)
-		return false
 	}
 
 	rawVersion := string(bytes.TrimPrefix(bytes.TrimSpace(out), []byte("go version ")))
@@ -263,29 +263,31 @@ How to install go: https://golang.org/doc/install
 	if tag == "devel" {
 		commitAndDate := rawVersion[tagIdx+1:]
 		// Remove commit hash and architecture from version
-		date := commitAndDate[strings.IndexByte(commitAndDate, ' ')+1 : strings.LastIndexByte(commitAndDate, ' ')]
+		startDateIdx := strings.IndexByte(commitAndDate, ' ') + 1
+		endDateIdx := strings.LastIndexByte(commitAndDate, ' ')
+		if endDateIdx <= 0 {
+			return errors.New("Can't recognize devel build timestamp")
+		}
+		date := commitAndDate[startDateIdx:endDateIdx]
 
 		versionDate, err := time.Parse(gitTimeFormat, date)
 		if err != nil {
-			fmt.Printf("Can't recognize devel build timestamp: %v\n", err)
-			return true
+			return fmt.Errorf("Can't recognize devel build timestamp: %v", err)
 		}
 
 		if versionDate.After(minGoVersionDate) {
-			return true
+			return nil
 		}
 
-		fmt.Printf("You use the old unstable %q Go version, please upgrade Go to %s\n", rawVersion, supportedGoVersions)
-		return false
+		return fmt.Errorf("You use the old unstable \"%s\" Go version, please upgrade Go to %s", rawVersion, supportedGoVersions)
 	}
 
 	version := "v" + strings.TrimPrefix(tag, "go")
 	if semver.Compare(version, minGoVersion) < 0 {
-		fmt.Printf("Outdated Go version %q is used, please upgrade Go to %s\n", version, supportedGoVersions)
-		return false
+		return fmt.Errorf("Outdated Go version %s is used, please upgrade Go to %s", version, supportedGoVersions)
 	}
 
-	return true
+	return nil
 }
 
 func mainErr(args []string) error {
@@ -294,8 +296,8 @@ func mainErr(args []string) error {
 	case "help":
 		flagSet.Usage()
 	case "build", "test":
-		if !goVersionOK() {
-			return nil
+		if err := checkGoVersion(); err != nil {
+			return err
 		}
 		// Split the flags from the package arguments, since we'll need
 		// to run 'go list' on the same set of packages.
