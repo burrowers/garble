@@ -287,7 +287,7 @@ How to install Go: https://golang.org/doc/install
 
 	version := "v" + strings.TrimPrefix(tag, "go")
 	if semver.Compare(version, minGoVersion) < 0 {
-		fmt.Fprintf(os.Stderr, "Outdated Go version %s is used, please upgrade Go to %s", version, supportedGoVersions)
+		fmt.Fprintf(os.Stderr, "Outdated Go version %q is used, please upgrade Go to %s", version, supportedGoVersions)
 		return false
 	}
 
