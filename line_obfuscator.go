@@ -12,11 +12,9 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 )
 
-const (
-	// PosMin is the smallest correct value for the line number.
-	// Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/syntax/parser_test.go#229
-	PosMin = 1
-)
+// PosMin is the smallest correct value for the line number.
+// Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/syntax/parser_test.go#229
+const PosMin = 1
 
 func prependComment(group *ast.CommentGroup, comment *ast.Comment) *ast.CommentGroup {
 	if group == nil {
