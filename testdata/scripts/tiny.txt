@@ -11,13 +11,7 @@ stderr '\? 0'
 
 # Default mode
 env GODEBUG=
-garble -debugdir=.obf-src build
-
-# Check for file name leak protection
-grep '^\/\/line :1$' .obf-src/main/main.go
-
-# Check for default line obfuscation
-grep '^\/\/line \w\.go:[1-9][0-9]*$' .obf-src/main/main.go
+garble build
 ! exec ./main$exe
 cmp stdout main.stdout
 stderr '\w\.go [1-9]'

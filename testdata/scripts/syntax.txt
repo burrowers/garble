@@ -1,12 +1,10 @@
 env GOPRIVATE='test/main,rsc.io/*'
 
-garble -debugdir=debug build
+garble build
 exec ./main$exe
 cmp stderr main.stderr
 
 ! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'rsc.io'
-
-binsubstr debug/main/scopes.go 'localName' 'globalConst'
 
 [short] stop # no need to verify this with -short
 
