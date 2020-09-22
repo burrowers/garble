@@ -1,0 +1,53 @@
+# TODO: Place file direct to .bin directory
+cp go.sh .bin/go
+cp go.bat .bin/go.bat
+chmod 777 .bin/go
+
+# Check incorrect go install
+env GO_VERSION=''
+! garble build
+stderr 'Can''t get Go version'
+
+[short] stop
+
+# Check invalid devel format
+env GO_VERSION='go version devel someinvalidversion'
+! garble build
+stderr 'Can''t recognize devel build timestamp'
+
+# Check invalid devel date
+env GO_VERSION='go version devel +afb5fca Sun Sep 99 99:99:99 9999 +0000 linux/amd64'
+! garble build
+stderr 'Can''t recognize devel build timestamp: parsing time'
+
+# Check invalid old devel version
+env GO_VERSION='go version devel +afb5fca Sun Aug 07 00:00:00 2020 +0000 linux/amd64'
+! garble build
+stderr 'You use the old unstable'
+
+# Check invalid new devel version
+env GO_VERSION='go version devel +afb5fca Sun Sep 13 07:54:42 2020 +0000 linux/amd64'
+! garble build
+! stderr 'You use the old unstable'
+
+# Check old version
+env GO_VERSION='go version go1.14 windows/amd64'
+! garble build
+stderr 'Outdated Go version'
+
+# Check supported version
+env GO_VERSION='go version go1.15.2 windows/amd64'
+! garble build
+! stderr 'Outdated Go version'
+
+-- main.go --
+package main
+
+-- go.sh --
+#!/bin/sh
+
+[ -z "$GO_VERSION" ] && exit 1 || echo "$GO_VERSION"
+
+-- go.bat --
+@echo off
+IF DEFINED GO_VERSION (echo %GO_VERSION%) ELSE (exit 1)

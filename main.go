@@ -247,11 +247,11 @@ func goVersionOK() bool {
 
 	out, err := exec.Command("go", "version").CombinedOutput()
 	if err != nil {
-		fmt.Printf(`Can't get go version: %v
+		fmt.Fprintf(os.Stderr, `Can't get Go version: %v
 
 This is likely due to go not being installed/setup correctly.
 
-How to install go: https://golang.org/doc/install
+How to install Go: https://golang.org/doc/install
 `, err)
 		return false
 	}
@@ -263,25 +263,31 @@ How to install go: https://golang.org/doc/install
 	if tag == "devel" {
 		commitAndDate := rawVersion[tagIdx+1:]
 		// Remove commit hash and architecture from version
-		date := commitAndDate[strings.IndexByte(commitAndDate, ' ')+1 : strings.LastIndexByte(commitAndDate, ' ')]
+		startDateIdx := strings.IndexByte(commitAndDate, ' ') + 1
+		endDateIdx := strings.LastIndexByte(commitAndDate, ' ')
+		if endDateIdx <= 0 {
+			fmt.Fprintf(os.Stderr, "Can't recognize devel build timestamp")
+			return false
+		}
+		date := commitAndDate[startDateIdx:endDateIdx]
 
 		versionDate, err := time.Parse(gitTimeFormat, date)
 		if err != nil {
-			fmt.Printf("Can't recognize devel build timestamp: %v\n", err)
-			return true
+			fmt.Fprintf(os.Stderr, "Can't recognize devel build timestamp: %v\n", err)
+			return false
 		}
 
 		if versionDate.After(minGoVersionDate) {
 			return true
 		}
 
-		fmt.Printf("You use the old unstable %q Go version, please upgrade Go to %s\n", rawVersion, supportedGoVersions)
+		fmt.Fprintf(os.Stderr, "You use the old unstable %q Go version, please upgrade Go to %s\n", rawVersion, supportedGoVersions)
 		return false
 	}
 
 	version := "v" + strings.TrimPrefix(tag, "go")
 	if semver.Compare(version, minGoVersion) < 0 {
-		fmt.Printf("Outdated Go version %q is used, please upgrade Go to %s\n", version, supportedGoVersions)
+		fmt.Fprintf(os.Stderr, "Outdated Go version %q is used, please upgrade Go to %s\n", version, supportedGoVersions)
 		return false
 	}
 
@@ -295,7 +301,7 @@ func mainErr(args []string) error {
 		flagSet.Usage()
 	case "build", "test":
 		if !goVersionOK() {
-			return nil
+			os.Exit(1)
 		}
 		// Split the flags from the package arguments, since we'll need
 		// to run 'go list' on the same set of packages.
