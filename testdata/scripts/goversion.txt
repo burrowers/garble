@@ -1,3 +1,4 @@
+# TODO: Place file direct to .bin directory
 cp go.sh .bin/go
 cp go.bat .bin/go.bat
 chmod 777 .bin/go
@@ -42,13 +43,11 @@ env GO_VERSION='go version go1.15.2 windows/amd64'
 -- main.go --
 package main
 
-# TODO: Place file direct to .bin directory
 -- go.sh --
 #!/bin/sh
 
 [ -z "$GO_VERSION" ] && exit 1 || echo "$GO_VERSION"
 
-# TODO: Place file direct to .bin directory
 -- go.bat --
 @echo off
 IF DEFINED GO_VERSION (echo %GO_VERSION%) ELSE (exit 1)
