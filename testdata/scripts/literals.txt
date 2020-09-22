@@ -49,7 +49,6 @@ grep '^\s+\w+ = append\(\w+,(\s+\w+\[\d+\][\^\-+]\w+\[\d+\],?)+\)$' .obf-src/mai
 # XorSeed obfuscator. Detect type decFunc func(byte) decFunc
 grep '^\s+type \w+ func\(byte\) \w+$' .obf-src/main/extraLiterals.go
 
-
 -- go.mod --
 module test/main
 -- main.go --
