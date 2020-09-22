@@ -273,7 +273,7 @@ How to install Go: https://golang.org/doc/install
 
 		versionDate, err := time.Parse(gitTimeFormat, date)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Can't recognize devel build timestamp: %v", err)
+			fmt.Fprintf(os.Stderr, "Can't recognize devel build timestamp: %v\n", err)
 			return false
 		}
 
@@ -281,13 +281,13 @@ How to install Go: https://golang.org/doc/install
 			return true
 		}
 
-		fmt.Fprintf(os.Stderr, "You use the old unstable %q Go version, please upgrade Go to %s", rawVersion, supportedGoVersions)
+		fmt.Fprintf(os.Stderr, "You use the old unstable %q Go version, please upgrade Go to %s\n", rawVersion, supportedGoVersions)
 		return false
 	}
 
 	version := "v" + strings.TrimPrefix(tag, "go")
 	if semver.Compare(version, minGoVersion) < 0 {
-		fmt.Fprintf(os.Stderr, "Outdated Go version %q is used, please upgrade Go to %s", version, supportedGoVersions)
+		fmt.Fprintf(os.Stderr, "Outdated Go version %q is used, please upgrade Go to %s\n", version, supportedGoVersions)
 		return false
 	}
 
