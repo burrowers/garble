@@ -52,7 +52,8 @@ func appendPrivateNameMap(pkg *goobj2.Package, nameMap map[string]string) error 
 		}
 
 		serializedMap := member.ArchiveHeader.Data
-		if err := json.Unmarshal(serializedMap[:bytes.IndexByte(serializedMap, 0x00)], &nameMap); err != nil {
+		serializedMap = serializedMap[:bytes.IndexByte(serializedMap, 0x00)]
+		if err := json.Unmarshal(serializedMap, &nameMap); err != nil {
 			return err
 		}
 		return nil

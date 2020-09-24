@@ -32,7 +32,6 @@ import (
 	"unicode"
 
 	"github.com/Binject/debug/goobj2"
-
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
@@ -684,6 +683,8 @@ func transformCompile(args []string) ([]string, error) {
 				return err
 			}
 
+			// Adding an extra archive header is safe,
+			// and shouldn't break other tools like the linker since our header name is unique
 			pkg.ArchiveMembers = append(pkg.ArchiveMembers, goobj2.ArchiveMember{
 				ArchiveHeader: goobj2.ArchiveHeader{
 					Name: garbleMapHeaderName,
