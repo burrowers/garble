@@ -7,10 +7,8 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -47,18 +45,17 @@ type privateImports struct {
 	privateNames []string
 }
 
-func appendPrivateNameMap(nameMap map[string]string, packageDirectory string) error {
-	file, err := os.Open(filepath.Join(packageDirectory, garbleMapFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+func appendPrivateNameMap(pkg *goobj2.Package, nameMap map[string]string) error {
+	for _, member := range pkg.ArchiveMembers {
+		if member.ArchiveHeader.Name != garbleMapHeaderName {
+			continue
+		}
 
-	if err := json.NewDecoder(file).Decode(&nameMap); err != nil {
-		return err
+		serializedMap := member.ArchiveHeader.Data
+		if err := json.Unmarshal(serializedMap[:bytes.IndexByte(serializedMap, 0x00)], &nameMap); err != nil {
+			return err
+		}
+		return nil
 	}
 	return nil
 }
@@ -87,8 +84,7 @@ func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNam
 
 			pkgs = append(pkgs, pkgInfo{pkg, info.Path, private})
 
-			packageDir := filepath.Dir(info.Path)
-			if err := appendPrivateNameMap(privateNameMap, packageDir); err != nil {
+			if err := appendPrivateNameMap(pkg, privateNameMap); err != nil {
 				return nil, nil, fmt.Errorf("error parsing name map %s at %s: %v", pkgPath, info.Path, err)
 			}
 		}
