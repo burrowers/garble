@@ -31,6 +31,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/Binject/debug/goobj2"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
@@ -115,7 +116,7 @@ var (
 	seed []byte
 )
 
-const garbleMapFile = "garble.map"
+const garbleMapHeaderName = "garble/nameMap"
 
 func saveListedPackages(w io.Writer, flags, patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export"}
@@ -664,17 +665,36 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	if len(privateNameMap) > 0 {
-		outputDirectory := filepath.Dir(flagValue(flags, "-o"))
+		objPath := flagValue(flags, "-o")
+		importcfg := flagValue(flags, "-importcfg")
+		deferred = append(deferred, func() error {
+			importCfg, err := goobj2.ParseImportCfg(importcfg)
+			if err != nil {
+				return err
+			}
 
-		file, err := os.Create(filepath.Join(outputDirectory, garbleMapFile))
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
+			pkg, err := goobj2.Parse(objPath, pkgPath, importCfg)
+			if err != nil {
+				return err
+			}
 
-		if err := json.NewEncoder(file).Encode(privateNameMap); err != nil {
-			return nil, err
-		}
+			data, err := json.Marshal(privateNameMap)
+			if err != nil {
+				return err
+			}
+
+			// Adding an extra archive header is safe,
+			// and shouldn't break other tools like the linker since our header name is unique
+			pkg.ArchiveMembers = append(pkg.ArchiveMembers, goobj2.ArchiveMember{
+				ArchiveHeader: goobj2.ArchiveHeader{
+					Name: garbleMapHeaderName,
+					Size: int64(len(data)),
+					Data: data,
+				},
+			})
+
+			return pkg.Write(objPath)
+		})
 	}
 
 	return append(flags, newPaths...), nil
