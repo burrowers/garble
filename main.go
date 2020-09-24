@@ -87,10 +87,9 @@ var (
 	b64         = base64.NewEncoding(nameCharset)
 	printConfig = printer.Config{Mode: printer.RawFormat}
 
-	// listPackage helps implement a types.Importer which finds the export
-	// data for the original dependencies, not their garbled counterparts.
-	// This is useful to typecheck a package before it's garbled, so we can
-	// make decisions on how to garble it.
+	// origTypesConfig configures a go/types typechecker which uses the
+	// original versions of packages, without any obfuscation. This is
+	// helpful to make decisions on how to obfuscate our input code.
 	origTypesConfig = types.Config{Importer: importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
 		pkg, err := listPackage(path)
 		if err != nil {
@@ -99,7 +98,18 @@ var (
 		return os.Open(pkg.Export)
 	})}
 
-	buildInfo       = packageInfo{imports: make(map[string]importedPkg)}
+	buildInfo = struct {
+		buildID   string // from -buildid
+		importCfg string // from -importcfg
+
+		// TODO: replace part of this with goobj.ParseImportCfg, so that
+		// we can also reuse it. For now, parsing ourselves is still
+		// necessary so that we can set firstImport.
+		imports map[string]importedPkg // parsed importCfg plus cached info
+
+		firstImport string // first from -importcfg; the main package when linking
+	}{imports: make(map[string]importedPkg)}
+
 	garbledImporter = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
 		return os.Open(buildInfo.imports[path].packagefile)
 	}).(types.ImporterFrom)
@@ -204,13 +214,6 @@ func garbledImport(path string) (*types.Package, error) {
 	}
 	ipkg.pkg = pkg // cache for later use
 	return pkg, nil
-}
-
-type packageInfo struct {
-	buildID string // from -buildid
-
-	imports     map[string]importedPkg // from -importcfg
-	firstImport string                 // first from -importcfg; the main package when linking
 }
 
 type importedPkg struct {
@@ -517,7 +520,7 @@ func transformCompile(args []string) ([]string, error) {
 	if !strings.Contains(trimpath, ";") {
 		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
 	}
-	if err := readBuildIDs(flags); err != nil {
+	if err := fillBuildInfo(flags); err != nil {
 		return nil, err
 	}
 
@@ -666,9 +669,8 @@ func transformCompile(args []string) ([]string, error) {
 
 	if len(privateNameMap) > 0 {
 		objPath := flagValue(flags, "-o")
-		importcfg := flagValue(flags, "-importcfg")
 		deferred = append(deferred, func() error {
-			importCfg, err := goobj2.ParseImportCfg(importcfg)
+			importCfg, err := goobj2.ParseImportCfg(buildInfo.importCfg)
 			if err != nil {
 				return err
 			}
@@ -719,23 +721,19 @@ func isPrivate(path string) bool {
 	return module.MatchPrefixPatterns(envGoPrivate, path)
 }
 
-func readBuildIDs(flags []string) error {
+// fillBuildInfo initializes the global buildInfo struct via the supplied flags.
+func fillBuildInfo(flags []string) error {
 	buildInfo.buildID = flagValue(flags, "-buildid")
 	switch buildInfo.buildID {
 	case "", "true":
 		return fmt.Errorf("could not find -buildid argument")
 	}
 	buildInfo.buildID = trimBuildID(buildInfo.buildID)
-	importcfg := flagValue(flags, "-importcfg")
-	if importcfg == "" {
+	buildInfo.importCfg = flagValue(flags, "-importcfg")
+	if buildInfo.importCfg == "" {
 		return fmt.Errorf("could not find -importcfg argument")
 	}
-	f, err := os.OpenFile(importcfg, os.O_RDWR, 0)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	data, err := ioutil.ReadAll(f)
+	data, err := ioutil.ReadFile(buildInfo.importCfg)
 	if err != nil {
 		return err
 	}
@@ -772,10 +770,6 @@ func readBuildIDs(flags []string) error {
 		}
 	}
 	// log.Printf("%#v", buildInfo)
-
-	if err := f.Close(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -1013,8 +1007,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			if err != nil {
 				panic(err) // shouldn't happen
 			}
-			// Check if the imported name wasn't
-			// garbled, e.g. if it's assembly.
+			// Check if the imported name wasn't garbled, e.g. if it's assembly.
 			if garbledPkg.Scope().Lookup(obj.Name()) != nil {
 				return true
 			}
@@ -1090,14 +1083,13 @@ func transformLink(args []string) ([]string, error) {
 		return args, nil
 	}
 
-	if err := readBuildIDs(flags); err != nil {
+	if err := fillBuildInfo(flags); err != nil {
 		return nil, err
 	}
 
-	importCfgPath := flagValue(flags, "-importcfg")
 	// there should only ever be one archive/object file passed to the linker,
 	// the file for the main package or entrypoint
-	garbledImports, privateNameMap, err := obfuscateImports(paths[0], importCfgPath)
+	garbledImports, privateNameMap, err := obfuscateImports(paths[0], buildInfo.importCfg)
 	if err != nil {
 		return nil, err
 	}
