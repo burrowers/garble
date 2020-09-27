@@ -581,7 +581,9 @@ func transformCompile(args []string) ([]string, error) {
 	filesExtraComments := make([][]string, len(files))
 
 	for i, file := range files {
-		extraComments, localNameBlacklist, file := transformLineInfo(file)
+		name := filepath.Base(filepath.Clean(paths[i]))
+		cgoFile := strings.HasPrefix(name, "_cgo_")
+		extraComments, localNameBlacklist, file := transformLineInfo(file, cgoFile)
 		for _, name := range localNameBlacklist {
 			localFunc := pkg.Scope().Lookup(name)
 			if localFunc == nil {

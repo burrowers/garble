@@ -140,10 +140,15 @@ func processSpecialComments(commentGroups []*ast.CommentGroup) (extraComments, l
 	return extraComments, localnameBlacklist
 }
 
-func transformLineInfo(file *ast.File) ([]string, []string, *ast.File) {
+func transformLineInfo(file *ast.File, cgoFile bool) ([]string, []string, *ast.File) {
+	prefix := ""
+	if cgoFile {
+		prefix = "_cgo_"
+	}
+
 	// Save build tags and add file name leak protection
 	extraComments, localNameBlacklist := processSpecialComments(file.Comments)
-	extraComments = append(extraComments, "", "//line :1")
+	extraComments = append(extraComments, "", "//line "+prefix+":1")
 	file.Comments = nil
 
 	newLines := mathrand.Perm(len(file.Decls))
@@ -161,7 +166,7 @@ func transformLineInfo(file *ast.File) ([]string, []string, *ast.File) {
 			return true
 		}
 
-		comment := &ast.Comment{Text: fmt.Sprintf("//line %c.go:%d", nameCharset[mathrand.Intn(len(nameCharset))], PosMin+newLines[funcCounter])}
+		comment := &ast.Comment{Text: fmt.Sprintf("//line %s%c.go:%d", prefix, nameCharset[mathrand.Intn(len(nameCharset))], PosMin+newLines[funcCounter])}
 		funcDecl.Doc = prependComment(funcDecl.Doc, comment)
 		funcCounter++
 		return true
