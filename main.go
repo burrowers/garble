@@ -581,7 +581,6 @@ func transformCompile(args []string) ([]string, error) {
 	filesExtraComments := make([][]string, len(files))
 
 	for i, file := range files {
-		println(paths[i])
 		extraComments, localNameBlacklist, file := transformLineInfo(file)
 		for _, name := range localNameBlacklist {
 			localFunc := pkg.Scope().Lookup(name)
@@ -601,12 +600,11 @@ func transformCompile(args []string) ([]string, error) {
 	// TODO: randomize the order and names of the files
 	newPaths := make([]string, 0, len(files))
 	for i, file := range files {
-		origName := filepath.Base(filepath.Clean(paths[i]))
-		name := origName
+		name := filepath.Base(filepath.Clean(paths[i]))
 		switch {
 		case pkgPath == "runtime":
 			// strip unneeded runtime code
-			stripRuntime(origName, file)
+			stripRuntime(name, file)
 		case pkgPath == "runtime/internal/sys":
 			// The first declaration in zversion.go contains the Go
 			// version as follows. Replace it here, since the
@@ -615,7 +613,7 @@ func transformCompile(args []string) ([]string, error) {
 			//     const TheVersion = `devel ...`
 			//
 			// Don't touch the source in any other way.
-			if origName != "zversion.go" {
+			if name != "zversion.go" {
 				break
 			}
 			spec := file.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec)
