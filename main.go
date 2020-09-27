@@ -494,15 +494,6 @@ func transformCompile(args []string) ([]string, error) {
 	flags = append(flags, "-dwarf=false")
 
 	pkgPath := flagValue(flags, "-p")
-	if (pkgPath == "runtime" && envGarbleTiny) || pkgPath == "runtime/internal/sys" {
-		// Even though these packages aren't private, we will still process
-		// them later to remove build information and strip code from the
-		// runtime. However, we only want flags to work on private packages.
-		envGarbleLiterals = false
-		envGarbleDebugDir = ""
-	} else if !isPrivate(pkgPath) {
-		return append(flags, paths...), nil
-	}
 	for i, path := range paths {
 		if filepath.Base(path) == "_gomod_.go" {
 			// never include module info
@@ -555,15 +546,11 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
-	blacklist := buildBlacklist(files, info, pkg)
+	blacklist, existsNames := buildBlacklist(files, info, pkg)
 
 	// unsafe.Pointer is a special type that doesn't exist as a plain Go
 	// type definition, so we can't change its name.
 	blacklist[types.Unsafe.Scope().Lookup("Pointer")] = struct{}{}
-
-	if envGarbleLiterals {
-		files = literals.Obfuscate(files, info, fset, blacklist)
-	}
 
 	tempDir, err := ioutil.TempDir("", "garble-build")
 	if err != nil {
@@ -589,11 +576,31 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	privateNameMap := make(map[string]string)
+	packageCounter := 0
+
+	filesExtraComments := make([][]string, len(files))
+
+	for i, file := range files {
+		println(paths[i])
+		extraComments, localNameBlacklist, file := transformLineInfo(file)
+		for _, name := range localNameBlacklist {
+			localFunc := pkg.Scope().Lookup(name)
+			if localFunc == nil {
+				continue
+			}
+			blacklist[localFunc] = struct{}{}
+		}
+		filesExtraComments[i] = extraComments
+		files[i] = file
+	}
+
+	if envGarbleLiterals && isPrivate(pkgPath) {
+		files = literals.Obfuscate(files, info, fset, blacklist)
+	}
 
 	// TODO: randomize the order and names of the files
 	newPaths := make([]string, 0, len(files))
 	for i, file := range files {
-		var extraComments []string
 		origName := filepath.Base(filepath.Clean(paths[i]))
 		name := origName
 		switch {
@@ -614,23 +621,16 @@ func transformCompile(args []string) ([]string, error) {
 			spec := file.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec)
 			lit := spec.Values[0].(*ast.BasicLit)
 			lit.Value = "`unknown`"
-		case strings.HasPrefix(origName, "_cgo_"):
-			// Cgo generated code requires a prefix. Also, don't
-			// garble it, since it's just generated code and it gets
-			// messy.
-			name = "_cgo_" + name
-		default:
-			if !envGarbleTiny {
-				extraComments, file = transformLineInfo(file)
-			}
-			file = transformGo(file, info, blacklist, privateNameMap, pkgPath)
-
-			// Uncomment for some quick debugging. Do not delete.
-			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
-			// if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
-			// 	return nil, err
-			// }
 		}
+
+		file = transformGo(file, info, blacklist, privateNameMap, existsNames, pkgPath, &packageCounter)
+
+		// Uncomment for some quick debugging. Do not delete.
+		// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
+		// if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
+		// 	return nil, err
+		// }
+
 		tempFile, err := os.Create(filepath.Join(tempDir, name))
 		if err != nil {
 			return nil, err
@@ -649,6 +649,7 @@ func transformCompile(args []string) ([]string, error) {
 			printWriter = io.MultiWriter(tempFile, debugFile)
 		}
 
+		extraComments := filesExtraComments[i]
 		if len(extraComments) > 0 {
 			for _, comment := range extraComments {
 				if _, err = printWriter.Write([]byte(comment + "\n")); err != nil {
@@ -830,12 +831,16 @@ var privateNameCharset = buildNameCharset()
 
 func encodeIntToName(i int) string {
 	builder := strings.Builder{}
-	builder.WriteByte('_')
 	for i > 0 {
 		charIdx := i % len(privateNameCharset)
 		i -= charIdx + 1
-		builder.WriteRune(privateNameCharset[charIdx])
+		c := privateNameCharset[charIdx]
+		if unicode.IsDigit(c) && builder.Len() == 0 {
+			builder.WriteByte('_')
+		}
+		builder.WriteRune(c)
 	}
+
 	return builder.String()
 }
 
@@ -845,8 +850,9 @@ func encodeIntToName(i int) string {
 // are both in the same package.
 //
 // The blacklist mainly contains named types and their field declarations.
-func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map[types.Object]struct{} {
+func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) (map[types.Object]struct{}, map[string]struct{}) {
 	blacklist := make(map[types.Object]struct{})
+	existsNames := make(map[string]struct{})
 
 	reflectBlacklist := func(node ast.Node) bool {
 		expr, _ := node.(ast.Expr)
@@ -872,6 +878,10 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 	}
 
 	visit := func(node ast.Node) bool {
+		if ident, ok := node.(*ast.Ident); ok {
+			existsNames[ident.Name] = struct{}{}
+		}
+
 		if envGarbleLiterals {
 			literals.ConstBlacklist(node, info, blacklist)
 		}
@@ -900,11 +910,11 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 	for _, file := range files {
 		ast.Inspect(file, visit)
 	}
-	return blacklist
+	return blacklist, existsNames
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, pkgPath string) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, existsNames map[string]struct{}, pkgPath string, packageCounter *int) *ast.File {
 	// Shuffle top level declarations
 	mathrand.Shuffle(len(file.Decls), func(i, j int) {
 		decl1 := file.Decls[i]
@@ -1026,7 +1036,14 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			return true
 		}
 
-		name := encodeIntToName(len(privateNameMap) + 1)
+		var name string
+		for {
+			*packageCounter++
+			name = encodeIntToName(*packageCounter)
+			if _, ok := existsNames[name]; !ok {
+				break
+			}
+		}
 
 		// orig := node.Name
 		privateNameMap[fullName] = name

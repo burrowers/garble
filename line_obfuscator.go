@@ -16,6 +16,50 @@ import (
 // Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/syntax/parser_test.go#229
 const PosMin = 1
 
+const buildTagPrefix = "// +build"
+
+var nameSpecialDirectives = []string{
+	"//go:linkname",
+
+	"//go:cgo_export_static",
+	"//go:cgo_export_dynamic",
+	"//go:cgo_import_static",
+	"//go:cgo_import_dynamic",
+}
+
+var specialDirectives = append([]string{
+	"//go:cgo_ldflag",
+	"//go:cgo_dynamic_linker",
+	// Not necessarily, but it is desirable to prevent unexpected consequences in cases where "//go:generate" is linked to "node.Doc"
+	"//go:generate",
+}, nameSpecialDirectives...)
+
+func isOneOfDirective(text string, directives []string) bool {
+	for _, prefix := range directives {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func getLocalName(text string) (string, bool) {
+	if !isOneOfDirective(text, nameSpecialDirectives) {
+		return "", false
+	}
+	parts := strings.SplitN(text, " ", 3)
+	if len(parts) < 2 {
+		return "", false
+	}
+
+	name := strings.TrimSpace(parts[1])
+	if len(name) == 0 {
+		return "", false
+	}
+
+	return name, false
+}
+
 func prependComment(group *ast.CommentGroup, comment *ast.Comment) *ast.CommentGroup {
 	if group == nil {
 		return &ast.CommentGroup{List: []*ast.Comment{comment}}
@@ -32,9 +76,8 @@ func clearCommentGroup(group *ast.CommentGroup) *ast.CommentGroup {
 	}
 
 	var comments []*ast.Comment
-
 	for _, comment := range group.List {
-		if strings.HasPrefix(comment.Text, "//go:") {
+		if strings.HasPrefix(comment.Text, "//go:") && !isOneOfDirective(comment.Text, specialDirectives) {
 			comments = append(comments, &ast.Comment{Text: comment.Text})
 		}
 	}
@@ -49,12 +92,16 @@ func clearNodeComments(node ast.Node) {
 	switch n := node.(type) {
 	case *ast.Field:
 		n.Doc = clearCommentGroup(n.Doc)
+		n.Comment = nil
 	case *ast.ImportSpec:
 		n.Doc = clearCommentGroup(n.Doc)
+		n.Comment = nil
 	case *ast.ValueSpec:
 		n.Doc = clearCommentGroup(n.Doc)
+		n.Comment = nil
 	case *ast.TypeSpec:
 		n.Doc = clearCommentGroup(n.Doc)
+		n.Comment = nil
 	case *ast.GenDecl:
 		n.Doc = clearCommentGroup(n.Doc)
 	case *ast.FuncDecl:
@@ -64,21 +111,39 @@ func clearNodeComments(node ast.Node) {
 	}
 }
 
-func findBuildTags(commentGroups []*ast.CommentGroup) (buildTags []string) {
-	for _, group := range commentGroups {
-		for _, comment := range group.List {
-			if !strings.Contains(comment.Text, "+build") {
+func processSpecialComments(commentGroups []*ast.CommentGroup) (extraComments, localnameBlacklist []string) {
+	var buildTags []string
+	var specialComments []string
+	for _, commentGroup := range commentGroups {
+		for _, comment := range commentGroup.List {
+			if strings.HasPrefix(comment.Text, buildTagPrefix) {
+				buildTags = append(buildTags, comment.Text)
 				continue
 			}
-			buildTags = append(buildTags, comment.Text)
+
+			if !isOneOfDirective(comment.Text, specialDirectives) {
+				continue
+			}
+
+			specialComments = append(specialComments, comment.Text)
+			localName, ok := getLocalName(comment.Text)
+			if ok {
+				localnameBlacklist = append(localnameBlacklist, localName)
+			}
 		}
 	}
-	return buildTags
+
+	extraComments = append(extraComments, buildTags...)
+	extraComments = append(extraComments, "")
+	extraComments = append(extraComments, specialComments...)
+	extraComments = append(extraComments, "")
+	return extraComments, localnameBlacklist
 }
 
-func transformLineInfo(file *ast.File) ([]string, *ast.File) {
+func transformLineInfo(file *ast.File) ([]string, []string, *ast.File) {
 	// Save build tags and add file name leak protection
-	extraComments := append(findBuildTags(file.Comments), "", "//line :1")
+	extraComments, localNameBlacklist := processSpecialComments(file.Comments)
+	extraComments = append(extraComments, "", "//line :1")
 	file.Comments = nil
 
 	newLines := mathrand.Perm(len(file.Decls))
@@ -88,6 +153,9 @@ func transformLineInfo(file *ast.File) ([]string, *ast.File) {
 		node := cursor.Node()
 		clearNodeComments(node)
 
+		if envGarbleTiny {
+			return true
+		}
 		funcDecl, ok := node.(*ast.FuncDecl)
 		if !ok {
 			return true
@@ -99,5 +167,5 @@ func transformLineInfo(file *ast.File) ([]string, *ast.File) {
 		return true
 	}
 
-	return extraComments, astutil.Apply(file, pre, nil).(*ast.File)
+	return extraComments, localNameBlacklist, astutil.Apply(file, pre, nil).(*ast.File)
 }
