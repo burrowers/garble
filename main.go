@@ -147,6 +147,8 @@ func saveListedPackages(w io.Writer, flags, patterns []string) error {
 	}
 	dec := json.NewDecoder(stdout)
 	listedPackages = make(map[string]*listedPackage)
+
+	// TODO: Add ImportMap support
 	for dec.More() {
 		var pkg listedPackage
 		if err := dec.Decode(&pkg); err != nil {
@@ -703,7 +705,7 @@ func transformCompile(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
-const privateBlacklist = "runtime,internal/cpu,internal/bytealg"
+const privateBlacklist = "runtime,internal/cpu,internal/bytealg,sync"
 
 // isPrivate checks if GOPRIVATE matches path.
 //
