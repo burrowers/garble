@@ -589,7 +589,7 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	privateNameMap := make(map[string]string)
-	existsNames := collectNames(files)
+	existingNames := collectNames(files)
 	packageCounter := 0
 
 	// TODO: randomize the order and names of the files
