@@ -49,12 +49,16 @@ func clearNodeComments(node ast.Node) {
 	switch n := node.(type) {
 	case *ast.Field:
 		n.Doc = clearCommentGroup(n.Doc)
+		n.Comment = nil
 	case *ast.ImportSpec:
 		n.Doc = clearCommentGroup(n.Doc)
+		n.Comment = nil
 	case *ast.ValueSpec:
 		n.Doc = clearCommentGroup(n.Doc)
+		n.Comment = nil
 	case *ast.TypeSpec:
 		n.Doc = clearCommentGroup(n.Doc)
+		n.Comment = nil
 	case *ast.GenDecl:
 		n.Doc = clearCommentGroup(n.Doc)
 	case *ast.FuncDecl:
