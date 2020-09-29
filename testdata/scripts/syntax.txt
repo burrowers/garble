@@ -105,7 +105,7 @@ func scopesTest() {
 
 func input(localNameParam string) (localNameReturn string) { return localNameParam }
 
--- sub\names.go --
+-- sub/names.go --
 package sub
 
 // Do not move these fields! Moving can break a test
