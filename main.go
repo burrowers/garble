@@ -625,7 +625,7 @@ func transformCompile(args []string) ([]string, error) {
 			if !envGarbleTiny {
 				extraComments, file = transformLineInfo(file)
 			}
-			file = transformGo(file, info, blacklist, privateNameMap, pkgPath, existsNames, &packageCounter)
+			file = transformGo(file, info, blacklist, privateNameMap, pkgPath, existingNames, &packageCounter)
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
@@ -925,7 +925,7 @@ func collectNames(files []*ast.File) map[string]struct{} {
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, pkgPath string, existsNames map[string]struct{}, packageCounter *int) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, pkgPath string, existingNames map[string]struct{}, packageCounter *int) *ast.File {
 	// Shuffle top level declarations
 	mathrand.Shuffle(len(file.Decls), func(i, j int) {
 		decl1 := file.Decls[i]
@@ -1051,7 +1051,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		for {
 			*packageCounter++
 			name = encodeIntToName(*packageCounter)
-			if _, ok := existsNames[name]; !ok {
+			if _, ok := existingNames[name]; !ok {
 				break
 			}
 		}
