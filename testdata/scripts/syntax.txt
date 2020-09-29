@@ -108,7 +108,6 @@ func input(localNameParam string) (localNameReturn string) { return localNamePar
 -- sub/names.go --
 package sub
 
-// Do not move these fields! Moving can break a test
 var someGlobalVar0 = "0"
 var someGlobalVar1 = "1"
 var someGlobalVar2 = "2"
