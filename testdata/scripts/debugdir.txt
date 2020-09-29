@@ -4,13 +4,21 @@ garble -debugdir ./test1 build
 exists 'test1/test/main/imported/imported.go' 'test1/main/main.go'
 ! grep ImportedFunc $WORK/test1/test/main/imported/imported.go
 ! grep ImportedFunc $WORK/test1/main/main.go
+! grep 'some comment' $WORK/test1/main/main.go
 
 -- go.mod --
 module test/main
 -- main.go --
 package main
 
-import "test/main/imported"
+import "test/main/imported" // some comment
+
+type someType int // some comment
+var someVar = 0
+
+type someStruct struct {
+    someField int // some comment
+}
 
 func main() {
 	imported.ImportedFunc()
