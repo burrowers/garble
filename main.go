@@ -591,11 +591,27 @@ func transformCompile(args []string) ([]string, error) {
 	privateNameMap := make(map[string]string)
 	existingNames := collectNames(files)
 	packageCounter := 0
+	filesExtraComments := make([][]string, len(files))
+
+	for i, file := range files {
+		name := filepath.Base(filepath.Clean(paths[i]))
+		cgoFile := strings.HasPrefix(name, "_cgo_")
+		extraComments, localNameBlacklist, file := transformLineInfo(file, cgoFile)
+		for _, name := range localNameBlacklist {
+			obj := pkg.Scope().Lookup(name)
+			if obj == nil {
+				continue
+			}
+
+			blacklist[obj] = struct{}{}
+		}
+		filesExtraComments[i] = extraComments
+		files[i] = file
+	}
 
 	// TODO: randomize the order and names of the files
 	newPaths := make([]string, 0, len(files))
 	for i, file := range files {
-		var extraComments []string
 		origName := filepath.Base(filepath.Clean(paths[i]))
 		name := origName
 		switch {
@@ -622,9 +638,6 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
-			if !envGarbleTiny {
-				extraComments, file = transformLineInfo(file)
-			}
 			file = transformGo(file, info, blacklist, privateNameMap, pkgPath, existingNames, &packageCounter)
 
 			// Uncomment for some quick debugging. Do not delete.
@@ -651,6 +664,7 @@ func transformCompile(args []string) ([]string, error) {
 			printWriter = io.MultiWriter(tempFile, debugFile)
 		}
 
+		extraComments := filesExtraComments[i]
 		if len(extraComments) > 0 {
 			for _, comment := range extraComments {
 				if _, err = printWriter.Write([]byte(comment + "\n")); err != nil {

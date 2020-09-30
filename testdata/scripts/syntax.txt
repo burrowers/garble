@@ -1,14 +1,15 @@
 env GOPRIVATE='test/main,rsc.io/*'
 
-garble build
+garble build -tags directives
 exec ./main$exe
 cmp stderr main.stderr
 
-! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'rsc.io'
+! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'rsc.io' 'directiveLocalFunc'
+binsubstr main$exe 'newDirectiveFuncName'
 
 [short] stop # no need to verify this with -short
 
-go build
+go build -tags directives
 exec ./main$exe
 cmp stderr main.stderr
 
@@ -73,6 +74,7 @@ func main() {
 	scopesTest()
 	println(quote.Go())
 	sub.Test()
+	sub.TestDirectives()
 }
 
 -- scopes.go --
@@ -122,6 +124,22 @@ func Test() {
 
 func noop(...interface{}) {}
 
+-- sub/directives.go --
+// +build directives
+
+package sub
+
+import _ "unsafe"
+
+//go:linkname directiveLocalFunc newDirectiveFuncName
+
+//go:noinline
+func directiveLocalFunc() { }
+
+//go:noinline
+func TestDirectives() {
+    directiveLocalFunc()
+}
 -- main.stderr --
 nil case
 {"Foo":3}
