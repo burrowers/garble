@@ -26,6 +26,7 @@ import (
 	"go/ast"
 
 	"rsc.io/quote"
+	"test/main/sub"
 )
 
 // This comment contains valuable information. Ensure it's not in the final binary.
@@ -71,6 +72,7 @@ func main() {
 	println(string(enc))
 	scopesTest()
 	println(quote.Go())
+	sub.Test()
 }
 
 -- scopes.go --
@@ -102,6 +104,23 @@ func scopesTest() {
 }
 
 func input(localNameParam string) (localNameReturn string) { return localNameParam }
+
+-- sub/names.go --
+package sub
+
+var someGlobalVar0 = "0"
+var someGlobalVar1 = "1"
+var someGlobalVar2 = "2"
+
+func Test() {
+    var A, B, C, D, E string
+    noop(A, B, C, D, E)
+    if someGlobalVar0 != "0" || someGlobalVar1 != "1" || someGlobalVar2 != "2"{
+        panic("name collision detected")
+    }
+}
+
+func noop(...interface{}) {}
 
 -- main.stderr --
 nil case

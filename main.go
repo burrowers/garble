@@ -589,6 +589,8 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	privateNameMap := make(map[string]string)
+	existingNames := collectNames(files)
+	packageCounter := 0
 
 	// TODO: randomize the order and names of the files
 	newPaths := make([]string, 0, len(files))
@@ -623,7 +625,7 @@ func transformCompile(args []string) ([]string, error) {
 			if !envGarbleTiny {
 				extraComments, file = transformLineInfo(file)
 			}
-			file = transformGo(file, info, blacklist, privateNameMap, pkgPath)
+			file = transformGo(file, info, blacklist, privateNameMap, pkgPath, existingNames, &packageCounter)
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
@@ -830,11 +832,14 @@ var privateNameCharset = buildNameCharset()
 
 func encodeIntToName(i int) string {
 	builder := strings.Builder{}
-	builder.WriteByte('_')
 	for i > 0 {
 		charIdx := i % len(privateNameCharset)
 		i -= charIdx + 1
-		builder.WriteRune(privateNameCharset[charIdx])
+		c := privateNameCharset[charIdx]
+		if builder.Len() == 0 && !unicode.IsLetter(c) {
+			builder.WriteByte('_')
+		}
+		builder.WriteRune(c)
 	}
 	return builder.String()
 }
@@ -903,8 +908,24 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 	return blacklist
 }
 
+// collectNames collects all names, including the names of local variables,
+// functions, global fields, etc.
+func collectNames(files []*ast.File) map[string]struct{} {
+	blacklist := make(map[string]struct{})
+	visit := func(node ast.Node) bool {
+		if ident, ok := node.(*ast.Ident); ok {
+			blacklist[ident.Name] = struct{}{}
+		}
+		return true
+	}
+	for _, file := range files {
+		ast.Inspect(file, visit)
+	}
+	return blacklist
+}
+
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, pkgPath string) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, pkgPath string, existingNames map[string]struct{}, packageCounter *int) *ast.File {
 	// Shuffle top level declarations
 	mathrand.Shuffle(len(file.Decls), func(i, j int) {
 		decl1 := file.Decls[i]
@@ -1026,7 +1047,14 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			return true
 		}
 
-		name := encodeIntToName(len(privateNameMap) + 1)
+		var name string
+		for {
+			*packageCounter++
+			name = encodeIntToName(*packageCounter)
+			if _, ok := existingNames[name]; !ok {
+				break
+			}
+		}
 
 		// orig := node.Name
 		privateNameMap[fullName] = name
