@@ -4,8 +4,8 @@ garble build -tags directives
 exec ./main$exe
 cmp stderr main.stderr
 
-! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'rsc.io' 'directiveLocalFunc'
-binsubstr main$exe 'newDirectiveFuncName'
+! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'rsc.io' 'remoteIntReturn' 'intReturn'
+binsubstr main$exe 'magicFunc'
 
 [short] stop # no need to verify this with -short
 
@@ -14,7 +14,7 @@ exec ./main$exe
 cmp stderr main.stderr
 
 binsubstr main$exe 'globalVar' # 'globalType' only matches on go < 1.15
-! binsubstr main$exe 'localName' 'globalConst'
+! binsubstr main$exe 'localName' 'globalConst' 'remoteIntReturn' 'intReturn'
 
 
 -- go.mod --
@@ -129,16 +129,33 @@ func noop(...interface{}) {}
 
 package sub
 
-import _ "unsafe"
+import (
+    _ "unsafe"
+    _ "test/main/sub/a"
+)
 
-//go:linkname directiveLocalFunc newDirectiveFuncName
+//go:linkname remoteIntReturn a.magicFunc
 
-//go:noinline
-func directiveLocalFunc() { }
+func remoteIntReturn() int
 
 //go:noinline
 func TestDirectives() {
-    directiveLocalFunc()
+    if remoteIntReturn() != 42 {
+        panic("invalid result")
+    }
+}
+-- sub/a/directives.go --
+// +build directives
+
+package a
+
+import _ "unsafe"
+
+//go:linkname intReturn a.magicFunc
+
+//go:noinline
+func intReturn() int {
+    return 42
 }
 -- main.stderr --
 nil case
