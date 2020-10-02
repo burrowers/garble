@@ -599,11 +599,9 @@ func transformCompile(args []string) ([]string, error) {
 		extraComments, localNameBlacklist, file := transformLineInfo(file, cgoFile)
 		for _, name := range localNameBlacklist {
 			obj := pkg.Scope().Lookup(name)
-			if obj == nil {
-				continue
+			if obj != nil {
+				blacklist[obj] = struct{}{}
 			}
-
-			blacklist[obj] = struct{}{}
 		}
 		filesExtraComments[i] = extraComments
 		files[i] = file

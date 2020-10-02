@@ -18,6 +18,7 @@ const PosMin = 1
 
 const buildTagPrefix = "// +build"
 
+// Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/gc/noder.go#1493
 var nameSpecialDirectives = []string{
 	"//go:linkname",
 
@@ -30,11 +31,9 @@ var nameSpecialDirectives = []string{
 var specialDirectives = append([]string{
 	"//go:cgo_ldflag",
 	"//go:cgo_dynamic_linker",
-	// Not necessarily, but it is desirable to prevent unexpected consequences in cases where "//go:generate" is linked to "node.Doc"
-	"//go:generate",
 }, nameSpecialDirectives...)
 
-func isOneOfDirective(text string, directives []string) bool {
+func isDirective(text string, directives []string) bool {
 	for _, prefix := range directives {
 		if strings.HasPrefix(text, prefix) {
 			return true
@@ -44,7 +43,7 @@ func isOneOfDirective(text string, directives []string) bool {
 }
 
 func getLocalName(text string) (string, bool) {
-	if !isOneOfDirective(text, nameSpecialDirectives) {
+	if !isDirective(text, nameSpecialDirectives) {
 		return "", false
 	}
 	parts := strings.SplitN(text, " ", 3)
@@ -77,7 +76,7 @@ func clearCommentGroup(group *ast.CommentGroup) *ast.CommentGroup {
 
 	var comments []*ast.Comment
 	for _, comment := range group.List {
-		if strings.HasPrefix(comment.Text, "//go:") && !isOneOfDirective(comment.Text, specialDirectives) {
+		if strings.HasPrefix(comment.Text, "//go:") && !isDirective(comment.Text, specialDirectives) {
 			comments = append(comments, &ast.Comment{Text: comment.Text})
 		}
 	}
@@ -121,20 +120,18 @@ func processSpecialComments(commentGroups []*ast.CommentGroup) (extraComments, l
 				continue
 			}
 
-			if !isOneOfDirective(comment.Text, specialDirectives) {
+			if !isDirective(comment.Text, specialDirectives) {
 				continue
 			}
 
 			specialComments = append(specialComments, comment.Text)
-			localName, ok := getLocalName(comment.Text)
-			if ok {
+			if localName, ok := getLocalName(comment.Text); ok {
 				localnameBlacklist = append(localnameBlacklist, localName)
 			}
 		}
 	}
 
 	extraComments = append(extraComments, buildTags...)
-	extraComments = append(extraComments, "")
 	extraComments = append(extraComments, specialComments...)
 	extraComments = append(extraComments, "")
 	return extraComments, localnameBlacklist
@@ -158,6 +155,7 @@ func transformLineInfo(file *ast.File, cgoFile bool) ([]string, []string, *ast.F
 		node := cursor.Node()
 		clearNodeComments(node)
 
+		// If tiny mode is active information about line numbers is erased in object files
 		if envGarbleTiny {
 			return true
 		}
