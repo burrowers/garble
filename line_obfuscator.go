@@ -46,7 +46,7 @@ func getLocalName(text string) (string, bool) {
 	if !isDirective(text, nameSpecialDirectives) {
 		return "", false
 	}
-	parts := strings.SplitN(text, " ", 3)
+	parts := strings.Fields(text)
 	if len(parts) < 2 {
 		return "", false
 	}
@@ -110,7 +110,9 @@ func clearNodeComments(node ast.Node) {
 	}
 }
 
-func processSpecialComments(commentGroups []*ast.CommentGroup) (extraComments, localnameBlacklist []string) {
+// processDetachedDire collects all not attached to declarations comments and build tags
+// It returns detached comments and local name blacklist
+func processDetachedDirectives(commentGroups []*ast.CommentGroup) (detachedComments, localNameBlacklist []string) {
 	var buildTags []string
 	var specialComments []string
 	for _, commentGroup := range commentGroups {
@@ -126,26 +128,28 @@ func processSpecialComments(commentGroups []*ast.CommentGroup) (extraComments, l
 
 			specialComments = append(specialComments, comment.Text)
 			if localName, ok := getLocalName(comment.Text); ok {
-				localnameBlacklist = append(localnameBlacklist, localName)
+				localNameBlacklist = append(localNameBlacklist, localName)
 			}
 		}
 	}
 
-	extraComments = append(extraComments, buildTags...)
-	extraComments = append(extraComments, specialComments...)
-	extraComments = append(extraComments, "")
-	return extraComments, localnameBlacklist
+	detachedComments = append(detachedComments, buildTags...)
+	detachedComments = append(detachedComments, specialComments...)
+	detachedComments = append(detachedComments, "")
+	return detachedComments, localNameBlacklist
 }
 
-func transformLineInfo(file *ast.File, cgoFile bool) ([]string, []string, *ast.File) {
+// transformLineInfo removes the comment except go directives and build tags. Converts comments to the node view.
+// It returns comments not attached to declarations and names of declarations which cannot be renamed.
+func transformLineInfo(file *ast.File, cgoFile bool) (detachedComments, localNameBlacklist []string, f *ast.File) {
 	prefix := ""
 	if cgoFile {
 		prefix = "_cgo_"
 	}
 
 	// Save build tags and add file name leak protection
-	extraComments, localNameBlacklist := processSpecialComments(file.Comments)
-	extraComments = append(extraComments, "", "//line "+prefix+":1")
+	detachedComments, localNameBlacklist = processDetachedDirectives(file.Comments)
+	detachedComments = append(detachedComments, "", "//line "+prefix+":1")
 	file.Comments = nil
 
 	newLines := mathrand.Perm(len(file.Decls))
@@ -170,5 +174,5 @@ func transformLineInfo(file *ast.File, cgoFile bool) ([]string, []string, *ast.F
 		return true
 	}
 
-	return extraComments, localNameBlacklist, astutil.Apply(file, pre, nil).(*ast.File)
+	return detachedComments, localNameBlacklist, astutil.Apply(file, pre, nil).(*ast.File)
 }
