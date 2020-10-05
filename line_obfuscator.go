@@ -16,6 +16,49 @@ import (
 // Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/syntax/parser_test.go#229
 const PosMin = 1
 
+const buildTagPrefix = "// +build"
+
+// Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/gc/noder.go#1493
+var nameSpecialDirectives = []string{
+	"//go:linkname",
+
+	"//go:cgo_export_static",
+	"//go:cgo_export_dynamic",
+	"//go:cgo_import_static",
+	"//go:cgo_import_dynamic",
+}
+
+var specialDirectives = append([]string{
+	"//go:cgo_ldflag",
+	"//go:cgo_dynamic_linker",
+}, nameSpecialDirectives...)
+
+func isDirective(text string, directives []string) bool {
+	for _, prefix := range directives {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func getLocalName(text string) (string, bool) {
+	if !isDirective(text, nameSpecialDirectives) {
+		return "", false
+	}
+	parts := strings.Fields(text)
+	if len(parts) < 2 {
+		return "", false
+	}
+
+	name := strings.TrimSpace(parts[1])
+	if len(name) == 0 {
+		return "", false
+	}
+
+	return name, true
+}
+
 func prependComment(group *ast.CommentGroup, comment *ast.Comment) *ast.CommentGroup {
 	if group == nil {
 		return &ast.CommentGroup{List: []*ast.Comment{comment}}
@@ -32,9 +75,8 @@ func clearCommentGroup(group *ast.CommentGroup) *ast.CommentGroup {
 	}
 
 	var comments []*ast.Comment
-
 	for _, comment := range group.List {
-		if strings.HasPrefix(comment.Text, "//go:") {
+		if strings.HasPrefix(comment.Text, "//go:") && !isDirective(comment.Text, specialDirectives) {
 			comments = append(comments, &ast.Comment{Text: comment.Text})
 		}
 	}
@@ -68,21 +110,46 @@ func clearNodeComments(node ast.Node) {
 	}
 }
 
-func findBuildTags(commentGroups []*ast.CommentGroup) (buildTags []string) {
-	for _, group := range commentGroups {
-		for _, comment := range group.List {
-			if !strings.Contains(comment.Text, "+build") {
+// processDetachedDire collects all not attached to declarations comments and build tags
+// It returns detached comments and local name blacklist
+func processDetachedDirectives(commentGroups []*ast.CommentGroup) (detachedComments, localNameBlacklist []string) {
+	var buildTags []string
+	var specialComments []string
+	for _, commentGroup := range commentGroups {
+		for _, comment := range commentGroup.List {
+			if strings.HasPrefix(comment.Text, buildTagPrefix) {
+				buildTags = append(buildTags, comment.Text)
 				continue
 			}
-			buildTags = append(buildTags, comment.Text)
+
+			if !isDirective(comment.Text, specialDirectives) {
+				continue
+			}
+
+			specialComments = append(specialComments, comment.Text)
+			if localName, ok := getLocalName(comment.Text); ok {
+				localNameBlacklist = append(localNameBlacklist, localName)
+			}
 		}
 	}
-	return buildTags
+
+	detachedComments = append(detachedComments, buildTags...)
+	detachedComments = append(detachedComments, specialComments...)
+	detachedComments = append(detachedComments, "")
+	return detachedComments, localNameBlacklist
 }
 
-func transformLineInfo(file *ast.File) ([]string, *ast.File) {
+// transformLineInfo removes the comment except go directives and build tags. Converts comments to the node view.
+// It returns comments not attached to declarations and names of declarations which cannot be renamed.
+func transformLineInfo(file *ast.File, cgoFile bool) (detachedComments, localNameBlacklist []string, f *ast.File) {
+	prefix := ""
+	if cgoFile {
+		prefix = "_cgo_"
+	}
+
 	// Save build tags and add file name leak protection
-	extraComments := append(findBuildTags(file.Comments), "", "//line :1")
+	detachedComments, localNameBlacklist = processDetachedDirectives(file.Comments)
+	detachedComments = append(detachedComments, "", "//line "+prefix+":1")
 	file.Comments = nil
 
 	newLines := mathrand.Perm(len(file.Decls))
@@ -92,16 +159,20 @@ func transformLineInfo(file *ast.File) ([]string, *ast.File) {
 		node := cursor.Node()
 		clearNodeComments(node)
 
+		// If tiny mode is active information about line numbers is erased in object files
+		if envGarbleTiny {
+			return true
+		}
 		funcDecl, ok := node.(*ast.FuncDecl)
 		if !ok {
 			return true
 		}
 
-		comment := &ast.Comment{Text: fmt.Sprintf("//line %c.go:%d", nameCharset[mathrand.Intn(len(nameCharset))], PosMin+newLines[funcCounter])}
+		comment := &ast.Comment{Text: fmt.Sprintf("//line %s%c.go:%d", prefix, nameCharset[mathrand.Intn(len(nameCharset))], PosMin+newLines[funcCounter])}
 		funcDecl.Doc = prependComment(funcDecl.Doc, comment)
 		funcCounter++
 		return true
 	}
 
-	return extraComments, astutil.Apply(file, pre, nil).(*ast.File)
+	return detachedComments, localNameBlacklist, astutil.Apply(file, pre, nil).(*ast.File)
 }
