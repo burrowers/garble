@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"sort"
 	"strings"
@@ -61,14 +62,30 @@ func appendPrivateNameMap(pkg *goobj2.Package, nameMap map[string]string) error 
 	return nil
 }
 
-func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNameMap map[string]string, err error) {
+// obfuscateImports does all the necessary work to replace the import paths of
+// obfuscated packages with hashes. It takes the single object file and import
+// config passed to the linker, as well as a temporary directory to store
+// modified object files.
+//
+// For each garbled package, we write a modified version of its object file,
+// replacing import paths as necessary. We can't modify the object files
+// in-place, as those are the cached compiler output. Modifying the output of
+// the compiler cache would trigger recompilations.
+//
+// Note that we can modify the importcfg file in-place, because it's not part of
+// the build cache.
+//
+// It returns the path to the modified main object file, to be used for linking.
+// We also return a map of how the imports were garbled, as well as the private
+// name map recovered from the archive files, so that we can amend -X flags.
+func obfuscateImports(objPath, tempDir, importCfgPath string) (garbledObj string, garbledImports, privateNameMap map[string]string, _ error) {
 	importCfg, err := goobj2.ParseImportCfg(importCfgPath)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, nil, err
 	}
 	mainPkg, err := goobj2.Parse(objPath, "main", importCfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error parsing main objfile: %v", err)
+		return "", nil, nil, fmt.Errorf("error parsing main objfile: %v", err)
 	}
 	pkgs := []pkgInfo{{mainPkg, objPath, true}}
 
@@ -80,13 +97,13 @@ func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNam
 		if private := isPrivate(pkgPath); envGarbleTiny || private {
 			pkg, err := goobj2.Parse(info.Path, pkgPath, importCfg)
 			if err != nil {
-				return nil, nil, fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
+				return "", nil, nil, fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
 			}
 
 			pkgs = append(pkgs, pkgInfo{pkg, info.Path, private})
 
 			if err := appendPrivateNameMap(pkg, privateNameMap); err != nil {
-				return nil, nil, fmt.Errorf("error parsing name map %s at %s: %v", pkgPath, info.Path, err)
+				return "", nil, nil, fmt.Errorf("error parsing name map %s at %s: %v", pkgPath, info.Path, err)
 			}
 		}
 	}
@@ -95,6 +112,7 @@ func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNam
 	var buf bytes.Buffer
 
 	garbledImports = make(map[string]string)
+	replacedFiles := make(map[string]string)
 	for _, p := range pkgs {
 		// log.Printf("++ Obfuscating object file for %s ++", p.pkg.ImportPath)
 		for _, am := range p.pkg.ArchiveMembers {
@@ -169,17 +187,27 @@ func obfuscateImports(objPath, importCfgPath string) (garbledImports, privateNam
 			garbleSymbols(&am, privImports, garbledImports, &buf, &sb)
 		}
 
-		if err := p.pkg.Write(p.path); err != nil {
-			return nil, nil, fmt.Errorf("error writing objfile %s at %s: %v", p.pkg.ImportPath, p.path, err)
+		// An archive under the temporary file. Note that
+		// ioutil.TempFile creates a file to ensure no collisions, so we
+		// simply use its name after closing the file.
+		tempObjFile, err := ioutil.TempFile(tempDir, "pkg.*.a")
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("creating temp file: %v", err)
 		}
+		tempObj := tempObjFile.Name()
+		tempObjFile.Close()
+		if err := p.pkg.Write(tempObj); err != nil {
+			return "", nil, nil, fmt.Errorf("error writing objfile %s at %s: %v", p.pkg.ImportPath, p.path, err)
+		}
+		replacedFiles[p.path] = tempObj
 	}
 
 	// garble importcfg so the linker knows where to find garbled imports
-	if err := garbleImportCfg(importCfgPath, importCfg, garbledImports); err != nil {
-		return nil, nil, err
+	if err := garbleImportCfg(importCfgPath, importCfg, garbledImports, replacedFiles); err != nil {
+		return "", nil, nil, err
 	}
 
-	return garbledImports, privateNameMap, nil
+	return replacedFiles[objPath], garbledImports, privateNameMap, nil
 }
 
 // stripPCLinesAndNames removes all filename and position info
@@ -640,7 +668,7 @@ func patchReflectData(newName []byte, data []byte) []byte {
 }
 
 // garbleImportCfg writes a new importcfg with private import paths garbled.
-func garbleImportCfg(path string, importCfg goobj2.ImportCfg, garbledImports map[string]string) error {
+func garbleImportCfg(path string, importCfg goobj2.ImportCfg, garbledImports, replacedFiles map[string]string) error {
 	newCfg, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("error creating importcfg: %v", err)
@@ -661,7 +689,11 @@ func garbleImportCfg(path string, importCfg goobj2.ImportCfg, garbledImports map
 		newCfgWr.WriteRune(' ')
 		newCfgWr.WriteString(pkgPath)
 		newCfgWr.WriteRune('=')
-		newCfgWr.WriteString(info.Path)
+		if replaced := replacedFiles[info.Path]; replaced != "" {
+			newCfgWr.WriteString(replaced)
+		} else {
+			newCfgWr.WriteString(info.Path)
+		}
 		newCfgWr.WriteRune('\n')
 	}
 
