@@ -1127,9 +1127,20 @@ func transformLink(args []string) ([]string, error) {
 		return nil, err
 	}
 
+	tempDir, err := ioutil.TempDir("", "garble-build")
+	if err != nil {
+		return nil, err
+	}
+	deferred = append(deferred, func() error {
+		return os.RemoveAll(tempDir)
+	})
+
 	// there should only ever be one archive/object file passed to the linker,
 	// the file for the main package or entrypoint
-	garbledImports, privateNameMap, err := obfuscateImports(paths[0], buildInfo.importCfg)
+	if len(paths) != 1 {
+		return nil, fmt.Errorf("expected exactly one link argument")
+	}
+	garbledObj, garbledImports, privateNameMap, err := obfuscateImports(paths[0], tempDir, buildInfo.importCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -1174,7 +1185,7 @@ func transformLink(args []string) ([]string, error) {
 
 	// Strip debug information and symbol tables.
 	flags = append(flags, "-w", "-s")
-	return append(flags, paths...), nil
+	return append(flags, garbledObj), nil
 }
 
 func splitFlagsFromArgs(all []string) (flags, args []string) {
