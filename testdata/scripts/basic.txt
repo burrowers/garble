@@ -32,9 +32,11 @@ stdout 'unknown'
 stderr 'should be used alongside -trimpath'
 
 # Also check that the binary is reproducible.
+# No packages should be rebuilt either, thanks to the build cache.
 cp main$exe main_old$exe
 rm main$exe
-garble build main.go
+garble build -v main.go
+! stderr .
 bincmp main$exe main_old$exe
 
 # Check that the program works as expected without garble. No need to verify
@@ -53,6 +55,8 @@ cmp stderr main.stderr
 binsubstr main$exe 'main.go' 'globalVar' 'globalFunc' $gofullversion
 [!windows] binsubstr main$exe ${WORK@R}
 
+-- go.mod --
+module test/mainfoo
 -- main.go --
 package main
 

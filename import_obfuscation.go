@@ -324,7 +324,7 @@ func hashImport(pkg string, garbledImports map[string]string) string {
 		return garbledPkg
 	}
 
-	garbledPkg := hashWith(buildInfo.imports[pkg].buildID, pkg)
+	garbledPkg := hashWith(buildInfo.imports[pkg].actionID, pkg)
 	garbledImports[pkg] = garbledPkg
 
 	return garbledPkg
