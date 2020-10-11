@@ -99,7 +99,7 @@ var (
 	})}
 
 	buildInfo = struct {
-		buildID   string // from -buildid
+		actionID  []byte // from -buildid
 		importCfg string // from -importcfg
 
 		// TODO: replace part of this with goobj.ParseImportCfg, so that
@@ -218,7 +218,7 @@ func garbledImport(path string) (*types.Package, error) {
 
 type importedPkg struct {
 	packagefile string
-	buildID     string
+	actionID    []byte
 
 	pkg *types.Package
 }
@@ -260,7 +260,7 @@ How to install Go: https://golang.org/doc/install
 		return false
 	}
 
-	rawVersion := string(bytes.TrimPrefix(bytes.TrimSpace(out), []byte("go version ")))
+	rawVersion := strings.TrimPrefix(strings.TrimSpace(string(out)), "go version ")
 
 	tagIdx := strings.IndexByte(rawVersion, ' ')
 	tag := rawVersion[:tagIdx]
@@ -424,9 +424,12 @@ func mainErr(args []string) error {
 		}
 		goArgs := []string{
 			cmd,
-			"-a",
 			"-trimpath",
 			"-toolexec=" + execPath,
+		}
+		if flagDebugDir != "" {
+			// TODO: don't make -debugdir force rebuilding all packages
+			goArgs = append(goArgs, "-a")
 		}
 		if cmd == "test" {
 			// vet is generally not useful on garbled code; keep it
@@ -455,6 +458,45 @@ func mainErr(args []string) error {
 	transformed := args[1:]
 	// log.Println(tool, transformed)
 	if transform != nil {
+		if len(args) == 2 && args[1] == "-V=full" {
+			cmd := exec.Command(args[0], args[1:]...)
+			out, err := cmd.Output()
+			if err != nil {
+				if err, _ := err.(*exec.ExitError); err != nil {
+					return fmt.Errorf("%v: %s", err, err.Stderr)
+				}
+				return err
+			}
+			line := string(bytes.TrimSpace(out))
+			f := strings.Fields(line)
+			if len(f) < 3 || f[0] != tool || f[1] != "version" || f[2] == "devel" && !strings.HasPrefix(f[len(f)-1], "buildID=") {
+				return fmt.Errorf("%s -V=full: unexpected output:\n\t%s", args[0], line)
+			}
+			var toolID []byte
+			if f[2] == "devel" {
+				// On the development branch, use the content ID part of the build ID.
+				toolID = decodeHash(contentID(f[len(f)-1]))
+			} else {
+				// For a release, the output is like: "compile version go1.9.1 X:framepointer".
+				// Use the whole line.
+				toolID = []byte(line)
+			}
+
+			out = bytes.TrimSpace(out) // no trailing newline
+			contentID, err := ownContentID(toolID)
+			if err != nil {
+				return fmt.Errorf("cannot obtain garble's own version: %v", err)
+			}
+			// The part of the build ID that matters is the last, since it's the
+			// "content ID" which is used to work out whether there is a need to redo
+			// the action (build) or not. Since cmd/go parses the last word in the
+			// output as "buildID=...", we simply add "+garble buildID=_/_/_/${hash}".
+			// The slashes let us imitate a full binary build ID, but we assume that
+			// the other components such as the action ID are not necessary, since the
+			// only reader here is cmd/go and it only consumes the content ID.
+			fmt.Printf("%s +garble buildID=_/_/_/%s\n", line, contentID)
+			return nil
+		}
 		var err error
 		if transformed, err = transform(transformed); err != nil {
 			return err
@@ -476,6 +518,38 @@ func mainErr(args []string) error {
 	return nil
 }
 
+const buildIDSeparator = "/"
+
+// actionID returns the action ID half of a build ID, the first element.
+func actionID(buildID string) string {
+	i := strings.Index(buildID, buildIDSeparator)
+	if i < 0 {
+		return buildID
+	}
+	return buildID[:i]
+}
+
+// contentID returns the content ID half of a build ID, the last element.
+func contentID(buildID string) string {
+	return buildID[strings.LastIndex(buildID, buildIDSeparator)+1:]
+}
+
+// decodeHash isthe opposite of hashToString, but with a panic for error
+// handling since it should never happen.
+func decodeHash(str string) []byte {
+	h, err := base64.RawURLEncoding.DecodeString(str)
+	if err != nil {
+		panic(fmt.Sprintf("invalid hash %q: %v", str, err))
+	}
+	return h
+}
+
+// hashToString encodes the first 120 bits of a sha256 sum in base64, the same
+// format used for elements in a build ID.
+func hashToString(h []byte) string {
+	return base64.RawURLEncoding.EncodeToString(h[:15])
+}
+
 var transformFuncs = map[string]func([]string) ([]string, error){
 	"compile": transformCompile,
 	"link":    transformLink,
@@ -484,10 +558,6 @@ var transformFuncs = map[string]func([]string) ([]string, error){
 func transformCompile(args []string) ([]string, error) {
 	var err error
 	flags, paths := splitFlagsFromFiles(args, ".go")
-	if len(paths) == 0 {
-		// Nothing to transform; probably just ["-V=full"].
-		return args, nil
-	}
 
 	// We will force the linker to drop DWARF via -w, so don't spend time
 	// generating it.
@@ -542,7 +612,7 @@ func transformCompile(args []string) ([]string, error) {
 
 		mathrand.Seed(int64(binary.BigEndian.Uint64(seed)))
 	} else {
-		mathrand.Seed(int64(binary.BigEndian.Uint64([]byte(buildInfo.buildID))))
+		mathrand.Seed(int64(binary.BigEndian.Uint64([]byte(buildInfo.actionID))))
 	}
 
 	info := &types.Info{
@@ -737,12 +807,12 @@ func isPrivate(path string) bool {
 
 // fillBuildInfo initializes the global buildInfo struct via the supplied flags.
 func fillBuildInfo(flags []string) error {
-	buildInfo.buildID = flagValue(flags, "-buildid")
-	switch buildInfo.buildID {
+	buildID := flagValue(flags, "-buildid")
+	switch buildID {
 	case "", "true":
 		return fmt.Errorf("could not find -buildid argument")
 	}
-	buildInfo.buildID = trimBuildID(buildInfo.buildID)
+	buildInfo.actionID = decodeHash(actionID(buildID))
 	buildInfo.importCfg = flagValue(flags, "-importcfg")
 	if buildInfo.importCfg == "" {
 		return fmt.Errorf("could not find -importcfg argument")
@@ -769,30 +839,22 @@ func fillBuildInfo(flags []string) error {
 			continue
 		}
 		importPath, objectPath := args[:j], args[j+1:]
-		fileID, err := buildidOf(objectPath)
+		buildID, err := buildidOf(objectPath)
 		if err != nil {
 			return err
 		}
-		// log.Println("buildid:", fileID)
+		// log.Println("buildid:", buildID)
 
 		if len(buildInfo.imports) == 0 {
 			buildInfo.firstImport = importPath
 		}
 		buildInfo.imports[importPath] = importedPkg{
 			packagefile: objectPath,
-			buildID:     fileID,
+			actionID:    decodeHash(actionID(buildID)),
 		}
 	}
 	// log.Printf("%#v", buildInfo)
 	return nil
-}
-
-func trimBuildID(id string) string {
-	id = strings.TrimSpace(id)
-	if i := strings.IndexByte(id, '/'); i > 0 {
-		id = id[:i]
-	}
-	return id
 }
 
 func buildidOf(path string) (string, error) {
@@ -804,19 +866,19 @@ func buildidOf(path string) (string, error) {
 		}
 		return "", err
 	}
-	return trimBuildID(string(bytes.TrimSpace(out))), nil
+	return string(out), nil
 }
 
-func hashWith(salt, value string) string {
+func hashWith(salt []byte, name string) string {
 	const length = 4
 
 	d := sha256.New()
-	io.WriteString(d, salt)
+	d.Write(salt)
 	d.Write(seed)
-	io.WriteString(d, value)
+	io.WriteString(d, name)
 	sum := b64.EncodeToString(d.Sum(nil))
 
-	if token.IsExported(value) {
+	if token.IsExported(name) {
 		return "Z" + sum[:length]
 	}
 	return "z" + sum[:length]
@@ -1030,12 +1092,12 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		default:
 			return true // we only want to rename the above
 		}
-		buildID := buildInfo.buildID
+		actionID := buildInfo.actionID
 		path := pkg.Path()
 		if !isPrivate(path) {
 			return true // only private packages are transformed
 		}
-		if id := buildInfo.imports[path].buildID; id != "" {
+		if id := buildInfo.imports[path].actionID; len(id) > 0 {
 			garbledPkg, err := garbledImport(path)
 			if err != nil {
 				panic(err) // shouldn't happen
@@ -1044,12 +1106,12 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			if garbledPkg.Scope().Lookup(obj.Name()) != nil {
 				return true
 			}
-			buildID = id
+			actionID = id
 		}
 
 		// The exported names cannot be shortened as counter synchronization between packages is not currently implemented
 		if token.IsExported(node.Name) {
-			node.Name = hashWith(buildID, node.Name)
+			node.Name = hashWith(actionID, node.Name)
 			return true
 		}
 
@@ -1071,7 +1133,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		// orig := node.Name
 		privateNameMap[fullName] = name
 		node.Name = name
-		// log.Printf("%q hashed with %q to %q", orig, buildID, node.Name)
+		// log.Printf("%q hashed with %q to %q", orig, actionID, node.Name)
 		return true
 	}
 	return astutil.Apply(file, pre, nil).(*ast.File)
@@ -1117,11 +1179,9 @@ func isTestSignature(sign *types.Signature) bool {
 }
 
 func transformLink(args []string) ([]string, error) {
-	flags, paths := splitFlagsFromFiles(args, ".a")
-	if len(paths) == 0 {
-		// Nothing to transform; probably just ["-V=full"].
-		return args, nil
-	}
+	// We can't split by the ".a" extension, because cached object files
+	// lack any extension.
+	flags, paths := splitFlagsFromArgs(args)
 
 	if err := fillBuildInfo(flags); err != nil {
 		return nil, err
@@ -1168,7 +1228,7 @@ func transformLink(args []string) ([]string, error) {
 			// the import config map.
 			pkgPath = buildInfo.firstImport
 		}
-		if id := buildInfo.imports[pkgPath].buildID; id != "" {
+		if id := buildInfo.imports[pkgPath].actionID; len(id) > 0 {
 			// If the name is not in the map file, it means that the name was not obfuscated or is public
 			newName, ok := privateNameMap[pkg+"."+name]
 			if !ok {
@@ -1341,4 +1401,47 @@ func flagSetValue(flags []string, name, value string) []string {
 		}
 	}
 	return append(flags, name+"="+value)
+}
+
+func ownContentID(toolID []byte) (string, error) {
+	// We can't rely on the module version to exist, because it's
+	// missing in local builds without 'go get'.
+	// For now, use 'go tool buildid' on the binary that's running. Just
+	// like Go's own cache, we use hex-encoded sha256 sums.
+	// Once https://github.com/golang/go/issues/37475 is fixed, we
+	// can likely just use that.
+	path, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	buildID, err := buildidOf(path)
+	if err != nil {
+		return "", err
+	}
+	ownID := decodeHash(contentID(buildID))
+
+	// Join the two content IDs together into a single base64-encoded sha256
+	// sum. This includes the original tool's content ID, and garble's own
+	// content ID.
+	h := sha256.New()
+	h.Write(toolID)
+	h.Write(ownID)
+
+	// We also need to add the selected options to the full version string,
+	// because all of them result in different output. We use spaces to
+	// separate the env vars and flags, to reduce the chances of collisions.
+	if envGoPrivate != "" {
+		fmt.Fprintf(h, " GOPRIVATE=%s", envGoPrivate)
+	}
+	if envGarbleLiterals {
+		fmt.Fprintf(h, " -literals")
+	}
+	if envGarbleTiny {
+		fmt.Fprintf(h, " -tiny")
+	}
+	if envGarbleSeed != "" {
+		fmt.Fprintf(h, " -seed=%x", envGarbleSeed)
+	}
+
+	return hashToString(h.Sum(nil)), nil
 }

@@ -10,9 +10,11 @@ cmp stdout main.stdout
 [short] stop # checking that the build is reproducible is slow
 
 # Also check that the binary is reproducible when many imports are involved.
+# No packages should be rebuilt either, thanks to the build cache.
 cp main$exe main_old$exe
 rm main$exe
-garble build -tags buildtag
+garble build -tags buildtag -v
+! stderr .
 bincmp main$exe main_old$exe
 
 go build -tags buildtag

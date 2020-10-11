@@ -16,7 +16,7 @@ information about the original source code as possible.
 
 The tool is designed to be:
 
-* Coupled with `cmd/go`, to support both `GOPATH` and modules with ease
+* Coupled with `cmd/go`, to support modules and build caching
 * Deterministic and reproducible, given the same initial source code
 * Reversible given the original source, to un-garble panic stack traces
 
@@ -43,9 +43,6 @@ packages to garble, set `GOPRIVATE`, documented at `go help module-private`.
 
 Most of these can improve with time and effort. The purpose of this section is
 to document the current shortcomings of this tool.
-
-* Build caching is not supported, so large projects will likely be slow to
-  build. See [golang/go#41145](https://github.com/golang/go/issues/41145).
 
 * Exported methods and fields are never garbled at the moment, since they could
   be required by interfaces and reflection. This area is a work in progress.

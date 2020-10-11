@@ -9,19 +9,23 @@ cmp stderr main.stdout
 [short] stop # checking that the build is reproducible and random is slow
 
 # Also check that the binary is reproducible.
+# No packages should be rebuilt either, thanks to the build cache.
 cp main$exe main_old$exe
 rm main$exe
-garble -literals -seed=OQg9kACEECQ= build
+garble -literals -seed=OQg9kACEECQ= build -v
+! stderr .
 bincmp main$exe main_old$exe
 
-# Also check that a different seed leads to a different binary
+# Also check that a different seed leads to a different binary.
+# We can't know if caching happens here, because of previous test runs.
 cp main$exe main_old$exe
 rm main$exe
 garble -literals -seed=NruiDmVz6/s build
 ! bincmp main$exe main_old$exe
 
-# Check the random binary
-garble -literals -seed=random build
+# Use a random seed, which should always trigger a full build.
+garble -literals -seed=random build -v
+stderr .
 exec ./main$exe
 cmp stderr main.stdout
 ! binsubstr main$exe 'teststring' 'teststringVar' 'imported var value' 'ImportedVar'
@@ -29,7 +33,8 @@ cmp stderr main.stdout
 # Also check that the random binary is not reproducible.
 cp main$exe main_old$exe
 rm main$exe
-garble -literals -seed=random build
+garble -literals -seed=random build -v
+stderr .
 ! bincmp main$exe main_old$exe
 
 -- go.mod --
