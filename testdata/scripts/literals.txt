@@ -1,21 +1,12 @@
 env GOPRIVATE=test/main
 
-# Generate and write random literals into a separate file
-generate-literals extraLiterals.go 100 printExtraLiterals
-
-go build
-exec ./main$exe
-
-binsubstr main$exe 'Lorem' 'dolor' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
-
-cp stderr normal.stderr
-
 garble -literals build
 exec ./main$exe
-cmp stderr normal.stderr
+cmp stderr main.stderr
 
 binsubstr main$exe 'Skip this block' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
+
 [short] stop # checking that the build is reproducible is slow
 
 # Also check that the binary is reproducible.
@@ -24,13 +15,22 @@ rm main$exe
 garble -literals build
 bincmp main$exe main_old$exe
 
+# Check that the program works as expected without garble.
+go build
+exec ./main$exe
+cmp stderr main.stderr
+binsubstr main$exe 'Lorem' 'dolor' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
+
+# Generate and write random literals into a separate file
+generate-literals extraLiterals.go 100 printExtraLiterals
+
 # Also check that the binary is different from previous builds.
 rm main$exe
 garble -literals -debugdir=.obf-src -seed=8J+Ri/Cfh6fwn4e+ build
 ! bincmp main$exe main_old$exe
 
 exec ./main$exe
-cmp stderr normal.stderr
+cmp stderr main.stderr
 
 # Check obfuscators
 
@@ -202,18 +202,18 @@ func constantTest() {
 func byteTest() {
 	a := []byte{12, 13}
 	for _, elm := range a {
-		print(elm, ", ")
+		print(elm, ",")
 	}
 	println()
 	var b = []byte{12, 13}
 	for _, elm := range b {
-		print(elm, ", ")
+		print(elm, ",")
 	}
 	println()
 
 	var c = [2]byte{12, 13}
 	for _, elm := range c {
-		print(elm, ", ")
+		print(elm, ",")
 	}
 	println()
 
@@ -221,7 +221,7 @@ func byteTest() {
 		return [4]byte{12, 13}
 	}()
 	for _, elm := range d {
-		print(elm, ", ")
+		print(elm, ",")
 	}
 	println()
 }
@@ -230,3 +230,29 @@ func stringTypeFunc(s stringType) stringType {
 	println(s)
 	return "stringType return" // skip
 }
+-- main.stderr --
+Lorem true
+First Line
+Second Line total string
+dolor
+second assign
+
+😅 😅
+to obfuscate also obfuscate
+new value
+another literal
+Skip this block also skip this
+1 0 1
+skip untyped const
+skip typed const skip typed var skip typed var assign
+stringTypeField String stringTypeField strType
+stringType lambda func return
+stringType func param
+stringType return
+foo
+foo
+3 6
+12,13,
+12,13,
+12,13,
+12,13,0,0,
