@@ -17,7 +17,7 @@ type someType int // some comment
 var someVar = 0
 
 type someStruct struct {
-    someField int // some comment
+	someField int // some comment
 }
 
 func main() {

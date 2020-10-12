@@ -467,7 +467,7 @@ func mainErr(args []string) error {
 				}
 				return err
 			}
-			line := string(bytes.TrimSpace(out))
+			line := string(bytes.TrimSpace(out)) // no trailing newline
 			f := strings.Fields(line)
 			if len(f) < 3 || f[0] != tool || f[1] != "version" || f[2] == "devel" && !strings.HasPrefix(f[len(f)-1], "buildID=") {
 				return fmt.Errorf("%s -V=full: unexpected output:\n\t%s", args[0], line)
@@ -482,7 +482,6 @@ func mainErr(args []string) error {
 				toolID = []byte(line)
 			}
 
-			out = bytes.TrimSpace(out) // no trailing newline
 			contentID, err := ownContentID(toolID)
 			if err != nil {
 				return fmt.Errorf("cannot obtain garble's own version: %v", err)

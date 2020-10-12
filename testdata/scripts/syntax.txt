@@ -1,14 +1,15 @@
-env GOPRIVATE='test/main,rsc.io/*'
+env GOPRIVATE='test/main,private.source/*'
 
 garble build -tags directives
 exec ./main$exe
 cmp stderr main.stderr
 
-! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'rsc.io' 'remoteIntReturn' 'intReturn'
+! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'private.source' 'remoteIntReturn' 'intReturn'
 binsubstr main$exe 'magicFunc'
 
 [short] stop # no need to verify this with -short
 
+# Check that the program works as expected without garble.
 go build -tags directives
 exec ./main$exe
 cmp stderr main.stderr
@@ -16,9 +17,20 @@ cmp stderr main.stderr
 binsubstr main$exe 'globalVar' # 'globalType' only matches on go < 1.15
 ! binsubstr main$exe 'localName' 'globalConst' 'remoteIntReturn' 'intReturn'
 
+-- extra/go.mod --
+module "private.source/extra"
+-- extra/extra.go --
+package extra
 
+func Func() string {
+	return "This is a separate module to obfuscate."
+}
 -- go.mod --
 module test/main
+
+// We include an extra module to obfuscate, included in the same original source
+// code via a replace directive.
+replace private.source/extra => ./extra
 -- main.go --
 package main
 
@@ -26,7 +38,7 @@ import (
 	"encoding/json"
 	"go/ast"
 
-	"rsc.io/quote"
+	"private.source/extra"
 	"test/main/sub"
 )
 
@@ -72,7 +84,7 @@ func main() {
 	enc, _ := json.Marshal(EncodingT{Foo: 3})
 	println(string(enc))
 	scopesTest()
-	println(quote.Go())
+	println(extra.Func())
 	sub.Test()
 	sub.TestDirectives()
 }
@@ -115,11 +127,11 @@ var someGlobalVar1 = "1"
 var someGlobalVar2 = "2"
 
 func Test() {
-    var A, B, C, D, E string
-    noop(A, B, C, D, E)
-    if someGlobalVar0 != "0" || someGlobalVar1 != "1" || someGlobalVar2 != "2"{
-        panic("name collision detected")
-    }
+	var A, B, C, D, E string
+	noop(A, B, C, D, E)
+	if someGlobalVar0 != "0" || someGlobalVar1 != "1" || someGlobalVar2 != "2"{
+		panic("name collision detected")
+	}
 }
 
 func noop(...interface{}) {}
@@ -130,8 +142,8 @@ func noop(...interface{}) {}
 package sub
 
 import (
-    _ "unsafe"
-    _ "test/main/sub/a"
+	_ "unsafe"
+	_ "test/main/sub/a"
 )
 
 //go:linkname remoteIntReturn a.magicFunc
@@ -140,9 +152,9 @@ func remoteIntReturn() int
 
 //go:noinline
 func TestDirectives() {
-    if remoteIntReturn() != 42 {
-        panic("invalid result")
-    }
+	if remoteIntReturn() != 42 {
+		panic("invalid result")
+	}
 }
 -- sub/a/directives.go --
 // +build directives
@@ -155,11 +167,11 @@ import _ "unsafe"
 
 //go:noinline
 func intReturn() int {
-    return 42
+	return 42
 }
 -- main.stderr --
 nil case
 {"Foo":3}
 1 1 1
 1 4 5 1 input
-Don't communicate by sharing memory, share memory by communicating.
+This is a separate module to obfuscate.
