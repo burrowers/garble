@@ -25,23 +25,24 @@ jobs:
         go version
         go test ./...
 
-  test-gotip:
-    runs-on: ubuntu-latest
-    continue-on-error: true # master breaks sometimes
-    steps:
-    - name: Install Go
-      run: |
-        git clone --depth=1 https://go.googlesource.com/go $HOME/gotip
-        cd $HOME/gotip/src
-        ./make.bash
-        echo "::set-env name=GOROOT::$HOME/gotip"
-        echo "::add-path::$HOME/gotip/bin"
-    - name: Checkout code
-      uses: actions/checkout@v2
-    - name: Test
-      run: |
-        go version
-        go test ./...
+  # TODO: re-enable once we get Go master/tip working again
+  #test-gotip:
+  #  runs-on: ubuntu-latest
+  #  continue-on-error: true # master breaks sometimes
+  #  steps:
+  #  - name: Install Go
+  #    run: |
+  #      git clone --depth=1 https://go.googlesource.com/go $HOME/gotip
+  #      cd $HOME/gotip/src
+  #      ./make.bash
+  #      echo "::set-env name=GOROOT::$HOME/gotip"
+  #      echo "::add-path::$HOME/gotip/bin"
+  #  - name: Checkout code
+  #    uses: actions/checkout@v2
+  #  - name: Test
+  #    run: |
+  #      go version
+  #      go test ./...
 
   code-checks:
     runs-on: ubuntu-latest
