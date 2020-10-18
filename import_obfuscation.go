@@ -4,13 +4,18 @@
 package main
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Binject/debug/goobj2"
@@ -62,6 +67,62 @@ func appendPrivateNameMap(pkg *goobj2.Package, nameMap map[string]string) error 
 	return nil
 }
 
+func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
+	if envGarbleDebugDir == "" {
+		return nil
+	}
+	for _, member := range pkg.ArchiveMembers {
+		if member.ArchiveHeader.Name != garbleSrcHeaderName {
+			continue
+		}
+
+		osPkgPath := filepath.FromSlash(pkgPath)
+		pkgDebugDir := filepath.Join(envGarbleDebugDir, osPkgPath)
+		if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
+			return err
+		}
+
+		archiveSize, err := strconv.Atoi(member.ArchiveHeader.Date)
+		if err != nil {
+			return err
+		}
+
+		archiveBytes := member.ArchiveHeader.Data[:archiveSize]
+
+		archive := bytes.NewBuffer(archiveBytes)
+		gzipReader, err := gzip.NewReader(archive)
+		if err != nil {
+			return err
+		}
+		defer gzipReader.Close()
+		tarReader := tar.NewReader(gzipReader)
+
+		for {
+			header, err := tarReader.Next()
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+
+			debugFilePath := filepath.Join(pkgDebugDir, header.Name)
+			debugFile, err := os.Create(debugFilePath)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(debugFile, tarReader); err != nil {
+				return err
+			}
+			debugFile.Close()
+
+			obfuscationTime := header.ModTime.Local()
+			os.Chtimes(debugFilePath, obfuscationTime, obfuscationTime) // Restore obfuscation time
+		}
+	}
+	return nil
+}
+
 // obfuscateImports does all the necessary work to replace the import paths of
 // obfuscated packages with hashes. It takes the single object file and import
 // config passed to the linker, as well as a temporary directory to store
@@ -87,6 +148,9 @@ func obfuscateImports(objPath, tempDir, importCfgPath string) (garbledObj string
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("error parsing main objfile: %v", err)
 	}
+	if err := extractDebugObfSrc("main", mainPkg); err != nil {
+		return "", nil, nil, err
+	}
 	pkgs := []pkgInfo{{mainPkg, objPath, true}}
 
 	privateNameMap = make(map[string]string)
@@ -104,6 +168,12 @@ func obfuscateImports(objPath, tempDir, importCfgPath string) (garbledObj string
 
 			if err := appendPrivateNameMap(pkg, privateNameMap); err != nil {
 				return "", nil, nil, fmt.Errorf("error parsing name map %s at %s: %v", pkgPath, info.Path, err)
+			}
+			// Avoiding double extraction from main object file
+			if objPath != info.Path {
+				if err := extractDebugObfSrc(pkgPath, pkg); err != nil {
+					return "", nil, nil, err
+				}
 			}
 		}
 	}
