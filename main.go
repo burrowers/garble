@@ -359,15 +359,13 @@ func mainErr(args []string) error {
 				flagDebugDir = filepath.Join(wd, flagDebugDir)
 			}
 
-			if info, err := os.Stat(flagDebugDir); os.IsNotExist(err) {
+			if err := os.RemoveAll(flagDebugDir); err == nil || os.IsNotExist(err) {
 				err := os.MkdirAll(flagDebugDir, 0o755)
 				if err != nil {
 					return err
 				}
-			} else if err != nil {
+			} else {
 				return fmt.Errorf("debugdir error: %v", err)
-			} else if !info.IsDir() {
-				return fmt.Errorf("debugdir exists, but is a file not a directory")
 			}
 		}
 
@@ -781,7 +779,8 @@ func transformCompile(args []string) ([]string, error) {
 			ArchiveHeader: goobj2.ArchiveHeader{
 				Name: garbleSrcHeaderName,
 				Size: int64(obfSrcArchive.Len()),
-				Date: strconv.Itoa(obfSrcArchive.Len()), // Zero byte bug bypass
+				// Work around https://github.com/Binject/debug/issues/14
+				Date: strconv.Itoa(obfSrcArchive.Len()),
 				Data: obfSrcArchive.Bytes(),
 			},
 		})

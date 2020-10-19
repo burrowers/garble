@@ -1,10 +1,20 @@
 env GOPRIVATE=test/main
+# Isolate go cache for test reproducibility
+env GOCACHE=$WORK/.temp-cache
 
 garble -debugdir ./test1 build
 exists 'test1/test/main/imported/imported.go' 'test1/main/main.go'
 ! grep ImportedFunc $WORK/test1/test/main/imported/imported.go
 ! grep ImportedFunc $WORK/test1/main/main.go
 ! grep 'some comment' $WORK/test1/main/main.go
+
+[short] stop
+
+cp $WORK/test1/main/main.go $WORK/test1/some_file_from_prev_build.go
+
+garble -debugdir ./test1 build -v
+! stderr 'test/main'
+! exists $WORK/test1/some_file_from_prev_build.go
 
 -- go.mod --
 module test/main

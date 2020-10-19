@@ -71,56 +71,66 @@ func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 	if envGarbleDebugDir == "" {
 		return nil
 	}
+
+	var archiveMember *goobj2.ArchiveMember
 	for _, member := range pkg.ArchiveMembers {
-		if member.ArchiveHeader.Name != garbleSrcHeaderName {
-			continue
-		}
-
-		osPkgPath := filepath.FromSlash(pkgPath)
-		pkgDebugDir := filepath.Join(envGarbleDebugDir, osPkgPath)
-		if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
-			return err
-		}
-
-		archiveSize, err := strconv.Atoi(member.ArchiveHeader.Date)
-		if err != nil {
-			return err
-		}
-
-		archiveBytes := member.ArchiveHeader.Data[:archiveSize]
-
-		archive := bytes.NewBuffer(archiveBytes)
-		gzipReader, err := gzip.NewReader(archive)
-		if err != nil {
-			return err
-		}
-		defer gzipReader.Close()
-		tarReader := tar.NewReader(gzipReader)
-
-		for {
-			header, err := tarReader.Next()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-
-			debugFilePath := filepath.Join(pkgDebugDir, header.Name)
-			debugFile, err := os.Create(debugFilePath)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(debugFile, tarReader); err != nil {
-				return err
-			}
-			debugFile.Close()
-
-			obfuscationTime := header.ModTime.Local()
-			os.Chtimes(debugFilePath, obfuscationTime, obfuscationTime) // Restore obfuscation time
+		if member.ArchiveHeader.Name == garbleSrcHeaderName {
+			archiveMember = &member
+			break
 		}
 	}
-	return nil
+
+	if archiveMember == nil {
+		return nil
+	}
+
+	osPkgPath := filepath.FromSlash(pkgPath)
+	pkgDebugDir := filepath.Join(envGarbleDebugDir, osPkgPath)
+	if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
+		return err
+	}
+
+	archiveSize, err := strconv.Atoi(archiveMember.ArchiveHeader.Date)
+	if err != nil {
+		return err
+	}
+
+	archiveBytes := archiveMember.ArchiveHeader.Data[:archiveSize]
+
+	archive := bytes.NewBuffer(archiveBytes)
+	gzipReader, err := gzip.NewReader(archive)
+	if err != nil {
+		return err
+	}
+	defer gzipReader.Close()
+	tarReader := tar.NewReader(gzipReader)
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		debugFilePath := filepath.Join(pkgDebugDir, header.Name)
+		debugFile, err := os.Create(debugFilePath)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(debugFile, tarReader); err != nil {
+			return err
+		}
+		debugFile.Close()
+
+		obfuscationTime := header.ModTime.Local()
+
+		// Restore the actual source obfuscation time so as not to mislead the user.
+		if err := os.Chtimes(debugFilePath, obfuscationTime, obfuscationTime); err != nil {
+			return err
+		}
+	}
 }
 
 // obfuscateImports does all the necessary work to replace the import paths of
