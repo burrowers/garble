@@ -1,6 +1,4 @@
 env GOPRIVATE=test/main
-# Isolate go cache for test reproducibility
-env GOCACHE=$WORK/.temp-cache
 
 garble -debugdir ./test1 build
 exists 'test1/test/main/imported/imported.go' 'test1/main/main.go'
@@ -10,6 +8,7 @@ exists 'test1/test/main/imported/imported.go' 'test1/main/main.go'
 
 [short] stop
 
+# Sources from previous builds should be deleted
 cp $WORK/test1/main/main.go $WORK/test1/some_file_from_prev_build.go
 
 garble -debugdir ./test1 build -v

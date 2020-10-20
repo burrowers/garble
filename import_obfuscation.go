@@ -67,6 +67,7 @@ func appendPrivateNameMap(pkg *goobj2.Package, nameMap map[string]string) error 
 	return nil
 }
 
+// extractDebugObfSrc extracts obfuscated sources from object files if -debugdir flag is enabled.
 func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 	if envGarbleDebugDir == "" {
 		return nil
@@ -90,6 +91,7 @@ func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 		return err
 	}
 
+	// ArchiveHeader.Size incorrect, work around https://github.com/Binject/debug/issues/14
 	archiveSize, err := strconv.Atoi(archiveMember.ArchiveHeader.Date)
 	if err != nil {
 		return err
@@ -122,7 +124,9 @@ func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 		if _, err := io.Copy(debugFile, tarReader); err != nil {
 			return err
 		}
-		debugFile.Close()
+		if err := debugFile.Close(); err != nil {
+			return err
+		}
 
 		obfuscationTime := header.ModTime.Local()
 

@@ -738,7 +738,7 @@ func transformCompile(args []string) ([]string, error) {
 		if err := obfSrcTarWriter.WriteHeader(&tar.Header{
 			Name:    name,
 			Mode:    0o755,
-			ModTime: time.Now(), // Need for restore obfuscation time
+			ModTime: time.Now(), // Need for restoring obfuscation time
 			Size:    int64(obfSrc.Len()),
 		}); err != nil {
 			return nil, err
