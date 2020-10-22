@@ -29,7 +29,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -779,8 +778,6 @@ func transformCompile(args []string) ([]string, error) {
 			ArchiveHeader: goobj2.ArchiveHeader{
 				Name: garbleSrcHeaderName,
 				Size: int64(obfSrcArchive.Len()),
-				// Work around https://github.com/Binject/debug/issues/14
-				Date: strconv.Itoa(obfSrcArchive.Len()),
 				Data: obfSrcArchive.Bytes(),
 			},
 		})

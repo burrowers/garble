@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/Binject/debug/goobj2"
@@ -91,15 +90,7 @@ func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 		return err
 	}
 
-	// ArchiveHeader.Size incorrect, work around https://github.com/Binject/debug/issues/14
-	archiveSize, err := strconv.Atoi(archiveMember.ArchiveHeader.Date)
-	if err != nil {
-		return err
-	}
-
-	archiveBytes := archiveMember.ArchiveHeader.Data[:archiveSize]
-
-	archive := bytes.NewBuffer(archiveBytes)
+	archive := bytes.NewBuffer(archiveMember.ArchiveHeader.Data)
 	gzipReader, err := gzip.NewReader(archive)
 	if err != nil {
 		return err
@@ -204,7 +195,7 @@ func obfuscateImports(objPath, tempDir, importCfgPath string) (garbledObj string
 
 			// skip objects that are not used by the linker, or that do not contain
 			// any Go symbol info
-			if am.IsCompilerObj() || am.IsDataObj() {
+			if am.IsCompilerObj() || am.IsDataObj {
 				continue
 			}
 
