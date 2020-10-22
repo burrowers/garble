@@ -1,5 +1,7 @@
 github.com/Binject/debug v0.0.0-20200928131656-23d735563ce7 h1:W9kchICcGYOJQBZNn2P6j739QbY8OKskB3SyFZ/IRIU=
 github.com/Binject/debug v0.0.0-20200928131656-23d735563ce7/go.mod h1:QzgxDLY/qdKlvnbnb65eqTedhvQPbaSP2NqIbcuKvsQ=
+github.com/Binject/debug v0.0.0-20201021202824-cc437dcdb16e h1:IQMhZQS5d9OUmcXgv330n31ZnD97HAZE36K7JgIjvog=
+github.com/Binject/debug v0.0.0-20201021202824-cc437dcdb16e/go.mod h1:QzgxDLY/qdKlvnbnb65eqTedhvQPbaSP2NqIbcuKvsQ=
 github.com/google/go-cmp v0.5.2 h1:X2ev0eStA3AbceY54o37/0PQ/UWqKEiiO2dKL5OPaFM=
 github.com/google/go-cmp v0.5.2/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
 github.com/kr/pretty v0.1.0 h1:L/CwN0zerZDmRFUapSPitk6f+Q3+0za1rQkzVuMiMFI=

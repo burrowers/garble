@@ -4,7 +4,9 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -126,7 +128,10 @@ var (
 	seed []byte
 )
 
-const garbleMapHeaderName = "garble/nameMap"
+const (
+	garbleMapHeaderName = "garble/nameMap"
+	garbleSrcHeaderName = "garble/src"
+)
 
 func saveListedPackages(w io.Writer, flags, patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export"}
@@ -353,15 +358,13 @@ func mainErr(args []string) error {
 				flagDebugDir = filepath.Join(wd, flagDebugDir)
 			}
 
-			if info, err := os.Stat(flagDebugDir); os.IsNotExist(err) {
+			if err := os.RemoveAll(flagDebugDir); err == nil || os.IsNotExist(err) {
 				err := os.MkdirAll(flagDebugDir, 0o755)
 				if err != nil {
 					return err
 				}
-			} else if err != nil {
+			} else {
 				return fmt.Errorf("debugdir error: %v", err)
-			} else if !info.IsDir() {
-				return fmt.Errorf("debugdir exists, but is a file not a directory")
 			}
 		}
 
@@ -426,10 +429,6 @@ func mainErr(args []string) error {
 			cmd,
 			"-trimpath",
 			"-toolexec=" + execPath,
-		}
-		if flagDebugDir != "" {
-			// TODO: don't make -debugdir force rebuilding all packages
-			goArgs = append(goArgs, "-a")
 		}
 		if cmd == "test" {
 			// vet is generally not useful on garbled code; keep it
@@ -648,15 +647,6 @@ func transformCompile(args []string) ([]string, error) {
 	flags = flagSetValue(flags, "-trimpath", tempDir+"=>;"+trimpath)
 	// log.Println(flags)
 
-	pkgDebugDir := ""
-	if envGarbleDebugDir != "" {
-		osPkgPath := filepath.FromSlash(pkgPath)
-		pkgDebugDir = filepath.Join(envGarbleDebugDir, osPkgPath)
-		if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
-			return nil, err
-		}
-	}
-
 	privateNameMap := make(map[string]string)
 	existingNames := collectNames(files)
 	packageCounter := 0
@@ -675,6 +665,13 @@ func transformCompile(args []string) ([]string, error) {
 		detachedComments[i] = fileDetachedComments
 		files[i] = file
 	}
+
+	obfSrcArchive := &bytes.Buffer{}
+	obfSrcGzipWriter := gzip.NewWriter(obfSrcArchive)
+	defer obfSrcGzipWriter.Close()
+
+	obfSrcTarWriter := tar.NewWriter(obfSrcGzipWriter)
+	defer obfSrcTarWriter.Close()
 
 	// TODO: randomize the order and names of the files
 	newPaths := make([]string, 0, len(files))
@@ -719,17 +716,8 @@ func transformCompile(args []string) ([]string, error) {
 		}
 		defer tempFile.Close()
 
-		var printWriter io.Writer = tempFile
-		var debugFile *os.File
-		if pkgDebugDir != "" {
-			debugFile, err = os.Create(filepath.Join(pkgDebugDir, name))
-			if err != nil {
-				return nil, err
-			}
-			defer debugFile.Close()
-
-			printWriter = io.MultiWriter(tempFile, debugFile)
-		}
+		obfSrc := &bytes.Buffer{}
+		printWriter := io.MultiWriter(tempFile, obfSrc)
 
 		fileDetachedComments := detachedComments[i]
 		if len(fileDetachedComments) > 0 {
@@ -745,42 +733,57 @@ func transformCompile(args []string) ([]string, error) {
 		if err := tempFile.Close(); err != nil {
 			return nil, err
 		}
-		debugFile.Close() // this is ok to error if no file is supplied
+
+		if err := obfSrcTarWriter.WriteHeader(&tar.Header{
+			Name:    name,
+			Mode:    0o755,
+			ModTime: time.Now(), // Need for restoring obfuscation time
+			Size:    int64(obfSrc.Len()),
+		}); err != nil {
+			return nil, err
+		}
+		if _, err := obfSrcTarWriter.Write(obfSrc.Bytes()); err != nil {
+			return nil, err
+		}
 
 		newPaths = append(newPaths, tempFile.Name())
 	}
 
-	if len(privateNameMap) > 0 {
-		objPath := flagValue(flags, "-o")
-		deferred = append(deferred, func() error {
-			importCfg, err := goobj2.ParseImportCfg(buildInfo.importCfg)
-			if err != nil {
-				return err
-			}
+	objPath := flagValue(flags, "-o")
+	deferred = append(deferred, func() error {
+		importCfg, err := goobj2.ParseImportCfg(buildInfo.importCfg)
+		if err != nil {
+			return err
+		}
 
-			pkg, err := goobj2.Parse(objPath, pkgPath, importCfg)
-			if err != nil {
-				return err
-			}
+		pkg, err := goobj2.Parse(objPath, pkgPath, importCfg)
+		if err != nil {
+			return err
+		}
 
-			data, err := json.Marshal(privateNameMap)
-			if err != nil {
-				return err
-			}
+		data, err := json.Marshal(privateNameMap)
+		if err != nil {
+			return err
+		}
 
-			// Adding an extra archive header is safe,
-			// and shouldn't break other tools like the linker since our header name is unique
-			pkg.ArchiveMembers = append(pkg.ArchiveMembers, goobj2.ArchiveMember{
-				ArchiveHeader: goobj2.ArchiveHeader{
-					Name: garbleMapHeaderName,
-					Size: int64(len(data)),
-					Data: data,
-				},
-			})
-
-			return pkg.Write(objPath)
+		// Adding an extra archive header is safe,
+		// and shouldn't break other tools like the linker since our header name is unique
+		pkg.ArchiveMembers = append(pkg.ArchiveMembers, goobj2.ArchiveMember{
+			ArchiveHeader: goobj2.ArchiveHeader{
+				Name: garbleMapHeaderName,
+				Size: int64(len(data)),
+				Data: data,
+			},
+		}, goobj2.ArchiveMember{
+			ArchiveHeader: goobj2.ArchiveHeader{
+				Name: garbleSrcHeaderName,
+				Size: int64(obfSrcArchive.Len()),
+				Data: obfSrcArchive.Bytes(),
+			},
 		})
-	}
+
+		return pkg.Write(objPath)
+	})
 
 	return append(flags, newPaths...), nil
 }
