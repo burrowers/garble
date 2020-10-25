@@ -44,7 +44,7 @@ packages to garble, set `GOPRIVATE`, documented at `go help module-private`.
 Most of these can improve with time and effort. The purpose of this section is
 to document the current shortcomings of this tool.
 
-* Exported methods and fields are never garbled at the moment, since they could
+* Exported methods are never garbled at the moment, since they could
   be required by interfaces and reflection. This area is a work in progress.
 
 * Functions implemented outside Go, such as assembly, aren't garbled since we
