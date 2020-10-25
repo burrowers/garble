@@ -291,6 +291,10 @@ func stripPCLinesAndNames(am *goobj2.ArchiveMember) {
 	lists := [][]*goobj2.Sym{am.SymDefs, am.NonPkgSymDefs, am.NonPkgSymRefs}
 	for _, list := range lists {
 		for _, s := range list {
+			if strings.HasPrefix(s.Name, "gofile..") {
+				s.Name = "gofile.."
+			}
+
 			if s.Func == nil {
 				continue
 			}
@@ -493,6 +497,11 @@ func garbleSymbolName(symName string, privImports privateImports, garbledImports
 	if skipSym {
 		// log.Printf("\t\t? Skipped symbol: %s", symName)
 		return symName
+	}
+
+	// remove filename symbols when -tiny is passed
+	if envGarbleTiny && prefix == "gofile.." {
+		return prefix
 	}
 
 	var namedataSym bool

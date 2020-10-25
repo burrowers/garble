@@ -6,6 +6,7 @@ env GODEBUG='allocfreetrace=1,gcpacertrace=1,gctrace=1,scavenge=1,scavtrace=1,sc
 ! exec ./main$exe
 cmp stdout main.stdout
 stderr '\? 0'
+! binsubstr main$exe 'main.go' 'fmt/print.go'
 
 [short] stop # no need to verify this with -short
 
