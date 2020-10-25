@@ -930,10 +930,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 	blacklist := make(map[types.Object]struct{})
 
 	reflectBlacklist := func(node ast.Node) bool {
-		expr, ok := node.(ast.Expr)
-		if !ok {
-			return true
-		}
+		expr, _ := node.(ast.Expr) // info.TypeOf(nil) will just return nil
 		named := namedType(info.TypeOf(expr))
 		if named == nil {
 			return true
@@ -1063,7 +1060,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		// log.Printf("%#v %T", node, obj)
 		switch x := obj.(type) {
 		case *types.Var:
-			if obj.Parent() != nil && obj.Parent() != pkg.Scope() {
+			if parent := obj.Parent(); parent != nil && parent != pkg.Scope() {
 				// identifiers of non-global variables never show up in the binary
 				return true
 			}
