@@ -5,7 +5,7 @@ garble build -tags buildtag
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'test/main' 'imported.'
+! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'test/main' 'imported.' 'NormalStruct' 'NormalExportedField' 'normalUnexportedField'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -50,6 +50,7 @@ func main() {
 	fmt.Println(imported.ImportedConst)
 	fmt.Println(imported.ImportedFunc('x'))
 	fmt.Println(imported.ImportedType(3))
+	fmt.Println(imported.NormalStruct{})
 
 	printfWithoutPackage("%T\n", imported.ReflectTypeOf(2))
 	printfWithoutPackage("%T\n", imported.ReflectTypeOfIndirect(4))
@@ -117,6 +118,11 @@ var ReflectValueOfVar = ReflectValueOf{ExportedField: "abc"}
 
 var _ = reflect.TypeOf(ReflectValueOfVar)
 
+type NormalStruct struct {
+	NormalExportedField   int
+	normalUnexportedField int
+}
+
 // ImportedType comes after the calls to reflect, to ensure no false positives.
 type ImportedType int
 
@@ -126,6 +132,7 @@ imported var value
 imported const value
 x
 3
+{0 0}
 ReflectTypeOf
 ReflectTypeOfIndirect
 ReflectValueOf{ExportedField:"abc", unexportedField:""}

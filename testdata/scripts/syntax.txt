@@ -37,6 +37,7 @@ package main
 import (
 	"encoding/json"
 	"go/ast"
+	"reflect"
 
 	"private.source/extra"
 	"test/main/sub"
@@ -81,6 +82,7 @@ func main() {
 		println("nil case")
 	}
 
+	var _ = reflect.TypeOf(EncodingT{})
 	enc, _ := json.Marshal(EncodingT{Foo: 3})
 	println(string(enc))
 	scopesTest()
