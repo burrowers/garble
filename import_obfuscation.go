@@ -291,6 +291,11 @@ func stripPCLinesAndNames(am *goobj2.ArchiveMember) {
 	lists := [][]*goobj2.Sym{am.SymDefs, am.NonPkgSymDefs, am.NonPkgSymRefs}
 	for _, list := range lists {
 		for _, s := range list {
+			// remove filename symbols when -tiny is passed as they
+			// are only used for printing panics, and -tiny removes
+			// panic printing; we need to set the symbol names to
+			// 'gofile..', otherwise the linker will expect to see
+			// filename symbols and panic
 			if strings.HasPrefix(s.Name, "gofile..") {
 				s.Name = "gofile.."
 			}
@@ -500,6 +505,8 @@ func garbleSymbolName(symName string, privImports privateImports, garbledImports
 	}
 
 	// remove filename symbols when -tiny is passed
+	// as they are only used for printing panics,
+	// and -tiny removes panic printing
 	if envGarbleTiny && prefix == "gofile.." {
 		return prefix
 	}
