@@ -702,7 +702,7 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
-			file = transformGo(file, info, blacklist, privateNameMap, pkgPath, existingNames, &packageCounter)
+			file = transformGo(file, info, blacklist, pkg.Scope(), privateNameMap, pkgPath, existingNames, &packageCounter)
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
@@ -994,7 +994,7 @@ func collectNames(files []*ast.File) map[string]struct{} {
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, pkgPath string, existingNames map[string]struct{}, packageCounter *int) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, pkgScope *types.Scope, privateNameMap map[string]string, pkgPath string, existingNames map[string]struct{}, packageCounter *int) *ast.File {
 	// Shuffle top level declarations
 	mathrand.Shuffle(len(file.Decls), func(i, j int) {
 		decl1 := file.Decls[i]
@@ -1054,14 +1054,15 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		path := pkg.Path()
 		switch x := obj.(type) {
 		case *types.Var:
-			if parent := obj.Parent(); parent != nil && parent != pkg.Scope() {
+			parentScope := obj.Parent()
+			if parentScope != nil && parentScope != pkg.Scope() {
 				// identifiers of non-global variables never show up in the binary
 				return true
 			}
 
 			// if the struct of this field was not garbled, do not garble
 			// any of that struct's fields
-			if x.IsField() && !x.Embedded() {
+			if (parentScope != pkgScope) && (x.IsField() && !x.Embedded()) {
 				parent, ok := cursor.Parent().(*ast.SelectorExpr)
 				if !ok {
 					break
@@ -1086,25 +1087,28 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 				}
 			}
 		case *types.TypeName:
-			if obj.Parent() != pkg.Scope() {
+			parentScope := obj.Parent()
+			if parentScope != pkg.Scope() {
 				// identifiers of non-global types never show up in the binary
 				return true
 			}
 
 			// if the type was not garbled in the package were it was defined,
 			// do not garble it here
-			named := namedType(x.Type())
-			if named == nil {
-				break
-			}
-			if _, ok := buildInfo.imports[path]; ok {
-				garbledPkg, err := garbledImport(path)
-				if err != nil {
-					panic(err) // shouldn't happen
+			if parentScope != pkgScope {
+				named := namedType(x.Type())
+				if named == nil {
+					break
 				}
-				if garbledPkg.Scope().Lookup(x.Name()) != nil {
-					blacklistStruct(named, blacklist)
-					return true
+				if _, ok := buildInfo.imports[path]; ok {
+					garbledPkg, err := garbledImport(path)
+					if err != nil {
+						panic(err) // shouldn't happen
+					}
+					if garbledPkg.Scope().Lookup(x.Name()) != nil {
+						blacklistStruct(named, blacklist)
+						return true
+					}
 				}
 			}
 		case *types.Func:
