@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -1050,11 +1051,15 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			return true
 		}
 
-		// log.Printf("%#v %T", node, obj)
 		path := pkg.Path()
+		if !isPrivate(path) {
+			return true // only private packages are transformed
+		}
+
+		// log.Printf("%#v %T", node, obj)
+		parentScope := obj.Parent()
 		switch x := obj.(type) {
 		case *types.Var:
-			parentScope := obj.Parent()
 			if parentScope != nil && parentScope != pkg.Scope() {
 				// identifiers of non-global variables never show up in the binary
 				return true
@@ -1087,7 +1092,6 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 				}
 			}
 		case *types.TypeName:
-			parentScope := obj.Parent()
 			if parentScope != pkg.Scope() {
 				// identifiers of non-global types never show up in the binary
 				return true
@@ -1130,16 +1134,15 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			return true // we only want to rename the above
 		}
 		actionID := buildInfo.actionID
-		if !isPrivate(path) {
-			return true // only private packages are transformed
-		}
 		if id := buildInfo.imports[path].actionID; len(id) > 0 {
 			garbledPkg, err := garbledImport(path)
 			if err != nil {
 				panic(err) // shouldn't happen
 			}
 			// Check if the imported name wasn't garbled, e.g. if it's assembly.
-			if garbledPkg.Scope().Lookup(obj.Name()) != nil {
+			// If the object returned from the garbled package's scope has a different type as the object
+			// we're searching for, they are most likely two separate objects with the same name, so ok to garble
+			if o := garbledPkg.Scope().Lookup(obj.Name()); o != nil && reflect.TypeOf(o) == reflect.TypeOf(obj) {
 				return true
 			}
 			actionID = id

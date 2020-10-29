@@ -52,7 +52,8 @@ func main() {
 	fmt.Println(imported.ImportedFunc('x'))
 	fmt.Println(imported.ImportedType(3))
 	fmt.Println(imported.ReflectInDefinedVar.ExportedField2)
-	fmt.Println(imported.NormalStruct{})
+	fmt.Println(imported.ReflectInDefined{ExportedField2: 5})
+	fmt.Println(imported.NormalStruct{SharedName: 3})
 
 	printfWithoutPackage("%T\n", imported.ReflectTypeOf(2))
 	printfWithoutPackage("%T\n", imported.ReflectTypeOfIndirect(4))
@@ -130,8 +131,10 @@ var ReflectInDefinedVar = ReflectInDefined{ExportedField2: 9000}
 
 var _ = reflect.TypeOf(ReflectInDefinedVar)
 
+const SharedName = 2
+
 type NormalStruct struct {
-	NormalExportedField   int
+	SharedName   int
 	normalUnexportedField int
 }
 
@@ -145,7 +148,8 @@ imported const value
 x
 3
 9000
-{0 0}
+{5 0}
+{3 0}
 ReflectTypeOf
 ReflectTypeOfIndirect
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
