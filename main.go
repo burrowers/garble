@@ -1008,11 +1008,19 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		decl2 := file.Decls[j]
 
 		// Import declarations must remain at the top of the file.
-		gd1, ok1 := decl1.(*ast.GenDecl)
-		gd2, ok2 := decl2.(*ast.GenDecl)
-		if (ok1 && gd1.Tok == token.IMPORT) || (ok2 && gd2.Tok == token.IMPORT) {
+		gd1, iok1 := decl1.(*ast.GenDecl)
+		gd2, iok2 := decl2.(*ast.GenDecl)
+		if (iok1 && gd1.Tok == token.IMPORT) || (iok2 && gd2.Tok == token.IMPORT) {
 			return
 		}
+
+		// init function declarations must remain in order.
+		fd1, fok1 := decl1.(*ast.FuncDecl)
+		fd2, fok2 := decl2.(*ast.FuncDecl)
+		if (fok1 && fd1.Name.Name == "init") || (fok2 && fd2.Name.Name == "init") {
+			return
+		}
+
 		file.Decls[i], file.Decls[j] = decl2, decl1
 	})
 

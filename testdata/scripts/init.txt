@@ -1,0 +1,73 @@
+# Test that garble keeps init functions in the order they were declared in
+
+garble build
+exec ./main
+cmp stdout main.stdout
+
+[short] stop # no need to verify this with -short
+
+go build
+exec ./main
+cmp stdout main.stdout
+
+-- go.mod --
+module test/main
+-- main.go --
+package main
+
+import (
+    "fmt"
+    "strings"
+)
+
+var exploded []string
+
+func init() {
+    exploded = append(exploded, "B")
+}
+
+func init() {
+    exploded = append(exploded, "i")
+}
+
+func init() {
+    exploded = append(exploded, "g")
+}
+
+func init() {
+    exploded = append(exploded, " ")
+}
+
+func init() {
+    exploded = append(exploded, "C")
+}
+
+func init() {
+    exploded = append(exploded, "h")
+}
+
+func init() {
+    exploded = append(exploded, "u")
+}
+
+func init() {
+    exploded = append(exploded, "n")
+}
+
+func init() {
+    exploded = append(exploded, "g")
+}
+
+func init() {
+    exploded = append(exploded, "u")
+}
+
+func init() {
+    exploded = append(exploded, "s")
+}
+
+func main() {
+	fmt.Println(strings.Join(exploded, ""))
+}
+-- main.stdout --
+Big Chungus
