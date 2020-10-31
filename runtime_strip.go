@@ -121,6 +121,7 @@ func stripRuntime(filename string, file *ast.File) {
 
 	if filename == "print.go" {
 		file.Decls = append(file.Decls, hidePrintDecl)
+		return
 	}
 
 	// replace all 'print' and 'println' statements in
