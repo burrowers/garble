@@ -1,73 +1,68 @@
-# Test that garble keeps init functions in the order they were declared in
+# Test that garble keeps init functions in the order they were declared in.
 
 garble build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 
 [short] stop # no need to verify this with -short
 
 go build
 exec ./main
-cmp stdout main.stdout
+cmp stderr main.stderr
 
 -- go.mod --
 module test/main
 -- main.go --
 package main
 
-import (
-    "fmt"
-    "strings"
-)
-
-var exploded []string
+var exploded []byte
 
 func init() {
-    exploded = append(exploded, "B")
+	exploded = append(exploded, 'B')
 }
 
 func init() {
-    exploded = append(exploded, "i")
+	exploded = append(exploded, 'i')
 }
 
 func init() {
-    exploded = append(exploded, "g")
+	exploded = append(exploded, 'g')
 }
 
 func init() {
-    exploded = append(exploded, " ")
+	exploded = append(exploded, ' ')
 }
 
 func init() {
-    exploded = append(exploded, "C")
+	exploded = append(exploded, 'C')
 }
 
 func init() {
-    exploded = append(exploded, "h")
+	exploded = append(exploded, 'h')
 }
 
 func init() {
-    exploded = append(exploded, "u")
+	exploded = append(exploded, 'u')
 }
 
 func init() {
-    exploded = append(exploded, "n")
+	exploded = append(exploded, 'n')
 }
 
 func init() {
-    exploded = append(exploded, "g")
+	exploded = append(exploded, 'g')
 }
 
 func init() {
-    exploded = append(exploded, "u")
+	exploded = append(exploded, 'u')
 }
 
 func init() {
-    exploded = append(exploded, "s")
+	exploded = append(exploded, 's')
 }
 
 func main() {
-	fmt.Println(strings.Join(exploded, ""))
+	println(string(exploded))
 }
--- main.stdout --
+-- main.stderr --
 Big Chungus
