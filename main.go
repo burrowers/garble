@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -702,7 +703,7 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
-			file = transformGo(file, info, blacklist, privateNameMap, pkgPath, existingNames, &packageCounter)
+			file = transformGo(file, info, blacklist, pkg.Scope(), privateNameMap, pkgPath, existingNames, &packageCounter)
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
@@ -940,14 +941,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 		if obj == nil || obj.Pkg() != pkg {
 			return true
 		}
-		blacklist[obj] = struct{}{}
-
-		strct, _ := named.Underlying().(*types.Struct)
-		if strct != nil {
-			for i := 0; i < strct.NumFields(); i++ {
-				blacklist[strct.Field(i)] = struct{}{}
-			}
-		}
+		blacklistStruct(named, blacklist)
 
 		return true
 	}
@@ -1001,7 +995,7 @@ func collectNames(files []*ast.File) map[string]struct{} {
 }
 
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, privateNameMap map[string]string, pkgPath string, existingNames map[string]struct{}, packageCounter *int) *ast.File {
+func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, filePkgScope *types.Scope, privateNameMap map[string]string, pkgPath string, existingNames map[string]struct{}, packageCounter *int) *ast.File {
 	// Shuffle top level declarations
 	mathrand.Shuffle(len(file.Decls), func(i, j int) {
 		decl1 := file.Decls[i]
@@ -1057,17 +1051,69 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			return true
 		}
 
+		path := pkg.Path()
+		if !isPrivate(path) {
+			return true // only private packages are transformed
+		}
+
 		// log.Printf("%#v %T", node, obj)
+		parentScope := obj.Parent()
 		switch x := obj.(type) {
 		case *types.Var:
-			if parent := obj.Parent(); parent != nil && parent != pkg.Scope() {
+			if parentScope != nil && parentScope != pkg.Scope() {
 				// identifiers of non-global variables never show up in the binary
 				return true
 			}
+
+			// if the struct of this field was not garbled, do not garble
+			// any of that struct's fields
+			if (parentScope != filePkgScope) && (x.IsField() && !x.Embedded()) {
+				parent, ok := cursor.Parent().(*ast.SelectorExpr)
+				if !ok {
+					break
+				}
+				parentType := info.TypeOf(parent.X)
+				if parentType == nil {
+					break
+				}
+				named := namedType(parentType)
+				if named == nil {
+					break
+				}
+				if _, ok := buildInfo.imports[path]; ok {
+					garbledPkg, err := garbledImport(path)
+					if err != nil {
+						panic(err) // shouldn't happen
+					}
+					if garbledPkg.Scope().Lookup(named.Obj().Name()) != nil {
+						blacklistStruct(named, blacklist)
+						return true
+					}
+				}
+			}
 		case *types.TypeName:
-			if obj.Parent() != pkg.Scope() {
+			if parentScope != pkg.Scope() {
 				// identifiers of non-global types never show up in the binary
 				return true
+			}
+
+			// if the type was not garbled in the package were it was defined,
+			// do not garble it here
+			if parentScope != filePkgScope {
+				named := namedType(x.Type())
+				if named == nil {
+					break
+				}
+				if _, ok := buildInfo.imports[path]; ok {
+					garbledPkg, err := garbledImport(path)
+					if err != nil {
+						panic(err) // shouldn't happen
+					}
+					if garbledPkg.Scope().Lookup(x.Name()) != nil {
+						blacklistStruct(named, blacklist)
+						return true
+					}
+				}
 			}
 		case *types.Func:
 			sign := obj.Type().(*types.Signature)
@@ -1088,17 +1134,15 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			return true // we only want to rename the above
 		}
 		actionID := buildInfo.actionID
-		path := pkg.Path()
-		if !isPrivate(path) {
-			return true // only private packages are transformed
-		}
 		if id := buildInfo.imports[path].actionID; len(id) > 0 {
 			garbledPkg, err := garbledImport(path)
 			if err != nil {
 				panic(err) // shouldn't happen
 			}
 			// Check if the imported name wasn't garbled, e.g. if it's assembly.
-			if garbledPkg.Scope().Lookup(obj.Name()) != nil {
+			// If the object returned from the garbled package's scope has a different type as the object
+			// we're searching for, they are most likely two separate objects with the same name, so ok to garble
+			if o := garbledPkg.Scope().Lookup(obj.Name()); o != nil && reflect.TypeOf(o) == reflect.TypeOf(obj) {
 				return true
 			}
 			actionID = id
@@ -1132,6 +1176,17 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		return true
 	}
 	return astutil.Apply(file, pre, nil).(*ast.File)
+}
+
+func blacklistStruct(named *types.Named, blacklist map[types.Object]struct{}) {
+	blacklist[named.Obj()] = struct{}{}
+	strct, ok := named.Underlying().(*types.Struct)
+	if !ok {
+		return
+	}
+	for i := 0; i < strct.NumFields(); i++ {
+		blacklist[strct.Field(i)] = struct{}{}
+	}
 }
 
 // implementedOutsideGo returns whether a *types.Func does not have a body, for
