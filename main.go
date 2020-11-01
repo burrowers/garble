@@ -614,24 +614,30 @@ func transformCompile(args []string) ([]string, error) {
 		mathrand.Seed(int64(binary.BigEndian.Uint64([]byte(buildInfo.actionID))))
 	}
 
-	info := &types.Info{
-		Types: make(map[ast.Expr]types.TypeAndValue),
-		Defs:  make(map[*ast.Ident]types.Object),
-		Uses:  make(map[*ast.Ident]types.Object),
+	tf := &transformer{
+		info: &types.Info{
+			Types: make(map[ast.Expr]types.TypeAndValue),
+			Defs:  make(map[*ast.Ident]types.Object),
+			Uses:  make(map[*ast.Ident]types.Object),
+		},
 	}
-	pkg, err := origTypesConfig.Check(pkgPath, fset, files, info)
+
+	tf.pkg, err = origTypesConfig.Check(pkgPath, fset, files, tf.info)
 	if err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
-	blacklist := buildBlacklist(files, info, pkg)
+	tf.privateNameMap = make(map[string]string)
+	tf.existingNames = collectNames(files)
+	tf.buildBlacklist(files)
 
 	// unsafe.Pointer is a special type that doesn't exist as a plain Go
 	// type definition, so we can't change its name.
-	blacklist[types.Unsafe.Scope().Lookup("Pointer")] = struct{}{}
+	tf.blacklist[types.Unsafe.Scope().Lookup("Pointer")] = struct{}{}
 
 	if envGarbleLiterals {
-		files = literals.Obfuscate(files, info, fset, blacklist)
+		// TODO: use transformer here?
+		files = literals.Obfuscate(files, tf.info, fset, tf.blacklist)
 	}
 
 	tempDir, err := ioutil.TempDir("", "garble-build")
@@ -648,9 +654,6 @@ func transformCompile(args []string) ([]string, error) {
 	flags = flagSetValue(flags, "-trimpath", tempDir+"=>;"+trimpath)
 	// log.Println(flags)
 
-	privateNameMap := make(map[string]string)
-	existingNames := collectNames(files)
-	packageCounter := 0
 	detachedComments := make([][]string, len(files))
 
 	for i, file := range files {
@@ -658,9 +661,9 @@ func transformCompile(args []string) ([]string, error) {
 		cgoFile := strings.HasPrefix(name, "_cgo_")
 		fileDetachedComments, localNameBlacklist, file := transformLineInfo(file, cgoFile)
 		for _, name := range localNameBlacklist {
-			obj := pkg.Scope().Lookup(name)
+			obj := tf.pkg.Scope().Lookup(name)
 			if obj != nil {
-				blacklist[obj] = struct{}{}
+				tf.blacklist[obj] = struct{}{}
 			}
 		}
 		detachedComments[i] = fileDetachedComments
@@ -703,7 +706,7 @@ func transformCompile(args []string) ([]string, error) {
 			// messy.
 			name = "_cgo_" + name
 		default:
-			file = transformGo(file, info, blacklist, pkg.Scope(), privateNameMap, pkgPath, existingNames, &packageCounter)
+			file = tf.transformGo(file)
 
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", pkgPath, origName)
@@ -762,7 +765,7 @@ func transformCompile(args []string) ([]string, error) {
 			return err
 		}
 
-		data, err := json.Marshal(privateNameMap)
+		data, err := json.Marshal(tf.privateNameMap)
 		if err != nil {
 			return err
 		}
@@ -927,28 +930,29 @@ func encodeIntToName(i int) string {
 // are both in the same package.
 //
 // The blacklist mainly contains named types and their field declarations.
-func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map[types.Object]struct{} {
-	blacklist := make(map[types.Object]struct{})
+func (tf *transformer) buildBlacklist(files []*ast.File) {
+	tf.blacklist = make(map[types.Object]struct{})
 
 	reflectBlacklist := func(node ast.Node) bool {
 		expr, _ := node.(ast.Expr) // info.TypeOf(nil) will just return nil
-		named := namedType(info.TypeOf(expr))
+		named := namedType(tf.info.TypeOf(expr))
 		if named == nil {
 			return true
 		}
 
 		obj := named.Obj()
-		if obj == nil || obj.Pkg() != pkg {
+		if obj == nil || obj.Pkg() != tf.pkg {
 			return true
 		}
-		blacklistStruct(named, blacklist)
+		blacklistStruct(named, tf.blacklist)
 
 		return true
 	}
 
 	visit := func(node ast.Node) bool {
 		if envGarbleLiterals {
-			literals.ConstBlacklist(node, info, blacklist)
+			// TODO: use transformer here?
+			literals.ConstBlacklist(node, tf.info, tf.blacklist)
 		}
 
 		call, ok := node.(*ast.CallExpr)
@@ -959,7 +963,7 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 		if !ok {
 			return true
 		}
-		fnType := info.ObjectOf(sel.Sel)
+		fnType := tf.info.ObjectOf(sel.Sel)
 
 		if fnType.Pkg() == nil {
 			return true
@@ -975,7 +979,6 @@ func buildBlacklist(files []*ast.File, info *types.Info, pkg *types.Package) map
 	for _, file := range files {
 		ast.Inspect(file, visit)
 	}
-	return blacklist
 }
 
 // collectNames collects all names, including the names of local variables,
@@ -994,8 +997,28 @@ func collectNames(files []*ast.File) map[string]struct{} {
 	return blacklist
 }
 
+// transformer holds all the information and state necessary to obfuscate a
+// single Go package.
+type transformer struct {
+	// The type-checking results; the package itself, and the Info struct.
+	pkg  *types.Package
+	info *types.Info
+
+	// Maps to keep track of how, or whether not, we should obfuscate
+	// certain parts of the package.
+	// TODO: document better and use better field names; see issue #169.
+	blacklist      map[types.Object]struct{}
+	privateNameMap map[string]string
+	existingNames  map[string]struct{}
+
+	// nameCounter keeps track of how many unique identifier names we've
+	// obfuscated, so that the obfuscated names get assigned incrementing
+	// short names like "a", "b", "c", etc.
+	nameCounter int
+}
+
 // transformGo garbles the provided Go syntax node.
-func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]struct{}, filePkgScope *types.Scope, privateNameMap map[string]string, pkgPath string, existingNames map[string]struct{}, packageCounter *int) *ast.File {
+func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	// Shuffle top level declarations
 	mathrand.Shuffle(len(file.Decls), func(i, j int) {
 		decl1 := file.Decls[i]
@@ -1029,7 +1052,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		if strings.HasPrefix(node.Name, "_C") || strings.Contains(node.Name, "_cgo") {
 			return true // don't mess with cgo-generated code
 		}
-		obj := info.ObjectOf(node)
+		obj := tf.info.ObjectOf(node)
 		if obj == nil {
 			return true
 		}
@@ -1055,7 +1078,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 		}
 
 		// The object itself is blacklisted, e.g. a type definition.
-		if _, ok := blacklist[obj]; ok {
+		if _, ok := tf.blacklist[obj]; ok {
 			return true
 		}
 
@@ -1075,12 +1098,12 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 
 			// if the struct of this field was not garbled, do not garble
 			// any of that struct's fields
-			if (parentScope != filePkgScope) && (x.IsField() && !x.Embedded()) {
+			if (parentScope != tf.pkg.Scope()) && (x.IsField() && !x.Embedded()) {
 				parent, ok := cursor.Parent().(*ast.SelectorExpr)
 				if !ok {
 					break
 				}
-				parentType := info.TypeOf(parent.X)
+				parentType := tf.info.TypeOf(parent.X)
 				if parentType == nil {
 					break
 				}
@@ -1094,7 +1117,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 						panic(err) // shouldn't happen
 					}
 					if garbledPkg.Scope().Lookup(named.Obj().Name()) != nil {
-						blacklistStruct(named, blacklist)
+						blacklistStruct(named, tf.blacklist)
 						return true
 					}
 				}
@@ -1107,7 +1130,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 
 			// if the type was not garbled in the package were it was defined,
 			// do not garble it here
-			if parentScope != filePkgScope {
+			if parentScope != tf.pkg.Scope() {
 				named := namedType(x.Type())
 				if named == nil {
 					break
@@ -1118,7 +1141,7 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 						panic(err) // shouldn't happen
 					}
 					if garbledPkg.Scope().Lookup(x.Name()) != nil {
-						blacklistStruct(named, blacklist)
+						blacklistStruct(named, tf.blacklist)
 						return true
 					}
 				}
@@ -1162,23 +1185,23 @@ func transformGo(file *ast.File, info *types.Info, blacklist map[types.Object]st
 			return true
 		}
 
-		fullName := pkgPath + "." + node.Name
-		if name, ok := privateNameMap[fullName]; ok {
+		fullName := tf.pkg.Path() + "." + node.Name
+		if name, ok := tf.privateNameMap[fullName]; ok {
 			node.Name = name
 			return true
 		}
 
 		var name string
 		for {
-			*packageCounter++
-			name = encodeIntToName(*packageCounter)
-			if _, ok := existingNames[name]; !ok {
+			tf.nameCounter++
+			name = encodeIntToName(tf.nameCounter)
+			if _, ok := tf.existingNames[name]; !ok {
 				break
 			}
 		}
 
 		// orig := node.Name
-		privateNameMap[fullName] = name
+		tf.privateNameMap[fullName] = name
 		node.Name = name
 		// log.Printf("%q hashed with %q to %q", orig, actionID, node.Name)
 		return true
