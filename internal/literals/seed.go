@@ -27,7 +27,7 @@ func (seed) obfuscate(data []byte) *ast.BlockStmt {
 		seed += encB
 
 		if i == 0 {
-			callExpr = ah.CallExpr(ah.Ident("fnc"), ah.IntLit(int(encB)))
+			callExpr = ah.CallExpr(ast.NewIdent("fnc"), ah.IntLit(int(encB)))
 			continue
 		}
 
@@ -36,16 +36,16 @@ func (seed) obfuscate(data []byte) *ast.BlockStmt {
 
 	return ah.BlockStmt(
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("seed")},
+			Lhs: []ast.Expr{ast.NewIdent("seed")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.CallExpr(ah.Ident("byte"), ah.IntLit(int(originalSeed)))},
+			Rhs: []ast.Expr{ah.CallExpr(ast.NewIdent("byte"), ah.IntLit(int(originalSeed)))},
 		},
 		&ast.DeclStmt{
 			Decl: &ast.GenDecl{
 				Tok: token.VAR,
 				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{ah.Ident("data")},
-					Type:  &ast.ArrayType{Elt: ah.Ident("byte")},
+					Names: []*ast.Ident{ast.NewIdent("data")},
+					Type:  &ast.ArrayType{Elt: ast.NewIdent("byte")},
 				}},
 			},
 		},
@@ -53,13 +53,13 @@ func (seed) obfuscate(data []byte) *ast.BlockStmt {
 			Decl: &ast.GenDecl{
 				Tok: token.TYPE,
 				Specs: []ast.Spec{&ast.TypeSpec{
-					Name: ah.Ident("decFunc"),
+					Name: ast.NewIdent("decFunc"),
 					Type: &ast.FuncType{
 						Params: &ast.FieldList{List: []*ast.Field{
-							{Type: ah.Ident("byte")},
+							{Type: ast.NewIdent("byte")},
 						}},
 						Results: &ast.FieldList{List: []*ast.Field{
-							{Type: ah.Ident("decFunc")},
+							{Type: ast.NewIdent("decFunc")},
 						}},
 					},
 				}},
@@ -69,43 +69,43 @@ func (seed) obfuscate(data []byte) *ast.BlockStmt {
 			Decl: &ast.GenDecl{
 				Tok: token.VAR,
 				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{ah.Ident("fnc")},
-					Type:  ah.Ident("decFunc"),
+					Names: []*ast.Ident{ast.NewIdent("fnc")},
+					Type:  ast.NewIdent("decFunc"),
 				}},
 			},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("fnc")},
+			Lhs: []ast.Expr{ast.NewIdent("fnc")},
 			Tok: token.ASSIGN,
 			Rhs: []ast.Expr{
 				&ast.FuncLit{
 					Type: &ast.FuncType{
 						Params: &ast.FieldList{
 							List: []*ast.Field{{
-								Names: []*ast.Ident{ah.Ident("x")},
-								Type:  ah.Ident("byte"),
+								Names: []*ast.Ident{ast.NewIdent("x")},
+								Type:  ast.NewIdent("byte"),
 							}},
 						},
 						Results: &ast.FieldList{
 							List: []*ast.Field{{
-								Type: ah.Ident("decFunc"),
+								Type: ast.NewIdent("decFunc"),
 							}},
 						},
 					},
 					Body: ah.BlockStmt(
 						&ast.AssignStmt{
-							Lhs: []ast.Expr{ah.Ident("data")},
+							Lhs: []ast.Expr{ast.NewIdent("data")},
 							Tok: token.ASSIGN,
 							Rhs: []ast.Expr{
-								ah.CallExpr(ah.Ident("append"), ah.Ident("data"), operatorToReversedBinaryExpr(op, ah.Ident("x"), ah.Ident("seed"))),
+								ah.CallExpr(ast.NewIdent("append"), ast.NewIdent("data"), operatorToReversedBinaryExpr(op, ast.NewIdent("x"), ast.NewIdent("seed"))),
 							},
 						},
 						&ast.AssignStmt{
-							Lhs: []ast.Expr{ah.Ident("seed")},
+							Lhs: []ast.Expr{ast.NewIdent("seed")},
 							Tok: token.ADD_ASSIGN,
-							Rhs: []ast.Expr{ah.Ident("x")},
+							Rhs: []ast.Expr{ast.NewIdent("x")},
 						},
-						ah.ReturnStmt(ah.Ident("fnc")),
+						ah.ReturnStmt(ast.NewIdent("fnc")),
 					),
 				},
 			},

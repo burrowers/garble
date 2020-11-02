@@ -10,11 +10,6 @@ import (
 	"strconv"
 )
 
-// Ident an identifier
-func Ident(name string) *ast.Ident {
-	return &ast.Ident{Name: name}
-}
-
 // StringLit returns an ast.BasicLit of kind STRING
 func StringLit(value string) *ast.BasicLit {
 	return &ast.BasicLit{
@@ -50,7 +45,7 @@ func Float64Lit(value float64) *ast.BasicLit {
 // IndexExpr "name[index]"
 func IndexExpr(name string, index ast.Expr) *ast.IndexExpr {
 	return &ast.IndexExpr{
-		X:     Ident(name),
+		X:     ast.NewIdent(name),
 		Index: index,
 	}
 }
@@ -89,7 +84,7 @@ func ReturnStmt(results ...ast.Expr) *ast.ReturnStmt {
 // BoundsCheck "_ = name[pos]"
 func BoundsCheck(name string, pos int) *ast.AssignStmt {
 	return &ast.AssignStmt{
-		Lhs: []ast.Expr{Ident("_")},
+		Lhs: []ast.Expr{ast.NewIdent("_")},
 		Tok: token.ASSIGN,
 		Rhs: []ast.Expr{IndexExpr("data", IntLit(pos))},
 	}

@@ -289,14 +289,14 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 	var statements []ast.Stmt
 	for i := 0; i < literalCount; i++ {
 		literal := generateStringLit()
-		statements = append(statements, ah.ExprStmt(ah.CallExpr(ah.Ident("println"), literal)))
+		statements = append(statements, ah.ExprStmt(ah.CallExpr(ast.NewIdent("println"), literal)))
 	}
 
 	file := &ast.File{
-		Name: ah.Ident("main"),
+		Name: ast.NewIdent("main"),
 		Decls: []ast.Decl{
 			&ast.FuncDecl{
-				Name: ah.Ident(funcName),
+				Name: ast.NewIdent(funcName),
 				Type: &ast.FuncType{
 					Params: &ast.FieldList{},
 				},

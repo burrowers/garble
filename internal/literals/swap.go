@@ -34,7 +34,7 @@ func positionsToSlice(data []int) *ast.CompositeLit {
 	arr := &ast.CompositeLit{
 		Type: &ast.ArrayType{
 			Len: &ast.Ellipsis{}, // Performance optimization
-			Elt: ah.Ident(getIndexType(len(data))),
+			Elt: ast.NewIdent(getIndexType(len(data))),
 		},
 		Elts: []ast.Expr{},
 	}
@@ -74,44 +74,44 @@ func (swap) obfuscate(data []byte) *ast.BlockStmt {
 
 	return ah.BlockStmt(
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("data")},
+			Lhs: []ast.Expr{ast.NewIdent("data")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.DataToByteSlice(data)},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("positions")},
+			Lhs: []ast.Expr{ast.NewIdent("positions")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{positionsToSlice(positions)},
 		},
 		&ast.ForStmt{
 			Init: &ast.AssignStmt{
-				Lhs: []ast.Expr{ah.Ident("i")},
+				Lhs: []ast.Expr{ast.NewIdent("i")},
 				Tok: token.DEFINE,
 				Rhs: []ast.Expr{ah.IntLit(0)},
 			},
 			Cond: &ast.BinaryExpr{
-				X:  ah.Ident("i"),
+				X:  ast.NewIdent("i"),
 				Op: token.LSS,
 				Y:  ah.IntLit(len(positions)),
 			},
 			Post: &ast.AssignStmt{
-				Lhs: []ast.Expr{ah.Ident("i")},
+				Lhs: []ast.Expr{ast.NewIdent("i")},
 				Tok: token.ADD_ASSIGN,
 				Rhs: []ast.Expr{ah.IntLit(2)},
 			},
 			Body: ah.BlockStmt(
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.Ident("localKey")},
+					Lhs: []ast.Expr{ast.NewIdent("localKey")},
 					Tok: token.DEFINE,
 					Rhs: []ast.Expr{&ast.BinaryExpr{
 						X: &ast.BinaryExpr{
-							X:  ah.CallExpr(ah.Ident("byte"), ah.Ident("i")),
+							X:  ah.CallExpr(ast.NewIdent("byte"), ast.NewIdent("i")),
 							Op: token.ADD,
-							Y: ah.CallExpr(ah.Ident("byte"), &ast.BinaryExpr{
-								X:  ah.IndexExpr("positions", ah.Ident("i")),
+							Y: ah.CallExpr(ast.NewIdent("byte"), &ast.BinaryExpr{
+								X:  ah.IndexExpr("positions", ast.NewIdent("i")),
 								Op: token.XOR,
 								Y: ah.IndexExpr("positions", &ast.BinaryExpr{
-									X:  ah.Ident("i"),
+									X:  ast.NewIdent("i"),
 									Op: token.ADD,
 									Y:  ah.IntLit(1),
 								}),
@@ -123,9 +123,9 @@ func (swap) obfuscate(data []byte) *ast.BlockStmt {
 				},
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{
-						ah.IndexExpr("data", ah.IndexExpr("positions", ah.Ident("i"))),
+						ah.IndexExpr("data", ah.IndexExpr("positions", ast.NewIdent("i"))),
 						ah.IndexExpr("data", ah.IndexExpr("positions", &ast.BinaryExpr{
-							X:  ah.Ident("i"),
+							X:  ast.NewIdent("i"),
 							Op: token.ADD,
 							Y:  ah.IntLit(1),
 						})),
@@ -136,17 +136,17 @@ func (swap) obfuscate(data []byte) *ast.BlockStmt {
 							op,
 							ah.IndexExpr("data",
 								ah.IndexExpr("positions", &ast.BinaryExpr{
-									X:  ah.Ident("i"),
+									X:  ast.NewIdent("i"),
 									Op: token.ADD,
 									Y:  ah.IntLit(1),
 								}),
 							),
-							ah.Ident("localKey"),
+							ast.NewIdent("localKey"),
 						),
 						operatorToReversedBinaryExpr(
 							op,
-							ah.IndexExpr("data", ah.IndexExpr("positions", ah.Ident("i"))),
-							ah.Ident("localKey"),
+							ah.IndexExpr("data", ah.IndexExpr("positions", ast.NewIdent("i"))),
+							ast.NewIdent("localKey"),
 						),
 					},
 				},

@@ -163,16 +163,16 @@ func obfuscateString(data string) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate([]byte(data))
 
-	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ah.Ident("string"), ah.Ident("data"))))
+	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent("string"), ast.NewIdent("data"))))
 
-	return ah.LambdaCall(ah.Ident("string"), block)
+	return ah.LambdaCall(ast.NewIdent("string"), block)
 }
 
 func obfuscateByteSlice(data []byte) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate(data)
-	block.List = append(block.List, ah.ReturnStmt(ah.Ident("data")))
-	return ah.LambdaCall(&ast.ArrayType{Elt: ah.Ident("byte")}, block)
+	block.List = append(block.List, ah.ReturnStmt(ast.NewIdent("data")))
+	return ah.LambdaCall(&ast.ArrayType{Elt: ast.NewIdent("byte")}, block)
 }
 
 func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
@@ -181,7 +181,7 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 
 	arrayType := &ast.ArrayType{
 		Len: ah.IntLit(int(length)),
-		Elt: ah.Ident("byte"),
+		Elt: ast.NewIdent("byte"),
 	}
 
 	sliceToArray := []ast.Stmt{
@@ -189,24 +189,24 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 			Decl: &ast.GenDecl{
 				Tok: token.VAR,
 				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{ah.Ident("newdata")},
+					Names: []*ast.Ident{ast.NewIdent("newdata")},
 					Type:  arrayType,
 				}},
 			},
 		},
 		&ast.RangeStmt{
-			Key: ah.Ident("i"),
+			Key: ast.NewIdent("i"),
 			Tok: token.DEFINE,
-			X:   ah.Ident("newdata"),
+			X:   ast.NewIdent("newdata"),
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.IndexExpr("newdata", ah.Ident("i"))},
+					Lhs: []ast.Expr{ah.IndexExpr("newdata", ast.NewIdent("i"))},
 					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("i"))},
+					Rhs: []ast.Expr{ah.IndexExpr("data", ast.NewIdent("i"))},
 				},
 			}},
 		},
-		ah.ReturnStmt(ah.Ident("newdata")),
+		ah.ReturnStmt(ast.NewIdent("newdata")),
 	}
 
 	block.List = append(block.List, sliceToArray...)
