@@ -43,11 +43,20 @@ const (
 // privateImports stores package paths and names that
 // match GOPRIVATE. privateNames are elements of the
 // paths in privatePaths, separated so that the shorter
-// names don't accidently match another import, such
+// names don't accidentally match another import, such
 // as a stdlib package
 type privateImports struct {
 	privatePaths []string
-	privateNames []string
+	privateNames []privateName
+}
+
+// privateName is a package name with a unique seed
+// that insures that two package names with the same
+// name but from different package paths will be hashed
+// differently.
+type privateName struct {
+	name string
+	seed []byte
 }
 
 func appendPrivateNameMap(pkg *goobj2.Package, nameMap map[string]string) error {
@@ -224,7 +233,7 @@ func obfuscateImports(objPath, tempDir, importCfgPath string) (garbledObj string
 				privImports.privatePaths = append(privImports.privatePaths, privPaths...)
 				privImports.privateNames = append(privImports.privateNames, privNames...)
 
-				return hashImport(imp, garbledImports)
+				return hashImport(imp, nil, garbledImports)
 			}
 
 			for i := range am.Imports {
@@ -235,7 +244,7 @@ func obfuscateImports(objPath, tempDir, importCfgPath string) (garbledObj string
 			}
 
 			privImports.privatePaths = dedupStrings(privImports.privatePaths)
-			privImports.privateNames = dedupStrings(privImports.privateNames)
+			privImports.privateNames = dedupPrivateNames(privImports.privateNames)
 			// move imports that contain another import as a substring to the front,
 			// so that the shorter import will not match first and leak part of an
 			// import path
@@ -249,7 +258,7 @@ func obfuscateImports(objPath, tempDir, importCfgPath string) (garbledObj string
 				return iSlashes > jSlashes
 			})
 			sort.Slice(privImports.privateNames, func(i, j int) bool {
-				return privImports.privateNames[i] > privImports.privateNames[j]
+				return privImports.privateNames[i].name > privImports.privateNames[j].name
 			})
 
 			// no private import paths, nothing to garble
@@ -331,17 +340,18 @@ func stripPCLinesAndNames(am *goobj2.ArchiveMember) {
 // ex. path=github.com/foo/bar/baz, GOPRIVATE=github.com/*
 // pkgPaths=[github.com/foo/bar, github.com/foo]
 // pkgNames=[foo, bar, baz]
-// TODO: last element returned should get same buildID
-// as full path?
-// ie github.com/foo/bar.buildID == bar.buildID
-func explodeImportPath(path string) ([]string, []string) {
+// Because package names could refer to multiple import
+// paths, a seed is bundled with each package name to
+// ensure that 2 identical package names from different
+// import paths will get hashed differently.
+func explodeImportPath(path string) ([]string, []privateName) {
 	paths := strings.Split(path, "/")
 	if len(paths) == 1 {
 		return []string{path}, nil
 	}
 
 	pkgPaths := make([]string, 0, len(paths)-1)
-	pkgNames := make([]string, 0, len(paths)-1)
+	pkgNames := make([]privateName, 0, len(paths)-1)
 
 	var restPrivate bool
 	if isPrivate(paths[0]) {
@@ -357,7 +367,8 @@ func explodeImportPath(path string) ([]string, []string) {
 			newPath += "/" + paths[i]
 			if isPrivate(newPath) {
 				pkgPaths = append(pkgPaths, newPath)
-				pkgNames = append(pkgNames, paths[i])
+				pkgNames = append(pkgNames, newPrivateName(paths[i], newPath))
+
 				privateIdx = i + 1
 				restPrivate = true
 				break
@@ -373,13 +384,29 @@ func explodeImportPath(path string) ([]string, []string) {
 	for i := privateIdx; i < len(paths); i++ {
 		newPath := pkgPaths[lastComboIdx-1] + "/" + paths[i]
 		pkgPaths = append(pkgPaths, newPath)
-		pkgNames = append(pkgNames, paths[i])
+		pkgNames = append(pkgNames, newPrivateName(paths[i], newPath))
 
 		lastComboIdx++
 	}
-	pkgNames = append(pkgNames, paths[len(paths)-1])
+	lastPath := paths[len(paths)-1]
+	pkgNames = append(pkgNames, newPrivateName(lastPath, path))
 
 	return pkgPaths, pkgNames
+}
+
+// newPrivateName creates a privateName, from a package name
+// and package path, setting the seed to path's actionID if
+// we know it; if not, the seed is set to the path itself.
+func newPrivateName(name, path string) privateName {
+	pName := privateName{name: name}
+
+	if actionID := buildInfo.imports[path].actionID; actionID == nil {
+		pName.seed = []byte(path)
+	} else {
+		pName.seed = actionID
+	}
+
+	return pName
 }
 
 func dedupStrings(paths []string) []string {
@@ -396,19 +423,31 @@ func dedupStrings(paths []string) []string {
 	return paths[:j]
 }
 
-// TODO: possible that package collisions can occur; for instance, if
-// 'github.com/thingy/foo' and 'bar/baz/foo/zip' were both private imports
-// of the same object, 'foo' would be added to as a private import
-// twice, due to the logic of importPathCombos(). There needs to be some
-// way to differentiate between 'foo' of 'github.com/thingy/foo' and
-// 'bar/baz/foo/zip' so the same buildID is not used, which would create
-// an identical hash.
-func hashImport(pkg string, garbledImports map[string]string) string {
-	if garbledPkg, ok := garbledImports[pkg]; ok {
-		return garbledPkg
+func dedupPrivateNames(names []privateName) []privateName {
+	seen := make(map[string]struct{}, len(names))
+	j := 0
+	for _, v := range names {
+		combined := v.name + string(v.seed)
+		if _, ok := seen[combined]; ok {
+			continue
+		}
+		seen[combined] = struct{}{}
+		names[j] = v
+		j++
+	}
+	return names[:j]
+}
+
+func hashImport(pkg string, seed []byte, garbledImports map[string]string) string {
+	if seed == nil {
+		if garbledPkg, ok := garbledImports[pkg]; ok {
+			return garbledPkg
+		}
+		seed = buildInfo.imports[pkg].actionID
 	}
 
-	garbledPkg := hashWith(buildInfo.imports[pkg].actionID, pkg)
+	garbledPkg := hashWith(seed, pkg)
+	// log.Printf("\t\t! Hashed %q as %s with seed %q", pkg, garbledPkg, seed)
 	garbledImports[pkg] = garbledPkg
 
 	return garbledPkg
@@ -518,7 +557,7 @@ func garbleSymbolName(symName string, privImports privateImports, garbledImports
 
 	var off int
 	for {
-		o, l := privateImportIndex(name[off:], privImports, namedataSym)
+		o, l, privName := privateImportIndex(name[off:], privImports, namedataSym)
 		if o == -1 {
 			if sb.Len() != 0 {
 				sb.WriteString(name[off:])
@@ -527,7 +566,7 @@ func garbleSymbolName(symName string, privImports privateImports, garbledImports
 		}
 
 		sb.WriteString(name[off : off+o])
-		sb.WriteString(hashImport(name[off+o:off+o+l], garbledImports))
+		sb.WriteString(hashImport(name[off+o:off+o+l], privName.seed, garbledImports))
 		off += o + l
 	}
 
@@ -631,7 +670,11 @@ func splitSymbolPrefix(symName string) (string, string, bool) {
 // privateImportIndex returns the offset and length of a private import
 // in symName. If no private imports from privImports are present in
 // symName, -1, 0 is returned.
-func privateImportIndex(symName string, privImports privateImports, nameDataSym bool) (int, int) {
+// TODO: it is possible that there could be multiple private names with
+// the same name but different seeds, and currently the first name will
+// always be returned. Not sure how to know which private name is correct
+// in that case
+func privateImportIndex(symName string, privImports privateImports, nameDataSym bool) (int, int, privateName) {
 	matchPkg := func(pkg string) int {
 		off := strings.Index(symName, pkg)
 		if off == -1 {
@@ -649,6 +692,7 @@ func privateImportIndex(symName string, privImports privateImports, nameDataSym 
 		return off
 	}
 
+	var privName privateName
 	firstOff, l := -1, 0
 	for _, privatePkg := range privImports.privatePaths {
 		off := matchPkg(privatePkg)
@@ -661,22 +705,23 @@ func privateImportIndex(symName string, privImports privateImports, nameDataSym 
 	}
 
 	if nameDataSym {
-		for _, privateName := range privImports.privateNames {
+		for _, pName := range privImports.privateNames {
 			// search for the package name plus a period, to
 			// minimize the likelihood that the package isn't
 			// matched as a substring of another ident name.
 			// ex: pkgName = main, symName = "domainname"
-			off := matchPkg(privateName + ".")
+			off := matchPkg(pName.name + ".")
 			if off == -1 {
 				continue
 			} else if off < firstOff || firstOff == -1 {
 				firstOff = off
-				l = len(privateName)
+				l = len(pName.name)
+				privName = pName
 			}
 		}
 	}
 
-	return firstOff, l
+	return firstOff, l, privName
 }
 
 func isSymbol(c byte) bool {
@@ -704,7 +749,7 @@ func garbleSymData(data []byte, privImports privateImports, garbledImports map[s
 
 	var off int
 	for {
-		o, l := privateImportIndex(string(symData[off:]), privImports, dataTyp == namedata)
+		o, l, privName := privateImportIndex(string(symData[off:]), privImports, dataTyp == namedata)
 		if o == -1 {
 			if buf.Len() != 0 {
 				buf.Write(symData[off:])
@@ -714,11 +759,11 @@ func garbleSymData(data []byte, privImports privateImports, garbledImports map[s
 
 		// there is only one import path in the symbol's data, garble it and return
 		if dataTyp == importPath {
-			return createImportPathData(hashImport(string(symData[o:o+l]), garbledImports))
+			return createImportPathData(hashImport(string(symData[o:o+l]), privName.seed, garbledImports))
 		}
 
 		buf.Write(symData[off : off+o])
-		buf.WriteString(hashImport(string(symData[off+o:off+o+l]), garbledImports))
+		buf.WriteString(hashImport(string(symData[off+o:off+o+l]), privName.seed, garbledImports))
 		off += o + l
 	}
 
@@ -769,7 +814,7 @@ func garbleImportCfg(path string, importCfg goobj2.ImportCfg, garbledImports, re
 
 	for pkgPath, info := range importCfg {
 		if isPrivate(pkgPath) {
-			pkgPath = hashImport(pkgPath, garbledImports)
+			pkgPath = hashImport(pkgPath, nil, garbledImports)
 		}
 		if info.IsSharedLib {
 			newCfgWr.WriteString("packageshlib")
