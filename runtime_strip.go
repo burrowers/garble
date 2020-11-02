@@ -143,7 +143,7 @@ func removeImport(importPath string, specs []ast.Spec) []ast.Spec {
 }
 
 var hidePrintDecl = &ast.FuncDecl{
-	Name: ah.Ident("hidePrint"),
+	Name: ast.NewIdent("hidePrint"),
 	Type: &ast.FuncType{Params: &ast.FieldList{
 		List: []*ast.Field{{
 			Names: []*ast.Ident{{Name: "args"}},
@@ -158,16 +158,16 @@ var hidePrintDecl = &ast.FuncDecl{
 var parsedebugvarsStmts = ah.BlockStmt(
 	&ast.AssignStmt{
 		Lhs: []ast.Expr{&ast.SelectorExpr{
-			X:   ah.Ident("debug"),
-			Sel: ah.Ident("cgocheck"),
+			X:   ast.NewIdent("debug"),
+			Sel: ast.NewIdent("cgocheck"),
 		}},
 		Tok: token.ASSIGN,
 		Rhs: []ast.Expr{ah.IntLit(1)},
 	},
 	&ast.AssignStmt{
 		Lhs: []ast.Expr{&ast.SelectorExpr{
-			X:   ah.Ident("debug"),
-			Sel: ah.Ident("invalidptr"),
+			X:   ast.NewIdent("debug"),
+			Sel: ast.NewIdent("invalidptr"),
 		}},
 		Tok: token.ASSIGN,
 		Rhs: []ast.Expr{ah.IntLit(1)},

@@ -97,25 +97,25 @@ func (split) obfuscate(data []byte) *ast.BlockStmt {
 		List: []ast.Expr{ah.IntLit(decryptIndex)},
 		Body: shuffleStmts(
 			&ast.AssignStmt{
-				Lhs: []ast.Expr{ah.Ident("i")},
+				Lhs: []ast.Expr{ast.NewIdent("i")},
 				Tok: token.ASSIGN,
 				Rhs: []ast.Expr{ah.IntLit(exitIndex)},
 			},
 			&ast.RangeStmt{
-				Key: ah.Ident("y"),
+				Key: ast.NewIdent("y"),
 				Tok: token.DEFINE,
-				X:   ah.Ident("data"),
+				X:   ast.NewIdent("data"),
 				Body: ah.BlockStmt(&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("y"))},
+					Lhs: []ast.Expr{ah.IndexExpr("data", ast.NewIdent("y"))},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
 						operatorToReversedBinaryExpr(
 							op,
-							ah.IndexExpr("data", ah.Ident("y")),
-							ah.CallExpr(ah.Ident("byte"), &ast.BinaryExpr{
-								X:  ah.Ident("decryptKey"),
+							ah.IndexExpr("data", ast.NewIdent("y")),
+							ah.CallExpr(ast.NewIdent("byte"), &ast.BinaryExpr{
+								X:  ast.NewIdent("decryptKey"),
 								Op: token.XOR,
-								Y:  ah.Ident("y"),
+								Y:  ast.NewIdent("y"),
 							}),
 						),
 					},
@@ -129,8 +129,8 @@ func (split) obfuscate(data []byte) *ast.BlockStmt {
 		chunk := chunks[i]
 
 		appendCallExpr := &ast.CallExpr{
-			Fun:  ah.Ident("append"),
-			Args: []ast.Expr{ah.Ident("data")},
+			Fun:  ast.NewIdent("append"),
+			Args: []ast.Expr{ast.NewIdent("data")},
 		}
 
 		if len(chunk) != 1 {
@@ -144,12 +144,12 @@ func (split) obfuscate(data []byte) *ast.BlockStmt {
 			List: []ast.Expr{ah.IntLit(index)},
 			Body: shuffleStmts(
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.Ident("i")},
+					Lhs: []ast.Expr{ast.NewIdent("i")},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{ah.IntLit(nextIndex)},
 				},
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.Ident("data")},
+					Lhs: []ast.Expr{ast.NewIdent("data")},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{appendCallExpr},
 				},
@@ -162,50 +162,50 @@ func (split) obfuscate(data []byte) *ast.BlockStmt {
 			Tok: token.VAR,
 			Specs: []ast.Spec{
 				&ast.ValueSpec{
-					Names: []*ast.Ident{ah.Ident("data")},
-					Type:  &ast.ArrayType{Elt: ah.Ident("byte")},
+					Names: []*ast.Ident{ast.NewIdent("data")},
+					Type:  &ast.ArrayType{Elt: ast.NewIdent("byte")},
 				},
 			},
 		}},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("i")},
+			Lhs: []ast.Expr{ast.NewIdent("i")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.IntLit(indexes[0])},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("decryptKey")},
+			Lhs: []ast.Expr{ast.NewIdent("decryptKey")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.IntLit(int(decryptKeyInitial))},
 		},
 		&ast.ForStmt{
 			Init: &ast.AssignStmt{
-				Lhs: []ast.Expr{ah.Ident("counter")},
+				Lhs: []ast.Expr{ast.NewIdent("counter")},
 				Tok: token.DEFINE,
 				Rhs: []ast.Expr{ah.IntLit(0)},
 			},
 			Cond: &ast.BinaryExpr{
-				X:  ah.Ident("i"),
+				X:  ast.NewIdent("i"),
 				Op: token.NEQ,
 				Y:  ah.IntLit(indexes[len(indexes)-1]),
 			},
 			Post: &ast.IncDecStmt{
-				X:   ah.Ident("counter"),
+				X:   ast.NewIdent("counter"),
 				Tok: token.INC,
 			},
 			Body: ah.BlockStmt(
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.Ident("decryptKey")},
+					Lhs: []ast.Expr{ast.NewIdent("decryptKey")},
 					Tok: token.XOR_ASSIGN,
 					Rhs: []ast.Expr{
 						&ast.BinaryExpr{
-							X:  ah.Ident("i"),
+							X:  ast.NewIdent("i"),
 							Op: token.MUL,
-							Y:  ah.Ident("counter"),
+							Y:  ast.NewIdent("counter"),
 						},
 					},
 				},
 				&ast.SwitchStmt{
-					Tag:  ah.Ident("i"),
+					Tag:  ast.NewIdent("i"),
 					Body: ah.BlockStmt(shuffleStmts(switchCases...)...),
 				}),
 		},

@@ -37,7 +37,7 @@ func (shuffle) obfuscate(data []byte) *ast.BlockStmt {
 		shuffledFullData[shuffledIdxs[i]] = b
 	}
 
-	args := []ast.Expr{ah.Ident("data")}
+	args := []ast.Expr{ast.NewIdent("data")}
 	for i := range data {
 		args = append(args, operatorToReversedBinaryExpr(
 			operators[i],
@@ -48,7 +48,7 @@ func (shuffle) obfuscate(data []byte) *ast.BlockStmt {
 
 	return ah.BlockStmt(
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("fullData")},
+			Lhs: []ast.Expr{ast.NewIdent("fullData")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.DataToByteSlice(shuffledFullData)},
 		},
@@ -56,15 +56,15 @@ func (shuffle) obfuscate(data []byte) *ast.BlockStmt {
 			Decl: &ast.GenDecl{
 				Tok: token.VAR,
 				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{ah.Ident("data")},
-					Type:  &ast.ArrayType{Elt: ah.Ident("byte")},
+					Names: []*ast.Ident{ast.NewIdent("data")},
+					Type:  &ast.ArrayType{Elt: ast.NewIdent("byte")},
 				}},
 			},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("data")},
+			Lhs: []ast.Expr{ast.NewIdent("data")},
 			Tok: token.ASSIGN,
-			Rhs: []ast.Expr{ah.CallExpr(ah.Ident("append"), args...)},
+			Rhs: []ast.Expr{ah.CallExpr(ast.NewIdent("append"), args...)},
 		},
 	)
 }

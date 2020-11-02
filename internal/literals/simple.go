@@ -26,25 +26,25 @@ func (simple) obfuscate(data []byte) *ast.BlockStmt {
 
 	return ah.BlockStmt(
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("key")},
+			Lhs: []ast.Expr{ast.NewIdent("key")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.DataToByteSlice(key)},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ah.Ident("data")},
+			Lhs: []ast.Expr{ast.NewIdent("data")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.DataToByteSlice(data)},
 		},
 		&ast.RangeStmt{
-			Key:   ah.Ident("i"),
-			Value: ah.Ident("b"),
+			Key:   ast.NewIdent("i"),
+			Value: ast.NewIdent("b"),
 			Tok:   token.DEFINE,
-			X:     ah.Ident("key"),
+			X:     ast.NewIdent("key"),
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.IndexExpr("data", ah.Ident("i"))},
+					Lhs: []ast.Expr{ah.IndexExpr("data", ast.NewIdent("i"))},
 					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{operatorToReversedBinaryExpr(op, ah.IndexExpr("data", ah.Ident("i")), ah.Ident("b"))},
+					Rhs: []ast.Expr{operatorToReversedBinaryExpr(op, ah.IndexExpr("data", ast.NewIdent("i")), ast.NewIdent("b"))},
 				},
 			}},
 		},
