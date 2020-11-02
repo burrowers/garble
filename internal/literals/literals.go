@@ -15,8 +15,6 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-var usesUnsafe bool
-
 func randObfuscator() obfuscator {
 	randPos := mathrand.Intn(len(obfuscators))
 	return obfuscators[randPos]
@@ -150,11 +148,7 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 	}
 
 	for i := range files {
-		usesUnsafe = false
 		files[i] = astutil.Apply(files[i], pre, post).(*ast.File)
-		if usesUnsafe {
-			astutil.AddImport(fset, files[i], "unsafe")
-		}
 	}
 	return files
 }
