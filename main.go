@@ -183,6 +183,9 @@ type listedPackage struct {
 	ImportPath string
 	Export     string
 	Deps       []string
+
+	// TODO(mvdan): reuse this field once TOOLEXEC_IMPORTPATH is used
+	private bool
 }
 
 func listPackage(path string) (*listedPackage, error) {
@@ -412,14 +415,25 @@ func mainErr(args []string) error {
 			return err
 		}
 		anyPrivate := false
-		for path := range listedPackages {
+		for path, pkg := range listedPackages {
 			if isPrivate(path) {
+				pkg.private = true
 				anyPrivate = true
-				break
 			}
 		}
 		if !anyPrivate {
-			return fmt.Errorf("GOPRIVATE %q does not match any packages to be built", envGoPrivate)
+			return fmt.Errorf("GOPRIVATE=%q does not match any packages to be built", envGoPrivate)
+		}
+		for path, pkg := range listedPackages {
+			if pkg.private == true {
+				continue
+			}
+			for _, depPath := range pkg.Deps {
+				if listedPackages[depPath].private {
+					return fmt.Errorf("public package %q can't depend on obfuscated package %q (matched via GOPRIVATE=%q)",
+						path, depPath, envGoPrivate)
+				}
+			}
 		}
 
 		execPath, err := os.Executable()
@@ -631,10 +645,6 @@ func transformCompile(args []string) ([]string, error) {
 	tf.existingNames = collectNames(files)
 	tf.buildBlacklist(files)
 
-	// unsafe.Pointer is a special type that doesn't exist as a plain Go
-	// type definition, so we can't change its name.
-	tf.blacklist[types.Unsafe.Scope().Lookup("Pointer")] = struct{}{}
-
 	if envGarbleLiterals {
 		// TODO: use transformer here?
 		files = literals.Obfuscate(files, tf.info, fset, tf.blacklist)
@@ -792,14 +802,17 @@ func transformCompile(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
-const privateBlacklist = "runtime,internal/cpu,internal/bytealg"
+// neverPrivate is a core set of std packages which we cannot obfuscate.
+// At the moment, this is the runtime package and its (few) dependencies.
+// This might change in the future.
+const neverPrivate = "runtime,internal/cpu,internal/bytealg,unsafe"
 
 // isPrivate checks if GOPRIVATE matches path.
 //
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(path string) bool {
-	if module.MatchPrefixPatterns(privateBlacklist, path) {
+	if module.MatchPrefixPatterns(neverPrivate, path) {
 		return false
 	}
 	if path == "main" || path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
