@@ -1,11 +1,15 @@
 env GOPRIVATE=match-absolutely/nothing
-! garble build -o bin ./standalone
-stderr 'does not match any packages'
+! garble build -o=out ./standalone
+stderr '^GOPRIVATE="match-absolutely/nothing" does not match any packages to be built$'
+
+env GOPRIVATE=test/main/imported
+! garble build ./importer
+stderr '^public package "test/main/importer" can''t depend on obfuscated package "test/main/imported" \(matched via GOPRIVATE="test/main/imported"\)$'
 
 [short] stop
 
 env GOPRIVATE='*'
-garble build  -o bin ./standalone
+garble build -o=out ./standalone
 
 -- go.mod --
 module test/main
@@ -13,3 +17,13 @@ module test/main
 package main
 
 func main() {}
+-- importer/importer.go --
+package importer
+
+import "test/main/imported"
+
+var _ = imported.Name
+-- imported/imported.go --
+package imported
+
+var Name = "value"
