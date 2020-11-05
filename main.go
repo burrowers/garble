@@ -425,7 +425,7 @@ func mainErr(args []string) error {
 			return fmt.Errorf("GOPRIVATE=%q does not match any packages to be built", envGoPrivate)
 		}
 		for path, pkg := range listedPackages {
-			if pkg.private == true {
+			if pkg.private {
 				continue
 			}
 			for _, depPath := range pkg.Deps {
