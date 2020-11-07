@@ -64,6 +64,7 @@ func TestScripts(t *testing.T) {
 			env.Vars = append(env.Vars,
 				"GOPROXY="+proxyURL,
 				"GONOSUMDB=*",
+				"GOFLAGS=-mod=readonly", // TODO(mvdan): remove once we switch to Go 1.16
 				"gofullversion="+runtime.Version(),
 			)
 			bindir := filepath.Join(env.WorkDir, ".bin")

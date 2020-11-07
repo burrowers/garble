@@ -57,6 +57,8 @@ binsubstr main$exe 'main.go' 'globalVar' 'globalFunc' $gofullversion
 
 -- go.mod --
 module test/mainfoo
+
+go 1.15
 -- main.go --
 package main
 

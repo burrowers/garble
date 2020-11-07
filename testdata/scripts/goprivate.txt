@@ -13,6 +13,8 @@ garble build -o=out ./standalone
 
 -- go.mod --
 module test/main
+
+go 1.15
 -- standalone/main.go --
 package main
 

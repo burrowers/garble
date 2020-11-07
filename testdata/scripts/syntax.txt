@@ -1,6 +1,7 @@
 env GOPRIVATE='test/main,private.source/*'
 
 garble build -tags directives
+exec cat go.mod
 exec ./main$exe
 cmp stderr main.stderr
 
@@ -19,6 +20,8 @@ binsubstr main$exe 'globalVar' # 'globalType' only matches on go < 1.15
 
 -- extra/go.mod --
 module "private.source/extra"
+
+go 1.15
 -- extra/extra.go --
 package extra
 
@@ -28,8 +31,12 @@ func Func() string {
 -- go.mod --
 module test/main
 
+go 1.15
+
 // We include an extra module to obfuscate, included in the same original source
 // code via a replace directive.
+require private.source/extra v0.0.0-00010101000000-000000000000
+
 replace private.source/extra => ./extra
 -- main.go --
 package main

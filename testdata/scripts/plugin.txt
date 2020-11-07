@@ -28,6 +28,8 @@ cmp stderr main.stderr
 
 -- go.mod --
 module test/main
+
+go 1.15
 -- plugin/main.go --
 package main
 

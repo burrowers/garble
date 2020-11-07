@@ -22,6 +22,8 @@ stderr 'panic: oh noes'
 
 -- go.mod --
 module test/main
+
+go 1.15
 -- main.go --
 package main
 

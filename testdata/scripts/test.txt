@@ -19,6 +19,8 @@ stdout 'PASS.*TestFoo'
 
 -- go.mod --
 module test/bar
+
+go 1.15
 -- bar.go --
 package bar
 

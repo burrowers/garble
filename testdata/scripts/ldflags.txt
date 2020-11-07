@@ -20,6 +20,8 @@ binsubstr main$exe 'unexportedVersion'
 
 -- go.mod --
 module domain.test/main
+
+go 1.15
 -- main.go --
 package main
 
