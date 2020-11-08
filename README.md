@@ -64,4 +64,5 @@ still be handled internally with `recover` as normal. In addition, the `GODEBUG`
 environmental variable will be ignored.
 
 ### Contributing
-We actively seek new contributors, if you would like to contribute to garble use the [CONTRIBUTING.md](https://github.com/burrowers/garble/blob/master/CONTRIBUTING.md) as a starting point.
+We actively seek new contributors, if you would like to contribute to garble use the 
+[CONTRIBUTING.md](CONTRIBUTING.md) as a starting point.
