@@ -90,16 +90,18 @@ var (
 	b64         = base64.NewEncoding(nameCharset)
 	printConfig = printer.Config{Mode: printer.RawFormat}
 
-	// origTypesConfig configures a go/types typechecker which uses the
-	// original versions of packages, without any obfuscation. This is
-	// helpful to make decisions on how to obfuscate our input code.
-	origTypesConfig = types.Config{Importer: importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
-		pkg, err := listPackage(path)
-		if err != nil {
-			return nil, err
-		}
-		return os.Open(pkg.Export)
-	})}
+	// origImporter configures a go/types importer which uses the original
+	// versions of packages, without any obfuscation. This is helpful to
+	// make decisions on how to obfuscate our input code.
+	origImporter = func(fromPkg string) types.Importer {
+		return importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+			pkg, err := listPackage(fromPkg, path)
+			if err != nil {
+				return nil, err
+			}
+			return os.Open(pkg.Export)
+		})
+	}
 
 	buildInfo = struct {
 		actionID  []byte // from -buildid
@@ -183,12 +185,13 @@ type listedPackage struct {
 	ImportPath string
 	Export     string
 	Deps       []string
+	ImportMap  map[string]string
 
 	// TODO(mvdan): reuse this field once TOOLEXEC_IMPORTPATH is used
 	private bool
 }
 
-func listPackage(path string) (*listedPackage, error) {
+func listPackage(fromPath, path string) (*listedPackage, error) {
 	if listedPackages == nil {
 		f, err := os.Open(envGarbleListPkgs)
 		if err != nil {
@@ -201,6 +204,11 @@ func listPackage(path string) (*listedPackage, error) {
 	}
 	pkg, ok := listedPackages[path]
 	if !ok {
+		if fromPkg, ok := listedPackages[fromPath]; ok {
+			if path2 := fromPkg.ImportMap[path]; path2 != "" {
+				return listPackage(fromPath, path2)
+			}
+		}
 		return nil, fmt.Errorf("path not found in listed packages: %s", path)
 	}
 	return pkg, nil
@@ -636,6 +644,9 @@ func transformCompile(args []string) ([]string, error) {
 		},
 	}
 
+	origTypesConfig := types.Config{
+		Importer: origImporter(pkgPath),
+	}
 	tf.pkg, err = origTypesConfig.Check(pkgPath, fset, files, tf.info)
 	if err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
