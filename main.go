@@ -776,12 +776,11 @@ func transformCompile(args []string) ([]string, error) {
 
 	objPath := flagValue(flags, "-o")
 	deferred = append(deferred, func() error {
-		importCfg, err := goobj2.ParseImportCfg(buildInfo.importCfg)
-		if err != nil {
-			return err
+		importMap := func(importPath string) (objectPath string) {
+			return buildInfo.imports[importPath].packagefile
 		}
 
-		pkg, err := goobj2.Parse(objPath, pkgPath, importCfg)
+		pkg, err := goobj2.Parse(objPath, pkgPath, importMap)
 		if err != nil {
 			return err
 		}
@@ -1305,7 +1304,10 @@ func transformLink(args []string) ([]string, error) {
 	if len(paths) != 1 {
 		return nil, fmt.Errorf("expected exactly one link argument")
 	}
-	garbledObj, garbledImports, privateNameMap, err := obfuscateImports(paths[0], tempDir, buildInfo.importCfg)
+	importMap := func(importPath string) (objectPath string) {
+		return buildInfo.imports[importPath].packagefile
+	}
+	garbledObj, garbledImports, privateNameMap, err := obfuscateImports(paths[0], tempDir, buildInfo.importCfg, importMap)
 	if err != nil {
 		return nil, err
 	}
