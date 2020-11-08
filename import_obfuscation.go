@@ -153,12 +153,12 @@ func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 // It returns the path to the modified main object file, to be used for linking.
 // We also return a map of how the imports were garbled, as well as the private
 // name map recovered from the archive files, so that we can amend -X flags.
-func obfuscateImports(objPath, tempDir, importCfgPath string) (garbledObj string, garbledImports, privateNameMap map[string]string, _ error) {
+func obfuscateImports(objPath, tempDir, importCfgPath string, importMap goobj2.ImportMap) (garbledObj string, garbledImports, privateNameMap map[string]string, _ error) {
 	importCfg, err := goobj2.ParseImportCfg(importCfgPath)
 	if err != nil {
 		return "", nil, nil, err
 	}
-	mainPkg, err := goobj2.Parse(objPath, "main", importCfg)
+	mainPkg, err := goobj2.Parse(objPath, "main", importMap)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("error parsing main objfile: %v", err)
 	}
@@ -169,11 +169,11 @@ func obfuscateImports(objPath, tempDir, importCfgPath string) (garbledObj string
 
 	privateNameMap = make(map[string]string)
 	// build list of imported packages that are private
-	for pkgPath, info := range importCfg {
+	for pkgPath, info := range importCfg.Packages {
 		// if the '-tiny' flag is passed, we will strip filename
 		// and position info of every package, but not garble anything
 		if private := isPrivate(pkgPath); envGarbleTiny || private {
-			pkg, err := goobj2.Parse(info.Path, pkgPath, importCfg)
+			pkg, err := goobj2.Parse(info.Path, pkgPath, importMap)
 			if err != nil {
 				return "", nil, nil, fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
 			}
@@ -447,7 +447,6 @@ func hashImport(pkg string, seed []byte, garbledImports map[string]string) strin
 	}
 
 	garbledPkg := hashWith(seed, pkg)
-	// log.Printf("\t\t! Hashed %q as %s with seed %q", pkg, garbledPkg, seed)
 	garbledImports[pkg] = garbledPkg
 
 	return garbledPkg
@@ -812,25 +811,38 @@ func garbleImportCfg(path string, importCfg goobj2.ImportCfg, garbledImports, re
 	defer newCfg.Close()
 	newCfgWr := bufio.NewWriter(newCfg)
 
-	for pkgPath, info := range importCfg {
+	for pkgPath, otherPath := range importCfg.ImportMap {
+		if isPrivate(pkgPath) {
+			pkgPath = hashImport(pkgPath, nil, garbledImports)
+		}
+		if isPrivate(otherPath) {
+			otherPath = hashImport(otherPath, nil, garbledImports)
+		}
+		newCfgWr.WriteString("importmap ")
+		newCfgWr.WriteString(pkgPath)
+		newCfgWr.WriteByte('=')
+		newCfgWr.WriteString(otherPath)
+		newCfgWr.WriteByte('\n')
+	}
+
+	for pkgPath, info := range importCfg.Packages {
 		if isPrivate(pkgPath) {
 			pkgPath = hashImport(pkgPath, nil, garbledImports)
 		}
 		if info.IsSharedLib {
-			newCfgWr.WriteString("packageshlib")
+			newCfgWr.WriteString("packageshlib ")
 		} else {
-			newCfgWr.WriteString("packagefile")
+			newCfgWr.WriteString("packagefile ")
 		}
 
-		newCfgWr.WriteRune(' ')
 		newCfgWr.WriteString(pkgPath)
-		newCfgWr.WriteRune('=')
+		newCfgWr.WriteByte('=')
 		if replaced := replacedFiles[info.Path]; replaced != "" {
 			newCfgWr.WriteString(replaced)
 		} else {
 			newCfgWr.WriteString(info.Path)
 		}
-		newCfgWr.WriteRune('\n')
+		newCfgWr.WriteByte('\n')
 	}
 
 	if err := newCfgWr.Flush(); err != nil {
