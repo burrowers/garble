@@ -8,6 +8,9 @@ stderr '^public package "test/main/importer" can''t depend on obfuscated package
 
 [short] stop
 
+# Try garbling all of std.
+# This used to fail since the "net" import causes 'go list -json' to output
+# ImportMap, since "net" imports packages vendored in std.
 env GOPRIVATE='*'
 garble build -o=out ./standalone
 
@@ -17,6 +20,9 @@ module test/main
 go 1.15
 -- standalone/main.go --
 package main
+
+// Blocked until https://github.com/Binject/debug/issues/17 is fixed.
+// import _ "net"
 
 func main() {}
 -- importer/importer.go --
