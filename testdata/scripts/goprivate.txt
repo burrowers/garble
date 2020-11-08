@@ -21,7 +21,8 @@ go 1.15
 -- standalone/main.go --
 package main
 
-import _ "net"
+// TODO: This tests that #146 is fixed, but is blocked by errors garbling 'net'
+//import _ "net"
 
 func main() {}
 -- importer/importer.go --

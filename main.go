@@ -850,6 +850,8 @@ func fillBuildInfo(flags []string) error {
 	if err != nil {
 		return err
 	}
+
+	importMap := make(map[string]string)
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -859,27 +861,41 @@ func fillBuildInfo(flags []string) error {
 		if i < 0 {
 			continue
 		}
-		if verb := line[:i]; verb != "packagefile" {
-			continue
-		}
-		args := strings.TrimSpace(line[i+1:])
-		j := strings.Index(args, "=")
-		if j < 0 {
-			continue
-		}
-		importPath, objectPath := args[:j], args[j+1:]
-		buildID, err := buildidOf(objectPath)
-		if err != nil {
-			return err
-		}
-		// log.Println("buildid:", buildID)
+		verb := line[:i]
+		switch verb {
+		case "importmap":
+			args := strings.TrimSpace(line[i+1:])
+			j := strings.Index(args, "=")
+			if j < 0 {
+				continue
+			}
+			beforePath, afterPath := args[:j], args[j+1:]
+			importMap[afterPath] = beforePath
+		case "packagefile":
+			args := strings.TrimSpace(line[i+1:])
+			j := strings.Index(args, "=")
+			if j < 0 {
+				continue
+			}
+			importPath, objectPath := args[:j], args[j+1:]
+			buildID, err := buildidOf(objectPath)
+			if err != nil {
+				return err
+			}
+			// log.Println("buildid:", buildID)
 
-		if len(buildInfo.imports) == 0 {
-			buildInfo.firstImport = importPath
-		}
-		buildInfo.imports[importPath] = importedPkg{
-			packagefile: objectPath,
-			actionID:    decodeHash(actionID(buildID)),
+			if len(buildInfo.imports) == 0 {
+				buildInfo.firstImport = importPath
+			}
+			impPkg := importedPkg{
+				packagefile: objectPath,
+				actionID:    decodeHash(actionID(buildID)),
+			}
+			buildInfo.imports[importPath] = impPkg
+
+			if otherPath, ok := importMap[importPath]; ok {
+				buildInfo.imports[otherPath] = impPkg
+			}
 		}
 	}
 	// log.Printf("%#v", buildInfo)
