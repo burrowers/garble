@@ -30,6 +30,24 @@ To inject code into the syntax tree, don't write `go/ast` nodes by hand; you can
 generate them by typing Go source into tools such as
 [astextract](https://lu4p.github.io/astextract/).
 
+### Terminology
+
+The *Go toolchain*, or simply *the toolchain*, refers to the `go` command and
+all of its components used to build programs, such as the compiler and linker.
+
+An *object file* or *archive file* contains the output of compiling a Go
+package, later used to link a binary.
+
+An *import config* is a temporary text file passed to the compiler via the
+`-importcfg` flag, which contains an *object file* path for each direct
+dependency.
+
+A *build ID* is a slash-separated list of hashes for a build operation, such as
+compiling a package or linking binary. The first component is the *action ID*,
+the hash of the operation's inputs, and the last component is the *content ID*,
+the hash of the operation's output. For more, read
+[the docs in buildid.go](https://github.com/golang/go/blob/master/src/cmd/go/internal/work/buildid.go)
+
 ### Benchmarking
 
 A build benchmark is available, to be able to measure the cost of builing a
