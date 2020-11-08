@@ -21,8 +21,7 @@ go 1.15
 -- standalone/main.go --
 package main
 
-// Blocked until https://github.com/Binject/debug/issues/17 is fixed.
-// import _ "net"
+import _ "net"
 
 func main() {}
 -- importer/importer.go --
