@@ -111,14 +111,14 @@ func ownContentID(toolID []byte) (string, error) {
 	if envGoPrivate != "" {
 		fmt.Fprintf(h, " GOPRIVATE=%s", envGoPrivate)
 	}
-	if envGarbleLiterals {
+	if opts.GarbleLiterals {
 		fmt.Fprintf(h, " -literals")
 	}
-	if envGarbleTiny {
+	if opts.Tiny {
 		fmt.Fprintf(h, " -tiny")
 	}
-	if envGarbleSeed != "" {
-		fmt.Fprintf(h, " -seed=%x", envGarbleSeed)
+	if len(opts.Seed) > 0 {
+		fmt.Fprintf(h, " -seed=%x", opts.Seed)
 	}
 
 	return hashToString(h.Sum(nil)), nil
@@ -147,7 +147,7 @@ func hashWith(salt []byte, name string) string {
 
 	d := sha256.New()
 	d.Write(salt)
-	d.Write(seed)
+	d.Write(opts.Seed)
 	io.WriteString(d, name)
 	sum := b64.EncodeToString(d.Sum(nil))
 

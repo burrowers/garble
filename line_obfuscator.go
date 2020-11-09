@@ -160,7 +160,7 @@ func transformLineInfo(file *ast.File, cgoFile bool) (detachedComments, localNam
 		clearNodeComments(node)
 
 		// If tiny mode is active information about line numbers is erased in object files
-		if envGarbleTiny {
+		if opts.Tiny {
 			return true
 		}
 		funcDecl, ok := node.(*ast.FuncDecl)
