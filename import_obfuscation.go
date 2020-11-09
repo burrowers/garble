@@ -153,11 +153,7 @@ func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 // It returns the path to the modified main object file, to be used for linking.
 // We also return a map of how the imports were garbled, as well as the private
 // name map recovered from the archive files, so that we can amend -X flags.
-func obfuscateImports(objPath, tempDir, importCfgPath string, importMap goobj2.ImportMap) (garbledObj string, garbledImports, privateNameMap map[string]string, _ error) {
-	importCfg, err := goobj2.ParseImportCfg(importCfgPath)
-	if err != nil {
-		return "", nil, nil, err
-	}
+func obfuscateImports(objPath, tempDir string, importMap goobj2.ImportMap) (garbledObj string, garbledImports, privateNameMap map[string]string, _ error) {
 	mainPkg, err := goobj2.Parse(objPath, "main", importMap)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("error parsing main objfile: %v", err)
@@ -169,6 +165,10 @@ func obfuscateImports(objPath, tempDir, importCfgPath string, importMap goobj2.I
 
 	privateNameMap = make(map[string]string)
 	// build list of imported packages that are private
+	importCfg, err := goobj2.ParseImportCfg(curImportCfg)
+	if err != nil {
+		return "", nil, nil, err
+	}
 	for pkgPath, info := range importCfg.Packages {
 		// if the '-tiny' flag is passed, we will strip filename
 		// and position info of every package, but not garble anything
@@ -287,7 +287,7 @@ func obfuscateImports(objPath, tempDir, importCfgPath string, importMap goobj2.I
 	}
 
 	// garble importcfg so the linker knows where to find garbled imports
-	if err := garbleImportCfg(importCfgPath, importCfg, garbledImports, replacedFiles); err != nil {
+	if err := garbleImportCfg(curImportCfg, importCfg, garbledImports, replacedFiles); err != nil {
 		return "", nil, nil, err
 	}
 
