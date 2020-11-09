@@ -25,6 +25,5 @@ stderr 'garble \[flags\] build'
 stderr 'unknown command'
 
 [!windows] ! garble /does/not/exist/compile
-[!windows] stderr 'no such file'
 [windows] ! garble C:\does\not\exist\compile
-[windows] stderr 'file does not exist'
+stderr 'not running "garble \[command\]"'

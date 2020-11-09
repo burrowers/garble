@@ -7,10 +7,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/gob"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -118,100 +116,15 @@ var (
 		return os.Open(buildInfo.imports[path].packagefile)
 	}).(types.ImporterFrom)
 
+	opts *options
+
 	envGoPrivate = os.Getenv("GOPRIVATE") // complemented by 'go env' later
-
-	envGarbleDir      = os.Getenv("GARBLE_DIR")
-	envGarbleLiterals = os.Getenv("GARBLE_LITERALS") == "true"
-	envGarbleTiny     = os.Getenv("GARBLE_TINY") == "true"
-	envGarbleDebugDir = os.Getenv("GARBLE_DEBUGDIR")
-	envGarbleSeed     = os.Getenv("GARBLE_SEED")
-	envGarbleListPkgs = os.Getenv("GARBLE_LISTPKGS")
-
-	seed []byte
 )
 
 const (
 	garbleMapHeaderName = "garble/nameMap"
 	garbleSrcHeaderName = "garble/src"
 )
-
-func saveListedPackages(w io.Writer, flags, patterns []string) error {
-	args := []string{"list", "-json", "-deps", "-export"}
-	args = append(args, flags...)
-	args = append(args, patterns...)
-	cmd := exec.Command("go", args...)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("go list error: %v", err)
-	}
-	dec := json.NewDecoder(stdout)
-	listedPackages = make(map[string]*listedPackage)
-	for dec.More() {
-		var pkg listedPackage
-		if err := dec.Decode(&pkg); err != nil {
-			return err
-		}
-		listedPackages[pkg.ImportPath] = &pkg
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("go list error: %v: %s", err, stderr.Bytes())
-	}
-	if err := gob.NewEncoder(w).Encode(listedPackages); err != nil {
-		return err
-	}
-	return nil
-}
-
-// listedPackages contains data obtained via 'go list -json -export -deps'. This
-// allows us to obtain the non-garbled export data of all dependencies, useful
-// for type checking of the packages as we obfuscate them.
-//
-// Note that we obtain this data once in saveListedPackages, store it into a
-// temporary file via gob encoding, and then reuse that file in each of the
-// garble processes that wrap a package compilation.
-var listedPackages map[string]*listedPackage
-
-type listedPackage struct {
-	ImportPath string
-	Export     string
-	Deps       []string
-	ImportMap  map[string]string
-
-	// TODO(mvdan): reuse this field once TOOLEXEC_IMPORTPATH is used
-	private bool
-}
-
-func listPackage(path string) (*listedPackage, error) {
-	if listedPackages == nil {
-		f, err := os.Open(envGarbleListPkgs)
-		if err != nil {
-			return nil, err
-		}
-		defer f.Close()
-		if err := gob.NewDecoder(f).Decode(&listedPackages); err != nil {
-			return nil, err
-		}
-	}
-	pkg, ok := listedPackages[path]
-	if !ok {
-		if fromPkg, ok := listedPackages[curPkgPath]; ok {
-			if path2 := fromPkg.ImportMap[path]; path2 != "" {
-				return listPackage(path2)
-			}
-		}
-		return nil, fmt.Errorf("path not found in listed packages: %s", path)
-	}
-	return pkg, nil
-}
 
 func garbledImport(path string) (*types.Package, error) {
 	ipkg, ok := buildInfo.imports[path]
@@ -221,10 +134,10 @@ func garbledImport(path string) (*types.Package, error) {
 	if ipkg.pkg != nil {
 		return ipkg.pkg, nil // cached
 	}
-	if envGarbleDir == "" {
+	if opts.GarbleDir == "" {
 		return nil, fmt.Errorf("$GARBLE_DIR unset; did you run via 'garble build'?")
 	}
-	pkg, err := garbledImporter.ImportFrom(path, envGarbleDir, 0)
+	pkg, err := garbledImporter.ImportFrom(path, opts.GarbleDir, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -332,81 +245,11 @@ func mainErr(args []string) error {
 				flagSet.Usage()
 			}
 		}
-		wd, err := os.Getwd()
+
+		err := setOptions()
 		if err != nil {
 			return err
 		}
-		os.Setenv("GARBLE_DIR", wd)
-		os.Setenv("GARBLE_LITERALS", fmt.Sprint(flagGarbleLiterals))
-		os.Setenv("GARBLE_TINY", fmt.Sprint(flagGarbleTiny))
-
-		if flagSeed == "random" {
-			seed = make([]byte, 16) // random 128 bit seed
-
-			if _, err := rand.Read(seed); err != nil {
-				return fmt.Errorf("error generating random seed: %v", err)
-			}
-
-			flagSeed = "random;" + base64.StdEncoding.EncodeToString(seed)
-		} else {
-			flagSeed = strings.TrimRight(flagSeed, "=")
-			seed, err := base64.RawStdEncoding.DecodeString(flagSeed)
-			if err != nil {
-				return fmt.Errorf("error decoding seed: %v", err)
-			}
-
-			if len(seed) != 0 && len(seed) < 8 {
-				return fmt.Errorf("the seed needs to be at least 8 bytes, but is only %v bytes", len(seed))
-			}
-
-			flagSeed = base64.StdEncoding.EncodeToString(seed)
-		}
-
-		os.Setenv("GARBLE_SEED", flagSeed)
-
-		if flagDebugDir != "" {
-			if !filepath.IsAbs(flagDebugDir) {
-				flagDebugDir = filepath.Join(wd, flagDebugDir)
-			}
-
-			if err := os.RemoveAll(flagDebugDir); err == nil || os.IsNotExist(err) {
-				err := os.MkdirAll(flagDebugDir, 0o755)
-				if err != nil {
-					return err
-				}
-			} else {
-				return fmt.Errorf("debugdir error: %v", err)
-			}
-		}
-
-		os.Setenv("GARBLE_DEBUGDIR", flagDebugDir)
-
-		if envGoPrivate == "" {
-			// Try 'go env' too, to query ${CONFIG}/go/env as well.
-			out, err := exec.Command("go", "env", "GOPRIVATE").CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("%v: %s", err, out)
-			}
-			envGoPrivate = string(bytes.TrimSpace(out))
-		}
-		// If GOPRIVATE isn't set and we're in a module, use its module
-		// path as a GOPRIVATE default. Include a _test variant too.
-		if envGoPrivate == "" {
-			modpath, err := exec.Command("go", "list", "-m").Output()
-			if err == nil {
-				path := string(bytes.TrimSpace(modpath))
-				envGoPrivate = path + "," + path + "_test"
-			}
-		}
-		// Explicitly set GOPRIVATE, since future garble processes won't
-		// query 'go env' again.
-		os.Setenv("GOPRIVATE", envGoPrivate)
-
-		f, err := ioutil.TempFile("", "garble-list-deps")
-		if err != nil {
-			return err
-		}
-		defer os.Remove(f.Name())
 
 		// Note that we also need to pass build flags to 'go list', such
 		// as -tags.
@@ -414,34 +257,20 @@ func mainErr(args []string) error {
 		if cmd == "test" {
 			listFlags = append(listFlags, "-test")
 		}
-		if err := saveListedPackages(f, listFlags, args); err != nil {
+
+		if err := setGoPrivate(); err != nil {
 			return err
 		}
-		os.Setenv("GARBLE_LISTPKGS", f.Name())
-		if err := f.Close(); err != nil {
+
+		if err := setListedPackages(listFlags, args); err != nil {
 			return err
 		}
-		anyPrivate := false
-		for path, pkg := range listedPackages {
-			if isPrivate(path) {
-				pkg.private = true
-				anyPrivate = true
-			}
+
+		sharedName, err := saveShared()
+		if err != nil {
+			return err
 		}
-		if !anyPrivate {
-			return fmt.Errorf("GOPRIVATE=%q does not match any packages to be built", envGoPrivate)
-		}
-		for path, pkg := range listedPackages {
-			if pkg.private {
-				continue
-			}
-			for _, depPath := range pkg.Deps {
-				if listedPackages[depPath].private {
-					return fmt.Errorf("public package %q can't depend on obfuscated package %q (matched via GOPRIVATE=%q)",
-						path, depPath, envGoPrivate)
-				}
-			}
-		}
+		defer os.Remove(sharedName)
 
 		execPath, err := os.Executable()
 		if err != nil {
@@ -470,6 +299,11 @@ func mainErr(args []string) error {
 		// run, so this is most likely misuse of garble by a user.
 		return fmt.Errorf("unknown command: %q", args[0])
 	}
+
+	if err := loadShared(); err != nil {
+		return err
+	}
+	opts = &cache.Options
 
 	_, tool := filepath.Split(args[0])
 	if runtime.GOOS == "windows" {
@@ -518,12 +352,12 @@ func transformCompile(args []string) ([]string, error) {
 	flags = append(flags, "-dwarf=false")
 
 	curPkgPath = flagValue(flags, "-p")
-	if (curPkgPath == "runtime" && envGarbleTiny) || curPkgPath == "runtime/internal/sys" {
+	if (curPkgPath == "runtime" && opts.Tiny) || curPkgPath == "runtime/internal/sys" {
 		// Even though these packages aren't private, we will still process
 		// them later to remove build information and strip code from the
 		// runtime. However, we only want flags to work on private packages.
-		envGarbleLiterals = false
-		envGarbleDebugDir = ""
+		opts.GarbleLiterals = false
+		opts.DebugDir = ""
 	} else if !isPrivate(curPkgPath) {
 		return append(flags, paths...), nil
 	}
@@ -558,13 +392,8 @@ func transformCompile(args []string) ([]string, error) {
 		files = append(files, file)
 	}
 
-	if envGarbleSeed != "" {
-		seed, err = base64.StdEncoding.DecodeString(strings.TrimPrefix(envGarbleSeed, "random;"))
-		if err != nil {
-			return nil, fmt.Errorf("error decoding base64 seed: %v", err)
-		}
-
-		mathrand.Seed(int64(binary.BigEndian.Uint64(seed)))
+	if len(opts.Seed) > 0 {
+		mathrand.Seed(int64(binary.BigEndian.Uint64(opts.Seed)))
 	} else {
 		mathrand.Seed(int64(binary.BigEndian.Uint64([]byte(curActionID))))
 	}
@@ -587,7 +416,7 @@ func transformCompile(args []string) ([]string, error) {
 	tf.existingNames = collectNames(files)
 	tf.buildBlacklist(files)
 
-	if envGarbleLiterals {
+	if opts.GarbleLiterals {
 		// TODO: use transformer here?
 		files = literals.Obfuscate(files, tf.info, fset, tf.blacklist)
 	}
@@ -859,7 +688,7 @@ func (tf *transformer) buildBlacklist(files []*ast.File) {
 	}
 
 	visit := func(node ast.Node) bool {
-		if envGarbleLiterals {
+		if opts.GarbleLiterals {
 			// TODO: use transformer here?
 			literals.ConstBlacklist(node, tf.info, tf.blacklist)
 		}
@@ -1386,4 +1215,28 @@ func flagSetValue(flags []string, name, value string) []string {
 		}
 	}
 	return append(flags, name+"="+value)
+}
+
+func setGoPrivate() error {
+	if envGoPrivate == "" {
+		// Try 'go env' too, to query ${CONFIG}/go/env as well.
+		out, err := exec.Command("go", "env", "GOPRIVATE").CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%v: %s", err, out)
+		}
+		envGoPrivate = string(bytes.TrimSpace(out))
+	}
+	// If GOPRIVATE isn't set and we're in a module, use its module
+	// path as a GOPRIVATE default. Include a _test variant too.
+	if envGoPrivate == "" {
+		modpath, err := exec.Command("go", "list", "-m").Output()
+		if err == nil {
+			path := string(bytes.TrimSpace(modpath))
+			envGoPrivate = path + "," + path + "_test"
+		}
+	}
+	// Explicitly set GOPRIVATE, since future garble processes won't
+	// query 'go env' again.
+	os.Setenv("GOPRIVATE", envGoPrivate)
+	return nil
 }

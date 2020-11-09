@@ -77,7 +77,7 @@ func appendPrivateNameMap(pkg *goobj2.Package, nameMap map[string]string) error 
 
 // extractDebugObfSrc extracts obfuscated sources from object files if -debugdir flag is enabled.
 func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
-	if envGarbleDebugDir == "" {
+	if opts.DebugDir == "" {
 		return nil
 	}
 
@@ -94,7 +94,7 @@ func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 	}
 
 	osPkgPath := filepath.FromSlash(pkgPath)
-	pkgDebugDir := filepath.Join(envGarbleDebugDir, osPkgPath)
+	pkgDebugDir := filepath.Join(opts.DebugDir, osPkgPath)
 	if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func obfuscateImports(objPath, tempDir string, importMap goobj2.ImportMap) (garb
 	for pkgPath, info := range importCfg.Packages {
 		// if the '-tiny' flag is passed, we will strip filename
 		// and position info of every package, but not garble anything
-		if private := isPrivate(pkgPath); envGarbleTiny || private {
+		if private := isPrivate(pkgPath); opts.Tiny || private {
 			pkg, err := goobj2.Parse(info.Path, pkgPath, importMap)
 			if err != nil {
 				return "", nil, nil, fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
@@ -506,12 +506,12 @@ func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, garbled
 				}
 				for _, inl := range s.Func.InlTree {
 					inl.Func.Name = garbleSymbolName(inl.Func.Name, privImports, garbledImports, sb)
-					if envGarbleTiny {
+					if opts.Tiny {
 						inl.Line = 1
 					}
 				}
 
-				if envGarbleTiny {
+				if opts.Tiny {
 					s.Func.PCFile = nil
 					s.Func.PCLine = nil
 					s.Func.PCInline = nil
@@ -545,7 +545,7 @@ func garbleSymbolName(symName string, privImports privateImports, garbledImports
 	// remove filename symbols when -tiny is passed
 	// as they are only used for printing panics,
 	// and -tiny removes panic printing
-	if envGarbleTiny && prefix == "gofile.." {
+	if opts.Tiny && prefix == "gofile.." {
 		return prefix
 	}
 
