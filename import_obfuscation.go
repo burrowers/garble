@@ -367,7 +367,9 @@ func explodeImportPath(path string) ([]string, []privateName) {
 			newPath += "/" + paths[i]
 			if isPrivate(newPath) {
 				pkgPaths = append(pkgPaths, newPath)
-				pkgNames = append(pkgNames, newPrivateName(paths[i], newPath))
+				if newName, ok := newPrivateName(paths[i], newPath); ok {
+					pkgNames = append(pkgNames, newName)
+				}
 
 				privateIdx = i + 1
 				restPrivate = true
@@ -384,29 +386,35 @@ func explodeImportPath(path string) ([]string, []privateName) {
 	for i := privateIdx; i < len(paths); i++ {
 		newPath := pkgPaths[lastComboIdx-1] + "/" + paths[i]
 		pkgPaths = append(pkgPaths, newPath)
-		pkgNames = append(pkgNames, newPrivateName(paths[i], newPath))
+		if newName, ok := newPrivateName(paths[i], newPath); ok {
+			pkgNames = append(pkgNames, newName)
+		}
 
 		lastComboIdx++
 	}
 	lastPath := paths[len(paths)-1]
-	pkgNames = append(pkgNames, newPrivateName(lastPath, path))
+	if newName, ok := newPrivateName(lastPath, path); ok {
+		pkgNames = append(pkgNames, newName)
+	}
 
 	return pkgPaths, pkgNames
 }
 
-// newPrivateName creates a privateName, from a package name
-// and package path, setting the seed to path's actionID if
-// we know it; if not, the seed is set to the path itself.
-func newPrivateName(name, path string) privateName {
-	pName := privateName{name: name}
-
-	if actionID := buildInfo.imports[path].actionID; actionID == nil {
-		pName.seed = []byte(path)
-	} else {
-		pName.seed = actionID
+// newPrivateName creates a privateName from a package name
+// and import path. The seed is set to path's actionID if
+// we know the path. If not, the package doesn't contain any
+// code, and false is returned so that the caller knows not
+// to use this name as a private name.
+func newPrivateName(name, path string) (privateName, bool) {
+	actionID := buildInfo.imports[path].actionID
+	if actionID == nil {
+		// log.Printf("*** Skipped %s of %s ***", name, path)
+		return privateName{}, false
 	}
 
-	return pName
+	pName := privateName{name: name, seed: actionID}
+
+	return pName, true
 }
 
 func dedupStrings(paths []string) []string {
@@ -698,8 +706,15 @@ func privateImportIndex(symName string, privImports privateImports, nameDataSym 
 		if off == -1 {
 			continue
 		} else if off < firstOff || firstOff == -1 {
-			firstOff = off
+			// preform the same check that matchPkg does above, but
+			// on the byte after the end of the match so we are
+			// completely sure we didn't match inside an import path
 			l = len(privatePkg)
+			if bAfter := off + l; bAfter < len(symName)-1 && symName[bAfter] != '.' && (!isSymbol(symName[bAfter]) || symName[bAfter] == '/') {
+				continue
+			}
+
+			firstOff = off
 		}
 	}
 
