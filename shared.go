@@ -201,7 +201,6 @@ func setListedPackages(flags, patterns []string) error {
 	}
 
 	return nil
-
 }
 
 // listPackage gets the listedPackage information for a certain package

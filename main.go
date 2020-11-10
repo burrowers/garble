@@ -572,17 +572,75 @@ func transformCompile(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
-// neverPrivate is a core set of std packages which we cannot obfuscate.
-// At the moment, this is the runtime package and its (few) dependencies.
-// This might change in the future.
-const neverPrivate = "runtime,internal/cpu,internal/bytealg,unsafe"
+// runtimeRelated is a snapshot of all the packages runtime depends on, or
+// packages which the runtime points to via go:linkname.
+//
+// Once we support go:linkname well and once we can obfuscate the runtime
+// package, this entire map can likely go away.
+//
+// The list was obtained via scripts/runtime-related.sh on Go 1.15.5.
+var runtimeRelated = map[string]bool{
+	"bufio":                             true,
+	"bytes":                             true,
+	"compress/flate":                    true,
+	"compress/gzip":                     true,
+	"context":                           true,
+	"encoding/binary":                   true,
+	"errors":                            true,
+	"fmt":                               true,
+	"hash":                              true,
+	"hash/crc32":                        true,
+	"internal/bytealg":                  true,
+	"internal/cpu":                      true,
+	"internal/fmtsort":                  true,
+	"internal/oserror":                  true,
+	"internal/poll":                     true,
+	"internal/race":                     true,
+	"internal/reflectlite":              true,
+	"internal/syscall/execenv":          true,
+	"internal/syscall/unix":             true,
+	"internal/syscall/windows":          true,
+	"internal/syscall/windows/registry": true,
+	"internal/syscall/windows/sysdll":   true,
+	"internal/testlog":                  true,
+	"internal/unsafeheader":             true,
+	"io":                                true,
+	"io/ioutil":                         true,
+	"math":                              true,
+	"math/bits":                         true,
+	"os":                                true,
+	"os/signal":                         true,
+	"path/filepath":                     true,
+	"plugin":                            true,
+	"reflect":                           true,
+	"runtime":                           true,
+	"runtime/cgo":                       true,
+	"runtime/debug":                     true,
+	"runtime/internal/atomic":           true,
+	"runtime/internal/math":             true,
+	"runtime/internal/sys":              true,
+	"runtime/pprof":                     true,
+	"runtime/trace":                     true,
+	"sort":                              true,
+	"strconv":                           true,
+	"strings":                           true,
+	"sync":                              true,
+	"sync/atomic":                       true,
+	"syscall":                           true,
+	"text/tabwriter":                    true,
+	"time":                              true,
+	"unicode":                           true,
+	"unicode/utf16":                     true,
+	"unicode/utf8":                      true,
+	"unsafe":                            true,
+}
 
 // isPrivate checks if GOPRIVATE matches path.
 //
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(path string) bool {
-	if module.MatchPrefixPatterns(neverPrivate, path) {
+	if runtimeRelated[path] {
 		return false
 	}
 	if path == "main" || path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
@@ -837,6 +895,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			// if the struct of this field was not garbled, do not garble
 			// any of that struct's fields
 			if (parentScope != tf.pkg.Scope()) && (x.IsField() && !x.Embedded()) {
+				// fmt.Println(node.Name)
 				parent, ok := cursor.Parent().(*ast.SelectorExpr)
 				if !ok {
 					break
@@ -848,6 +907,11 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				named := namedType(parentType)
 				if named == nil {
 					break
+				}
+				if name := named.Obj().Name(); strings.HasPrefix(name, "_Ctype") {
+					// A field accessor on a cgo type, such as a C struct.
+					// We're not obfuscating cgo names.
+					return true
 				}
 				if garbledPkg, _ := garbledImport(path); garbledPkg != nil {
 					if garbledPkg.Scope().Lookup(named.Obj().Name()) != nil {
