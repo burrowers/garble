@@ -1,7 +1,6 @@
 env GOPRIVATE='test/main,private.source/*'
 
 garble build -tags directives
-exec cat go.mod
 exec ./main$exe
 cmp stderr main.stderr
 

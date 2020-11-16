@@ -3,8 +3,20 @@
 # Also note that, since this is the only test using "real" external modules
 # fetched via GOPROXY, go.mod and go.sum should declare the dependencies.
 
+# For now, use a throwaway module download cache instead of the host machine's.
+# Usually it would be fine to reuse the host's, since we expose exact copies of
+# some external modules in a local proxy, allowing 'go test' to work offline.
+# However, for some reason, we end up with different hashes of the code for
+# modules like rsc.io/quote, and it's unclear why. It might be a txtar-addmod bug.
+# In any case, not worth our time to investigate right now, and "downloading"
+# modules is instant since we just copy a handful of files.
+#
+# To reproduce the issue, remove the env line and run:
+#
+#    go clean -modcache && go get -d rsc.io/quote@v1.5.2 && go test -short
+env GOMODCACHE=$WORK/modcache
+
 garble build -tags buildtag
-exec cat go.sum
 exec ./main
 cmp stdout main.stdout
 
