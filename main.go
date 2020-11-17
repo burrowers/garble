@@ -438,17 +438,20 @@ func transformCompile(args []string) ([]string, error) {
 	detachedComments := make([][]string, len(files))
 
 	for i, file := range files {
-		name := filepath.Base(filepath.Clean(paths[i]))
-		cgoFile := strings.HasPrefix(name, "_cgo_")
-		fileDetachedComments, localNameBlacklist, file := transformLineInfo(file, cgoFile)
-		for _, name := range localNameBlacklist {
-			obj := tf.pkg.Scope().Lookup(name)
-			if obj != nil {
-				tf.blacklist[obj] = struct{}{}
+		for _, group := range file.Comments {
+			for _, comment := range group.List {
+				if name, _ := getLocalName(comment.Text); name != "" {
+					obj := tf.pkg.Scope().Lookup(name)
+					if obj != nil {
+						tf.blacklist[obj] = struct{}{}
+					}
+				}
 			}
 		}
-		detachedComments[i] = fileDetachedComments
-		files[i] = file
+
+		name := filepath.Base(filepath.Clean(paths[i]))
+		cgoFile := strings.HasPrefix(name, "_cgo_")
+		detachedComments[i], files[i] = transformLineInfo(file, cgoFile)
 	}
 
 	obfSrcArchive := &bytes.Buffer{}
@@ -505,11 +508,9 @@ func transformCompile(args []string) ([]string, error) {
 		printWriter := io.MultiWriter(tempFile, obfSrc)
 
 		fileDetachedComments := detachedComments[i]
-		if len(fileDetachedComments) > 0 {
-			for _, comment := range fileDetachedComments {
-				if _, err = printWriter.Write([]byte(comment + "\n")); err != nil {
-					return nil, err
-				}
+		for _, comment := range fileDetachedComments {
+			if _, err := printWriter.Write([]byte(comment + "\n")); err != nil {
+				return nil, err
 			}
 		}
 		if err := printConfig.Fprint(printWriter, fset, file); err != nil {
