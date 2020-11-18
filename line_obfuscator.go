@@ -39,25 +39,6 @@ func isDirective(text string, directives []string) bool {
 	return false
 }
 
-// TODO(mvdan): replace getLocalName with proper support for go:linkname
-
-func getLocalName(text string) (string, bool) {
-	if !strings.HasPrefix(text, "//go:linkname") {
-		return "", false
-	}
-	parts := strings.Fields(text)
-	if len(parts) < 2 {
-		return "", false
-	}
-
-	name := strings.TrimSpace(parts[1])
-	if len(name) == 0 {
-		return "", false
-	}
-
-	return name, true
-}
-
 func prependComment(group *ast.CommentGroup, comment *ast.Comment) *ast.CommentGroup {
 	if group == nil {
 		return &ast.CommentGroup{List: []*ast.Comment{comment}}
@@ -68,6 +49,8 @@ func prependComment(group *ast.CommentGroup, comment *ast.Comment) *ast.CommentG
 }
 
 // Remove all comments from CommentGroup except //go: directives.
+// go:linkname directives are removed, since they're collected and rewritten
+// separately.
 func clearCommentGroup(group *ast.CommentGroup) *ast.CommentGroup {
 	if group == nil {
 		return nil
@@ -75,7 +58,7 @@ func clearCommentGroup(group *ast.CommentGroup) *ast.CommentGroup {
 
 	var comments []*ast.Comment
 	for _, comment := range group.List {
-		if strings.HasPrefix(comment.Text, "//go:") {
+		if strings.HasPrefix(comment.Text, "//go:") && !strings.HasPrefix(comment.Text, "//go:linkname") {
 			comments = append(comments, &ast.Comment{Text: comment.Text})
 		}
 	}
