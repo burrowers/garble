@@ -1,0 +1,64 @@
+env GOPRIVATE=test/main
+
+garble build
+exec ./main
+cmp stderr main.stderr
+
+! binsubstr main$exe 'garbledFunc' 'GarbledFunc'
+
+[short] stop # no need to verify this with -short
+
+go build
+exec ./main
+cmp stderr main.stderr
+
+-- go.mod --
+module test/main
+
+go 1.15
+-- main.go --
+package main
+
+import (
+	_ "strings"
+	_ "unsafe"
+
+	_ "test/main/imported"
+)
+
+// A linkname to an external non-garbled func.
+//go:linkname byteIndex strings.IndexByte
+func byteIndex(s string, c byte) int
+
+// A linkname to an external garbled func.
+//go:linkname garbledFunc test/main/imported.GarbledFuncImpl
+func garbledFunc() string
+
+// A linkname to an entirely made up name, implemented elsewhere.
+//go:linkname renamedFunc madeup.newName
+func renamedFunc() string
+
+func main() {
+	println(byteIndex("01234", '3'))
+	println(garbledFunc())
+	println(renamedFunc())
+}
+-- imported/imported.go --
+package imported
+
+import (
+	_ "unsafe"
+)
+
+func GarbledFuncImpl() string {
+	return "garbled func"
+}
+
+//go:linkname renamedFunc madeup.newName
+func renamedFunc() string {
+	return "renamed func"
+}
+-- main.stderr --
+3
+garbled func
+renamed func

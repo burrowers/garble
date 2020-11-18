@@ -1,16 +1,15 @@
 env GOPRIVATE='test/main,private.source/*'
 
-garble build -tags directives
+garble build
 exec ./main$exe
 cmp stderr main.stderr
 
-! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'private.source' 'remoteIntReturn' 'intReturn'
-binsubstr main$exe 'magicFunc'
+! binsubstr main$exe 'localName' 'globalConst' 'globalVar' 'globalType' 'valuable information' 'private.source' 'remoteIntReturn' 'intReturn' 'neverInlined'
 
 [short] stop # no need to verify this with -short
 
 # Check that the program works as expected without garble.
-go build -tags directives
+go build
 exec ./main$exe
 cmp stderr main.stderr
 
@@ -80,6 +79,13 @@ type EmbeddingUniverseScope struct {
 	string
 }
 
+// TODO: test that go:noinline still works without using debugdir
+
+//go:noinline
+func neverInlined() {
+	println("This func is never inlined.")
+}
+
 func main() {
 	switch V := V.(type) {
 	case int:
@@ -94,7 +100,7 @@ func main() {
 	scopesTest()
 	println(extra.Func())
 	sub.Test()
-	sub.TestDirectives()
+	neverInlined()
 }
 
 -- scopes.go --
@@ -143,43 +149,10 @@ func Test() {
 }
 
 func noop(...interface{}) {}
-
--- sub/directives.go --
-// +build directives
-
-package sub
-
-import (
-	_ "unsafe"
-	_ "test/main/sub/a"
-)
-
-//go:linkname remoteIntReturn a.magicFunc
-
-func remoteIntReturn() int
-
-//go:noinline
-func TestDirectives() {
-	if remoteIntReturn() != 42 {
-		panic("invalid result")
-	}
-}
--- sub/a/directives.go --
-// +build directives
-
-package a
-
-import _ "unsafe"
-
-//go:linkname intReturn a.magicFunc
-
-//go:noinline
-func intReturn() int {
-	return 42
-}
 -- main.stderr --
 nil case
 {"Foo":3}
 1 1 1
 1 4 5 1 input
 This is a separate module to obfuscate.
+This func is never inlined.

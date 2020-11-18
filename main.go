@@ -438,20 +438,55 @@ func transformCompile(args []string) ([]string, error) {
 	detachedComments := make([][]string, len(files))
 
 	for i, file := range files {
-		for _, group := range file.Comments {
-			for _, comment := range group.List {
-				if name, _ := getLocalName(comment.Text); name != "" {
-					obj := tf.pkg.Scope().Lookup(name)
-					if obj != nil {
-						tf.blacklist[obj] = struct{}{}
-					}
-				}
-			}
-		}
-
 		name := filepath.Base(filepath.Clean(paths[i]))
 		cgoFile := strings.HasPrefix(name, "_cgo_")
-		detachedComments[i], files[i] = transformLineInfo(file, cgoFile)
+		comments, file := transformLineInfo(file, cgoFile)
+
+		for i, comment := range comments {
+			if !strings.HasPrefix(comment, "//go:linkname ") {
+				continue
+			}
+			fields := strings.Fields(comment)
+			if len(fields) != 3 {
+				continue
+			}
+			// This directive has two arguments: "go:linkname localName newName"
+			localName := fields[1]
+
+			// The local name must not be obfuscated.
+			obj := tf.pkg.Scope().Lookup(localName)
+			if obj != nil {
+				tf.blacklist[obj] = struct{}{}
+			}
+
+			// If the new name is of the form "pkgpath.Name", and
+			// we've obfuscated "Name" in that package, rewrite the
+			// directive to use the obfuscated name.
+			newName := strings.Split(fields[2], ".")
+			if len(newName) != 2 {
+				continue
+			}
+			pkg, name := newName[0], newName[1]
+			if pkg == "runtime" && strings.HasPrefix(name, "cgo") {
+				continue // ignore cgo-generated linknames
+			}
+			listedPkg, ok := buildInfo.imports[pkg]
+			if !ok {
+				continue // probably a made up symbol name
+			}
+			garbledPkg, _ := garbledImport(pkg)
+			if garbledPkg != nil && garbledPkg.Scope().Lookup(name) != nil {
+				continue // the name exists and was not garbled
+			}
+
+			// The name exists and was obfuscated; replace the
+			// comment with the obfuscated name.
+			obfName := hashWith(listedPkg.actionID, name)
+			fields[2] = pkg + "." + obfName
+			comments[i] = strings.Join(fields, " ")
+		}
+		detachedComments[i], files[i] = comments, file
+
 	}
 
 	obfSrcArchive := &bytes.Buffer{}
@@ -507,8 +542,7 @@ func transformCompile(args []string) ([]string, error) {
 		obfSrc := &bytes.Buffer{}
 		printWriter := io.MultiWriter(tempFile, obfSrc)
 
-		fileDetachedComments := detachedComments[i]
-		for _, comment := range fileDetachedComments {
+		for _, comment := range detachedComments[i] {
 			if _, err := printWriter.Write([]byte(comment + "\n")); err != nil {
 				return nil, err
 			}
@@ -896,7 +930,6 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			// if the struct of this field was not garbled, do not garble
 			// any of that struct's fields
 			if (parentScope != tf.pkg.Scope()) && (x.IsField() && !x.Embedded()) {
-				// fmt.Println(node.Name)
 				parent, ok := cursor.Parent().(*ast.SelectorExpr)
 				if !ok {
 					break
@@ -974,7 +1007,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			actionID = id
 		}
 
-		// The exported names cannot be shortened as counter synchronization between packages is not currently implemented
+		// The exported names cannot be shortened as counter synchronization
+		// between packages is not currently implemented
 		if token.IsExported(node.Name) {
 			node.Name = hashWith(actionID, node.Name)
 			return true
@@ -1108,7 +1142,9 @@ func transformLink(args []string) ([]string, error) {
 			pkgPath = buildInfo.firstImport
 		}
 		if id := buildInfo.imports[pkgPath].actionID; len(id) > 0 {
-			// If the name is not in the map file, it means that the name was not obfuscated or is public
+			// We use privateNameMap because unexported names are obfuscated
+			// to short names like "A", "B", "C" etc, which is not reproducible
+			// here. If the name isn't in the map, a hash will do.
 			newName, ok := privateNameMap[pkg+"."+name]
 			if !ok {
 				newName = hashWith(id, name)

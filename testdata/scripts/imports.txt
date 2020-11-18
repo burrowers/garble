@@ -62,15 +62,11 @@ import (
 	"fmt"
 	"strings"
 	"reflect"
-	_ "unsafe"
 
 	"test/main/imported"
 
 	"rsc.io/quote"
 )
-
-//go:linkname linkedPrintln fmt.Println
-func linkedPrintln(a ...interface{}) (n int, err error)
 
 func main() {
 	fmt.Println(imported.ImportedVar)
@@ -93,7 +89,6 @@ func main() {
 		fmt.Println("method not found")
 	}
 
-	linkedPrintln(nil)
 	fmt.Println(quote.Go())
 }
 
@@ -180,5 +175,4 @@ ReflectTypeOf
 ReflectTypeOfIndirect
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
-<nil>
 Don't communicate by sharing memory, share memory by communicating.
