@@ -16,22 +16,19 @@ import (
 // Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/syntax/parser_test.go#229
 const PosMin = 1
 
-const buildTagPrefix = "// +build"
-
-// Source: https://go.googlesource.com/go/+/refs/heads/master/src/cmd/compile/internal/gc/noder.go#1493
-var nameSpecialDirectives = []string{
+// detachedDirectives is a list of Go compiler directives which don't need to go
+// right next to a Go declaration. Unlike all other detached comments, these
+// need to be kept around as they alter compiler behavior.
+var detachedDirectives = []string{
+	"// +build",
 	"//go:linkname",
-
+	"//go:cgo_ldflag",
+	"//go:cgo_dynamic_linker",
 	"//go:cgo_export_static",
 	"//go:cgo_export_dynamic",
 	"//go:cgo_import_static",
 	"//go:cgo_import_dynamic",
 }
-
-var specialDirectives = append([]string{
-	"//go:cgo_ldflag",
-	"//go:cgo_dynamic_linker",
-}, nameSpecialDirectives...)
 
 func isDirective(text string, directives []string) bool {
 	for _, prefix := range directives {
@@ -42,8 +39,10 @@ func isDirective(text string, directives []string) bool {
 	return false
 }
 
+// TODO(mvdan): replace getLocalName with proper support for go:linkname
+
 func getLocalName(text string) (string, bool) {
-	if !isDirective(text, nameSpecialDirectives) {
+	if !strings.HasPrefix(text, "//go:linkname") {
 		return "", false
 	}
 	parts := strings.Fields(text)
@@ -76,7 +75,7 @@ func clearCommentGroup(group *ast.CommentGroup) *ast.CommentGroup {
 
 	var comments []*ast.Comment
 	for _, comment := range group.List {
-		if strings.HasPrefix(comment.Text, "//go:") && !isDirective(comment.Text, specialDirectives) {
+		if strings.HasPrefix(comment.Text, "//go:") {
 			comments = append(comments, &ast.Comment{Text: comment.Text})
 		}
 	}
@@ -110,45 +109,22 @@ func clearNodeComments(node ast.Node) {
 	}
 }
 
-// processDetachedDire collects all not attached to declarations comments and build tags
-// It returns detached comments and local name blacklist
-func processDetachedDirectives(commentGroups []*ast.CommentGroup) (detachedComments, localNameBlacklist []string) {
-	var buildTags []string
-	var specialComments []string
-	for _, commentGroup := range commentGroups {
-		for _, comment := range commentGroup.List {
-			if strings.HasPrefix(comment.Text, buildTagPrefix) {
-				buildTags = append(buildTags, comment.Text)
-				continue
-			}
-
-			if !isDirective(comment.Text, specialDirectives) {
-				continue
-			}
-
-			specialComments = append(specialComments, comment.Text)
-			if localName, ok := getLocalName(comment.Text); ok {
-				localNameBlacklist = append(localNameBlacklist, localName)
-			}
-		}
-	}
-
-	detachedComments = append(detachedComments, buildTags...)
-	detachedComments = append(detachedComments, specialComments...)
-	detachedComments = append(detachedComments, "")
-	return detachedComments, localNameBlacklist
-}
-
 // transformLineInfo removes the comment except go directives and build tags. Converts comments to the node view.
 // It returns comments not attached to declarations and names of declarations which cannot be renamed.
-func transformLineInfo(file *ast.File, cgoFile bool) (detachedComments, localNameBlacklist []string, f *ast.File) {
+func transformLineInfo(file *ast.File, cgoFile bool) (detachedComments []string, f *ast.File) {
 	prefix := ""
 	if cgoFile {
 		prefix = "_cgo_"
 	}
 
 	// Save build tags and add file name leak protection
-	detachedComments, localNameBlacklist = processDetachedDirectives(file.Comments)
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			if isDirective(comment.Text, detachedDirectives) {
+				detachedComments = append(detachedComments, comment.Text)
+			}
+		}
+	}
 	detachedComments = append(detachedComments, "", "//line "+prefix+":1")
 	file.Comments = nil
 
@@ -174,5 +150,5 @@ func transformLineInfo(file *ast.File, cgoFile bool) (detachedComments, localNam
 		return true
 	}
 
-	return detachedComments, localNameBlacklist, astutil.Apply(file, pre, nil).(*ast.File)
+	return detachedComments, astutil.Apply(file, pre, nil).(*ast.File)
 }
