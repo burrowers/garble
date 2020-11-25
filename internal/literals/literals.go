@@ -21,7 +21,7 @@ func randObfuscator() obfuscator {
 }
 
 // Obfuscate replace literals with obfuscated lambda functions
-func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blacklist map[types.Object]struct{}) []*ast.File {
+func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blacklist map[types.Object]bool) []*ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
 		switch x := cursor.Node().(type) {
 		case *ast.GenDecl:
@@ -49,7 +49,7 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 					}
 
 					// The object itself is blacklisted, e.g. a value that needs to be constant
-					if _, ok := blacklist[obj]; ok {
+					if blacklist[obj] {
 						return false
 					}
 				}
@@ -209,7 +209,7 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 }
 
 // ConstBlacklist blacklist identifieres used in constant expressions
-func ConstBlacklist(node ast.Node, info *types.Info, blacklist map[types.Object]struct{}) {
+func ConstBlacklist(node ast.Node, info *types.Info, blacklist map[types.Object]bool) {
 	blacklistObjects := func(node ast.Node) bool {
 		ident, ok := node.(*ast.Ident)
 		if !ok {
@@ -217,7 +217,7 @@ func ConstBlacklist(node ast.Node, info *types.Info, blacklist map[types.Object]
 		}
 
 		obj := info.ObjectOf(ident)
-		blacklist[obj] = struct{}{}
+		blacklist[obj] = true
 
 		return true
 	}

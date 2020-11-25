@@ -418,13 +418,13 @@ func newPrivateName(name, path string) (privateName, bool) {
 }
 
 func dedupStrings(paths []string) []string {
-	seen := make(map[string]struct{}, len(paths))
+	seen := make(map[string]bool, len(paths))
 	j := 0
 	for _, v := range paths {
-		if _, ok := seen[v]; ok {
+		if seen[v] {
 			continue
 		}
-		seen[v] = struct{}{}
+		seen[v] = true
 		paths[j] = v
 		j++
 	}
@@ -432,14 +432,14 @@ func dedupStrings(paths []string) []string {
 }
 
 func dedupPrivateNames(names []privateName) []privateName {
-	seen := make(map[string]struct{}, len(names))
+	seen := make(map[string]bool, len(names))
 	j := 0
 	for _, v := range names {
 		combined := v.name + string(v.seed)
-		if _, ok := seen[combined]; ok {
+		if seen[combined] {
 			continue
 		}
-		seen[combined] = struct{}{}
+		seen[combined] = true
 		names[j] = v
 		j++
 	}
