@@ -456,7 +456,7 @@ func transformCompile(args []string) ([]string, error) {
 			// The local name must not be obfuscated.
 			obj := tf.pkg.Scope().Lookup(localName)
 			if obj != nil {
-				tf.blacklist[obj] = struct{}{}
+				tf.blacklist[obj] = true
 			}
 
 			// If the new name is of the form "pkgpath.Name", and
@@ -762,7 +762,7 @@ func fillBuildInfo(flags []string) error {
 //
 // The blacklist mainly contains named types and their field declarations.
 func (tf *transformer) buildBlacklist(files []*ast.File) {
-	tf.blacklist = make(map[types.Object]struct{})
+	tf.blacklist = make(map[types.Object]bool)
 
 	reflectBlacklist := func(node ast.Node) bool {
 		expr, _ := node.(ast.Expr) // info.TypeOf(nil) will just return nil
@@ -814,11 +814,11 @@ func (tf *transformer) buildBlacklist(files []*ast.File) {
 
 // collectNames collects all names, including the names of local variables,
 // functions, global fields, etc.
-func collectNames(files []*ast.File) map[string]struct{} {
-	blacklist := make(map[string]struct{})
+func collectNames(files []*ast.File) map[string]bool {
+	blacklist := make(map[string]bool)
 	visit := func(node ast.Node) bool {
 		if ident, ok := node.(*ast.Ident); ok {
-			blacklist[ident.Name] = struct{}{}
+			blacklist[ident.Name] = true
 		}
 		return true
 	}
@@ -838,9 +838,9 @@ type transformer struct {
 	// Maps to keep track of how, or whether not, we should obfuscate
 	// certain parts of the package.
 	// TODO: document better and use better field names; see issue #169.
-	blacklist      map[types.Object]struct{}
+	blacklist      map[types.Object]bool
 	privateNameMap map[string]string
-	existingNames  map[string]struct{}
+	existingNames  map[string]bool
 
 	// nameCounter keeps track of how many unique identifier names we've
 	// obfuscated, so that the obfuscated names get assigned incrementing
@@ -909,7 +909,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		}
 
 		// The object itself is blacklisted, e.g. a type definition.
-		if _, ok := tf.blacklist[obj]; ok {
+		if tf.blacklist[obj] {
 			return true
 		}
 
@@ -1024,7 +1024,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		for {
 			tf.nameCounter++
 			name = encodeIntToName(tf.nameCounter)
-			if _, ok := tf.existingNames[name]; !ok {
+			if !tf.existingNames[name] {
 				break
 			}
 		}
@@ -1038,14 +1038,14 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	return astutil.Apply(file, pre, nil).(*ast.File)
 }
 
-func blacklistStruct(named *types.Named, blacklist map[types.Object]struct{}) {
-	blacklist[named.Obj()] = struct{}{}
+func blacklistStruct(named *types.Named, blacklist map[types.Object]bool) {
+	blacklist[named.Obj()] = true
 	strct, ok := named.Underlying().(*types.Struct)
 	if !ok {
 		return
 	}
 	for i := 0; i < strct.NumFields(); i++ {
-		blacklist[strct.Field(i)] = struct{}{}
+		blacklist[strct.Field(i)] = true
 	}
 }
 
