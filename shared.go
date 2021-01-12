@@ -16,8 +16,11 @@ import (
 
 // shared this data is shared between the different garble processes
 type shared struct {
-	Options        options
-	ListedPackages listedPackages
+	ExecPath   string   // absolute path to the garble binary being used
+	BuildFlags []string // build flags fed to the original "garble ..." command
+
+	Options        options        // garble options being used, i.e. our own flags
+	ListedPackages listedPackages // non-garbled view of all packages to build
 }
 
 var cache *shared
@@ -146,9 +149,9 @@ type listedPackage struct {
 
 // setListedPackages gets information about the current package
 // and all of its dependencies
-func setListedPackages(flags, patterns []string) error {
+func setListedPackages(patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export"}
-	args = append(args, flags...)
+	args = append(args, cache.BuildFlags...)
 	args = append(args, patterns...)
 	cmd := exec.Command("go", args...)
 

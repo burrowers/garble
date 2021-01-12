@@ -18,8 +18,8 @@ import (
 
 const buildIDSeparator = "/"
 
-// actionID returns the action ID half of a build ID, the first element.
-func actionID(buildID string) string {
+// splitActionID returns the action ID half of a build ID, the first element.
+func splitActionID(buildID string) string {
 	i := strings.Index(buildID, buildIDSeparator)
 	if i < 0 {
 		return buildID
@@ -27,12 +27,12 @@ func actionID(buildID string) string {
 	return buildID[:i]
 }
 
-// contentID returns the content ID half of a build ID, the last element.
-func contentID(buildID string) string {
+// splitContentID returns the content ID half of a build ID, the last element.
+func splitContentID(buildID string) string {
 	return buildID[strings.LastIndex(buildID, buildIDSeparator)+1:]
 }
 
-// decodeHash isthe opposite of hashToString, but with a panic for error
+// decodeHash is the opposite of hashToString, but with a panic for error
 // handling since it should never happen.
 func decodeHash(str string) []byte {
 	h, err := base64.RawURLEncoding.DecodeString(str)
@@ -59,7 +59,7 @@ func alterToolVersion(tool string, args []string) error {
 	var toolID []byte
 	if f[2] == "devel" {
 		// On the development branch, use the content ID part of the build ID.
-		toolID = decodeHash(contentID(f[len(f)-1]))
+		toolID = decodeHash(splitContentID(f[len(f)-1]))
 	} else {
 		// For a release, the output is like: "compile version go1.9.1 X:framepointer".
 		// Use the whole line.
@@ -96,7 +96,7 @@ func ownContentID(toolID []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ownID := decodeHash(contentID(buildID))
+	ownID := decodeHash(splitContentID(buildID))
 
 	// Join the two content IDs together into a single base64-encoded sha256
 	// sum. This includes the original tool's content ID, and garble's own
