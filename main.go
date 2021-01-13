@@ -253,16 +253,20 @@ func mainErr(args []string) error {
 
 		// Note that we also need to pass build flags to 'go list', such
 		// as -tags.
-		listFlags := filterBuildFlags(flags)
+		cache.BuildFlags = filterBuildFlags(flags)
 		if cmd == "test" {
-			listFlags = append(listFlags, "-test")
+			cache.BuildFlags = append(cache.BuildFlags, "-test")
 		}
 
 		if err := setGoPrivate(); err != nil {
 			return err
 		}
 
-		if err := setListedPackages(listFlags, args); err != nil {
+		if err := setListedPackages(args); err != nil {
+			return err
+		}
+		cache.ExecPath, err = os.Executable()
+		if err != nil {
 			return err
 		}
 
@@ -272,14 +276,10 @@ func mainErr(args []string) error {
 		}
 		defer os.Remove(sharedName)
 
-		execPath, err := os.Executable()
-		if err != nil {
-			return err
-		}
 		goArgs := []string{
 			cmd,
 			"-trimpath",
-			"-toolexec=" + execPath,
+			"-toolexec=" + cache.ExecPath,
 		}
 		if cmd == "test" {
 			// vet is generally not useful on garbled code; keep it
@@ -694,7 +694,7 @@ func fillBuildInfo(flags []string) error {
 	case "", "true":
 		return fmt.Errorf("could not find -buildid argument")
 	}
-	curActionID = decodeHash(actionID(buildID))
+	curActionID = decodeHash(splitActionID(buildID))
 	curImportCfg = flagValue(flags, "-importcfg")
 	if curImportCfg == "" {
 		return fmt.Errorf("could not find -importcfg argument")
@@ -742,7 +742,7 @@ func fillBuildInfo(flags []string) error {
 			}
 			impPkg := importedPkg{
 				packagefile: objectPath,
-				actionID:    decodeHash(actionID(buildID)),
+				actionID:    decodeHash(splitActionID(buildID)),
 			}
 			buildInfo.imports[importPath] = impPkg
 
@@ -992,7 +992,66 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		default:
 			return true // we only want to rename the above
 		}
+
+		// Handle the case where the name is defined in an indirectly
+		// imported package. Since only direct imports show up in our
+		// importcfg, buildInfo.imports will not initially contain the
+		// package path we want.
+		//
+		// This edge case can happen, for example, if package A imports
+		// package B and calls its API, and B's API returns C's struct.
+		// Suddenly, A can use struct field names defined in C, even
+		// though A never directly imports C.
+		//
+		// For this rare case, for now, do an extra "go list -toolexec"
+		// call to retrieve its export path.
+		// TODO: Think about ways to avoid this extra exec call. Perhaps
+		// add an extra archive header to record all direct and indirect
+		// importcfg data, like we do with private name maps.
+		if _, e := buildInfo.imports[path]; !e && path != curPkgPath {
+			goArgs := []string{
+				"list",
+				"-json",
+				"-export",
+				"-trimpath",
+				"-toolexec=" + cache.ExecPath,
+			}
+			goArgs = append(goArgs, cache.BuildFlags...)
+			goArgs = append(goArgs, path)
+
+			cmd := exec.Command("go", goArgs...)
+			cmd.Dir = opts.GarbleDir
+			out, err := cmd.Output()
+			if err != nil {
+				if err := err.(*exec.ExitError); err != nil {
+					panic(fmt.Sprintf("%v: %s", err, err.Stderr))
+				}
+				panic(err)
+			}
+			var pkg listedPackage
+			if err := json.Unmarshal(out, &pkg); err != nil {
+				panic(err) // shouldn't happen
+			}
+			buildID, err := buildidOf(pkg.Export)
+			if err != nil {
+				panic(err) // shouldn't happen
+			}
+			// Adding it to buildInfo.imports allows us to reuse the
+			// "if" branch below. Plus, if this edge case triggers
+			// multiple times in a single package compile, we can
+			// call "go list" once and cache its result.
+			buildInfo.imports[path] = importedPkg{
+				packagefile: pkg.Export,
+				actionID:    decodeHash(splitActionID(buildID)),
+			}
+			// log.Printf("fetched indirect dependency %q from: %s", path, pkg.Export)
+		}
+
 		actionID := curActionID
+		// TODO: Make this check less prone to bugs, like the one we had
+		// with indirect dependencies. If "path" is not our current
+		// package, then it must exist in buildInfo.imports. Otherwise
+		// we should panic.
 		if id := buildInfo.imports[path].actionID; len(id) > 0 {
 			garbledPkg, err := garbledImport(path)
 			if err != nil {
@@ -1007,16 +1066,21 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			actionID = id
 		}
 
+		origName := node.Name
+		_ = origName // used for debug prints below
+
 		// The exported names cannot be shortened as counter synchronization
 		// between packages is not currently implemented
 		if token.IsExported(node.Name) {
 			node.Name = hashWith(actionID, node.Name)
+			// log.Printf("%q hashed with %x to %q", origName, actionID, node.Name)
 			return true
 		}
 
 		fullName := tf.pkg.Path() + "." + node.Name
 		if name, ok := tf.privateNameMap[fullName]; ok {
 			node.Name = name
+			// log.Printf("%q retrieved private name %q for %q", origName, name, path)
 			return true
 		}
 
@@ -1029,10 +1093,9 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			}
 		}
 
-		// orig := node.Name
 		tf.privateNameMap[fullName] = name
 		node.Name = name
-		// log.Printf("%q hashed with %q to %q", orig, actionID, node.Name)
+		// log.Printf("%q assigned private name %q for %q", origName, name, path)
 		return true
 	}
 	return astutil.Apply(file, pre, nil).(*ast.File)

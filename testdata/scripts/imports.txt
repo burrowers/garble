@@ -60,8 +60,8 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"reflect"
+	"strings"
 
 	"test/main/imported"
 
@@ -75,8 +75,9 @@ func main() {
 	fmt.Println(imported.ImportedType(3))
 	fmt.Println(imported.ReflectInDefinedVar.ExportedField2)
 	fmt.Println(imported.ReflectInDefined{ExportedField2: 5})
-	fmt.Println(imported.NormalStruct{SharedName: 3})
-
+	normal := imported.NormalStruct{SharedName: 3}
+	normal.IndirectStruct.Field = 23
+	fmt.Println(normal)
 	printfWithoutPackage("%T\n", imported.ReflectTypeOf(2))
 	printfWithoutPackage("%T\n", imported.ReflectTypeOfIndirect(4))
 
@@ -112,7 +113,10 @@ func init() { fmt.Println("buildtag init func") }
 -- imported/imported.go --
 package imported
 
-import "reflect"
+import (
+	"reflect"
+	"test/main/imported/indirect"
+)
 
 var ImportedVar = "imported var value"
 
@@ -131,19 +135,19 @@ type ReflectTypeOfIndirect int
 var _ = reflect.TypeOf(new([]*ReflectTypeOfIndirect))
 
 type ReflectValueOf struct {
-	ExportedField   string
+	ExportedField string
 
 	unexportedField string
 }
 
-func (r *ReflectValueOf) ExportedMethodName() string { return "method: "+r.ExportedField }
+func (r *ReflectValueOf) ExportedMethodName() string { return "method: " + r.ExportedField }
 
 var ReflectValueOfVar = ReflectValueOf{ExportedField: "abc"}
 
 var _ = reflect.TypeOf(ReflectValueOfVar)
 
 type ReflectInDefined struct {
-	ExportedField2   int
+	ExportedField2 int
 
 	unexportedField2 int
 }
@@ -155,12 +159,20 @@ var _ = reflect.TypeOf(ReflectInDefinedVar)
 const SharedName = 2
 
 type NormalStruct struct {
-	SharedName   int
+	SharedName            int
+	IndirectStruct        indirect.Indirect
 	normalUnexportedField int
 }
 
 // ImportedType comes after the calls to reflect, to ensure no false positives.
 type ImportedType int
+
+-- imported/indirect/indirect.go --
+package indirect
+
+type Indirect struct {
+	Field int
+}
 
 -- main.stdout --
 buildtag init func
@@ -170,7 +182,7 @@ x
 3
 9000
 {5 0}
-{3 0}
+{3 {23} 0}
 ReflectTypeOf
 ReflectTypeOfIndirect
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
