@@ -21,8 +21,11 @@ exec ./main$exe
 cmp stderr main.stderr
 binsubstr main$exe 'Lorem' 'dolor' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
 
-# Generate and write random literals into a separate file
-generate-literals extraLiterals.go 100 printExtraLiterals
+# Generate and write random literals into a separate file.
+# Some of them will be huge; assuming that we don't try to obfuscate them, the
+# test should generally run in under a second. If this test hangs for over ten
+# seconds, it means we're trying to obfuscate them.
+generate-literals extra_literals.go
 
 # Also check that the binary is different from previous builds.
 rm main$exe
@@ -35,19 +38,19 @@ cmp stderr main.stderr
 # Check obfuscators
 
 # Xor obfuscator. Detect a[i] = a[i] (^|-|+) b[i]
-grep '^\s+\w+\[\w+\] = \w+\[\w+\] [\^\-+] \w+$' .obf-src/main/extraLiterals.go
+grep '^\s+\w+\[\w+\] = \w+\[\w+\] [\^\-+] \w+$' .obf-src/main/extra_literals.go
 
 # Swap obfuscator. Detect [...]byte|uint16|uint32|uint64{...}
-grep '^\s+\w+ := \[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' .obf-src/main/extraLiterals.go
+grep '^\s+\w+ := \[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' .obf-src/main/extra_literals.go
 
 # Split obfuscator. Detect decryptKey ^= i * counter
-grep '^\s+\w+ \^= \w+ \* \w+$' .obf-src/main/extraLiterals.go
+grep '^\s+\w+ \^= \w+ \* \w+$' .obf-src/main/extra_literals.go
 
 # XorShuffle obfuscator. Detect data = append(data, x (^|-|+) y...)
-grep '^\s+\w+ = append\(\w+,(\s+\w+\[\d+\][\^\-+]\w+\[\d+\],?)+\)$' .obf-src/main/extraLiterals.go
+grep '^\s+\w+ = append\(\w+,(\s+\w+\[\d+\][\^\-+]\w+\[\d+\],?)+\)$' .obf-src/main/extra_literals.go
 
 # XorSeed obfuscator. Detect type decFunc func(byte) decFunc
-grep '^\s+type \w+ func\(byte\) \w+$' .obf-src/main/extraLiterals.go
+grep '^\s+type \w+ func\(byte\) \w+$' .obf-src/main/extra_literals.go
 
 -- go.mod --
 module test/main
