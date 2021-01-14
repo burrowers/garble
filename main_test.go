@@ -262,8 +262,8 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 	}
 }
 
-func generateStringLit() *ast.BasicLit {
-	buffer := make([]byte, 1+mathrand.Intn(255))
+func generateStringLit(size int) *ast.BasicLit {
+	buffer := make([]byte, size)
 	_, err := mathrand.Read(buffer)
 	if err != nil {
 		panic(err)
@@ -276,34 +276,41 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 	if neg {
 		ts.Fatalf("unsupported: ! generate-literals")
 	}
-	if len(args) != 3 {
-		ts.Fatalf("usage: generate-literals file literalCount funcName")
+	if len(args) != 1 {
+		ts.Fatalf("usage: generate-literals file")
 	}
 
-	codePath, funcName := args[0], args[2]
+	codePath := args[0]
 
-	literalCount, err := strconv.Atoi(args[1])
-	if err != nil {
-		ts.Fatalf("%v", err)
-	}
-
+	// Add 100 randomly small literals.
 	var statements []ast.Stmt
-	for i := 0; i < literalCount; i++ {
-		literal := generateStringLit()
-		statements = append(statements, ah.ExprStmt(ah.CallExpr(ast.NewIdent("println"), literal)))
+	for i := 0; i < 100; i++ {
+		literal := generateStringLit(1 + mathrand.Intn(255))
+		statements = append(statements, &ast.AssignStmt{
+			Lhs: []ast.Expr{ast.NewIdent("_")},
+			Tok: token.ASSIGN,
+			Rhs: []ast.Expr{literal},
+		})
+	}
+	// Add 5 huge literals, to make sure we don't try to obfuscate them.
+	// 5 * 128KiB is large enough that it would take a very, very long time
+	// to obfuscate those literals with our simple code.
+	for i := 0; i < 5; i++ {
+		literal := generateStringLit(128 << 10)
+		statements = append(statements, &ast.AssignStmt{
+			Lhs: []ast.Expr{ast.NewIdent("_")},
+			Tok: token.ASSIGN,
+			Rhs: []ast.Expr{literal},
+		})
 	}
 
 	file := &ast.File{
 		Name: ast.NewIdent("main"),
-		Decls: []ast.Decl{
-			&ast.FuncDecl{
-				Name: ast.NewIdent(funcName),
-				Type: &ast.FuncType{
-					Params: &ast.FieldList{},
-				},
-				Body: ah.BlockStmt(statements...),
-			},
-		},
+		Decls: []ast.Decl{&ast.FuncDecl{
+			Name: ast.NewIdent("extraLiterals"),
+			Type: &ast.FuncType{Params: &ast.FieldList{}},
+			Body: ah.BlockStmt(statements...),
+		}},
 	}
 
 	codeFile := createFile(ts, codePath)

@@ -15,6 +15,19 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
+// maxSizeBytes is the limit, in bytes, of the size of string-like literals
+// which we will obfuscate. This is important, because otherwise garble can take
+// a very long time to obfuscate huge code-generated literals, such as those
+// corresponding to large assets.
+//
+// Note that this is the size of the literal in source code. For example, "\xab"
+// counts as four bytes.
+//
+// If someone truly wants to obfuscate those, they should do that when they
+// generate the code, not at build time. Plus, with Go 1.16 that technique
+// should largely stop being used.
+const maxSizeBytes = 2 << 10 // KiB
+
 func randObfuscator() obfuscator {
 	randPos := mathrand.Intn(len(obfuscators))
 	return obfuscators[randPos]
@@ -76,6 +89,9 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 				if y.Elem() != byteType {
 					return true
 				}
+				if y.Len() > maxSizeBytes {
+					return true
+				}
 
 				data := make([]byte, y.Len())
 
@@ -96,6 +112,9 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 
 			case *types.Slice:
 				if y.Elem() != byteType {
+					return true
+				}
+				if len(x.Elts) > maxSizeBytes {
 					return true
 				}
 
@@ -125,23 +144,26 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 				return true // we don't want to obfuscate imports etc.
 			}
 
-			switch x.Kind {
-			case token.STRING:
-				typeInfo := info.TypeOf(x)
-				if typeInfo != types.Typ[types.String] && typeInfo != types.Typ[types.UntypedString] {
-					return true
-				}
-				value, err := strconv.Unquote(x.Value)
-				if err != nil {
-					panic(fmt.Sprintf("cannot unquote string: %v", err))
-				}
-
-				if len(value) == 0 {
-					return true
-				}
-
-				cursor.Replace(obfuscateString(value))
+			if x.Kind != token.STRING {
+				return true
 			}
+			if len(x.Value) > maxSizeBytes {
+				return true
+			}
+			typeInfo := info.TypeOf(x)
+			if typeInfo != types.Typ[types.String] && typeInfo != types.Typ[types.UntypedString] {
+				return true
+			}
+			value, err := strconv.Unquote(x.Value)
+			if err != nil {
+				panic(fmt.Sprintf("cannot unquote string: %v", err))
+			}
+
+			if len(value) == 0 {
+				return true
+			}
+
+			cursor.Replace(obfuscateString(value))
 		}
 
 		return true
