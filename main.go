@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -73,7 +74,6 @@ garble accepts the following flags:
 
 For more information, see https://github.com/burrowers/garble.
 `[1:])
-	os.Exit(2)
 }
 
 func main() { os.Exit(main1()) }
@@ -159,14 +159,24 @@ func main1() int {
 	log.SetPrefix("[garble] ")
 	args := flagSet.Args()
 	if len(args) < 1 {
-		flagSet.Usage()
+		usage()
+		return 2
 	}
 	if err := mainErr(args); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		switch err {
+		case flag.ErrHelp:
+			usage()
+			return 2
+		case errJustExit:
+		default:
+			fmt.Fprintln(os.Stderr, err)
+		}
 		return 1
 	}
 	return 0
 }
+
+var errJustExit = errors.New("")
 
 func goVersionOK() bool {
 	const (
@@ -231,18 +241,18 @@ func mainErr(args []string) error {
 	// If we recognise an argument, we're not running within -toolexec.
 	switch cmd := args[0]; cmd {
 	case "help":
-		flagSet.Usage()
+		return flag.ErrHelp
 	case "build", "test":
 		if !goVersionOK() {
-			os.Exit(1)
+			return errJustExit
 		}
 		// Split the flags from the package arguments, since we'll need
 		// to run 'go list' on the same set of packages.
 		flags, args := splitFlagsFromArgs(args[1:])
-		for _, flag := range flags {
-			switch flag {
+		for _, f := range flags {
+			switch f {
 			case "-h", "-help", "--help":
-				flagSet.Usage()
+				return flag.ErrHelp
 			}
 		}
 
