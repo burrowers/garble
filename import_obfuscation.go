@@ -473,8 +473,7 @@ func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, garbled
 				continue
 			}
 
-			// skip local asm symbols. For some reason garbling these breaks things
-			// add the symbol name to a blacklist, so we don't garble related symbols
+			// Skip local asm symbols. For some reason garbling these breaks things.
 			// TODO: don't add duplicates
 			if s.Kind == goobj2.SABIALIAS {
 				if parts := strings.SplitN(s.Name, ".", 2); parts[0] == "main" {

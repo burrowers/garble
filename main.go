@@ -413,12 +413,12 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	tf.privateNameMap = make(map[string]string)
-	tf.existingNames = collectNames(files)
-	tf.buildBlacklist(files)
+	tf.existingNames = collectExistingNames(files)
+	tf.recordReflectArgs(files)
 
 	if opts.GarbleLiterals {
 		// TODO: use transformer here?
-		files = literals.Obfuscate(files, tf.info, fset, tf.blacklist)
+		files = literals.Obfuscate(files, tf.info, fset, tf.ignoreObjects)
 	}
 
 	tempDir, err := ioutil.TempDir("", "garble-build")
@@ -440,53 +440,11 @@ func transformCompile(args []string) ([]string, error) {
 	for i, file := range files {
 		name := filepath.Base(filepath.Clean(paths[i]))
 		cgoFile := strings.HasPrefix(name, "_cgo_")
+
 		comments, file := transformLineInfo(file, cgoFile)
+		tf.handleDirectives(comments)
 
-		for i, comment := range comments {
-			if !strings.HasPrefix(comment, "//go:linkname ") {
-				continue
-			}
-			fields := strings.Fields(comment)
-			if len(fields) != 3 {
-				continue
-			}
-			// This directive has two arguments: "go:linkname localName newName"
-			localName := fields[1]
-
-			// The local name must not be obfuscated.
-			obj := tf.pkg.Scope().Lookup(localName)
-			if obj != nil {
-				tf.blacklist[obj] = true
-			}
-
-			// If the new name is of the form "pkgpath.Name", and
-			// we've obfuscated "Name" in that package, rewrite the
-			// directive to use the obfuscated name.
-			newName := strings.Split(fields[2], ".")
-			if len(newName) != 2 {
-				continue
-			}
-			pkg, name := newName[0], newName[1]
-			if pkg == "runtime" && strings.HasPrefix(name, "cgo") {
-				continue // ignore cgo-generated linknames
-			}
-			listedPkg, ok := buildInfo.imports[pkg]
-			if !ok {
-				continue // probably a made up symbol name
-			}
-			garbledPkg, _ := garbledImport(pkg)
-			if garbledPkg != nil && garbledPkg.Scope().Lookup(name) != nil {
-				continue // the name exists and was not garbled
-			}
-
-			// The name exists and was obfuscated; replace the
-			// comment with the obfuscated name.
-			obfName := hashWith(listedPkg.actionID, name)
-			fields[2] = pkg + "." + obfName
-			comments[i] = strings.Join(fields, " ")
-		}
 		detachedComments[i], files[i] = comments, file
-
 	}
 
 	obfSrcArchive := &bytes.Buffer{}
@@ -605,6 +563,57 @@ func transformCompile(args []string) ([]string, error) {
 	})
 
 	return append(flags, newPaths...), nil
+}
+
+// handleDirectives looks at all the comments in a file containing build
+// directives, and does the necessary for the obfuscation process to work.
+//
+// Right now, this means recording what local names are used with go:linkname,
+// and rewriting those directives to use obfuscated name from other packages.
+func (tf *transformer) handleDirectives(comments []string) {
+	for i, comment := range comments {
+		if !strings.HasPrefix(comment, "//go:linkname ") {
+			continue
+		}
+		fields := strings.Fields(comment)
+		if len(fields) != 3 {
+			continue
+		}
+		// This directive has two arguments: "go:linkname localName newName"
+		localName := fields[1]
+
+		// The local name must not be obfuscated.
+		obj := tf.pkg.Scope().Lookup(localName)
+		if obj != nil {
+			tf.ignoreObjects[obj] = true
+		}
+
+		// If the new name is of the form "pkgpath.Name", and
+		// we've obfuscated "Name" in that package, rewrite the
+		// directive to use the obfuscated name.
+		newName := strings.Split(fields[2], ".")
+		if len(newName) != 2 {
+			continue
+		}
+		pkg, name := newName[0], newName[1]
+		if pkg == "runtime" && strings.HasPrefix(name, "cgo") {
+			continue // ignore cgo-generated linknames
+		}
+		listedPkg, ok := buildInfo.imports[pkg]
+		if !ok {
+			continue // probably a made up symbol name
+		}
+		garbledPkg, _ := garbledImport(pkg)
+		if garbledPkg != nil && garbledPkg.Scope().Lookup(name) != nil {
+			continue // the name exists and was not garbled
+		}
+
+		// The name exists and was obfuscated; replace the
+		// comment with the obfuscated name.
+		obfName := hashWith(listedPkg.actionID, name)
+		fields[2] = pkg + "." + obfName
+		comments[i] = strings.Join(fields, " ")
+	}
 }
 
 // runtimeRelated is a snapshot of all the packages runtime depends on, or
@@ -755,16 +764,16 @@ func fillBuildInfo(flags []string) error {
 	return nil
 }
 
-// buildBlacklist collects all the objects in a package which are known to be
-// used with reflect.TypeOf or reflect.ValueOf. Since we obfuscate one package
-// at a time, we only detect those if the type definition and the reflect usage
-// are both in the same package.
+// recordReflectArgs collects all the objects in a package which are known to be
+// used as arguments to reflect.TypeOf or reflect.ValueOf. Since we obfuscate
+// one package at a time, we only detect those if the type definition and the
+// reflect usage are both in the same package.
 //
-// The blacklist mainly contains named types and their field declarations.
-func (tf *transformer) buildBlacklist(files []*ast.File) {
-	tf.blacklist = make(map[types.Object]bool)
+// The resulting map mainly contains named types and their field declarations.
+func (tf *transformer) recordReflectArgs(files []*ast.File) {
+	tf.ignoreObjects = make(map[types.Object]bool)
 
-	reflectBlacklist := func(node ast.Node) bool {
+	visitReflectArg := func(node ast.Node) bool {
 		expr, _ := node.(ast.Expr) // info.TypeOf(nil) will just return nil
 		named := namedType(tf.info.TypeOf(expr))
 		if named == nil {
@@ -775,7 +784,7 @@ func (tf *transformer) buildBlacklist(files []*ast.File) {
 		if obj == nil || obj.Pkg() != tf.pkg {
 			return true
 		}
-		blacklistStruct(named, tf.blacklist)
+		recordStruct(named, tf.ignoreObjects)
 
 		return true
 	}
@@ -783,7 +792,7 @@ func (tf *transformer) buildBlacklist(files []*ast.File) {
 	visit := func(node ast.Node) bool {
 		if opts.GarbleLiterals {
 			// TODO: use transformer here?
-			literals.ConstBlacklist(node, tf.info, tf.blacklist)
+			literals.RecordUsedAsConstants(node, tf.info, tf.ignoreObjects)
 		}
 
 		call, ok := node.(*ast.CallExpr)
@@ -802,7 +811,7 @@ func (tf *transformer) buildBlacklist(files []*ast.File) {
 
 		if fnType.Pkg().Path() == "reflect" && (fnType.Name() == "TypeOf" || fnType.Name() == "ValueOf") {
 			for _, arg := range call.Args {
-				ast.Inspect(arg, reflectBlacklist)
+				ast.Inspect(arg, visitReflectArg)
 			}
 		}
 		return true
@@ -812,20 +821,20 @@ func (tf *transformer) buildBlacklist(files []*ast.File) {
 	}
 }
 
-// collectNames collects all names, including the names of local variables,
-// functions, global fields, etc.
-func collectNames(files []*ast.File) map[string]bool {
-	blacklist := make(map[string]bool)
+// collectExistingNames collects all names, including the names of local
+// variables, functions, global fields, etc.
+func collectExistingNames(files []*ast.File) map[string]bool {
+	names := make(map[string]bool)
 	visit := func(node ast.Node) bool {
 		if ident, ok := node.(*ast.Ident); ok {
-			blacklist[ident.Name] = true
+			names[ident.Name] = true
 		}
 		return true
 	}
 	for _, file := range files {
 		ast.Inspect(file, visit)
 	}
-	return blacklist
+	return names
 }
 
 // transformer holds all the information and state necessary to obfuscate a
@@ -835,12 +844,28 @@ type transformer struct {
 	pkg  *types.Package
 	info *types.Info
 
-	// Maps to keep track of how, or whether not, we should obfuscate
-	// certain parts of the package.
-	// TODO: document better and use better field names; see issue #169.
-	blacklist      map[types.Object]bool
+	// existingNames contains all the existing names in the current package,
+	// to avoid name collisions.
+	existingNames map[string]bool
+
+	// privateNameMap records how unexported names were obfuscated. For
+	// example, "some/pkg.foo" could be mapped to "C" if it was one of the
+	// first private names to be obfuscated.
+	// TODO: why include the "some/pkg." prefix if it's always going to be
+	// the current package?
 	privateNameMap map[string]string
-	existingNames  map[string]bool
+
+	// ignoreObjects records all the objects we cannot obfuscate. An object
+	// is any named entity, such as a declared variable or type.
+	//
+	// So far, this map records:
+	//
+	//  * Types which are used for reflection; see recordReflectArgs.
+	//  * Identifiers used in constant expressions; see RecordUsedAsConstants.
+	//  * Identifiers used in go:linkname directives; see handleDirectives.
+	//  * Types or variables from external packages which were not
+	//    obfuscated, for caching reasons; see transformGo.
+	ignoreObjects map[types.Object]bool
 
 	// nameCounter keeps track of how many unique identifier names we've
 	// obfuscated, so that the obfuscated names get assigned incrementing
@@ -908,8 +933,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			return true // could be a Go plugin API
 		}
 
-		// The object itself is blacklisted, e.g. a type definition.
-		if tf.blacklist[obj] {
+		// We don't want to obfuscate this object.
+		if tf.ignoreObjects[obj] {
 			return true
 		}
 
@@ -929,7 +954,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 
 			// if the struct of this field was not garbled, do not garble
 			// any of that struct's fields
-			if (parentScope != tf.pkg.Scope()) && (x.IsField() && !x.Embedded()) {
+			if parentScope != tf.pkg.Scope() && x.IsField() && !x.Embedded() {
 				parent, ok := cursor.Parent().(*ast.SelectorExpr)
 				if !ok {
 					break
@@ -949,7 +974,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				}
 				if garbledPkg, _ := garbledImport(path); garbledPkg != nil {
 					if garbledPkg.Scope().Lookup(named.Obj().Name()) != nil {
-						blacklistStruct(named, tf.blacklist)
+						recordStruct(named, tf.ignoreObjects)
 						return true
 					}
 				}
@@ -969,7 +994,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				}
 				if garbledPkg, _ := garbledImport(path); garbledPkg != nil {
 					if garbledPkg.Scope().Lookup(x.Name()) != nil {
-						blacklistStruct(named, tf.blacklist)
+						recordStruct(named, tf.ignoreObjects)
 						return true
 					}
 				}
@@ -1101,14 +1126,17 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	return astutil.Apply(file, pre, nil).(*ast.File)
 }
 
-func blacklistStruct(named *types.Named, blacklist map[types.Object]bool) {
-	blacklist[named.Obj()] = true
+// recordStruct adds the given named type to the map, plus all of its fields if
+// it is a struct. This function is mainly used for types used via reflection,
+// so we want to record their members too.
+func recordStruct(named *types.Named, m map[types.Object]bool) {
+	m[named.Obj()] = true
 	strct, ok := named.Underlying().(*types.Struct)
 	if !ok {
 		return
 	}
 	for i := 0; i < strct.NumFields(); i++ {
-		blacklist[strct.Field(i)] = true
+		m[strct.Field(i)] = true
 	}
 }
 

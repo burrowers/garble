@@ -34,7 +34,7 @@ func randObfuscator() obfuscator {
 }
 
 // Obfuscate replace literals with obfuscated lambda functions
-func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blacklist map[types.Object]bool) []*ast.File {
+func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, ignoreObj map[types.Object]bool) []*ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
 		switch x := cursor.Node().(type) {
 		case *ast.GenDecl:
@@ -61,8 +61,8 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, blackli
 						return false
 					}
 
-					// The object itself is blacklisted, e.g. a value that needs to be constant
-					if blacklist[obj] {
+					// The object cannot be obfuscated, e.g. a value that needs to be constant
+					if ignoreObj[obj] {
 						return false
 					}
 				}
@@ -230,16 +230,16 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 	return ah.LambdaCall(arrayType, block)
 }
 
-// ConstBlacklist blacklist identifieres used in constant expressions
-func ConstBlacklist(node ast.Node, info *types.Info, blacklist map[types.Object]bool) {
-	blacklistObjects := func(node ast.Node) bool {
+// RecordUsedAsConstants records identifieres used in constant expressions.
+func RecordUsedAsConstants(node ast.Node, info *types.Info, ignoreObj map[types.Object]bool) {
+	visit := func(node ast.Node) bool {
 		ident, ok := node.(*ast.Ident)
 		if !ok {
 			return true
 		}
 
 		obj := info.ObjectOf(ident)
-		blacklist[obj] = true
+		ignoreObj[obj] = true
 
 		return true
 	}
@@ -252,13 +252,13 @@ func ConstBlacklist(node ast.Node, info *types.Info, blacklist map[types.Object]
 		}
 		for _, elt := range x.Elts {
 			if kv, ok := elt.(*ast.KeyValueExpr); ok {
-				ast.Inspect(kv.Key, blacklistObjects)
+				ast.Inspect(kv.Key, visit)
 			}
 		}
 	// in an array type the length must be a constant representable
 	case *ast.ArrayType:
 		if x.Len != nil {
-			ast.Inspect(x.Len, blacklistObjects)
+			ast.Inspect(x.Len, visit)
 		}
 	// in a const declaration all values must be constant representable
 	case *ast.GenDecl:
@@ -269,7 +269,7 @@ func ConstBlacklist(node ast.Node, info *types.Info, blacklist map[types.Object]
 			spec := spec.(*ast.ValueSpec)
 
 			for _, val := range spec.Values {
-				ast.Inspect(val, blacklistObjects)
+				ast.Inspect(val, visit)
 			}
 		}
 	}
