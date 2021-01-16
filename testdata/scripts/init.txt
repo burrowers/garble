@@ -17,54 +17,72 @@ go 1.15
 -- main.go --
 package main
 
-var exploded []byte
+// chungus is filled by ordered init funcs, all in a single file.
+// If we change the relative order of init funcs within a file, this file will break.
+var chungus []byte
 
-func init() {
-	exploded = append(exploded, 'B')
-}
-
-func init() {
-	exploded = append(exploded, 'i')
-}
-
-func init() {
-	exploded = append(exploded, 'g')
-}
-
-func init() {
-	exploded = append(exploded, ' ')
-}
-
-func init() {
-	exploded = append(exploded, 'C')
-}
-
-func init() {
-	exploded = append(exploded, 'h')
-}
-
-func init() {
-	exploded = append(exploded, 'u')
-}
-
-func init() {
-	exploded = append(exploded, 'n')
-}
-
-func init() {
-	exploded = append(exploded, 'g')
-}
-
-func init() {
-	exploded = append(exploded, 'u')
-}
-
-func init() {
-	exploded = append(exploded, 's')
-}
+func init() { chungus = append(chungus, 'B') }
+func init() { chungus = append(chungus, 'i') }
+func init() { chungus = append(chungus, 'g') }
+func init() { chungus = append(chungus, ' ') }
+func init() { chungus = append(chungus, 'C') }
+func init() { chungus = append(chungus, 'h') }
+func init() { chungus = append(chungus, 'u') }
+func init() { chungus = append(chungus, 'n') }
+func init() { chungus = append(chungus, 'g') }
+func init() { chungus = append(chungus, 'u') }
+func init() { chungus = append(chungus, 's') }
 
 func main() {
-	println(string(exploded))
+	println(string(chungus))
+	println(string(yoshi))
 }
+-- y.go --
+package main
+
+// yoshi is filled by ordered init funcs, all in different files.
+// If we change the relative order of filenames when sorted, this file will break.
+var yoshi []byte
+-- y0.go --
+package main
+
+func init() { yoshi = append(yoshi, 'B') }
+-- y1.go --
+package main
+
+func init() { yoshi = append(yoshi, 'E') }
+-- y2.go --
+package main
+
+func init() { yoshi = append(yoshi, 'E') }
+-- y3.go --
+package main
+
+func init() { yoshi = append(yoshi, 'G') }
+-- y4.go --
+package main
+
+func init() { yoshi = append(yoshi, ' ') }
+-- y5.go --
+package main
+
+func init() { yoshi = append(yoshi, 'Y') }
+-- y6.go --
+package main
+
+func init() { yoshi = append(yoshi, 'O') }
+-- y7.go --
+package main
+
+func init() { yoshi = append(yoshi, 'S') }
+-- y8.go --
+package main
+
+func init() { yoshi = append(yoshi, 'H') }
+-- y9.go --
+package main
+
+func init() { yoshi = append(yoshi, 'I') }
 -- main.stderr --
 Big Chungus
+BEEG YOSHI
