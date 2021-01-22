@@ -609,6 +609,9 @@ func (tf *transformer) handleDirectives(comments []string) {
 		if pkg == "runtime" && strings.HasPrefix(name, "cgo") {
 			continue // ignore cgo-generated linknames
 		}
+		if !isPrivate(pkg) {
+			continue // ignore non-private symbols
+		}
 		listedPkg, ok := buildInfo.imports[pkg]
 		if !ok {
 			continue // probably a made up symbol name
@@ -620,9 +623,14 @@ func (tf *transformer) handleDirectives(comments []string) {
 
 		// The name exists and was obfuscated; replace the
 		// comment with the obfuscated name.
-		obfName := hashWith(listedPkg.actionID, name)
-		fields[2] = pkg + "." + obfName
-		comments[i] = strings.Join(fields, " ")
+		if token.IsExported(name) {
+			obfName := hashWith(listedPkg.actionID, name)
+			fields[2] = pkg + "." + obfName
+			comments[i] = strings.Join(fields, " ")
+		} else if obfName, ok := tf.privateNameMap[fields[2]]; ok {
+			fields[2] = pkg + "." + obfName
+			comments[i] = strings.Join(fields, " ")
+		}
 	}
 }
 

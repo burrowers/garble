@@ -20,6 +20,7 @@ go 1.15
 package main
 
 import (
+	_ "os/exec"
 	_ "strings"
 	_ "unsafe"
 
@@ -29,6 +30,10 @@ import (
 // A linkname to an external non-garbled func.
 //go:linkname byteIndex strings.IndexByte
 func byteIndex(s string, c byte) int
+
+// A linkname to an external non-garbled non-exported func.
+//go:linkname interfaceEqual os/exec.interfaceEqual
+func interfaceEqual(a, b interface{}) bool
 
 // A linkname to an external garbled func.
 //go:linkname garbledFunc test/main/imported.GarbledFuncImpl
@@ -40,6 +45,7 @@ func renamedFunc() string
 
 func main() {
 	println(byteIndex("01234", '3'))
+	println(interfaceEqual("Sephiroth", 7))
 	println(garbledFunc())
 	println(renamedFunc())
 }
@@ -60,5 +66,6 @@ func renamedFunc() string {
 }
 -- main.stderr --
 3
+false
 garbled func
 renamed func
