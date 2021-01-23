@@ -170,6 +170,9 @@ func main1() int {
 		case errJustExit:
 		default:
 			fmt.Fprintln(os.Stderr, err)
+			if flagSeed == "random" {
+				fmt.Fprintf(os.Stderr, "random seed: %s\n", base64.RawStdEncoding.EncodeToString(opts.Seed))
+			}
 		}
 		return 1
 	}
@@ -238,7 +241,7 @@ How to install Go: https://golang.org/doc/install
 }
 
 func mainErr(args []string) error {
-	// If we recognise an argument, we're not running within -toolexec.
+	// If we recognize an argument, we're not running within -toolexec.
 	switch cmd := args[0]; cmd {
 	case "help":
 		return flag.ErrHelp
