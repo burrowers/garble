@@ -4,13 +4,11 @@
 package literals
 
 import (
-	cryptrand "crypto/rand"
 	"fmt"
 	"go/ast"
 	"go/token"
 	mathrand "math/rand"
 	"os"
-	"strings"
 )
 
 // obfuscator takes a byte slice and converts it to a ast.BlockStmt
@@ -35,16 +33,8 @@ var (
 
 // genRandBytes return a random []byte with the length of size.
 func genRandBytes(buffer []byte) {
-	if strings.HasPrefix(envGarbleSeed, "random;") {
-		_, err := cryptrand.Read(buffer)
-		if err != nil {
-			panic(fmt.Sprintf("couldn't generate random key:  %v", err))
-		}
-	} else {
-		_, err := mathrand.Read(buffer)
-		if err != nil {
-			panic(fmt.Sprintf("couldn't generate random key:  %v", err))
-		}
+	if _, err := mathrand.Read(buffer); err != nil {
+		panic(fmt.Sprintf("couldn't generate random key:  %v", err))
 	}
 }
 
