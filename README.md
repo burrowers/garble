@@ -52,6 +52,18 @@ to document the current shortcomings of this tool.
 
 * Go plugins are not currently supported; see [#87](https://github.com/burrowers/garble/issues/87).
 
+* There are cases where garble is a little too agressive with obfuscation, this may lead to identifiers getting obfuscated which are needed for reflection, e.g. to parse JSON into a struct; see [#162](https://github.com/burrowers/garble/issues/162). To work around this you can pass a hint to garble, that an type is used for reflection via passing it to `reflect.TypeOf` or `reflect.ValueOf` in the same file:
+    ```go
+    // this is used for parsing json
+    type Message struct {
+        Command string
+        Args    string
+    }
+    
+    // never obfuscate the Message type
+    var _ = reflect.TypeOf(Message{})
+    ```
+
 ### Tiny Mode
 
 When the `-tiny` flag is passed, extra information is stripped from the resulting 
