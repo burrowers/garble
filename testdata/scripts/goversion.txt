@@ -1,7 +1,9 @@
 # TODO: Place file direct to .bin directory
+mkdir .bin
 cp go.sh .bin/go
 cp go.bat .bin/go.bat
 chmod 777 .bin/go
+env PATH=.bin${:}${PATH}
 
 # Check incorrect go install
 env GO_VERSION=''
