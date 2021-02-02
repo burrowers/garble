@@ -10,7 +10,6 @@ import (
 	"go/ast"
 	"go/printer"
 	"go/token"
-	"io"
 	"math"
 	mathrand "math/rand"
 	"os"
@@ -67,21 +66,13 @@ func TestScripts(t *testing.T) {
 				"GOFLAGS=-mod=readonly", // TODO(mvdan): remove once we switch to Go 1.16
 				"gofullversion="+runtime.Version(),
 			)
-			bindir := filepath.Join(env.WorkDir, ".bin")
-			if err := os.Mkdir(bindir, 0o777); err != nil {
-				return err
+
+			if os.Getenv("TESTSCRIPT_COVER_DIR") != "" {
+				// Don't reuse the build cache if we want to collect
+				// code coverage. Otherwise, many toolexec calls would
+				// be avoided and the coverage would be incomplete.
+				env.Vars = append(env.Vars, "GOCACHE="+filepath.Join(env.WorkDir, "go-cache-tmp"))
 			}
-			binfile := filepath.Join(bindir, "garble")
-			if runtime.GOOS == "windows" {
-				binfile += ".exe"
-			}
-			if err := os.Symlink(os.Args[0], binfile); err != nil {
-				if err := copyFile(os.Args[0], binfile); err != nil { // Fallback to copy if symlink failed. Useful for Windows not elevated processes
-					return err
-				}
-			}
-			env.Vars = append(env.Vars, fmt.Sprintf("PATH=%s%c%s", bindir, filepath.ListSeparator, os.Getenv("PATH")))
-			env.Vars = append(env.Vars, "TESTSCRIPT_COMMAND=garble")
 			return nil
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
@@ -97,23 +88,6 @@ func TestScripts(t *testing.T) {
 		t.Fatal(err)
 	}
 	testscript.Run(t, p)
-}
-
-func copyFile(from, to string) error {
-	writer, err := os.Create(to)
-	if err != nil {
-		return err
-	}
-	defer writer.Close()
-
-	reader, err := os.Open(from)
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
-
-	_, err = io.Copy(writer, reader)
-	return err
 }
 
 type binaryCache struct {

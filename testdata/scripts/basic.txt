@@ -27,7 +27,7 @@ stdout 'unknown'
 
 [short] stop # checking that the build is reproducible is slow
 
-# Check that we fail if the user used "go build -toolexec garble" instead of "garble build" 
+# Check that we fail if the user used "go build -toolexec garble" instead of "garble build"
 ! exec go build -a -toolexec=garble main.go
 stderr 'not running "garble \[command\]"'
 
