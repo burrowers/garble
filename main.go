@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -39,7 +40,11 @@ import (
 	"mvdan.cc/garble/internal/literals"
 )
 
-var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
+var (
+	flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
+
+	version = "(devel)" // to match the default from runtime/debug
+)
 
 var (
 	flagGarbleLiterals bool
@@ -245,6 +250,17 @@ func mainErr(args []string) error {
 	switch cmd := args[0]; cmd {
 	case "help":
 		return flag.ErrHelp
+	case "version":
+		// don't overwrite the version if it was set by -ldflags=-X
+		if info, ok := debug.ReadBuildInfo(); ok && version == "(devel)" {
+			mod := &info.Main
+			if mod.Replace != nil {
+				mod = mod.Replace
+			}
+			version = mod.Version
+		}
+		fmt.Println(version)
+		return nil
 	case "build", "test":
 		if !goVersionOK() {
 			return errJustExit
