@@ -247,10 +247,13 @@ How to install Go: https://golang.org/doc/install
 
 func mainErr(args []string) error {
 	// If we recognize an argument, we're not running within -toolexec.
-	switch cmd := args[0]; cmd {
+	switch cmd, args := args[0], args[1:]; cmd {
 	case "help":
 		return flag.ErrHelp
 	case "version":
+		if len(args) > 0 {
+			return fmt.Errorf("the version command does not take arguments")
+		}
 		// don't overwrite the version if it was set by -ldflags=-X
 		if info, ok := debug.ReadBuildInfo(); ok && version == "(devel)" {
 			mod := &info.Main
@@ -267,7 +270,7 @@ func mainErr(args []string) error {
 		}
 		// Split the flags from the package arguments, since we'll need
 		// to run 'go list' on the same set of packages.
-		flags, args := splitFlagsFromArgs(args[1:])
+		flags, args := splitFlagsFromArgs(args)
 		for _, f := range flags {
 			switch f {
 			case "-h", "-help", "--help":
