@@ -28,7 +28,7 @@ var cache *shared
 // loadShared the shared data passed from the entry garble process
 func loadShared() error {
 	if cache == nil {
-		f, err := os.Open(os.Getenv("GARBLE_SHARED"))
+		f, err := os.Open(filepath.Join(sharedTempDir, "main-cache.gob"))
 		if err != nil {
 			return fmt.Errorf(`cannot open shared file, this is most likely due to not running "garble [command]"`)
 		}
@@ -41,23 +41,25 @@ func loadShared() error {
 	return nil
 }
 
-// saveShared the shared data to a file in order for subsequent
-// garble processes to have access to the same data
+// saveShared creates a temporary directory to share between garble processes.
+// This directory also includes the gob-encoded cache global.
 func saveShared() (string, error) {
-	f, err := ioutil.TempFile("", "garble-shared")
+	dir, err := ioutil.TempDir("", "garble-shared")
 	if err != nil {
 		return "", err
 	}
 
+	sharedCache := filepath.Join(dir, "main-cache.gob")
+	f, err := os.Create(sharedCache)
+	if err != nil {
+		return "", err
+	}
 	defer f.Close()
 
 	if err := gob.NewEncoder(f).Encode(&cache); err != nil {
 		return "", err
 	}
-
-	os.Setenv("GARBLE_SHARED", f.Name())
-
-	return f.Name(), nil
+	return dir, nil
 }
 
 // options are derived from the flags
