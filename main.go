@@ -84,8 +84,8 @@ For more information, see https://github.com/burrowers/garble.
 func main() { os.Exit(main1()) }
 
 var (
-	deferred []func() error
-	fset     = token.NewFileSet()
+	fset          = token.NewFileSet()
+	sharedTempDir = os.Getenv("GARBLE_SHARED")
 
 	nameCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z"
 	b64         = base64.NewEncoding(nameCharset)
@@ -247,7 +247,7 @@ How to install Go: https://golang.org/doc/install
 
 func mainErr(args []string) error {
 	// If we recognize an argument, we're not running within -toolexec.
-	switch cmd, args := args[0], args[1:]; cmd {
+	switch command, args := args[0], args[1:]; command {
 	case "help":
 		return flag.ErrHelp
 	case "version":
@@ -286,7 +286,7 @@ func mainErr(args []string) error {
 		// Note that we also need to pass build flags to 'go list', such
 		// as -tags.
 		cache.BuildFlags = filterBuildFlags(flags)
-		if cmd == "test" {
+		if command == "test" {
 			cache.BuildFlags = append(cache.BuildFlags, "-test")
 		}
 
@@ -302,18 +302,18 @@ func mainErr(args []string) error {
 			return err
 		}
 
-		sharedName, err := saveShared()
-		if err != nil {
+		if sharedTempDir, err = saveShared(); err != nil {
 			return err
 		}
-		defer os.Remove(sharedName)
+		os.Setenv("GARBLE_SHARED", sharedTempDir)
+		defer os.Remove(sharedTempDir)
 
 		goArgs := []string{
-			cmd,
+			command,
 			"-trimpath",
 			"-toolexec=" + cache.ExecPath,
 		}
-		if cmd == "test" {
+		if command == "test" {
 			// vet is generally not useful on garbled code; keep it
 			// disabled by default.
 			goArgs = append(goArgs, "-vet=off")
@@ -326,11 +326,15 @@ func mainErr(args []string) error {
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
+
 	if !filepath.IsAbs(args[0]) {
 		// -toolexec gives us an absolute path to the tool binary to
 		// run, so this is most likely misuse of garble by a user.
 		return fmt.Errorf("unknown command: %q", args[0])
 	}
+
+	// We're in a toolexec sub-process, not directly called by the user.
+	// Load the shared data and wrap the tool, like the compiler or linker.
 
 	if err := loadShared(); err != nil {
 		return err
@@ -347,35 +351,34 @@ func mainErr(args []string) error {
 
 	transform := transformFuncs[tool]
 	transformed := args[1:]
+	var postFunc func() error
 	// log.Println(tool, transformed)
 	if transform != nil {
 		var err error
-		if transformed, err = transform(transformed); err != nil {
+		if transformed, postFunc, err = transform(transformed); err != nil {
 			return err
 		}
 	}
-	defer func() {
-		for _, fn := range deferred {
-			if err := fn(); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-			}
-		}
-	}()
 	cmd := exec.Command(args[0], transformed...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return err
 	}
+	if postFunc != nil {
+		if err := postFunc(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-var transformFuncs = map[string]func([]string) ([]string, error){
+var transformFuncs = map[string]func([]string) (args []string, post func() error, _ error){
 	"compile": transformCompile,
 	"link":    transformLink,
 }
 
-func transformCompile(args []string) ([]string, error) {
+func transformCompile(args []string) ([]string, func() error, error) {
 	var err error
 	flags, paths := splitFlagsFromFiles(args, ".go")
 
@@ -391,7 +394,7 @@ func transformCompile(args []string) ([]string, error) {
 		opts.GarbleLiterals = false
 		opts.DebugDir = ""
 	} else if !isPrivate(curPkgPath) {
-		return append(flags, paths...), nil
+		return append(flags, paths...), nil, nil
 	}
 	for i, path := range paths {
 		if filepath.Base(path) == "_gomod_.go" {
@@ -401,34 +404,35 @@ func transformCompile(args []string) ([]string, error) {
 		}
 	}
 	if len(paths) == 1 && filepath.Base(paths[0]) == "_testmain.go" {
-		return append(flags, paths...), nil
+		return append(flags, paths...), nil, nil
 	}
 
 	// If the value of -trimpath doesn't contain the separator ';', the 'go
 	// build' command is most likely not using '-trimpath'.
 	trimpath := flagValue(flags, "-trimpath")
 	if !strings.Contains(trimpath, ";") {
-		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
+		return nil, nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
 	}
 	if err := fillBuildInfo(flags); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var files []*ast.File
 	for _, path := range paths {
 		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		files = append(files, file)
 	}
 
-	if len(opts.Seed) > 0 {
-		mathrand.Seed(int64(binary.BigEndian.Uint64(opts.Seed)))
-	} else {
-		mathrand.Seed(int64(binary.BigEndian.Uint64([]byte(curActionID))))
+	randSeed := opts.Seed
+	if len(randSeed) == 0 {
+		randSeed = curActionID
 	}
+	// log.Printf("seeding math/rand with %x\n", randSeed)
+	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
 
 	tf := &transformer{
 		info: &types.Info{
@@ -441,7 +445,7 @@ func transformCompile(args []string) ([]string, error) {
 	origTypesConfig := types.Config{Importer: origImporter}
 	tf.pkg, err = origTypesConfig.Check(curPkgPath, fset, files, tf.info)
 	if err != nil {
-		return nil, fmt.Errorf("typecheck error: %v", err)
+		return nil, nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
 	tf.privateNameMap = make(map[string]string)
@@ -453,18 +457,10 @@ func transformCompile(args []string) ([]string, error) {
 		files = literals.Obfuscate(files, tf.info, fset, tf.ignoreObjects)
 	}
 
-	tempDir, err := ioutil.TempDir("", "garble-build")
-	if err != nil {
-		return nil, err
-	}
-	deferred = append(deferred, func() error {
-		return os.RemoveAll(tempDir)
-	})
-
 	// Add our temporary dir to the beginning of -trimpath, so that we don't
 	// leak temporary dirs. Needs to be at the beginning, since there may be
 	// shorter prefixes later in the list, such as $PWD if TMPDIR=$PWD/tmp.
-	flags = flagSetValue(flags, "-trimpath", tempDir+"=>;"+trimpath)
+	flags = flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 	// log.Println(flags)
 
 	detachedComments := make([][]string, len(files))
@@ -520,12 +516,12 @@ func transformCompile(args []string) ([]string, error) {
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", curPkgPath, origName)
 			// if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
-			// 	return nil, err
+			// 	return nil, nil, err
 			// }
 		}
-		tempFile, err := os.Create(filepath.Join(tempDir, name))
+		tempFile, err := ioutil.TempFile(sharedTempDir, name+".*.go")
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		defer tempFile.Close()
 
@@ -534,14 +530,14 @@ func transformCompile(args []string) ([]string, error) {
 
 		for _, comment := range detachedComments[i] {
 			if _, err := printWriter.Write([]byte(comment + "\n")); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		if err := printConfig.Fprint(printWriter, fset, file); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := tempFile.Close(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if err := obfSrcTarWriter.WriteHeader(&tar.Header{
@@ -550,17 +546,18 @@ func transformCompile(args []string) ([]string, error) {
 			ModTime: time.Now(), // Need for restoring obfuscation time
 			Size:    int64(obfSrc.Len()),
 		}); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if _, err := obfSrcTarWriter.Write(obfSrc.Bytes()); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		newPaths = append(newPaths, tempFile.Name())
 	}
 
+	// After the compilation succeeds, add our headers to the object file.
 	objPath := flagValue(flags, "-o")
-	deferred = append(deferred, func() error {
+	postCompile := func() error {
 		importMap := func(importPath string) (objectPath string) {
 			return buildInfo.imports[importPath].packagefile
 		}
@@ -577,24 +574,23 @@ func transformCompile(args []string) ([]string, error) {
 
 		// Adding an extra archive header is safe,
 		// and shouldn't break other tools like the linker since our header name is unique
-		pkg.ArchiveMembers = append(pkg.ArchiveMembers, goobj2.ArchiveMember{
-			ArchiveHeader: goobj2.ArchiveHeader{
+		pkg.ArchiveMembers = append(pkg.ArchiveMembers,
+			goobj2.ArchiveMember{ArchiveHeader: goobj2.ArchiveHeader{
 				Name: garbleMapHeaderName,
 				Size: int64(len(data)),
 				Data: data,
-			},
-		}, goobj2.ArchiveMember{
-			ArchiveHeader: goobj2.ArchiveHeader{
+			}},
+			goobj2.ArchiveMember{ArchiveHeader: goobj2.ArchiveHeader{
 				Name: garbleSrcHeaderName,
 				Size: int64(obfSrcArchive.Len()),
 				Data: obfSrcArchive.Bytes(),
-			},
-		})
+			}},
+		)
 
 		return pkg.Write(objPath)
-	})
+	}
 
-	return append(flags, newPaths...), nil
+	return append(flags, newPaths...), postCompile, nil
 }
 
 // handleDirectives looks at all the comments in a file containing build
@@ -1105,6 +1101,9 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			// "if" branch below. Plus, if this edge case triggers
 			// multiple times in a single package compile, we can
 			// call "go list" once and cache its result.
+			if pkg.ImportPath != path {
+				panic(fmt.Sprintf("unexpected path: %q vs %q", pkg.ImportPath, path))
+			}
 			buildInfo.imports[path] = importedPkg{
 				packagefile: pkg.Export,
 				actionID:    decodeHash(splitActionID(buildID)),
@@ -1219,34 +1218,26 @@ func isTestSignature(sign *types.Signature) bool {
 	return obj != nil && obj.Pkg().Path() == "testing" && obj.Name() == "T"
 }
 
-func transformLink(args []string) ([]string, error) {
+func transformLink(args []string) ([]string, func() error, error) {
 	// We can't split by the ".a" extension, because cached object files
 	// lack any extension.
 	flags, paths := splitFlagsFromArgs(args)
 
 	if err := fillBuildInfo(flags); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-
-	tempDir, err := ioutil.TempDir("", "garble-build")
-	if err != nil {
-		return nil, err
-	}
-	deferred = append(deferred, func() error {
-		return os.RemoveAll(tempDir)
-	})
 
 	// there should only ever be one archive/object file passed to the linker,
 	// the file for the main package or entrypoint
 	if len(paths) != 1 {
-		return nil, fmt.Errorf("expected exactly one link argument")
+		return nil, nil, fmt.Errorf("expected exactly one link argument")
 	}
 	importMap := func(importPath string) (objectPath string) {
 		return buildInfo.imports[importPath].packagefile
 	}
-	garbledObj, garbledImports, privateNameMap, err := obfuscateImports(paths[0], tempDir, importMap)
+	garbledObj, garbledImports, privateNameMap, err := obfuscateImports(paths[0], importMap)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Make sure -X works with garbled identifiers. To cover both garbled
@@ -1291,7 +1282,7 @@ func transformLink(args []string) ([]string, error) {
 
 	// Strip debug information and symbol tables.
 	flags = append(flags, "-w", "-s")
-	return append(flags, garbledObj), nil
+	return append(flags, garbledObj), nil, nil
 }
 
 func splitFlagsFromArgs(all []string) (flags, args []string) {
