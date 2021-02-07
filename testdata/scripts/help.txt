@@ -27,3 +27,12 @@ stderr 'unknown command'
 [!windows] ! garble /does/not/exist/compile
 [windows] ! garble C:\does\not\exist\compile
 stderr 'not running "garble \[command\]"'
+
+garble version
+stdout 'devel|^v0'
+
+! garble version -flag
+stderr 'does not take arguments'
+
+! garble version arg
+stderr 'does not take arguments'
