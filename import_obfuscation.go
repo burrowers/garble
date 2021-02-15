@@ -61,7 +61,7 @@ type privateName struct {
 
 func appendPrivateNameMap(pkg *goobj2.Package, nameMap map[string]string) error {
 	for _, member := range pkg.ArchiveMembers {
-		if member.ArchiveHeader.Name != garbleMapHeaderName {
+		if member.ArchiveHeader.Name != headerPrivateNameMap {
 			continue
 		}
 
@@ -83,7 +83,7 @@ func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 
 	var archiveMember *goobj2.ArchiveMember
 	for _, member := range pkg.ArchiveMembers {
-		if member.ArchiveHeader.Name == garbleSrcHeaderName {
+		if member.ArchiveHeader.Name == headerDebugSource {
 			archiveMember = &member
 			break
 		}
