@@ -4,19 +4,16 @@
 package main
 
 import (
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"go/ast"
 	"go/printer"
 	"go/token"
-	"math"
 	mathrand "math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -78,8 +75,6 @@ func TestScripts(t *testing.T) {
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
 			"binsubstr":         binsubstr,
 			"bincmp":            bincmp,
-			"binsubint":         binsubint,
-			"binsubfloat":       binsubfloat,
 			"generate-literals": generateLiterals,
 		},
 		UpdateScripts: *update,
@@ -141,73 +136,6 @@ func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
 		ts.Fatalf("unexpected match for %q in %s", failed, args[0])
 	} else if len(failed) > 0 {
 		ts.Fatalf("expected match for %q in %s", failed, args[0])
-	}
-}
-
-func binsubint(ts *testscript.TestScript, neg bool, args []string) {
-	if len(args) < 2 {
-		ts.Fatalf("usage: binsubint file subint...")
-	}
-
-	data := readFile(ts, args[0])
-	var failed []string
-	for _, subIntStr := range args[1:] {
-		subInt, err := strconv.Atoi(subIntStr)
-		if err != nil {
-			ts.Fatalf("%v", err)
-		}
-
-		b := make([]byte, 8)
-		binary.LittleEndian.PutUint64(b, uint64(subInt))
-
-		match := strings.Contains(data, string(b))
-		if !match {
-			binary.BigEndian.PutUint64(b, uint64(subInt))
-			match = strings.Contains(data, string(b))
-		}
-		if match && neg {
-			failed = append(failed, subIntStr)
-		} else if !match && !neg {
-			failed = append(failed, subIntStr)
-		}
-	}
-	if len(failed) > 0 && neg {
-		ts.Fatalf("unexpected match for %s in %s", failed, args[0])
-	} else if len(failed) > 0 {
-		ts.Fatalf("expected match for %s in %s", failed, args[0])
-	}
-}
-
-func binsubfloat(ts *testscript.TestScript, neg bool, args []string) {
-	if len(args) < 2 {
-		ts.Fatalf("usage: binsubint file binsubfloat...")
-	}
-	data := readFile(ts, args[0])
-	var failed []string
-	for _, subFloatStr := range args[1:] {
-		subFloat, err := strconv.ParseFloat(subFloatStr, 64)
-		if err != nil {
-			ts.Fatalf("%v", err)
-		}
-
-		b := make([]byte, 8)
-		binary.LittleEndian.PutUint64(b, math.Float64bits(subFloat))
-
-		match := strings.Contains(data, string(b))
-		if !match {
-			binary.BigEndian.PutUint64(b, math.Float64bits(subFloat))
-			match = strings.Contains(data, string(b))
-		}
-		if match && neg {
-			failed = append(failed, subFloatStr)
-		} else if !match && !neg {
-			failed = append(failed, subFloatStr)
-		}
-	}
-	if len(failed) > 0 && neg {
-		ts.Fatalf("unexpected match for %s in %s", failed, args[0])
-	} else if len(failed) > 0 {
-		ts.Fatalf("expected match for %s in %s", failed, args[0])
 	}
 }
 
