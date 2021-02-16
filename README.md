@@ -31,7 +31,7 @@ order to:
 * Strip filenames and shuffle position information
 * Strip debugging information and symbol tables
 * Obfuscate literals, if the `-literals` flag is given
-* Removes [extra information](#tiny-mode) if the `-tiny` flag is given
+* Remove [extra information](#tiny-mode) if the `-tiny` flag is given
 
 ### Options
 
@@ -59,22 +59,23 @@ to document the current shortcomings of this tool.
         Command string
         Args    string
     }
-    
+
     // never obfuscate the Message type
     var _ = reflect.TypeOf(Message{})
     ```
 
 ### Tiny Mode
 
-When the `-tiny` flag is passed, extra information is stripped from the resulting 
-Go binary. This includes line numbers, filenames, and code in the runtime the 
-prints panics, fatal errors, and trace/debug info. All in all this can make binaries 
+When the `-tiny` flag is passed, extra information is stripped from the resulting
+Go binary. This includes line numbers, filenames, and code in the runtime the
+prints panics, fatal errors, and trace/debug info. All in all this can make binaries
 6-10% smaller in our testing.
 
 Note: if `-tiny` is passed, no panics, fatal errors will ever be printed, but they can
-still be handled internally with `recover` as normal. In addition, the `GODEBUG` 
+still be handled internally with `recover` as normal. In addition, the `GODEBUG`
 environmental variable will be ignored.
 
 ### Contributing
-We actively seek new contributors, if you would like to contribute to garble use the 
+
+We actively seek new contributors, if you would like to contribute to garble use the
 [CONTRIBUTING.md](CONTRIBUTING.md) as a starting point.
