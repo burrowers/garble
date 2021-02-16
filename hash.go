@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"unicode"
 )
 
 const buildIDSeparator = "/"
@@ -143,6 +142,12 @@ func buildidOf(path string) (string, error) {
 }
 
 func hashWith(salt []byte, name string) string {
+	if len(salt) == 0 {
+		panic("hashWith: empty salt")
+	}
+	if name == "" {
+		panic("hashWith: empty name")
+	}
 	const length = 4
 
 	d := sha256.New()
@@ -155,38 +160,4 @@ func hashWith(salt []byte, name string) string {
 		return "Z" + sum[:length]
 	}
 	return "z" + sum[:length]
-}
-
-func buildNameCharset() []rune {
-	var charset []rune
-
-	for _, r := range unicode.Letter.R16 {
-		for c := r.Lo; c <= r.Hi; c += r.Stride {
-			charset = append(charset, rune(c))
-		}
-	}
-
-	for _, r := range unicode.Digit.R16 {
-		for c := r.Lo; c <= r.Hi; c += r.Stride {
-			charset = append(charset, rune(c))
-		}
-	}
-
-	return charset
-}
-
-var privateNameCharset = buildNameCharset()
-
-func encodeIntToName(i int) string {
-	builder := strings.Builder{}
-	for i > 0 {
-		charIdx := i % len(privateNameCharset)
-		i -= charIdx + 1
-		c := privateNameCharset[charIdx]
-		if builder.Len() == 0 && !unicode.IsLetter(c) {
-			builder.WriteByte('_')
-		}
-		builder.WriteRune(c)
-	}
-	return builder.String()
 }

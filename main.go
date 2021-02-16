@@ -128,8 +128,7 @@ var (
 
 const (
 	// Note that these are capped at 16 bytes.
-	headerPrivateNameMap = "garble/privMap"
-	headerDebugSource    = "garble/debugSrc"
+	headerDebugSource = "garble/debugSrc"
 )
 
 func garbledImport(path string) (*types.Package, error) {
@@ -465,8 +464,6 @@ func transformCompile(args []string) ([]string, func() error, error) {
 		return nil, nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
-	tf.privateNameMap = make(map[string]string)
-	tf.existingNames = collectExistingNames(files)
 	tf.recordReflectArgs(files)
 
 	if opts.GarbleLiterals {
@@ -583,19 +580,9 @@ func transformCompile(args []string) ([]string, func() error, error) {
 			return err
 		}
 
-		nameMap, err := json.Marshal(tf.privateNameMap)
-		if err != nil {
-			return err
-		}
-
 		// Adding an extra archive header is safe,
 		// and shouldn't break other tools like the linker since our header name is unique
 		pkg.ArchiveMembers = append(pkg.ArchiveMembers,
-			goobj2.ArchiveMember{ArchiveHeader: goobj2.ArchiveHeader{
-				Name: headerPrivateNameMap,
-				Size: int64(len(nameMap)),
-				Data: nameMap,
-			}},
 			goobj2.ArchiveMember{ArchiveHeader: goobj2.ArchiveHeader{
 				Name: headerDebugSource,
 				Size: int64(obfSrcArchive.Len()),
@@ -657,14 +644,9 @@ func (tf *transformer) handleDirectives(comments []string) {
 
 		// The name exists and was obfuscated; replace the
 		// comment with the obfuscated name.
-		if token.IsExported(name) {
-			obfName := hashWith(listedPkg.actionID, name)
-			fields[2] = pkg + "." + obfName
-			comments[i] = strings.Join(fields, " ")
-		} else if obfName, ok := tf.privateNameMap[fields[2]]; ok {
-			fields[2] = pkg + "." + obfName
-			comments[i] = strings.Join(fields, " ")
-		}
+		obfName := hashWith(listedPkg.actionID, name)
+		fields[2] = pkg + "." + obfName
+		comments[i] = strings.Join(fields, " ")
 	}
 }
 
@@ -873,39 +855,12 @@ func (tf *transformer) recordReflectArgs(files []*ast.File) {
 	}
 }
 
-// collectExistingNames collects all names, including the names of local
-// variables, functions, global fields, etc.
-func collectExistingNames(files []*ast.File) map[string]bool {
-	names := make(map[string]bool)
-	visit := func(node ast.Node) bool {
-		if ident, ok := node.(*ast.Ident); ok {
-			names[ident.Name] = true
-		}
-		return true
-	}
-	for _, file := range files {
-		ast.Inspect(file, visit)
-	}
-	return names
-}
-
 // transformer holds all the information and state necessary to obfuscate a
 // single Go package.
 type transformer struct {
 	// The type-checking results; the package itself, and the Info struct.
 	pkg  *types.Package
 	info *types.Info
-
-	// existingNames contains all the existing names in the current package,
-	// to avoid name collisions.
-	existingNames map[string]bool
-
-	// privateNameMap records how unexported names were obfuscated. For
-	// example, "some/pkg.foo" could be mapped to "C" if it was one of the
-	// first private names to be obfuscated.
-	// TODO: why include the "some/pkg." prefix if it's always going to be
-	// the current package?
-	privateNameMap map[string]string
 
 	// ignoreObjects records all the objects we cannot obfuscate. An object
 	// is any named entity, such as a declared variable or type.
@@ -918,11 +873,6 @@ type transformer struct {
 	//  * Types or variables from external packages which were not
 	//    obfuscated, for caching reasons; see transformGo.
 	ignoreObjects map[types.Object]bool
-
-	// nameCounter keeps track of how many unique identifier names we've
-	// obfuscated, so that the obfuscated names get assigned incrementing
-	// short names like "a", "b", "c", etc.
-	nameCounter int
 }
 
 // transformGo garbles the provided Go syntax node.
@@ -1149,33 +1099,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		origName := node.Name
 		_ = origName // used for debug prints below
 
-		// The exported names cannot be shortened as counter synchronization
-		// between packages is not currently implemented
-		if token.IsExported(node.Name) {
-			node.Name = hashWith(actionID, node.Name)
-			// log.Printf("%q hashed with %x to %q", origName, actionID, node.Name)
-			return true
-		}
-
-		fullName := tf.pkg.Path() + "." + node.Name
-		if name, ok := tf.privateNameMap[fullName]; ok {
-			node.Name = name
-			// log.Printf("%q retrieved private name %q for %q", origName, name, path)
-			return true
-		}
-
-		var name string
-		for {
-			tf.nameCounter++
-			name = encodeIntToName(tf.nameCounter)
-			if !tf.existingNames[name] {
-				break
-			}
-		}
-
-		tf.privateNameMap[fullName] = name
-		node.Name = name
-		// log.Printf("%q assigned private name %q for %q", origName, name, path)
+		node.Name = hashWith(actionID, node.Name)
+		// log.Printf("%q hashed with %x to %q", origName, actionID, node.Name)
 		return true
 	}
 	return astutil.Apply(file, pre, nil).(*ast.File)
@@ -1251,7 +1176,7 @@ func transformLink(args []string) ([]string, func() error, error) {
 	importMap := func(importPath string) (objectPath string) {
 		return buildInfo.imports[importPath].packagefile
 	}
-	garbledObj, garbledImports, privateNameMap, err := obfuscateImports(paths[0], importMap)
+	garbledObj, err := obfuscateImports(paths[0], importMap)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1279,17 +1204,10 @@ func transformLink(args []string) ([]string, func() error, error) {
 			// the import config map.
 			pkgPath = buildInfo.firstImport
 		}
-		if id := buildInfo.imports[pkgPath].actionID; len(id) > 0 {
-			// We use privateNameMap because unexported names are obfuscated
-			// to short names like "A", "B", "C" etc, which is not reproducible
-			// here. If the name isn't in the map, a hash will do.
-			newName, ok := privateNameMap[pkg+"."+name]
-			if !ok {
-				newName = hashWith(id, name)
-			}
-			garbledPkg := garbledImports[pkg]
-			flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", garbledPkg, newName, str))
-		}
+		id := buildInfo.imports[pkgPath].actionID
+		newName := hashWith(id, name)
+		garbledPkg := hashWith(id, pkg)
+		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", garbledPkg, newName, str))
 	})
 
 	// Ensure we strip the -buildid flag, to not leak any build IDs for the

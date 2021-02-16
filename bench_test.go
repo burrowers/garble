@@ -45,8 +45,8 @@ func BenchmarkBuild(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			cmd := exec.Command(garbleBin, "build", "./testdata/bench")
-			if err := cmd.Run(); err != nil {
-				b.Fatal(err)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				b.Fatalf("%v: %s", err, out)
 			}
 
 			atomic.AddInt64(&n, 1)
@@ -56,4 +56,9 @@ func BenchmarkBuild(b *testing.B) {
 	})
 	b.ReportMetric(float64(userTime)/float64(n), "user-ns/op")
 	b.ReportMetric(float64(systemTime)/float64(n), "sys-ns/op")
+	info, err := os.Stat(garbleBin)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportMetric(float64(info.Size()), "bin-B")
 }

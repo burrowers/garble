@@ -8,7 +8,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -57,22 +56,6 @@ type privateImports struct {
 type privateName struct {
 	name string
 	seed []byte
-}
-
-func appendPrivateNameMap(pkg *goobj2.Package, nameMap map[string]string) error {
-	for _, member := range pkg.ArchiveMembers {
-		if member.ArchiveHeader.Name != headerPrivateNameMap {
-			continue
-		}
-
-		serializedMap := member.ArchiveHeader.Data
-		serializedMap = serializedMap[:bytes.IndexByte(serializedMap, 0x00)]
-		if err := json.Unmarshal(serializedMap, &nameMap); err != nil {
-			return err
-		}
-		return nil
-	}
-	return nil
 }
 
 // extractDebugObfSrc extracts obfuscated sources from object files if -debugdir flag is enabled.
@@ -153,21 +136,20 @@ func extractDebugObfSrc(pkgPath string, pkg *goobj2.Package) error {
 // It returns the path to the modified main object file, to be used for linking.
 // We also return a map of how the imports were garbled, as well as the private
 // name map recovered from the archive files, so that we can amend -X flags.
-func obfuscateImports(objPath string, importMap goobj2.ImportMap) (garbledObj string, garbledImports, privateNameMap map[string]string, _ error) {
+func obfuscateImports(objPath string, importMap goobj2.ImportMap) (garbledObj string, _ error) {
 	mainPkg, err := goobj2.Parse(objPath, "main", importMap)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("error parsing main objfile: %v", err)
+		return "", fmt.Errorf("error parsing main objfile: %v", err)
 	}
 	if err := extractDebugObfSrc("main", mainPkg); err != nil {
-		return "", nil, nil, err
+		return "", err
 	}
 	pkgs := []pkgInfo{{mainPkg, objPath, true}}
 
-	privateNameMap = make(map[string]string)
 	// build list of imported packages that are private
 	importCfg, err := goobj2.ParseImportCfg(curImportCfg)
 	if err != nil {
-		return "", nil, nil, err
+		return "", err
 	}
 	for pkgPath, info := range importCfg.Packages {
 		// if the '-tiny' flag is passed, we will strip filename
@@ -175,18 +157,15 @@ func obfuscateImports(objPath string, importMap goobj2.ImportMap) (garbledObj st
 		if private := isPrivate(pkgPath); opts.Tiny || private {
 			pkg, err := goobj2.Parse(info.Path, pkgPath, importMap)
 			if err != nil {
-				return "", nil, nil, fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
+				return "", fmt.Errorf("error parsing objfile %s at %s: %v", pkgPath, info.Path, err)
 			}
 
 			pkgs = append(pkgs, pkgInfo{pkg, info.Path, private})
 
-			if err := appendPrivateNameMap(pkg, privateNameMap); err != nil {
-				return "", nil, nil, fmt.Errorf("error parsing name map %s at %s: %v", pkgPath, info.Path, err)
-			}
 			// Avoiding double extraction from main object file
 			if objPath != info.Path {
 				if err := extractDebugObfSrc(pkgPath, pkg); err != nil {
-					return "", nil, nil, err
+					return "", err
 				}
 			}
 		}
@@ -195,7 +174,6 @@ func obfuscateImports(objPath string, importMap goobj2.ImportMap) (garbledObj st
 	var sb strings.Builder
 	var buf bytes.Buffer
 
-	garbledImports = make(map[string]string)
 	replacedFiles := make(map[string]string)
 	for _, p := range pkgs {
 		// log.Printf("++ Obfuscating object file for %s ++", p.pkg.ImportPath)
@@ -233,7 +211,7 @@ func obfuscateImports(objPath string, importMap goobj2.ImportMap) (garbledObj st
 				privImports.privatePaths = append(privImports.privatePaths, privPaths...)
 				privImports.privateNames = append(privImports.privateNames, privNames...)
 
-				return hashImport(imp, nil, garbledImports)
+				return hashImport(imp, nil)
 			}
 
 			for i := range am.Imports {
@@ -268,7 +246,7 @@ func obfuscateImports(objPath string, importMap goobj2.ImportMap) (garbledObj st
 			// log.Printf("\t== Private imports: %v ==\n", privImports)
 
 			// garble all private import paths in all symbol names
-			garbleSymbols(&am, privImports, garbledImports, &buf, &sb)
+			garbleSymbols(&am, privImports, &buf, &sb)
 		}
 
 		// An archive under the temporary file. Note that
@@ -276,22 +254,22 @@ func obfuscateImports(objPath string, importMap goobj2.ImportMap) (garbledObj st
 		// simply use its name after closing the file.
 		tempObjFile, err := ioutil.TempFile(sharedTempDir, "pkg.*.a")
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("creating temp file: %v", err)
+			return "", fmt.Errorf("creating temp file: %v", err)
 		}
 		tempObj := tempObjFile.Name()
 		tempObjFile.Close()
 		if err := p.pkg.Write(tempObj); err != nil {
-			return "", nil, nil, fmt.Errorf("error writing objfile %s at %s: %v", p.pkg.ImportPath, p.path, err)
+			return "", fmt.Errorf("error writing objfile %s at %s: %v", p.pkg.ImportPath, p.path, err)
 		}
 		replacedFiles[p.path] = tempObj
 	}
 
 	// garble importcfg so the linker knows where to find garbled imports
-	if err := garbleImportCfg(curImportCfg, importCfg, garbledImports, replacedFiles); err != nil {
-		return "", nil, nil, err
+	if err := garbleImportCfg(curImportCfg, importCfg, replacedFiles); err != nil {
+		return "", err
 	}
 
-	return replacedFiles[objPath], garbledImports, privateNameMap, nil
+	return replacedFiles[objPath], nil
 }
 
 // stripPCLinesAndNames removes all filename and position info
@@ -446,23 +424,23 @@ func dedupPrivateNames(names []privateName) []privateName {
 	return names[:j]
 }
 
-func hashImport(pkg string, seed []byte, garbledImports map[string]string) string {
-	if seed == nil {
-		if garbledPkg, ok := garbledImports[pkg]; ok {
-			return garbledPkg
+func hashImport(pkg string, seed []byte) string {
+	if len(seed) == 0 {
+		pkgPath := pkg
+		if pkgPath == "main" {
+			// The main package is known under its import path in
+			// the import config map.
+			pkgPath = buildInfo.firstImport
 		}
-		seed = buildInfo.imports[pkg].actionID
+		seed = buildInfo.imports[pkgPath].actionID
 	}
 
-	garbledPkg := hashWith(seed, pkg)
-	garbledImports[pkg] = garbledPkg
-
-	return garbledPkg
+	return hashWith(seed, pkg)
 }
 
 // garbleSymbols replaces all private import paths/package names in symbol names
 // and data of an archive member.
-func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, garbledImports map[string]string, buf *bytes.Buffer, sb *strings.Builder) {
+func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, buf *bytes.Buffer, sb *strings.Builder) {
 	lists := [][]*goobj2.Sym{am.SymDefs, am.NonPkgSymDefs, am.NonPkgSymRefs}
 	for _, list := range lists {
 		for _, s := range list {
@@ -493,26 +471,26 @@ func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, garbled
 				} else if strings.HasPrefix(s.Name, "type..namedata.") {
 					dataTyp = namedata
 				}
-				s.Data = garbleSymData(s.Data, privImports, garbledImports, dataTyp, buf)
+				s.Data = garbleSymData(s.Data, privImports, dataTyp, buf)
 
 				if s.Size != 0 {
 					s.Size = uint32(len(s.Data))
 				}
 			}
-			s.Name = garbleSymbolName(s.Name, privImports, garbledImports, sb)
+			s.Name = garbleSymbolName(s.Name, privImports, sb)
 
 			for i := range s.Reloc {
-				s.Reloc[i].Name = garbleSymbolName(s.Reloc[i].Name, privImports, garbledImports, sb)
+				s.Reloc[i].Name = garbleSymbolName(s.Reloc[i].Name, privImports, sb)
 			}
 			if s.Type != nil {
-				s.Type.Name = garbleSymbolName(s.Type.Name, privImports, garbledImports, sb)
+				s.Type.Name = garbleSymbolName(s.Type.Name, privImports, sb)
 			}
 			if s.Func != nil {
 				for i := range s.Func.FuncData {
-					s.Func.FuncData[i].Sym.Name = garbleSymbolName(s.Func.FuncData[i].Sym.Name, privImports, garbledImports, sb)
+					s.Func.FuncData[i].Sym.Name = garbleSymbolName(s.Func.FuncData[i].Sym.Name, privImports, sb)
 				}
 				for _, inl := range s.Func.InlTree {
-					inl.Func.Name = garbleSymbolName(inl.Func.Name, privImports, garbledImports, sb)
+					inl.Func.Name = garbleSymbolName(inl.Func.Name, privImports, sb)
 					if opts.Tiny {
 						inl.Line = 1
 					}
@@ -533,7 +511,7 @@ func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, garbled
 		}
 	}
 	for i := range am.SymRefs {
-		am.SymRefs[i].Name = garbleSymbolName(am.SymRefs[i].Name, privImports, garbledImports, sb)
+		am.SymRefs[i].Name = garbleSymbolName(am.SymRefs[i].Name, privImports, sb)
 	}
 
 	// remove dwarf file list, it isn't needed as we pass "-w, -s" to the linker
@@ -542,7 +520,7 @@ func garbleSymbols(am *goobj2.ArchiveMember, privImports privateImports, garbled
 
 // garbleSymbolName finds all private imports in a symbol name, garbles them,
 // and returns the modified symbol name.
-func garbleSymbolName(symName string, privImports privateImports, garbledImports map[string]string, sb *strings.Builder) string {
+func garbleSymbolName(symName string, privImports privateImports, sb *strings.Builder) string {
 	prefix, name, skipSym := splitSymbolPrefix(symName)
 	if skipSym {
 		// log.Printf("\t\t? Skipped symbol: %s", symName)
@@ -572,7 +550,7 @@ func garbleSymbolName(symName string, privImports privateImports, garbledImports
 		}
 
 		sb.WriteString(name[off : off+o])
-		sb.WriteString(hashImport(name[off+o:off+o+l], privName.seed, garbledImports))
+		sb.WriteString(hashImport(name[off+o:off+o+l], privName.seed))
 		off += o + l
 	}
 
@@ -748,7 +726,7 @@ func isSymbol(c byte) bool {
 
 // garbleSymData finds all private imports in a symbol's data blob,
 // garbles them, and returns the modified symbol data.
-func garbleSymData(data []byte, privImports privateImports, garbledImports map[string]string, dataTyp dataType, buf *bytes.Buffer) []byte {
+func garbleSymData(data []byte, privImports privateImports, dataTyp dataType, buf *bytes.Buffer) []byte {
 	var symData []byte
 	switch dataTyp {
 	case importPath:
@@ -772,11 +750,11 @@ func garbleSymData(data []byte, privImports privateImports, garbledImports map[s
 
 		// there is only one import path in the symbol's data, garble it and return
 		if dataTyp == importPath {
-			return createImportPathData(hashImport(string(symData[o:o+l]), privName.seed, garbledImports))
+			return createImportPathData(hashImport(string(symData[o:o+l]), privName.seed))
 		}
 
 		buf.Write(symData[off : off+o])
-		buf.WriteString(hashImport(string(symData[off+o:off+o+l]), privName.seed, garbledImports))
+		buf.WriteString(hashImport(string(symData[off+o:off+o+l]), privName.seed))
 		off += o + l
 	}
 
@@ -817,7 +795,7 @@ func patchReflectData(newName []byte, data []byte) []byte {
 }
 
 // garbleImportCfg writes a new importcfg with private import paths garbled.
-func garbleImportCfg(path string, importCfg goobj2.ImportCfg, garbledImports, replacedFiles map[string]string) error {
+func garbleImportCfg(path string, importCfg goobj2.ImportCfg, replacedFiles map[string]string) error {
 	newCfg, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("error creating importcfg: %v", err)
@@ -827,10 +805,10 @@ func garbleImportCfg(path string, importCfg goobj2.ImportCfg, garbledImports, re
 
 	for pkgPath, otherPath := range importCfg.ImportMap {
 		if isPrivate(pkgPath) {
-			pkgPath = hashImport(pkgPath, nil, garbledImports)
+			pkgPath = hashImport(pkgPath, nil)
 		}
 		if isPrivate(otherPath) {
-			otherPath = hashImport(otherPath, nil, garbledImports)
+			otherPath = hashImport(otherPath, nil)
 		}
 		newCfgWr.WriteString("importmap ")
 		newCfgWr.WriteString(pkgPath)
@@ -841,7 +819,7 @@ func garbleImportCfg(path string, importCfg goobj2.ImportCfg, garbledImports, re
 
 	for pkgPath, info := range importCfg.Packages {
 		if isPrivate(pkgPath) {
-			pkgPath = hashImport(pkgPath, nil, garbledImports)
+			pkgPath = hashImport(pkgPath, nil)
 		}
 		if info.IsSharedLib {
 			newCfgWr.WriteString("packageshlib ")
