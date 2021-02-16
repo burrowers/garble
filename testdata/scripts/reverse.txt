@@ -1,0 +1,67 @@
+env GOPRIVATE=test/main
+
+# Unknown build flags should result in errors.
+! garble reverse -badflag
+stderr 'flag provided but not defined'
+
+garble build
+exec ./main
+cp stderr main.stderr
+exec cat main.stderr
+
+# Ensure that the garbled panic output looks correct.
+# This output is not reproducible between 'go test' runs,
+# so we can't use a static golden file.
+grep 'goroutine 1 \[running\]' main.stderr
+! grep 'SomeFunc|test/main|main.go|lib.go' main.stderr
+
+stdin main.stderr
+garble reverse
+stdout -count=1 'SomeFunc'
+# TODO: this is what we want when "reverse" is finished
+# cmp stdout reverse.stdout
+
+# Ensure that the reversed output matches the non-garbled output.
+go build -trimpath
+exec ./main
+cmp stderr reverse.stdout
+
+-- go.mod --
+module test/main
+
+go 1.15
+-- main.go --
+package main
+
+import "test/main/lib"
+
+func main() {
+	lib.SomeFunc()
+}
+-- lib/lib.go --
+package lib
+
+import (
+	"os"
+	"regexp"
+	"runtime/debug"
+)
+
+func SomeFunc() {
+	// Panic outputs include "0xNN" pointers and offsets which change
+	// between platforms.
+	// Strip them out here, to have portable static stdout files.
+	rxVariableSuffix := regexp.MustCompile(`0x[0-9a-f]+`)
+
+	stack := debug.Stack()
+	stack = rxVariableSuffix.ReplaceAll(stack, []byte("0x??"))
+	os.Stderr.Write(stack)
+}
+-- reverse.stdout --
+goroutine 1 [running]:
+runtime/debug.Stack(0x??, 0x??, 0x??)
+	runtime/debug/stack.go:24 +0x??
+test/main/lib.SomeFunc()
+	test/main/lib/lib.go:15 +0x??
+main.main()
+	test/main/main.go:6 +0x??

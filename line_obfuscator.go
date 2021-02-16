@@ -94,9 +94,9 @@ func clearNodeComments(node ast.Node) {
 
 // transformLineInfo removes the comment except go directives and build tags. Converts comments to the node view.
 // It returns comments not attached to declarations and names of declarations which cannot be renamed.
-func transformLineInfo(file *ast.File, cgoFile bool) (detachedComments []string, f *ast.File) {
+func (tf *transformer) transformLineInfo(file *ast.File, name string) (detachedComments []string, f *ast.File) {
 	prefix := ""
-	if cgoFile {
+	if strings.HasPrefix(name, "_cgo_") {
 		prefix = "_cgo_"
 	}
 
@@ -126,8 +126,13 @@ func transformLineInfo(file *ast.File, cgoFile bool) (detachedComments []string,
 		if !ok {
 			return true
 		}
+		newPos := fmt.Sprintf("%s%c.go:%d",
+			prefix,
+			nameCharset[mathrand.Intn(len(nameCharset))],
+			PosMin+newLines[funcCounter],
+		)
 
-		comment := &ast.Comment{Text: fmt.Sprintf("//line %s%c.go:%d", prefix, nameCharset[mathrand.Intn(len(nameCharset))], PosMin+newLines[funcCounter])}
+		comment := &ast.Comment{Text: "//line " + newPos}
 		funcDecl.Doc = prependComment(funcDecl.Doc, comment)
 		funcCounter++
 		return true

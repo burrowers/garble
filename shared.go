@@ -72,7 +72,7 @@ type options struct {
 	Random         bool
 }
 
-// setOptions sets all options from the user supplied flags
+// setOptions sets all options from the user supplied flags.
 func setOptions() error {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -140,6 +140,7 @@ type listedPackages map[string]*listedPackage
 
 // listedPackage contains information useful for obfuscating a package
 type listedPackage struct {
+	Name       string
 	ImportPath string
 	Export     string
 	Deps       []string

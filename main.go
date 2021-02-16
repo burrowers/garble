@@ -127,8 +127,9 @@ var (
 )
 
 const (
-	garbleMapHeaderName = "garble/nameMap"
-	garbleSrcHeaderName = "garble/src"
+	// Note that these are capped at 16 bytes.
+	headerPrivateNameMap = "garble/privMap"
+	headerDebugSource    = "garble/debugSrc"
 )
 
 func garbledImport(path string) (*types.Package, error) {
@@ -264,64 +265,13 @@ func mainErr(args []string) error {
 		}
 		fmt.Println(version)
 		return nil
-	case "build", "test":
-		if !goVersionOK() {
-			return errJustExit
-		}
-		// Split the flags from the package arguments, since we'll need
-		// to run 'go list' on the same set of packages.
-		flags, args := splitFlagsFromArgs(args)
-		for _, f := range flags {
-			switch f {
-			case "-h", "-help", "--help":
-				return flag.ErrHelp
-			}
-		}
-
-		err := setOptions()
+	case "reverse":
+		return commandReverse(args)
+	case "build", "test", "list":
+		cmd, err := toolexecCmd(command, args)
 		if err != nil {
 			return err
 		}
-
-		// Note that we also need to pass build flags to 'go list', such
-		// as -tags.
-		cache.BuildFlags = filterBuildFlags(flags)
-		if command == "test" {
-			cache.BuildFlags = append(cache.BuildFlags, "-test")
-		}
-
-		if err := setGoPrivate(); err != nil {
-			return err
-		}
-
-		if err := setListedPackages(args); err != nil {
-			return err
-		}
-		cache.ExecPath, err = os.Executable()
-		if err != nil {
-			return err
-		}
-
-		if sharedTempDir, err = saveShared(); err != nil {
-			return err
-		}
-		os.Setenv("GARBLE_SHARED", sharedTempDir)
-		defer os.Remove(sharedTempDir)
-
-		goArgs := []string{
-			command,
-			"-trimpath",
-			"-toolexec=" + cache.ExecPath,
-		}
-		if command == "test" {
-			// vet is generally not useful on garbled code; keep it
-			// disabled by default.
-			goArgs = append(goArgs, "-vet=off")
-		}
-		goArgs = append(goArgs, flags...)
-		goArgs = append(goArgs, args...)
-
-		cmd := exec.Command("go", goArgs...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
@@ -371,6 +321,73 @@ func mainErr(args []string) error {
 		}
 	}
 	return nil
+}
+
+// toolexecCmd builds an *exec.Cmd which is set up for running "go <command>"
+// with -toolexec=garble and the supplied arguments.
+//
+// Note that it uses and modifies global state; in general, it should only be
+// called once from mainErr in the top-level garble process.
+func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
+	if !goVersionOK() {
+		return nil, errJustExit
+	}
+	// Split the flags from the package arguments, since we'll need
+	// to run 'go list' on the same set of packages.
+	flags, args := splitFlagsFromArgs(args)
+	for _, f := range flags {
+		switch f {
+		case "-h", "-help", "--help":
+			return nil, flag.ErrHelp
+		}
+	}
+
+	if err := setOptions(); err != nil {
+		return nil, err
+	}
+
+	// Note that we also need to pass build flags to 'go list', such
+	// as -tags.
+	cache.BuildFlags = filterBuildFlags(flags)
+	if command == "test" {
+		cache.BuildFlags = append(cache.BuildFlags, "-test")
+	}
+
+	if err := setGoPrivate(); err != nil {
+		return nil, err
+	}
+
+	var err error
+	cache.ExecPath, err = os.Executable()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := setListedPackages(args); err != nil {
+		return nil, err
+	}
+
+	sharedTempDir, err = saveShared()
+	if err != nil {
+		return nil, err
+	}
+	os.Setenv("GARBLE_SHARED", sharedTempDir)
+	defer os.Remove(sharedTempDir)
+
+	goArgs := []string{
+		command,
+		"-trimpath",
+		"-toolexec=" + cache.ExecPath,
+	}
+	if command == "test" {
+		// vet is generally not useful on garbled code; keep it
+		// disabled by default.
+		goArgs = append(goArgs, "-vet=off")
+	}
+	goArgs = append(goArgs, flags...)
+	goArgs = append(goArgs, args...)
+
+	return exec.Command("go", goArgs...), nil
 }
 
 var transformFuncs = map[string]func([]string) (args []string, post func() error, _ error){
@@ -467,9 +484,8 @@ func transformCompile(args []string) ([]string, func() error, error) {
 
 	for i, file := range files {
 		name := filepath.Base(filepath.Clean(paths[i]))
-		cgoFile := strings.HasPrefix(name, "_cgo_")
 
-		comments, file := transformLineInfo(file, cgoFile)
+		comments, file := tf.transformLineInfo(file, name)
 		tf.handleDirectives(comments)
 
 		detachedComments[i], files[i] = comments, file
@@ -567,7 +583,7 @@ func transformCompile(args []string) ([]string, func() error, error) {
 			return err
 		}
 
-		data, err := json.Marshal(tf.privateNameMap)
+		nameMap, err := json.Marshal(tf.privateNameMap)
 		if err != nil {
 			return err
 		}
@@ -576,12 +592,12 @@ func transformCompile(args []string) ([]string, func() error, error) {
 		// and shouldn't break other tools like the linker since our header name is unique
 		pkg.ArchiveMembers = append(pkg.ArchiveMembers,
 			goobj2.ArchiveMember{ArchiveHeader: goobj2.ArchiveHeader{
-				Name: garbleMapHeaderName,
-				Size: int64(len(data)),
-				Data: data,
+				Name: headerPrivateNameMap,
+				Size: int64(len(nameMap)),
+				Data: nameMap,
 			}},
 			goobj2.ArchiveMember{ArchiveHeader: goobj2.ArchiveHeader{
-				Name: garbleSrcHeaderName,
+				Name: headerDebugSource,
 				Size: int64(obfSrcArchive.Len()),
 				Data: obfSrcArchive.Bytes(),
 			}},
