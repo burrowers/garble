@@ -2,8 +2,8 @@
 
 	GO111MODULE=on go get mvdan.cc/garble
 
-Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.15 or later, since
-Go 1.14 uses an entirely different object format.
+Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.15.x; note that
+support for Go 1.16 is [a work in progress](https://github.com/burrowers/garble/issues/124).
 
 	garble build [build flags] [packages]
 
