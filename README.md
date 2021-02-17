@@ -18,7 +18,7 @@ The tool is designed to be:
 
 * Coupled with `cmd/go`, to support modules and build caching
 * Deterministic and reproducible, given the same initial source code
-* Reversible given the original source, to un-garble panic stack traces
+* Reversible given the original source, to deobfuscate panic stack traces
 
 ### Mechanism
 
@@ -35,19 +35,42 @@ order to:
 
 ### Options
 
-By default, the tool garbles the packages under the current module. If not
-running in module mode, then only the main package is garbled. To specify what
-packages to garble, set `GOPRIVATE`, documented at `go help module-private`.
+By default, the tool obfuscates the packages under the current module. If not
+running in module mode, then only the main package is obfuscated. To specify
+what packages to obfuscate, set `GOPRIVATE`, documented at `go help module-private`.
+
+Note that commands like `garble build` will use the `go` version found in your
+`$PATH`. To use different versions of Go, you can
+[install them](https://golang.org/doc/manage-install#installing-multiple)
+and set up `$PATH` with them. For example, for Go 1.15.8:
+
+```sh
+$ go get golang.org/dl/go1.15.8
+$ go1.15.8 download
+$ PATH=$(go1.15.8 env GOROOT)/bin:${PATH} garble build
+```
+
+You can also declare a function to make multiple uses simpler:
+
+```sh
+$ withgo() {
+        local gocmd=go${1}
+        shift
+
+        PATH=$(${gocmd} env GOROOT)/bin:${PATH} "$@"
+}
+$ withgo 1.15.8 garble build
+```
 
 ### Caveats
 
 Most of these can improve with time and effort. The purpose of this section is
 to document the current shortcomings of this tool.
 
-* Exported methods are never garbled at the moment, since they could
+* Exported methods are never obfuscated at the moment, since they could
   be required by interfaces and reflection. This area is a work in progress.
 
-* Functions implemented outside Go, such as assembly, aren't garbled since we
+* Functions implemented outside Go, such as assembly, aren't obfuscated since we
   currently only transform the input Go source.
 
 * Go plugins are not currently supported; see [#87](https://github.com/burrowers/garble/issues/87).
