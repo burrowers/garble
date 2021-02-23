@@ -47,10 +47,15 @@ module test/main
 
 go 1.15
 
-require rsc.io/quote v1.5.2
+require (
+	rsc.io/quote v1.5.2
+	gopkg.in/garbletest.v2 v2.999.0
+)
 -- go.sum --
 golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c h1:pvCbr/wm8HzDD3fVywevekufpn6tCGPY3spdHeZJEsw=
 golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
+gopkg.in/garbletest.v2 v2.999.0 h1:wiZfOKGiXX7DoYVgbNvnTaCjqElrpZQSvKg0HYouw/o=
+gopkg.in/garbletest.v2 v2.999.0/go.mod h1:MF1BPTBjmDdc9x86+9UMLL9pAH2eMFPHvltohOvlGEw=
 rsc.io/quote v1.5.2 h1:3fEykkD9k7lYzXqCYrwGAf7iNhbk4yCjHmKBN9td4L0=
 rsc.io/quote v1.5.2/go.mod h1:LzX7hefJvL54yjefDEDHNONDjII0t9xZLPXsUe+TKr0=
 rsc.io/sampler v1.3.0 h1:HLGR/BgEtI3r0uymSP/nl2uPLsUnNJX8toRyhfpBTII=
@@ -66,6 +71,7 @@ import (
 	"test/main/imported"
 
 	"rsc.io/quote"
+	garbletest "gopkg.in/garbletest.v2"
 )
 
 func main() {
@@ -91,6 +97,7 @@ func main() {
 	}
 
 	fmt.Println(quote.Go())
+	garbletest.Test()
 }
 
 func printfWithoutPackage(format string, v interface{}) {
