@@ -1,0 +1,12 @@
+module gopkg.in/garbletest.v2@v2.999.0
+
+-- .mod --
+module gopkg.in/garbletest.v2
+
+go 1.15
+-- .info --
+{"Version":"v2.999.0","Time":"2020-11-17T15:46:20Z"}
+-- apic.go --
+package garbletest
+
+func Test() { println("this is the dummy garbletest.v2 package") }

@@ -718,6 +718,18 @@ var runtimeRelated = map[string]bool{
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(path string) bool {
+	// isPrivate is used in lots of places, so use it as a way to sanity
+	// check that none of our package paths are invalid.
+	// This can happen if we end up with an escaped or corrupted path.
+	// TODO: Do we want to support obfuscating test packages?
+	// It is a bit tricky as their import paths are confusing, such as
+	// "test/bar.test" and "test/bar [test/bar.test]".
+	if strings.HasSuffix(path, ".test") || strings.HasSuffix(path, ".test]") {
+		return false
+	}
+	if err := module.CheckImportPath(path); err != nil {
+		panic(err)
+	}
 	if runtimeRelated[path] {
 		return false
 	}

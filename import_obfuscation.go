@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -203,15 +204,27 @@ func obfuscateImports(objPath string, importMap goobj2.ImportMap) (garbledObj st
 			}
 
 			initImport := func(imp string) string {
-				if !isPrivate(imp) {
+				// Due to an apparent bug in goobj2, in some rare
+				// edge cases like gopkg.in/yaml.v2 we end up with
+				// URL-escaped paths, like "gopkg.in/yaml%2ev2".
+				// Unescape them to use isPrivate and hashImport.
+				// TODO: Investigate and fix this in goobj2.
+				unesc, err := url.PathUnescape(imp)
+				if err != nil {
+					panic(err)
+				}
+
+				if !isPrivate(unesc) {
+					// If the path isn't private, leave the
+					// original path as-is, even if escaped.
 					return imp
 				}
 
-				privPaths, privNames := explodeImportPath(imp)
+				privPaths, privNames := explodeImportPath(unesc)
 				privImports.privatePaths = append(privImports.privatePaths, privPaths...)
 				privImports.privateNames = append(privImports.privateNames, privNames...)
 
-				return hashImport(imp, nil)
+				return hashImport(unesc, nil)
 			}
 
 			for i := range am.Imports {
@@ -433,6 +446,16 @@ func hashImport(pkg string, seed []byte) string {
 			pkgPath = buildInfo.firstImport
 		}
 		seed = buildInfo.imports[pkgPath].actionID
+
+		// If we can't find a seed, provide a more helpful panic than hashWith's.
+		if len(seed) == 0 {
+			var imports []string
+			for path := range buildInfo.imports {
+				imports = append(imports, path)
+			}
+			sort.Strings(imports)
+			panic(fmt.Sprintf("could not find package path %s; imports:\n%s", pkgPath, strings.Join(imports, "\n")))
+		}
 	}
 
 	return hashWith(seed, pkg)

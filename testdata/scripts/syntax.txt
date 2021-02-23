@@ -1,4 +1,4 @@
-env GOPRIVATE='test/main,private.source/*'
+env GOPRIVATE='test/main,private.source'
 
 garble build
 exec ./main$exe
@@ -17,7 +17,7 @@ binsubstr main$exe 'globalVar' # 'globalType' only matches on go < 1.15
 ! binsubstr main$exe 'localName' 'globalConst' 'remoteIntReturn' 'intReturn'
 
 -- extra/go.mod --
-module "private.source/extra"
+module private.source/extra
 
 go 1.15
 -- extra/extra.go --
