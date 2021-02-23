@@ -8,8 +8,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -69,10 +73,8 @@ func commandReverse(args []string) error {
 		if err != nil {
 			return err
 		}
-		// Adding it to buildInfo.imports allows us to reuse the
-		// "if" branch below. Plus, if this edge case triggers
-		// multiple times in a single package compile, we can
-		// call "go list" once and cache its result.
+		// The action ID, and possibly the export file, will be used
+		// later to reconstruct the mapping of obfuscated names.
 		buildInfo.imports[pkg.ImportPath] = importedPkg{
 			packagefile: pkg.Export,
 			actionID:    decodeHash(splitActionID(buildID)),
@@ -83,24 +85,40 @@ func commandReverse(args []string) error {
 		return fmt.Errorf("go list error: %v: %s", err, stderr.Bytes())
 	}
 
+	// A package's names are generally hashed with the action ID of its
+	// obfuscated build. We recorded those action IDs above.
+	// Note that we parse Go files directly to obtain the names, since the
+	// export data only exposes exported names. Parsing Go files is cheap,
+	// so it's unnecessary to try to avoid this cost.
 	var replaces []string
+	fset := token.NewFileSet()
 
 	for _, pkgPath := range privatePkgPaths {
 		ipkg := buildInfo.imports[pkgPath]
+		addReplace := func(str string) {
+			replaces = append(replaces, hashWith(ipkg.actionID, str), str)
+		}
 
-		// All original exported names names are hashed with the
-		// obfuscated package's action ID.
-		tpkg, err := origImporter.Import(pkgPath)
+		// Package paths are obfuscated, too.
+		addReplace(pkgPath)
+
+		lpkg, err := listPackage(pkgPath)
 		if err != nil {
 			return err
 		}
-		pkgScope := tpkg.Scope()
-		for _, name := range pkgScope.Names() {
-			obj := pkgScope.Lookup(name)
-			if !obj.Exported() {
-				continue
+		for _, goFile := range lpkg.GoFiles {
+			goFile = filepath.Join(lpkg.Dir, goFile)
+			file, err := parser.ParseFile(fset, goFile, nil, 0)
+			if err != nil {
+				return err
 			}
-			replaces = append(replaces, hashWith(ipkg.actionID, name), name)
+			for _, decl := range file.Decls {
+				// TODO: Probably do type names too. What else?
+				switch decl := decl.(type) {
+				case *ast.FuncDecl:
+					addReplace(decl.Name.Name)
+				}
+			}
 		}
 	}
 	repl := strings.NewReplacer(replaces...)
