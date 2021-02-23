@@ -146,6 +146,9 @@ type listedPackage struct {
 	Deps       []string
 	ImportMap  map[string]string
 
+	Dir     string
+	GoFiles []string
+
 	// TODO(mvdan): reuse this field once TOOLEXEC_IMPORTPATH is used
 	private bool
 }

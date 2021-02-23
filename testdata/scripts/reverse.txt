@@ -13,11 +13,12 @@ exec cat main.stderr
 # This output is not reproducible between 'go test' runs,
 # so we can't use a static golden file.
 grep 'goroutine 1 \[running\]' main.stderr
-! grep 'SomeFunc|test/main|main.go|lib.go' main.stderr
+! grep 'ExportedLibFunc|unexportedMainFunc|test/main|main.go|lib.go' main.stderr
 
 stdin main.stderr
 garble reverse
-stdout -count=1 'SomeFunc'
+stdout -count=1 'test/main/lib\.ExportedLibFunc'
+stdout -count=1 'main\.unexportedMainFunc'
 # TODO: this is what we want when "reverse" is finished
 # cmp stdout reverse.stdout
 
@@ -33,21 +34,31 @@ go 1.15
 -- main.go --
 package main
 
-import "test/main/lib"
+import (
+	"os"
+
+	"test/main/lib"
+)
 
 func main() {
-	lib.SomeFunc()
+	unexportedMainFunc()
+}
+
+func unexportedMainFunc() {
+	if err := lib.ExportedLibFunc(os.Stderr); err != nil {
+		panic(err)
+	}
 }
 -- lib/lib.go --
 package lib
 
 import (
-	"os"
+	"io"
 	"regexp"
 	"runtime/debug"
 )
 
-func SomeFunc() {
+func ExportedLibFunc(w io.Writer) error {
 	// Panic outputs include "0xNN" pointers and offsets which change
 	// between platforms.
 	// Strip them out here, to have portable static stdout files.
@@ -55,13 +66,16 @@ func SomeFunc() {
 
 	stack := debug.Stack()
 	stack = rxVariableSuffix.ReplaceAll(stack, []byte("0x??"))
-	os.Stderr.Write(stack)
+	_, err := w.Write(stack)
+	return err
 }
 -- reverse.stdout --
 goroutine 1 [running]:
 runtime/debug.Stack(0x??, 0x??, 0x??)
 	runtime/debug/stack.go:24 +0x??
-test/main/lib.SomeFunc()
+test/main/lib.ExportedLibFunc(0x??, 0x??, 0x??, 0x??)
 	test/main/lib/lib.go:15 +0x??
+main.unexportedMainFunc(...)
+	test/main/main.go:14
 main.main()
-	test/main/main.go:6 +0x??
+	test/main/main.go:10 +0x??
