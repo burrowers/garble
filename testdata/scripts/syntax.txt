@@ -149,6 +149,13 @@ func Test() {
 }
 
 func noop(...interface{}) {}
+
+// Funcs that almost look like test funcs used to make garble panic.
+
+func TestFoo(s string) {}
+
+func TestBar(*struct{}) {}
+
 -- main.stderr --
 nil case
 {"Foo":3}
