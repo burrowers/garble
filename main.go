@@ -1161,13 +1161,17 @@ func namedType(t types.Type) *types.Named {
 // isTestSignature returns true if the signature matches "func _(*testing.T)".
 func isTestSignature(sign *types.Signature) bool {
 	if sign.Recv() != nil {
-		return false
+		return false // test funcs don't have receivers
 	}
 	params := sign.Params()
 	if params.Len() != 1 {
-		return false
+		return false // too many parameters for a test func
 	}
-	obj := namedType(params.At(0).Type()).Obj()
+	named := namedType(params.At(0).Type())
+	if named == nil {
+		return false // the only parameter isn't named, like "string"
+	}
+	obj := named.Obj()
 	return obj != nil && obj.Pkg().Path() == "testing" && obj.Name() == "T"
 }
 
