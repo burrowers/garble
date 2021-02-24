@@ -214,13 +214,17 @@ func setListedPackages(patterns []string) error {
 
 // listPackage gets the listedPackage information for a certain package
 func listPackage(path string) (*listedPackage, error) {
+	// If the path is listed in the top-level ImportMap, use its mapping instead.
+	// This is a common scenario when dealing with vendored packages in GOROOT.
+	// The map is flat, so we don't need to recurse.
+	if fromPkg, ok := cache.ListedPackages[curPkgPath]; ok {
+		if path2 := fromPkg.ImportMap[path]; path2 != "" {
+			path = path2
+		}
+	}
+
 	pkg, ok := cache.ListedPackages[path]
 	if !ok {
-		if fromPkg, ok := cache.ListedPackages[curPkgPath]; ok {
-			if path2 := fromPkg.ImportMap[path]; path2 != "" {
-				return listPackage(path2)
-			}
-		}
 		return nil, fmt.Errorf("path not found in listed packages: %s", path)
 	}
 	return pkg, nil
