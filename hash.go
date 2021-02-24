@@ -141,6 +141,16 @@ func buildidOf(path string) (string, error) {
 	return string(out), nil
 }
 
+var (
+	// Hashed names are base64-encoded.
+	// Go names can only be letters, numbers, and underscores.
+	// This means we can use base64's URL encoding, minus '-'.
+	// Use the URL encoding, replacing '-' with a duplicate 'z'.
+	// Such a lossy encoding is fine, since we never decode hashes.
+	nameCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z"
+	nameBase64  = base64.NewEncoding(nameCharset)
+)
+
 func hashWith(salt []byte, name string) string {
 	if len(salt) == 0 {
 		panic("hashWith: empty salt")
@@ -154,8 +164,10 @@ func hashWith(salt []byte, name string) string {
 	d.Write(salt)
 	d.Write(opts.Seed)
 	io.WriteString(d, name)
-	sum := b64.EncodeToString(d.Sum(nil))
+	sum := nameBase64.EncodeToString(d.Sum(nil))
 
+	// TODO: Just make the first letter uppercase or lowercase as needed.
+	// This is also not needed for non-names, like import paths.
 	if token.IsExported(name) {
 		return "Z" + sum[:length]
 	}

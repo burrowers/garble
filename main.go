@@ -87,8 +87,6 @@ var (
 	fset          = token.NewFileSet()
 	sharedTempDir = os.Getenv("GARBLE_SHARED")
 
-	nameCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z"
-	b64         = base64.NewEncoding(nameCharset)
 	printConfig = printer.Config{Mode: printer.RawFormat}
 
 	// origImporter is a go/types importer which uses the original versions
