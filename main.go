@@ -456,6 +456,30 @@ func transformCompile(args []string) ([]string, func() error, error) {
 		},
 	}
 
+	standardLibrary := false
+	// Note that flagValue only supports "-foo=true" bool flags, but the std
+	// flag is generally just "-std".
+	// TODO: Better support boolean flags for the tools.
+	for _, flag := range flags {
+		if flag == "-std" {
+			standardLibrary = true
+		}
+	}
+
+	// The standard library vendors external packages, which results in them
+	// listing "golang.org/x/foo" in go list -json's Deps, plus an ImportMap
+	// entry to remap them to "vendor/golang.org/x/foo".
+	// We support that edge case in listPackage, presumably, though it seems
+	// like importer.ForCompiler with a lookup function isn't capable of it.
+	// It does work without an explicit lookup func though, which results in
+	// extra calls to 'go list'.
+	// Since this is a rare edge case and only occurs for a few std
+	// packages, do the extra 'go list' calls for now.
+	// TODO(mvdan): report this upstream and investigate further.
+	if standardLibrary && len(cache.ListedPackages[curPkgPath].ImportMap) > 0 {
+		origImporter = importer.Default()
+	}
+
 	origTypesConfig := types.Config{Importer: origImporter}
 	tf.pkg, err = origTypesConfig.Check(curPkgPath, fset, files, tf.info)
 	if err != nil {

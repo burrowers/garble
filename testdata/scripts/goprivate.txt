@@ -11,20 +11,12 @@ stderr '^public package "test/main/importer" can''t depend on obfuscated package
 # Try garbling all of std, given some std packages.
 # No need for a main package here; building the std packages directly works the
 # same, and is faster as we don't need to link a binary.
+# This used to cause multiple errors, mainly since std vendors some external
+# packages so we must properly support ImportMap.
+# Plus, some packages like net make heavy use of complex features like Cgo.
+# Note that we won't obfuscate a few std packages just yet, mainly those around runtime.
 env GOPRIVATE='*'
-
-# This used to cause errors since the "net" import causes 'go list -json'
-# to output ImportMap, since "net" imports packages vendored in std.
-# Another quirk of "net" is that it makes rather heavy use of cgo, which was
-# hitting some edge cases we did not handle.
-garble build net
-
-# This used to cause incorrect errors since we would not obfuscate
-# runtime/pprof, but we would try to obfuscate its dependencies. For now, this
-# simply errors because we obfuscate nothing, since we can't obfuscate the
-# runtime package just yet.
-! garble build runtime/pprof
-stderr 'does not match any packages to be built'
+garble build std
 
 -- go.mod --
 module test/main
