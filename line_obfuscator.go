@@ -8,8 +8,6 @@ import (
 	"go/ast"
 	mathrand "math/rand"
 	"strings"
-
-	"golang.org/x/tools/go/ast/astutil"
 )
 
 // PosMin is the smallest correct value for the line number.
@@ -111,32 +109,34 @@ func (tf *transformer) transformLineInfo(file *ast.File, name string) (detachedC
 	detachedComments = append(detachedComments, "", "//line "+prefix+":1")
 	file.Comments = nil
 
+	ast.Inspect(file, func(node ast.Node) bool {
+		clearNodeComments(node)
+		return true
+	})
+	// If tiny mode is active information about line numbers is erased in object files
+	if opts.Tiny {
+		return detachedComments, file
+	}
+
 	newLines := mathrand.Perm(len(file.Decls))
 
-	funcCounter := 0
-	pre := func(cursor *astutil.Cursor) bool {
-		node := cursor.Node()
-		clearNodeComments(node)
-
-		// If tiny mode is active information about line numbers is erased in object files
-		if opts.Tiny {
-			return true
-		}
-		funcDecl, ok := node.(*ast.FuncDecl)
-		if !ok {
-			return true
+	for i, decl := range file.Decls {
+		var doc **ast.CommentGroup
+		switch decl := decl.(type) {
+		case *ast.FuncDecl:
+			doc = &decl.Doc
+		case *ast.GenDecl:
+			doc = &decl.Doc
 		}
 		newPos := fmt.Sprintf("%s%c.go:%d",
 			prefix,
 			nameCharset[mathrand.Intn(len(nameCharset))],
-			PosMin+newLines[funcCounter],
+			PosMin+newLines[i],
 		)
 
 		comment := &ast.Comment{Text: "//line " + newPos}
-		funcDecl.Doc = prependComment(funcDecl.Doc, comment)
-		funcCounter++
-		return true
+		*doc = prependComment(*doc, comment)
 	}
 
-	return detachedComments, astutil.Apply(file, pre, nil).(*ast.File)
+	return detachedComments, file
 }
