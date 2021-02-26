@@ -911,28 +911,6 @@ type transformer struct {
 
 // transformGo garbles the provided Go syntax node.
 func (tf *transformer) transformGo(file *ast.File) *ast.File {
-	// Shuffle top level declarations
-	mathrand.Shuffle(len(file.Decls), func(i, j int) {
-		decl1 := file.Decls[i]
-		decl2 := file.Decls[j]
-
-		// Import declarations must remain at the top of the file.
-		gd1, iok1 := decl1.(*ast.GenDecl)
-		gd2, iok2 := decl2.(*ast.GenDecl)
-		if (iok1 && gd1.Tok == token.IMPORT) || (iok2 && gd2.Tok == token.IMPORT) {
-			return
-		}
-
-		// init function declarations must remain in order.
-		fd1, fok1 := decl1.(*ast.FuncDecl)
-		fd2, fok2 := decl2.(*ast.FuncDecl)
-		if (fok1 && fd1.Name.Name == "init") || (fok2 && fd2.Name.Name == "init") {
-			return
-		}
-
-		file.Decls[i], file.Decls[j] = decl2, decl1
-	})
-
 	pre := func(cursor *astutil.Cursor) bool {
 		node, ok := cursor.Node().(*ast.Ident)
 		if !ok {

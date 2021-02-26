@@ -1,0 +1,109 @@
+env GOPRIVATE=test/main
+
+garble build
+exec ./main
+! stdout 'main.go|other_file_name|is sorted'
+
+[short] stop # no need to verify this with -short
+
+go build
+exec ./main
+stdout 'main.go'
+stdout 'other_file_name'
+stdout ':19: main'
+stdout 'initLines is sorted'
+stdout 'varLines is sorted'
+
+-- go.mod --
+module test/main
+
+go 1.15
+-- main.go --
+package main
+
+import (
+	"fmt"
+	"runtime"
+	"sort"
+)
+
+var _, globalFile, globalLine, _ = runtime.Caller(0)
+
+func init() {
+	_, file, line, _ := runtime.Caller(0)
+	fmt.Printf("%s:%d: init\n", file, line)
+}
+
+func main() {
+	fmt.Printf("%s:%d: global\n", globalFile, globalLine)
+
+	_, file, line, _ := runtime.Caller(0)
+	fmt.Printf("%s:%d: main\n", file, line)
+
+	funcDecl()
+	funcVar()
+
+	// initLines is filled by ten consecutive funcs.
+	// If we are not shuffling or obfuscating line numbers,
+	// this list will be sorted.
+	// If we are, it's extremely unlikely it would remain sorted.
+	if sort.IsSorted(sort.IntSlice(initLines)) {
+		fmt.Println("initLines is sorted")
+	}
+
+	// Same as the above, but with vars.
+	if sort.IsSorted(sort.IntSlice(varLines)) {
+		fmt.Println("varLines is sorted")
+	}
+}
+-- other_file_name.go --
+package main
+
+import (
+	"fmt"
+	"runtime"
+)
+
+func funcDecl() {
+	_, file, line, _ := runtime.Caller(0)
+	fmt.Printf("%s:%d: func\n", file, line)
+}
+
+var funcVar = func() {
+	_, file, line, _ := runtime.Caller(0)
+	fmt.Printf("%s:%d: func var\n", file, line)
+}
+
+var initLines []int
+
+func curLine() int {
+	_, _, line, _ := runtime.Caller(1)
+	return line
+}
+
+func init() { initLines = append(initLines, curLine()) }
+func init() { initLines = append(initLines, curLine()) }
+func init() { initLines = append(initLines, curLine()) }
+func init() { initLines = append(initLines, curLine()) }
+func init() { initLines = append(initLines, curLine()) }
+func init() { initLines = append(initLines, curLine()) }
+func init() { initLines = append(initLines, curLine()) }
+func init() { initLines = append(initLines, curLine()) }
+func init() { initLines = append(initLines, curLine()) }
+func init() { initLines = append(initLines, curLine()) }
+
+var varLine0 = curLine()
+var varLine1 = curLine()
+var varLine2 = curLine()
+var varLine3 = curLine()
+var varLine4 = curLine()
+var varLine5 = curLine()
+var varLine6 = curLine()
+var varLine7 = curLine()
+var varLine8 = curLine()
+var varLine9 = curLine()
+
+var varLines = []int{
+	varLine0, varLine1, varLine2, varLine3, varLine4,
+	varLine5, varLine6, varLine7, varLine8, varLine9,
+}
