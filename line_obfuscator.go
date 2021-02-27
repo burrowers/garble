@@ -113,10 +113,6 @@ func (tf *transformer) transformLineInfo(file *ast.File, name string) (detachedC
 		clearNodeComments(node)
 		return true
 	})
-	// If tiny mode is active information about line numbers is erased in object files
-	if opts.Tiny {
-		return detachedComments, file
-	}
 
 	newLines := mathrand.Perm(len(file.Decls))
 
@@ -128,11 +124,14 @@ func (tf *transformer) transformLineInfo(file *ast.File, name string) (detachedC
 		case *ast.GenDecl:
 			doc = &decl.Doc
 		}
-		newPos := fmt.Sprintf("%s%c.go:%d",
-			prefix,
-			nameCharset[mathrand.Intn(len(nameCharset))],
-			PosMin+newLines[i],
-		)
+		newPos := prefix + ":1"
+		if !opts.Tiny {
+			newPos = fmt.Sprintf("%s%c.go:%d",
+				prefix,
+				nameCharset[mathrand.Intn(len(nameCharset))],
+				PosMin+newLines[i],
+			)
+		}
 
 		comment := &ast.Comment{Text: "//line " + newPos}
 		*doc = prependComment(*doc, comment)

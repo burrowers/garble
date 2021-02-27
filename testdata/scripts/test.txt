@@ -1,3 +1,5 @@
+skip # see https://github.com/burrowers/garble/issues/241
+
 # Note that we need bar_test too.
 env GOPRIVATE=test/bar,test/bar_test
 

@@ -6,7 +6,11 @@ garble -tiny build
 env GODEBUG='allocfreetrace=1,gcpacertrace=1,gctrace=1,scavenge=1,scavtrace=1,scheddetail=1,schedtrace=10'
 ! exec ./main$exe
 stderr '^\(0x[\d\w]{6,8},0x[\d\w]{6,8}\)' # interfaces/pointers print correctly
-stderr '^caller: \? 0$' # position info is removed
+# TODO: Make -tiny remove all line information again.
+# Right now, we reset each declaration's start line to 1.
+# Better than nothing, but we could still make *all* line numbers 1.
+# stderr '^caller: \? 0$' # position info is removed
+stderr '^caller: \?\? ' # position info is removed
 stderr '^recovered: ya like jazz?'
 ! stderr 'panic: oh noes' # panics are hidden
 

@@ -20,7 +20,7 @@ garble build -tags buildtag
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'test/main' 'imported.' 'NormalStruct' 'NormalExportedField' 'normalUnexportedField'
+! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'ImportedType' 'main.go' 'test/main' 'importedpkg.' 'NormalStruct' 'NormalExportedField' 'normalUnexportedField'
 binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2'
 
 [short] stop # checking that the build is reproducible is slow
@@ -68,26 +68,26 @@ import (
 	"reflect"
 	"strings"
 
-	"test/main/imported"
+	"test/main/importedpkg"
 
 	"rsc.io/quote"
 	garbletest "gopkg.in/garbletest.v2"
 )
 
 func main() {
-	fmt.Println(imported.ImportedVar)
-	fmt.Println(imported.ImportedConst)
-	fmt.Println(imported.ImportedFunc('x'))
-	fmt.Println(imported.ImportedType(3))
-	fmt.Println(imported.ReflectInDefinedVar.ExportedField2)
-	fmt.Println(imported.ReflectInDefined{ExportedField2: 5})
-	normal := imported.NormalStruct{SharedName: 3}
+	fmt.Println(importedpkg.ImportedVar)
+	fmt.Println(importedpkg.ImportedConst)
+	fmt.Println(importedpkg.ImportedFunc('x'))
+	fmt.Println(importedpkg.ImportedType(3))
+	fmt.Println(importedpkg.ReflectInDefinedVar.ExportedField2)
+	fmt.Println(importedpkg.ReflectInDefined{ExportedField2: 5})
+	normal := importedpkg.NormalStruct{SharedName: 3}
 	normal.IndirectStruct.Field = 23
 	fmt.Println(normal)
-	printfWithoutPackage("%T\n", imported.ReflectTypeOf(2))
-	printfWithoutPackage("%T\n", imported.ReflectTypeOfIndirect(4))
+	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOf(2))
+	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOfIndirect(4))
 
-	v := imported.ReflectValueOfVar
+	v := importedpkg.ReflectValueOfVar
 	printfWithoutPackage("%#v\n", v)
 	method := reflect.ValueOf(&v).MethodByName("ExportedMethodName")
 	if method.IsValid() {
@@ -117,12 +117,12 @@ package main
 import "fmt"
 
 func init() { fmt.Println("buildtag init func") }
--- imported/imported.go --
-package imported
+-- importedpkg/imported.go --
+package importedpkg
 
 import (
 	"reflect"
-	"test/main/imported/indirect"
+	"test/main/importedpkg/indirect"
 )
 
 var ImportedVar = "imported var value"
@@ -174,7 +174,7 @@ type NormalStruct struct {
 // ImportedType comes after the calls to reflect, to ensure no false positives.
 type ImportedType int
 
--- imported/indirect/indirect.go --
+-- importedpkg/indirect/indirect.go --
 package indirect
 
 type Indirect struct {
