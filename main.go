@@ -29,10 +29,10 @@ import (
 	"reflect"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Binject/debug/goobj2"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
@@ -298,11 +298,10 @@ func mainErr(args []string) error {
 
 	transform := transformFuncs[tool]
 	transformed := args[1:]
-	var postFunc func() error
 	// log.Println(tool, transformed)
 	if transform != nil {
 		var err error
-		if transformed, postFunc, err = transform(transformed); err != nil {
+		if transformed, err = transform(transformed); err != nil {
 			return err
 		}
 	}
@@ -311,11 +310,6 @@ func mainErr(args []string) error {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return err
-	}
-	if postFunc != nil {
-		if err := postFunc(); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -376,6 +370,12 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 		"-trimpath",
 		"-toolexec=" + cache.ExecPath,
 	}
+	if flagDebugDir != "" {
+		// In case the user deletes the debug directory,
+		// and a previous build is cached,
+		// rebuild all packages to re-fill the debug dir.
+		goArgs = append(goArgs, "-a")
+	}
 	if command == "test" {
 		// vet is generally not useful on garbled code; keep it
 		// disabled by default.
@@ -387,12 +387,12 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 	return exec.Command("go", goArgs...), nil
 }
 
-var transformFuncs = map[string]func([]string) (args []string, post func() error, _ error){
+var transformFuncs = map[string]func([]string) (args []string, _ error){
 	"compile": transformCompile,
 	"link":    transformLink,
 }
 
-func transformCompile(args []string) ([]string, func() error, error) {
+func transformCompile(args []string) ([]string, error) {
 	var err error
 	flags, paths := splitFlagsFromFiles(args, ".go")
 
@@ -408,8 +408,9 @@ func transformCompile(args []string) ([]string, func() error, error) {
 		opts.GarbleLiterals = false
 		opts.DebugDir = ""
 	} else if !isPrivate(curPkgPath) {
-		return append(flags, paths...), nil, nil
+		return append(flags, paths...), nil
 	}
+
 	for i, path := range paths {
 		if filepath.Base(path) == "_gomod_.go" {
 			// never include module info
@@ -418,26 +419,26 @@ func transformCompile(args []string) ([]string, func() error, error) {
 		}
 	}
 	if len(paths) == 1 && filepath.Base(paths[0]) == "_testmain.go" {
-		return append(flags, paths...), nil, nil
+		return append(flags, paths...), nil
 	}
 
 	// If the value of -trimpath doesn't contain the separator ';', the 'go
 	// build' command is most likely not using '-trimpath'.
 	trimpath := flagValue(flags, "-trimpath")
 	if !strings.Contains(trimpath, ";") {
-		return nil, nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
+		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
 	}
-	if err := fillBuildInfo(flags); err != nil {
-		return nil, nil, err
+	newImportCfg, err := fillBuildInfo(flags)
+	if err != nil {
+		return nil, err
 	}
 
 	var files []*ast.File
 	for _, path := range paths {
 		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-
 		files = append(files, file)
 	}
 
@@ -483,7 +484,7 @@ func transformCompile(args []string) ([]string, func() error, error) {
 	origTypesConfig := types.Config{Importer: origImporter}
 	tf.pkg, err = origTypesConfig.Check(curPkgPath, fset, files, tf.info)
 	if err != nil {
-		return nil, nil, fmt.Errorf("typecheck error: %v", err)
+		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
 
 	tf.recordReflectArgs(files)
@@ -516,6 +517,13 @@ func transformCompile(args []string) ([]string, func() error, error) {
 
 	obfSrcTarWriter := tar.NewWriter(obfSrcGzipWriter)
 	defer obfSrcTarWriter.Close()
+
+	newPkgPath := curPkgPath
+	if curPkgPath != "main" && isPrivate(curPkgPath) {
+		newPkgPath = hashWith(curActionID, curPkgPath)
+		flags = flagSetValue(flags, "-p", newPkgPath)
+		// println("flag:", curPkgPath, newPkgPath)
+	}
 
 	// TODO: randomize the order and names of the files
 	newPaths := make([]string, 0, len(files))
@@ -551,12 +559,39 @@ func transformCompile(args []string) ([]string, func() error, error) {
 			// Uncomment for some quick debugging. Do not delete.
 			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", curPkgPath, origName)
 			// if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
-			// 	return nil, nil, err
+			// 	return nil, err
 			// }
+			ast.Inspect(file, func(node ast.Node) bool {
+				imp, ok := node.(*ast.ImportSpec)
+				if !ok {
+					return true
+				}
+				path, err := strconv.Unquote(imp.Path.Value)
+				if err != nil {
+					panic(err) // should never happen
+				}
+				if isPrivate(path) {
+					actionID := buildInfo.imports[path].actionID
+					newPath := hashWith(actionID, path)
+					imp.Path.Value = strconv.Quote(newPath)
+					// TODO(mvdan): what if the package was
+					// named something else?
+					if imp.Name == nil {
+						imp.Name = &ast.Ident{Name: filepath.Base(path)}
+					}
+					// println("import:", path, newPath)
+				}
+				return true
+			})
 		}
+		if curPkgPath != "main" && isPrivate(curPkgPath) {
+			// println(file.Name.Name, newPkgPath)
+			file.Name.Name = newPkgPath
+		}
+
 		tempFile, err := ioutil.TempFile(sharedTempDir, name+".*.go")
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		defer tempFile.Close()
 
@@ -565,14 +600,34 @@ func transformCompile(args []string) ([]string, func() error, error) {
 
 		for _, comment := range detachedComments[i] {
 			if _, err := printWriter.Write([]byte(comment + "\n")); err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 		}
 		if err := printConfig.Fprint(printWriter, fset, file); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
+		if opts.DebugDir != "" {
+			osPkgPath := filepath.FromSlash(curPkgPath)
+			pkgDebugDir := filepath.Join(opts.DebugDir, osPkgPath)
+			if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
+				return nil, err
+			}
+
+			debugFilePath := filepath.Join(pkgDebugDir, origName)
+			debugFile, err := os.Create(debugFilePath)
+			if err != nil {
+				return nil, err
+			}
+			if err := printConfig.Fprint(debugFile, fset, file); err != nil {
+				return nil, err
+			}
+			if err := debugFile.Close(); err != nil {
+				return nil, err
+			}
+		}
+
 		if err := tempFile.Close(); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		if err := obfSrcTarWriter.WriteHeader(&tar.Header{
@@ -581,41 +636,19 @@ func transformCompile(args []string) ([]string, func() error, error) {
 			ModTime: time.Now(), // Need for restoring obfuscation time
 			Size:    int64(obfSrc.Len()),
 		}); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if _, err := obfSrcTarWriter.Write(obfSrc.Bytes()); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		newPaths = append(newPaths, tempFile.Name())
 	}
+	flags = flagSetValue(flags, "-importcfg", newImportCfg)
+	// fmt.Println(flags)
 
-	// After the compilation succeeds, add our headers to the object file.
-	objPath := flagValue(flags, "-o")
-	postCompile := func() error {
-		importMap := func(importPath string) (objectPath string) {
-			return buildInfo.imports[importPath].packagefile
-		}
-
-		pkg, err := goobj2.Parse(objPath, curPkgPath, importMap)
-		if err != nil {
-			return err
-		}
-
-		// Adding an extra archive header is safe,
-		// and shouldn't break other tools like the linker since our header name is unique
-		pkg.ArchiveMembers = append(pkg.ArchiveMembers,
-			goobj2.ArchiveMember{ArchiveHeader: goobj2.ArchiveHeader{
-				Name: headerDebugSource,
-				Size: int64(obfSrcArchive.Len()),
-				Data: obfSrcArchive.Bytes(),
-			}},
-		)
-
-		return pkg.Write(objPath)
-	}
-
-	return append(flags, newPaths...), postCompile, nil
+	// println("transform compile done")
+	return append(flags, newPaths...), nil
 }
 
 // handleDirectives looks at all the comments in a file containing build
@@ -644,11 +677,11 @@ func (tf *transformer) handleDirectives(comments []string) {
 		// If the new name is of the form "pkgpath.Name", and
 		// we've obfuscated "Name" in that package, rewrite the
 		// directive to use the obfuscated name.
-		newName := strings.Split(fields[2], ".")
-		if len(newName) != 2 {
+		target := strings.Split(fields[2], ".")
+		if len(target) != 2 {
 			continue
 		}
-		pkg, name := newName[0], newName[1]
+		pkg, name := target[0], target[1]
 		if pkg == "runtime" && strings.HasPrefix(name, "cgo") {
 			continue // ignore cgo-generated linknames
 		}
@@ -666,8 +699,12 @@ func (tf *transformer) handleDirectives(comments []string) {
 
 		// The name exists and was obfuscated; replace the
 		// comment with the obfuscated name.
-		obfName := hashWith(listedPkg.actionID, name)
-		fields[2] = pkg + "." + obfName
+		newName := hashWith(listedPkg.actionID, name)
+		newPkg := pkg
+		if pkg != "main" {
+			newPkg = hashWith(listedPkg.actionID, pkg)
+		}
+		fields[2] = newPkg + "." + newName
 		comments[i] = strings.Join(fields, " ")
 	}
 }
@@ -764,25 +801,27 @@ func isPrivate(path string) bool {
 	return module.MatchPrefixPatterns(envGoPrivate, path)
 }
 
-// fillBuildInfo initializes the global buildInfo struct via the supplied flags.
-func fillBuildInfo(flags []string) error {
+// fillBuildInfo initializes the global buildInfo struct via the supplied flags,
+// and constructs a new importcfg with the obfuscated import paths changed as
+// necessary.
+func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
 	buildID := flagValue(flags, "-buildid")
 	switch buildID {
 	case "", "true":
-		return fmt.Errorf("could not find -buildid argument")
+		return "", fmt.Errorf("could not find -buildid argument")
 	}
 	curActionID = decodeHash(splitActionID(buildID))
 	curImportCfg = flagValue(flags, "-importcfg")
 	if curImportCfg == "" {
-		return fmt.Errorf("could not find -importcfg argument")
+		return "", fmt.Errorf("could not find -importcfg argument")
 	}
 	data, err := ioutil.ReadFile(curImportCfg)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	importMap := make(map[string]string)
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.SplitAfter(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -810,16 +849,17 @@ func fillBuildInfo(flags []string) error {
 			importPath, objectPath := args[:j], args[j+1:]
 			buildID, err := buildidOf(objectPath)
 			if err != nil {
-				return err
+				return "", err
 			}
 			// log.Println("buildid:", buildID)
 
 			if len(buildInfo.imports) == 0 {
 				buildInfo.firstImport = importPath
 			}
+			actionID := decodeHash(splitActionID(buildID))
 			impPkg := importedPkg{
 				packagefile: objectPath,
-				actionID:    decodeHash(splitActionID(buildID)),
+				actionID:    actionID,
 			}
 			buildInfo.imports[importPath] = impPkg
 
@@ -829,7 +869,30 @@ func fillBuildInfo(flags []string) error {
 		}
 	}
 	// log.Printf("%#v", buildInfo)
-	return nil
+
+	// Produce the modified importcfg file.
+	newCfg, err := ioutil.TempFile(sharedTempDir, "importcfg")
+	if err != nil {
+		return "", err
+	}
+	for beforePath, afterPath := range importMap {
+		if isPrivate(afterPath) {
+			actionID := buildInfo.imports[afterPath].actionID
+			afterPath = hashWith(actionID, afterPath)
+		}
+		fmt.Fprintf(newCfg, "importmap %s=%s\n", beforePath, afterPath)
+	}
+	for impPath, pkg := range buildInfo.imports {
+		if isPrivate(impPath) {
+			actionID := buildInfo.imports[impPath].actionID
+			impPath = hashWith(actionID, impPath)
+		}
+		fmt.Fprintf(newCfg, "packagefile %s=%s\n", impPath, pkg.packagefile)
+	}
+	if err := newCfg.Close(); err != nil {
+		return "", err
+	}
+	return newCfg.Name(), nil
 }
 
 // recordReflectArgs collects all the objects in a package which are known to be
@@ -1175,26 +1238,14 @@ func isTestSignature(sign *types.Signature) bool {
 	return obj != nil && obj.Pkg().Path() == "testing" && obj.Name() == "T"
 }
 
-func transformLink(args []string) ([]string, func() error, error) {
+func transformLink(args []string) ([]string, error) {
 	// We can't split by the ".a" extension, because cached object files
 	// lack any extension.
-	flags, paths := splitFlagsFromArgs(args)
+	flags, args := splitFlagsFromArgs(args)
 
-	if err := fillBuildInfo(flags); err != nil {
-		return nil, nil, err
-	}
-
-	// there should only ever be one archive/object file passed to the linker,
-	// the file for the main package or entrypoint
-	if len(paths) != 1 {
-		return nil, nil, fmt.Errorf("expected exactly one link argument")
-	}
-	importMap := func(importPath string) (objectPath string) {
-		return buildInfo.imports[importPath].packagefile
-	}
-	garbledObj, err := obfuscateImports(paths[0], importMap)
+	newImportCfg, err := fillBuildInfo(flags)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Make sure -X works with garbled identifiers. To cover both garbled
@@ -1222,9 +1273,13 @@ func transformLink(args []string) ([]string, func() error, error) {
 		}
 		id := buildInfo.imports[pkgPath].actionID
 		newName := hashWith(id, name)
-		garbledPkg := hashWith(id, pkg)
-		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", garbledPkg, newName, str))
+		newPkg := pkg
+		if pkg != "main" && isPrivate(pkg) {
+			newPkg = hashWith(id, pkg)
+		}
+		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPkg, newName, str))
 	})
+	// fmt.Println(flags)
 
 	// Ensure we strip the -buildid flag, to not leak any build IDs for the
 	// link operation or the main package's compilation.
@@ -1232,7 +1287,9 @@ func transformLink(args []string) ([]string, func() error, error) {
 
 	// Strip debug information and symbol tables.
 	flags = append(flags, "-w", "-s")
-	return append(flags, garbledObj), nil, nil
+
+	flags = flagSetValue(flags, "-importcfg", newImportCfg)
+	return append(flags, args...), nil
 }
 
 func splitFlagsFromArgs(all []string) (flags, args []string) {
