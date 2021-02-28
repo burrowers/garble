@@ -119,7 +119,20 @@ func stripRuntime(filename string, file *ast.File) {
 		}
 	}
 
-	if filename == "print.go" {
+	switch filename {
+	case "runtime1.go":
+		// On Go 1.16.x, the code above results in runtime1.go having an
+		// unused import. Mark it as used via "var _ = pkg.Func".
+		// Note that the file in Go 1.15.x does not import bytealg.
+		// If this is a recurring problem, we could go for a more
+		// generic solution like x/tools/imports.
+		for _, imp := range file.Imports {
+			if imp.Path.Value == `"internal/bytealg"` {
+				file.Decls = append(file.Decls, markUsedBytealg)
+				break
+			}
+		}
+	case "print.go":
 		file.Decls = append(file.Decls, hidePrintDecl)
 		return
 	}
@@ -140,6 +153,17 @@ func removeImport(importPath string, specs []ast.Spec) []ast.Spec {
 	}
 
 	return specs
+}
+
+var markUsedBytealg = &ast.GenDecl{
+	Tok: token.VAR,
+	Specs: []ast.Spec{&ast.ValueSpec{
+		Names: []*ast.Ident{{Name: "_"}},
+		Values: []ast.Expr{&ast.SelectorExpr{
+			X:   &ast.Ident{Name: "bytealg"},
+			Sel: &ast.Ident{Name: "IndexByteString"},
+		}},
+	}},
 }
 
 var hidePrintDecl = &ast.FuncDecl{
