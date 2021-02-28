@@ -151,6 +151,21 @@ var (
 	nameBase64  = base64.NewEncoding(nameCharset)
 )
 
+// These funcs mimic the unicode package API, but byte-based since we know
+// base64 is all ASCII.
+
+func isDigit(b byte) bool { return '0' <= b && b <= '9' }
+func isLower(b byte) bool { return 'a' <= b && b <= 'z' }
+func isUpper(b byte) bool { return 'A' <= b && b <= 'Z' }
+func toLower(b byte) byte { return b + ('a' - 'A') }
+func toUpper(b byte) byte { return b - ('a' - 'A') }
+
+// hashWith returns a hashed version of name, including the provided salt as well as
+// opts.Seed into the hash input.
+//
+// The result is always four bytes long. If the input was a valid identifier,
+// the output remains equally exported or unexported. Note that this process is
+// reproducible, but not reversible.
 func hashWith(salt []byte, name string) string {
 	if len(salt) == 0 {
 		panic("hashWith: empty salt")
@@ -164,12 +179,35 @@ func hashWith(salt []byte, name string) string {
 	d.Write(salt)
 	d.Write(opts.Seed)
 	io.WriteString(d, name)
-	sum := nameBase64.EncodeToString(d.Sum(nil))
+	sum := make([]byte, nameBase64.EncodedLen(d.Size()))
+	nameBase64.Encode(sum, d.Sum(nil))
+	sum = sum[:length]
 
-	// TODO: Just make the first letter uppercase or lowercase as needed.
-	// This is also not needed for non-names, like import paths.
-	if token.IsExported(name) {
-		return "Z" + sum[:length]
+	// Even if we are hashing a package path, we still want the result to be
+	// a valid identifier, since we'll use it as the package name too.
+	if isDigit(sum[0]) {
+		// Turn "3foo" into "Dfoo".
+		// Similar to toLower, since uppercase letters go after digits
+		// in the ASCII table.
+		sum[0] += 'A' - '0'
 	}
-	return "z" + sum[:length]
+	// Keep the result equally exported or not, if it was an identifier.
+	if !token.IsIdentifier(name) {
+		return string(sum)
+	}
+	if token.IsExported(name) {
+		if sum[0] == '_' {
+			// Turn "_foo" into "Zfoo".
+			sum[0] = 'Z'
+		} else if isLower(sum[0]) {
+			// Turn "afoo" into "Afoo".
+			sum[0] = toUpper(sum[0])
+		}
+	} else {
+		if isUpper(sum[0]) {
+			// Turn "Afoo" into "afoo".
+			sum[0] = toLower(sum[0])
+		}
+	}
+	return string(sum)
 }
