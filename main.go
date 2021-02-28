@@ -518,11 +518,12 @@ func transformCompile(args []string) ([]string, error) {
 	obfSrcTarWriter := tar.NewWriter(obfSrcGzipWriter)
 	defer obfSrcTarWriter.Close()
 
+	// If this is a package to obfuscate, swap the -p flag with the new
+	// package path.
 	newPkgPath := curPkgPath
 	if curPkgPath != "main" && isPrivate(curPkgPath) {
 		newPkgPath = hashWith(curActionID, curPkgPath)
 		flags = flagSetValue(flags, "-p", newPkgPath)
-		// println("flag:", curPkgPath, newPkgPath)
 	}
 
 	// TODO: randomize the order and names of the files
@@ -570,22 +571,27 @@ func transformCompile(args []string) ([]string, error) {
 				if err != nil {
 					panic(err) // should never happen
 				}
-				if isPrivate(path) {
-					actionID := buildInfo.imports[path].actionID
-					newPath := hashWith(actionID, path)
-					imp.Path.Value = strconv.Quote(newPath)
-					// TODO(mvdan): what if the package was
-					// named something else?
-					if imp.Name == nil {
-						imp.Name = &ast.Ident{Name: filepath.Base(path)}
+				if !isPrivate(path) {
+					return true
+				}
+				// We're importing an obfuscated package.
+				// Replace the import path with its obfuscated version.
+				// If the import was unnamed, give it the name of the
+				// original package name, to keep references working.
+				actionID := buildInfo.imports[path].actionID
+				newPath := hashWith(actionID, path)
+				imp.Path.Value = strconv.Quote(newPath)
+				if imp.Name == nil {
+					pkg, err := listPackage(path)
+					if err != nil {
+						panic(err) // should never happen
 					}
-					// println("import:", path, newPath)
+					imp.Name = &ast.Ident{Name: pkg.Name}
 				}
 				return true
 			})
 		}
 		if curPkgPath != "main" && isPrivate(curPkgPath) {
-			// println(file.Name.Name, newPkgPath)
 			file.Name.Name = newPkgPath
 		}
 
@@ -645,9 +651,7 @@ func transformCompile(args []string) ([]string, error) {
 		newPaths = append(newPaths, tempFile.Name())
 	}
 	flags = flagSetValue(flags, "-importcfg", newImportCfg)
-	// fmt.Println(flags)
 
-	// println("transform compile done")
 	return append(flags, newPaths...), nil
 }
 
@@ -871,6 +875,9 @@ func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
 	// log.Printf("%#v", buildInfo)
 
 	// Produce the modified importcfg file.
+	// This is mainly replacing the obfuscated paths.
+	// Note that we range over maps, so this is non-deterministic, but that
+	// should not matter as the file is treated like a lookup table.
 	newCfg, err := ioutil.TempFile(sharedTempDir, "importcfg")
 	if err != nil {
 		return "", err
@@ -1279,7 +1286,6 @@ func transformLink(args []string) ([]string, error) {
 		}
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPkg, newName, str))
 	})
-	// fmt.Println(flags)
 
 	// Ensure we strip the -buildid flag, to not leak any build IDs for the
 	// link operation or the main package's compilation.

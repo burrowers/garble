@@ -117,6 +117,18 @@ package main
 import "fmt"
 
 func init() { fmt.Println("buildtag init func") }
+-- differentpkg_unnamed.go --
+package main
+
+import "test/main/different-pkg-name"
+
+var _ = actualpkgname.Noop
+-- differentpkg_named.go --
+package main
+
+import named "test/main/different-pkg-name"
+
+var _ = named.Noop
 -- importedpkg/imported.go --
 package importedpkg
 
@@ -180,6 +192,11 @@ package indirect
 type Indirect struct {
 	Field int
 }
+
+-- different-pkg-name/pkg.go --
+package actualpkgname
+
+var Noop int
 
 -- main.stdout --
 buildtag init func
