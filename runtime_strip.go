@@ -89,8 +89,8 @@ func stripRuntime(filename string, file *ast.File) {
 			case "traceback.go":
 				// only used for printing tracebacks
 				switch x.Name.Name {
-				case "tracebackdefers", "traceback", "tracebacktrap", "traceback1",
-					"goroutineheader", "tracebackothers", "tracebackHexdump":
+				case "tracebackdefers", "printcreatedby", "printcreatedby1", "traceback", "tracebacktrap", "traceback1", "printAncestorTraceback",
+					"printAncestorTracebackFuncInfo", "goroutineheader", "tracebackothers", "tracebackHexdump", "printCgoTraceback":
 					x.Body.List = nil
 				case "printOneCgoTraceback":
 					x.Body = ah.BlockStmt(ah.ReturnStmt(ah.IntLit(0)))
