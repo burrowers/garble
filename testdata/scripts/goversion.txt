@@ -1,51 +1,68 @@
-chmod 777 .bin/go
+# We use a simple Go program to report many Go versions.
+# The program also errors on any command other than "go version",
+# which saves us having to rebuild main.go many times.
+go build -o .bin/go$exe ./fakego
 env PATH=${WORK}/.bin${:}${PATH}
 
-# Check incorrect go install
+# An empty go version.
 env GO_VERSION=''
 ! garble build
 stderr 'Can''t get Go version'
 
-[short] stop
-
-# Check invalid devel format
+# An invalid devel string.
 env GO_VERSION='go version devel someinvalidversion'
 ! garble build
 stderr 'Can''t recognize devel build timestamp'
 
-# Check invalid devel date
+# An invalid devel date.
 env GO_VERSION='go version devel +afb5fca Sun Sep 99 99:99:99 9999 +0000 linux/amd64'
 ! garble build
 stderr 'Can''t recognize devel build timestamp: parsing time'
 
-# Check invalid old devel version
+# We should error on a devel version that's too old.
+# We support Go 1.15 and later, released on August 11th, 2020.
 env GO_VERSION='go version devel +afb5fca Sun Aug 07 00:00:00 2020 +0000 linux/amd64'
 ! garble build
-stderr 'You use the old unstable'
+stderr 'Go version.*Aug 07.*too old; please upgrade to Go 1.16.x or a newer devel version'
 
-# Check invalid new devel version
+# A recent enough devel timestamp should be fine.
 env GO_VERSION='go version devel +afb5fca Sun Sep 13 07:54:42 2020 +0000 linux/amd64'
 ! garble build
-! stderr 'You use the old unstable'
+stderr 'mocking the real build'
 
-# Check old version
+# We should error on a stable version that's too old.
 env GO_VERSION='go version go1.14 windows/amd64'
 ! garble build
-stderr 'Outdated Go version'
+stderr 'Go version.*go1.14.*too old; please upgrade to Go 1.16.x'
+! stderr 'or a newer devel version'
 
-# Check supported version
+# We should accept a supported stable version.
 env GO_VERSION='go version go1.15.2 windows/amd64'
 ! garble build
-! stderr 'Outdated Go version'
+stderr 'mocking the real build'
 
+-- go.mod --
+module test/main
+
+go 1.15
 -- main.go --
 package main
 
--- .bin/go --
-#!/bin/sh
+func main() {}
 
-[ -z "$GO_VERSION" ] && exit 1 || echo "$GO_VERSION"
+-- fakego/main.go --
+package main
 
--- .bin/go.bat --
-@echo off
-IF DEFINED GO_VERSION (echo %GO_VERSION%) ELSE (exit 1)
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	if len(os.Args) > 0 && os.Args[1] == "version" {
+		fmt.Println(os.Getenv("GO_VERSION"))
+		return
+	}
+	fmt.Fprintln(os.Stderr, "mocking the real build")
+	os.Exit(1)
+}
