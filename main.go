@@ -186,8 +186,8 @@ var errJustExit = errors.New("")
 
 func goVersionOK() bool {
 	const (
-		minGoVersion        = "v1.15.0"
-		supportedGoVersions = "1.15.x"
+		minGoVersion       = "v1.15.0"
+		suggestedGoVersion = "1.16.x"
 
 		gitTimeFormat = "Mon Jan 2 15:04:05 2006 -0700"
 	)
@@ -195,7 +195,8 @@ func goVersionOK() bool {
 	minGoVersionDate := time.Date(2020, 8, 11, 0, 0, 0, 0, time.UTC)
 
 	out, err := exec.Command("go", "version").CombinedOutput()
-	if err != nil {
+	rawVersion := strings.TrimSpace(string(out))
+	if err != nil || !strings.HasPrefix(rawVersion, "go version ") {
 		fmt.Fprintf(os.Stderr, `Can't get Go version: %v
 
 This is likely due to go not being installed/setup correctly.
@@ -205,7 +206,7 @@ How to install Go: https://golang.org/doc/install
 		return false
 	}
 
-	rawVersion := strings.TrimPrefix(strings.TrimSpace(string(out)), "go version ")
+	rawVersion = strings.TrimPrefix(rawVersion, "go version ")
 
 	tagIdx := strings.IndexByte(rawVersion, ' ')
 	tag := rawVersion[:tagIdx]
@@ -230,13 +231,13 @@ How to install Go: https://golang.org/doc/install
 			return true
 		}
 
-		fmt.Fprintf(os.Stderr, "You use the old unstable %q Go version, please upgrade Go to %s\n", rawVersion, supportedGoVersions)
+		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s or a newer devel version\n", rawVersion, suggestedGoVersion)
 		return false
 	}
 
 	version := "v" + strings.TrimPrefix(tag, "go")
 	if semver.Compare(version, minGoVersion) < 0 {
-		fmt.Fprintf(os.Stderr, "Outdated Go version %q is used, please upgrade Go to %s\n", version, supportedGoVersions)
+		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", rawVersion, suggestedGoVersion)
 		return false
 	}
 
