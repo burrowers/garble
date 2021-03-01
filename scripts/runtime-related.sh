@@ -10,10 +10,10 @@ go version
 echo
 
 for GOOS in linux darwin windows; do
-	skip="macos"
+	skip="|macos"
 	if [[ $GOOS == "darwin" ]]; then
 		skip=""
 	fi
 
-	GOOS=$GOOS go list -deps $(sed -rn 's@//go:linkname .* ([^.]*)\.[^.]*@\1@p' $(go env GOROOT)/src/runtime/*.go | grep -v '^main\|\.\|js\|'$skip) runtime || exit 1
+	GOOS=$GOOS go list -deps $(sed -rn 's@//go:linkname .* ([^.]*)\.[^.]*@\1@p' $(go env GOROOT)/src/runtime/*.go | grep -vE '^main|^runtime\.|js'$skip) runtime || exit 1
 done | sort -u

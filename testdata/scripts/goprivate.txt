@@ -8,8 +8,6 @@ stderr '^public package "test/main/importer" can''t depend on obfuscated package
 
 [short] stop
 
-[go1.16] skip 'TODO(mvdan): fix for Go 1.16'
-
 # Try garbling all of std, given some std packages.
 # No need for a main package here; building the std packages directly works the
 # same, and is faster as we don't need to link a binary.
