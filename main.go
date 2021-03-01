@@ -388,8 +388,44 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 }
 
 var transformFuncs = map[string]func([]string) (args []string, _ error){
+	"asm":     transformAsm,
 	"compile": transformCompile,
 	"link":    transformLink,
+}
+
+func transformAsm(args []string) ([]string, error) {
+	flags, paths := splitFlagsFromFiles(args, ".s")
+
+	symAbis := false
+	// Note that flagValue only supports "-foo=true" bool flags, but the std
+	// flag is generally just "-std".
+	// TODO: Better support boolean flags for the tools.
+	for _, flag := range flags {
+		if flag == "-gensymabis" {
+			symAbis = true
+		}
+	}
+	curPkgPath = flagValue(flags, "-p")
+
+	// If we are generating symbol ABIs, the output does not actually
+	// contain curPkgPath. Exported APIs show up as "".FooBar.
+	// Otherwise, we are assembling, and curPkgPath does make its way into
+	// the output object file.
+	// To obfuscate the path in the -p flag, we need the current action ID,
+	// which we recover from the file that transformCompile wrote for us.
+	if !symAbis && curPkgPath != "main" && isPrivate(curPkgPath) {
+		savedActionID := filepath.Join(sharedTempDir, strings.ReplaceAll(curPkgPath, "/", ","))
+		var err error
+		curActionID, err = ioutil.ReadFile(savedActionID)
+		if err != nil {
+			return nil, fmt.Errorf("could not read build ID: %v", err)
+		}
+
+		newPkgPath := hashWith(curActionID, curPkgPath)
+		flags = flagSetValue(flags, "-p", newPkgPath)
+	}
+
+	return append(flags, paths...), nil
 }
 
 func transformCompile(args []string) ([]string, error) {
@@ -431,6 +467,22 @@ func transformCompile(args []string) ([]string, error) {
 	newImportCfg, err := fillBuildInfo(flags)
 	if err != nil {
 		return nil, err
+	}
+
+	// Tools which run after the main compile run, such as asm, also need
+	// the current action ID to obfuscate the package path in their -p flag.
+	// They lack the -buildid flag, so store it in a unique file here to be
+	// recovered by the other tools later, such as transformAsm.
+	// Import paths include slashes, which usually cannot be in filenames,
+	// so replace those with commas, which should be fine and cannot be part
+	// of an import path.
+	// We only write each file once, as we compile each package once.
+	// Each filename is also unique, since import paths are unique.
+	// TODO: perhaps error if the file already exists, to double check that
+	// the assumptions above are correct.
+	savedActionID := filepath.Join(sharedTempDir, strings.ReplaceAll(curPkgPath, "/", ","))
+	if err := ioutil.WriteFile(savedActionID, curActionID, 0o666); err != nil {
+		return nil, fmt.Errorf("could not store action ID: %v", err)
 	}
 
 	var files []*ast.File
@@ -830,6 +882,7 @@ func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
 	case "", "true":
 		return "", fmt.Errorf("could not find -buildid argument")
 	}
+
 	curActionID = decodeHash(splitActionID(buildID))
 	curImportCfg = flagValue(flags, "-importcfg")
 	if curImportCfg == "" {
