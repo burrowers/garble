@@ -3,7 +3,7 @@ env GOPRIVATE=test/main
 # Tiny mode
 garble -tiny build
 ! binsubstr main$exe 'main.go' 'fmt/print.go'
-env GODEBUG='allocfreetrace=1,gcpacertrace=1,gctrace=1,scavenge=1,scavtrace=1,scheddetail=1,schedtrace=10'
+env GODEBUG='allocfreetrace=1,gcpacertrace=1,gctrace=1,inittrace=1,scavenge=1,scavtrace=1,scheddetail=1,schedtrace=10'
 ! exec ./main$exe
 stderr '^\(0x[\d\w]{6,8},0x[\d\w]{6,8}\)' # interfaces/pointers print correctly
 # TODO: Make -tiny remove all line information again.
