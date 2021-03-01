@@ -1,5 +1,3 @@
-[go1.16] skip 'TODO(mvdan): fix for Go 1.16'
-
 env GOPRIVATE=test/main
 
 garble build
