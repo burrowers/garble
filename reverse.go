@@ -33,6 +33,8 @@ func commandReverse(args []string) error {
 	}
 	listArgs = append(listArgs, flags...)
 	listArgs = append(listArgs, mainPkg)
+	// TODO: We most likely no longer need this "list -toolexec" call, since
+	// we use the original build IDs.
 	cmd, err := toolexecCmd("list", listArgs)
 	if err != nil {
 		return err
@@ -70,9 +72,6 @@ func commandReverse(args []string) error {
 		if isPrivate(pkg.ImportPath) {
 			privatePkgPaths = append(privatePkgPaths, pkg.ImportPath)
 		}
-		// The action ID, and possibly the export file, will be used
-		// later to reconstruct the mapping of obfuscated names.
-		buildInfo.imports[pkg.ImportPath] = importedPkg{packagefile: pkg.Export}
 	}
 
 	if err := cmd.Wait(); err != nil {

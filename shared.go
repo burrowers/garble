@@ -15,7 +15,8 @@ import (
 	"strings"
 )
 
-// sharedCache this data is sharedCache between the different garble processes.
+// sharedCache is shared as a read-only cache between the many garble toolexec
+// sub-processes.
 //
 // Note that we fill this cache once from the root process in saveListedPackages,
 // store it into a temporary file via gob encoding, and then reuse that file
@@ -30,6 +31,15 @@ type sharedCache struct {
 	// allows us to obtain the non-garbled export data of all dependencies, useful
 	// for type checking of the packages as we obfuscate them.
 	ListedPackages map[string]*listedPackage
+
+	// We can't rely on the module version to exist, because it's
+	// missing in local builds without 'go get'.
+	// For now, use 'go tool buildid' on the garble binary.
+	// Just like Go's own cache, we use hex-encoded sha256 sums.
+	// Once https://github.com/golang/go/issues/37475 is fixed, we
+	// can likely just use that.
+	BinaryContentID []byte
+
 	MainImportPath string // TODO: remove with TOOLEXEC_IMPORTPATH
 }
 
@@ -190,7 +200,7 @@ func setListedPackages(patterns []string) error {
 	if err != nil {
 		return err
 	}
-	binaryContentID := decodeHash(splitContentID(binaryBuildID))
+	cache.BinaryContentID = decodeHash(splitContentID(binaryBuildID))
 
 	dec := json.NewDecoder(stdout)
 	cache.ListedPackages = make(map[string]*listedPackage)
@@ -211,7 +221,7 @@ func setListedPackages(patterns []string) error {
 			actionID := decodeHash(splitActionID(buildID))
 			h := sha256.New()
 			h.Write(actionID)
-			h.Write(binaryContentID)
+			h.Write(cache.BinaryContentID)
 
 			pkg.GarbleActionID = h.Sum(nil)[:buildIDComponentLength]
 		}
