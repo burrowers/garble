@@ -10,14 +10,13 @@ import (
 	"fmt"
 	"go/token"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 )
 
 const buildIDSeparator = "/"
 
-// splitActionID returns the action ID half of a build ID, the first element.
+// splitActionID returns the action ID half of a build ID, the first component.
 func splitActionID(buildID string) string {
 	i := strings.Index(buildID, buildIDSeparator)
 	if i < 0 {
@@ -26,13 +25,13 @@ func splitActionID(buildID string) string {
 	return buildID[:i]
 }
 
-// splitContentID returns the content ID half of a build ID, the last element.
+// splitContentID returns the content ID half of a build ID, the last component.
 func splitContentID(buildID string) string {
 	return buildID[strings.LastIndex(buildID, buildIDSeparator)+1:]
 }
 
-// decodeHash is the opposite of hashToString, but with a panic for error
-// handling since it should never happen.
+// decodeHash is the opposite of hashToString, with a panic for error handling
+// since it should never happen.
 func decodeHash(str string) []byte {
 	h, err := base64.RawURLEncoding.DecodeString(str)
 	if err != nil {
@@ -61,7 +60,7 @@ func alterToolVersion(tool string, args []string) error {
 		toolID = decodeHash(splitContentID(f[len(f)-1]))
 	} else {
 		// For a release, the output is like: "compile version go1.9.1 X:framepointer".
-		// Use the whole line.
+		// Use the whole line, as we can assume it's unique.
 		toolID = []byte(line)
 	}
 
@@ -76,33 +75,29 @@ func alterToolVersion(tool string, args []string) error {
 	// The slashes let us imitate a full binary build ID, but we assume that
 	// the other components such as the action ID are not necessary, since the
 	// only reader here is cmd/go and it only consumes the content ID.
-	fmt.Printf("%s +garble buildID=_/_/_/%s\n", line, contentID)
+	fmt.Printf("%s +garble buildID=_/_/_/%s\n", line, hashToString(contentID))
 	return nil
 }
 
-func ownContentID(toolID []byte) (string, error) {
+func ownContentID(toolID []byte) ([]byte, error) {
 	// We can't rely on the module version to exist, because it's
 	// missing in local builds without 'go get'.
-	// For now, use 'go tool buildid' on the binary that's running. Just
-	// like Go's own cache, we use hex-encoded sha256 sums.
+	// For now, use 'go tool buildid' on the garble binary.
+	// Just like Go's own cache, we use hex-encoded sha256 sums.
 	// Once https://github.com/golang/go/issues/37475 is fixed, we
 	// can likely just use that.
-	path, err := os.Executable()
+	binaryBuildID, err := buildidOf(cache.ExecPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	buildID, err := buildidOf(path)
-	if err != nil {
-		return "", err
-	}
-	ownID := decodeHash(splitContentID(buildID))
+	binaryContentID := decodeHash(splitContentID(binaryBuildID))
 
 	// Join the two content IDs together into a single base64-encoded sha256
 	// sum. This includes the original tool's content ID, and garble's own
 	// content ID.
 	h := sha256.New()
 	h.Write(toolID)
-	h.Write(ownID)
+	h.Write(binaryContentID)
 
 	// We also need to add the selected options to the full version string,
 	// because all of them result in different output. We use spaces to
@@ -120,13 +115,17 @@ func ownContentID(toolID []byte) (string, error) {
 		fmt.Fprintf(h, " -seed=%x", opts.Seed)
 	}
 
-	return hashToString(h.Sum(nil)), nil
+	return h.Sum(nil)[:buildIDComponentLength], nil
 }
 
+// buildIDComponentLength is the number of bytes each build ID component takes,
+// such as an action ID or a content ID.
+const buildIDComponentLength = 15
+
 // hashToString encodes the first 120 bits of a sha256 sum in base64, the same
-// format used for elements in a build ID.
+// format used for components in a build ID.
 func hashToString(h []byte) string {
-	return base64.RawURLEncoding.EncodeToString(h[:15])
+	return base64.RawURLEncoding.EncodeToString(h[:buildIDComponentLength])
 }
 
 func buildidOf(path string) (string, error) {

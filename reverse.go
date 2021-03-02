@@ -37,6 +37,7 @@ func commandReverse(args []string) error {
 	if err != nil {
 		return err
 	}
+	curPkg = cache.ListedPackages[cache.MainImportPath]
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -69,16 +70,9 @@ func commandReverse(args []string) error {
 		if isPrivate(pkg.ImportPath) {
 			privatePkgPaths = append(privatePkgPaths, pkg.ImportPath)
 		}
-		buildID, err := buildidOf(pkg.Export)
-		if err != nil {
-			return err
-		}
 		// The action ID, and possibly the export file, will be used
 		// later to reconstruct the mapping of obfuscated names.
-		buildInfo.imports[pkg.ImportPath] = importedPkg{
-			packagefile: pkg.Export,
-			actionID:    decodeHash(splitActionID(buildID)),
-		}
+		buildInfo.imports[pkg.ImportPath] = importedPkg{packagefile: pkg.Export}
 	}
 
 	if err := cmd.Wait(); err != nil {
@@ -94,18 +88,17 @@ func commandReverse(args []string) error {
 	fset := token.NewFileSet()
 
 	for _, pkgPath := range privatePkgPaths {
-		ipkg := buildInfo.imports[pkgPath]
+		lpkg, err := listPackage(pkgPath)
+		if err != nil {
+			return err
+		}
 		addReplace := func(str string) {
-			replaces = append(replaces, hashWith(ipkg.actionID, str), str)
+			replaces = append(replaces, hashWith(lpkg.GarbleActionID, str), str)
 		}
 
 		// Package paths are obfuscated, too.
 		addReplace(pkgPath)
 
-		lpkg, err := listPackage(pkgPath)
-		if err != nil {
-			return err
-		}
 		for _, goFile := range lpkg.GoFiles {
 			goFile = filepath.Join(lpkg.Dir, goFile)
 			file, err := parser.ParseFile(fset, goFile, nil, 0)
