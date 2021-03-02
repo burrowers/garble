@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
@@ -14,36 +15,48 @@ import (
 	"strings"
 )
 
-// shared this data is shared between the different garble processes
-type shared struct {
+// sharedCache this data is sharedCache between the different garble processes.
+//
+// Note that we fill this cache once from the root process in saveListedPackages,
+// store it into a temporary file via gob encoding, and then reuse that file
+// in each of the garble toolexec sub-processes.
+type sharedCache struct {
 	ExecPath   string   // absolute path to the garble binary being used
 	BuildFlags []string // build flags fed to the original "garble ..." command
 
-	Options        options        // garble options being used, i.e. our own flags
-	ListedPackages listedPackages // non-garbled view of all packages to build
+	Options flagOptions // garble options being used, i.e. our own flags
+
+	// ListedPackages contains data obtained via 'go list -json -export -deps'. This
+	// allows us to obtain the non-garbled export data of all dependencies, useful
+	// for type checking of the packages as we obfuscate them.
+	ListedPackages map[string]*listedPackage
+	MainImportPath string // TODO: remove with TOOLEXEC_IMPORTPATH
 }
 
-var cache *shared
+var cache *sharedCache
 
-// loadShared the shared data passed from the entry garble process
-func loadShared() error {
-	if cache == nil {
-		f, err := os.Open(filepath.Join(sharedTempDir, "main-cache.gob"))
-		if err != nil {
-			return fmt.Errorf(`cannot open shared file, this is most likely due to not running "garble [command]"`)
-		}
-		defer f.Close()
-		if err := gob.NewDecoder(f).Decode(&cache); err != nil {
-			return err
-		}
+// loadSharedCache the shared data passed from the entry garble process
+func loadSharedCache() error {
+	if cache != nil {
+		panic("shared cache loaded twice?")
 	}
-
+	f, err := os.Open(filepath.Join(sharedTempDir, "main-cache.gob"))
+	if err != nil {
+		return fmt.Errorf(`cannot open shared file, this is most likely due to not running "garble [command]"`)
+	}
+	defer f.Close()
+	if err := gob.NewDecoder(f).Decode(&cache); err != nil {
+		return err
+	}
 	return nil
 }
 
-// saveShared creates a temporary directory to share between garble processes.
+// saveSharedCache creates a temporary directory to share between garble processes.
 // This directory also includes the gob-encoded cache global.
-func saveShared() (string, error) {
+func saveSharedCache() (string, error) {
+	if cache == nil {
+		panic("saving a missing cache?")
+	}
 	dir, err := ioutil.TempDir("", "garble-shared")
 	if err != nil {
 		return "", err
@@ -62,8 +75,8 @@ func saveShared() (string, error) {
 	return dir, nil
 }
 
-// options are derived from the flags
-type options struct {
+// flagOptions are derived from the flags
+type flagOptions struct {
 	GarbleLiterals bool
 	Tiny           bool
 	GarbleDir      string
@@ -72,14 +85,17 @@ type options struct {
 	Random         bool
 }
 
-// setOptions sets all options from the user supplied flags.
-func setOptions() error {
+// setFlagOptions sets flagOptions from the user supplied flags.
+func setFlagOptions() error {
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 
-	opts = &options{
+	if cache != nil {
+		panic("opts set twice?")
+	}
+	opts = &flagOptions{
 		GarbleDir:      wd,
 		GarbleLiterals: flagGarbleLiterals,
 		Tiny:           flagGarbleTiny,
@@ -124,30 +140,27 @@ func setOptions() error {
 		opts.DebugDir = flagDebugDir
 	}
 
-	cache = &shared{Options: *opts}
-
 	return nil
 }
 
-// listedPackages contains data obtained via 'go list -json -export -deps'. This
-// allows us to obtain the non-garbled export data of all dependencies, useful
-// for type checking of the packages as we obfuscate them.
-//
-// Note that we obtain this data once in saveListedPackages, store it into a
-// temporary file via gob encoding, and then reuse that file in each of the
-// garble processes that wrap a package compilation.
-type listedPackages map[string]*listedPackage
-
-// listedPackage contains information useful for obfuscating a package
+// listedPackage contains the 'go list -json -export' fields obtained by the
+// root process, shared with all garble sub-processes via a file.
 type listedPackage struct {
 	Name       string
 	ImportPath string
 	Export     string
+	BuildID    string
 	Deps       []string
 	ImportMap  map[string]string
 
 	Dir     string
 	GoFiles []string
+
+	// The fields below are not part of 'go list', but are still reused
+	// between garble processes. Use "Garble" as a prefix to ensure no
+	// collisions with the JSON fields from 'go list'.
+
+	GarbleActionID []byte
 
 	// TODO(mvdan): reuse this field once TOOLEXEC_IMPORTPATH is used
 	private bool
@@ -156,7 +169,7 @@ type listedPackage struct {
 // setListedPackages gets information about the current package
 // and all of its dependencies
 func setListedPackages(patterns []string) error {
-	args := []string{"list", "-json", "-deps", "-export"}
+	args := []string{"list", "-json", "-deps", "-export", "-trimpath"}
 	args = append(args, cache.BuildFlags...)
 	args = append(args, patterns...)
 	cmd := exec.Command("go", args...)
@@ -172,12 +185,41 @@ func setListedPackages(patterns []string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("go list error: %v", err)
 	}
+
+	binaryBuildID, err := buildidOf(cache.ExecPath)
+	if err != nil {
+		return err
+	}
+	binaryContentID := decodeHash(splitContentID(binaryBuildID))
+
 	dec := json.NewDecoder(stdout)
-	cache.ListedPackages = make(listedPackages)
+	cache.ListedPackages = make(map[string]*listedPackage)
 	for dec.More() {
 		var pkg listedPackage
 		if err := dec.Decode(&pkg); err != nil {
 			return err
+		}
+		if pkg.Export != "" {
+			buildID := pkg.BuildID
+			if buildID == "" {
+				// go list only includes BuildID in 1.16+
+				buildID, err = buildidOf(pkg.Export)
+				if err != nil {
+					panic(err) // shouldn't happen
+				}
+			}
+			actionID := decodeHash(splitActionID(buildID))
+			h := sha256.New()
+			h.Write(actionID)
+			h.Write(binaryContentID)
+
+			pkg.GarbleActionID = h.Sum(nil)[:buildIDComponentLength]
+		}
+		if pkg.Name == "main" {
+			if cache.MainImportPath != "" {
+				return fmt.Errorf("found two main packages: %s %s", cache.MainImportPath, pkg.ImportPath)
+			}
+			cache.MainImportPath = pkg.ImportPath
 		}
 		cache.ListedPackages[pkg.ImportPath] = &pkg
 	}
@@ -217,10 +259,8 @@ func listPackage(path string) (*listedPackage, error) {
 	// If the path is listed in the top-level ImportMap, use its mapping instead.
 	// This is a common scenario when dealing with vendored packages in GOROOT.
 	// The map is flat, so we don't need to recurse.
-	if fromPkg, ok := cache.ListedPackages[curPkgPath]; ok {
-		if path2 := fromPkg.ImportMap[path]; path2 != "" {
-			path = path2
-		}
+	if path2 := curPkg.ImportMap[path]; path2 != "" {
+		path = path2
 	}
 
 	pkg, ok := cache.ListedPackages[path]

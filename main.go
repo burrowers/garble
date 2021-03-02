@@ -9,7 +9,6 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -100,33 +99,21 @@ var (
 		return os.Open(pkg.Export)
 	})
 
-	// Basic information about the package being currently compiled or
-	// linked. These variables are filled in early, and reused later.
-	curPkgPath   string // note that this isn't filled for the linker yet
-	curActionID  []byte
-	curImportCfg string
+	// Basic information about the package being currently compiled or linked.
+	curPkg *listedPackage
 
 	buildInfo = struct {
-		// TODO: replace part of this with goobj.ParseImportCfg, so that
-		// we can also reuse it. For now, parsing ourselves is still
-		// necessary so that we can set firstImport.
+		// TODO: do we still need imports?
 		imports map[string]importedPkg // parsed importCfg plus cached info
-
-		firstImport string // first from -importcfg; the main package when linking
 	}{imports: make(map[string]importedPkg)}
 
 	garbledImporter = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
 		return os.Open(buildInfo.imports[path].packagefile)
 	}).(types.ImporterFrom)
 
-	opts *options
+	opts *flagOptions
 
 	envGoPrivate = os.Getenv("GOPRIVATE") // complemented by 'go env' later
-)
-
-const (
-	// Note that these are capped at 16 bytes.
-	headerDebugSource = "garble/debugSrc"
 )
 
 func garbledImport(path string) (*types.Package, error) {
@@ -150,7 +137,6 @@ func garbledImport(path string) (*types.Package, error) {
 
 type importedPkg struct {
 	packagefile string
-	actionID    []byte
 
 	pkg *types.Package
 }
@@ -284,7 +270,7 @@ func mainErr(args []string) error {
 	// We're in a toolexec sub-process, not directly called by the user.
 	// Load the shared data and wrap the tool, like the compiler or linker.
 
-	if err := loadShared(); err != nil {
+	if err := loadSharedCache(); err != nil {
 		return err
 	}
 	opts = &cache.Options
@@ -334,9 +320,13 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 		}
 	}
 
-	if err := setOptions(); err != nil {
+	if err := setFlagOptions(); err != nil {
 		return nil, err
 	}
+
+	// Here is the only place we initialize the cache.
+	// The sub-processes will parse it from a shared gob file.
+	cache = &sharedCache{Options: *opts}
 
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.
@@ -359,7 +349,7 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 		return nil, err
 	}
 
-	sharedTempDir, err = saveShared()
+	sharedTempDir, err = saveSharedCache()
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +396,7 @@ func transformAsm(args []string) ([]string, error) {
 			symAbis = true
 		}
 	}
-	curPkgPath = flagValue(flags, "-p")
+	curPkgPath := flagValue(flags, "-p")
 
 	// If we are generating symbol ABIs, the output does not actually
 	// contain curPkgPath. Exported APIs show up as "".FooBar.
@@ -415,14 +405,13 @@ func transformAsm(args []string) ([]string, error) {
 	// To obfuscate the path in the -p flag, we need the current action ID,
 	// which we recover from the file that transformCompile wrote for us.
 	if !symAbis && curPkgPath != "main" && isPrivate(curPkgPath) {
-		savedActionID := filepath.Join(sharedTempDir, strings.ReplaceAll(curPkgPath, "/", ","))
-		var err error
-		curActionID, err = ioutil.ReadFile(savedActionID)
-		if err != nil {
-			return nil, fmt.Errorf("could not read build ID: %v", err)
+		curPkgPathFull := curPkgPath
+		if curPkgPathFull == "main" {
+			// TODO(mvdan): this can go with TOOLEXEC_IMPORTPATH
+			curPkgPathFull = cache.MainImportPath
 		}
 
-		newPkgPath := hashWith(curActionID, curPkgPath)
+		newPkgPath := hashWith(cache.ListedPackages[curPkgPathFull].GarbleActionID, curPkgPath)
 		flags = flagSetValue(flags, "-p", newPkgPath)
 	}
 
@@ -437,7 +426,7 @@ func transformCompile(args []string) ([]string, error) {
 	// generating it.
 	flags = append(flags, "-dwarf=false")
 
-	curPkgPath = flagValue(flags, "-p")
+	curPkgPath := flagValue(flags, "-p")
 	if (curPkgPath == "runtime" && opts.Tiny) || curPkgPath == "runtime/internal/sys" {
 		// Even though these packages aren't private, we will still process
 		// them later to remove build information and strip code from the
@@ -465,25 +454,17 @@ func transformCompile(args []string) ([]string, error) {
 	if !strings.Contains(trimpath, ";") {
 		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
 	}
+
+	curPkgPathFull := curPkgPath
+	if curPkgPathFull == "main" {
+		// TODO(mvdan): this can go with TOOLEXEC_IMPORTPATH
+		curPkgPathFull = cache.MainImportPath
+	}
+	curPkg = cache.ListedPackages[curPkgPathFull]
+
 	newImportCfg, err := fillBuildInfo(flags)
 	if err != nil {
 		return nil, err
-	}
-
-	// Tools which run after the main compile run, such as asm, also need
-	// the current action ID to obfuscate the package path in their -p flag.
-	// They lack the -buildid flag, so store it in a unique file here to be
-	// recovered by the other tools later, such as transformAsm.
-	// Import paths include slashes, which usually cannot be in filenames,
-	// so replace those with commas, which should be fine and cannot be part
-	// of an import path.
-	// We only write each file once, as we compile each package once.
-	// Each filename is also unique, since import paths are unique.
-	// TODO: perhaps error if the file already exists, to double check that
-	// the assumptions above are correct.
-	savedActionID := filepath.Join(sharedTempDir, strings.ReplaceAll(curPkgPath, "/", ","))
-	if err := ioutil.WriteFile(savedActionID, curActionID, 0o666); err != nil {
-		return nil, fmt.Errorf("could not store action ID: %v", err)
 	}
 
 	var files []*ast.File
@@ -497,7 +478,7 @@ func transformCompile(args []string) ([]string, error) {
 
 	randSeed := opts.Seed
 	if len(randSeed) == 0 {
-		randSeed = curActionID
+		randSeed = curPkg.GarbleActionID
 	}
 	// log.Printf("seeding math/rand with %x\n", randSeed)
 	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
@@ -535,7 +516,7 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	origTypesConfig := types.Config{Importer: origImporter}
-	tf.pkg, err = origTypesConfig.Check(curPkgPath, fset, files, tf.info)
+	tf.pkg, err = origTypesConfig.Check(curPkgPathFull, fset, files, tf.info)
 	if err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
@@ -575,7 +556,8 @@ func transformCompile(args []string) ([]string, error) {
 	// package path.
 	newPkgPath := curPkgPath
 	if curPkgPath != "main" && isPrivate(curPkgPath) {
-		newPkgPath = hashWith(curActionID, curPkgPath)
+		newPkgPath = hashWith(curPkg.GarbleActionID, curPkgPath)
+		// println("compile -p:", curPkgPath, newPkgPath)
 		flags = flagSetValue(flags, "-p", newPkgPath)
 	}
 
@@ -631,15 +613,14 @@ func transformCompile(args []string) ([]string, error) {
 				// Replace the import path with its obfuscated version.
 				// If the import was unnamed, give it the name of the
 				// original package name, to keep references working.
-				actionID := buildInfo.imports[path].actionID
-				newPath := hashWith(actionID, path)
+				lpkg, err := listPackage(path)
+				if err != nil {
+					panic(err) // should never happen
+				}
+				newPath := hashWith(lpkg.GarbleActionID, path)
 				imp.Path.Value = strconv.Quote(newPath)
 				if imp.Name == nil {
-					pkg, err := listPackage(path)
-					if err != nil {
-						panic(err) // should never happen
-					}
-					imp.Name = &ast.Ident{Name: pkg.Name}
+					imp.Name = &ast.Ident{Name: lpkg.Name}
 				}
 				return true
 			})
@@ -738,30 +719,30 @@ func (tf *transformer) handleDirectives(comments []string) {
 		if len(target) != 2 {
 			continue
 		}
-		pkg, name := target[0], target[1]
-		if pkg == "runtime" && strings.HasPrefix(name, "cgo") {
+		pkgPath, name := target[0], target[1]
+		if pkgPath == "runtime" && strings.HasPrefix(name, "cgo") {
 			continue // ignore cgo-generated linknames
 		}
-		if !isPrivate(pkg) {
+		if !isPrivate(pkgPath) {
 			continue // ignore non-private symbols
 		}
-		listedPkg, ok := buildInfo.imports[pkg]
-		if !ok {
+		lpkg, err := listPackage(pkgPath)
+		if err != nil {
 			continue // probably a made up symbol name
 		}
-		garbledPkg, _ := garbledImport(pkg)
+		garbledPkg, _ := garbledImport(pkgPath)
 		if garbledPkg != nil && garbledPkg.Scope().Lookup(name) != nil {
 			continue // the name exists and was not garbled
 		}
 
 		// The name exists and was obfuscated; replace the
 		// comment with the obfuscated name.
-		newName := hashWith(listedPkg.actionID, name)
-		newPkg := pkg
-		if pkg != "main" {
-			newPkg = hashWith(listedPkg.actionID, pkg)
+		newName := hashWith(lpkg.GarbleActionID, name)
+		newPkgPath := pkgPath
+		if pkgPath != "main" {
+			newPkgPath = hashWith(lpkg.GarbleActionID, pkgPath)
 		}
-		fields[2] = newPkg + "." + newName
+		fields[2] = newPkgPath + "." + newName
 		comments[i] = strings.Join(fields, " ")
 	}
 }
@@ -878,18 +859,11 @@ func isPrivate(path string) bool {
 // and constructs a new importcfg with the obfuscated import paths changed as
 // necessary.
 func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
-	buildID := flagValue(flags, "-buildid")
-	switch buildID {
-	case "", "true":
-		return "", fmt.Errorf("could not find -buildid argument")
-	}
-
-	curActionID = decodeHash(splitActionID(buildID))
-	curImportCfg = flagValue(flags, "-importcfg")
-	if curImportCfg == "" {
+	importCfg := flagValue(flags, "-importcfg")
+	if importCfg == "" {
 		return "", fmt.Errorf("could not find -importcfg argument")
 	}
-	data, err := ioutil.ReadFile(curImportCfg)
+	data, err := ioutil.ReadFile(importCfg)
 	if err != nil {
 		return "", err
 	}
@@ -921,20 +895,8 @@ func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
 				continue
 			}
 			importPath, objectPath := args[:j], args[j+1:]
-			buildID, err := buildidOf(objectPath)
-			if err != nil {
-				return "", err
-			}
-			// log.Println("buildid:", buildID)
 
-			if len(buildInfo.imports) == 0 {
-				buildInfo.firstImport = importPath
-			}
-			actionID := decodeHash(splitActionID(buildID))
-			impPkg := importedPkg{
-				packagefile: objectPath,
-				actionID:    actionID,
-			}
+			impPkg := importedPkg{packagefile: objectPath}
 			buildInfo.imports[importPath] = impPkg
 
 			if otherPath, ok := importMap[importPath]; ok {
@@ -953,16 +915,23 @@ func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
 		return "", err
 	}
 	for beforePath, afterPath := range importMap {
-		if isPrivate(afterPath) {
-			actionID := buildInfo.imports[afterPath].actionID
-			afterPath = hashWith(actionID, afterPath)
+		if isPrivate(beforePath) {
+			println(beforePath, afterPath)
+			pkg, err := listPackage(beforePath)
+			if err != nil {
+				panic(err) // shouldn't happen
+			}
+			afterPath = hashWith(pkg.GarbleActionID, afterPath)
 		}
 		fmt.Fprintf(newCfg, "importmap %s=%s\n", beforePath, afterPath)
 	}
 	for impPath, pkg := range buildInfo.imports {
 		if isPrivate(impPath) {
-			actionID := buildInfo.imports[impPath].actionID
-			impPath = hashWith(actionID, impPath)
+			pkg, err := listPackage(impPath)
+			if err != nil {
+				panic(err) // shouldn't happen
+			}
+			impPath = hashWith(pkg.GarbleActionID, impPath)
 		}
 		fmt.Fprintf(newCfg, "packagefile %s=%s\n", impPath, pkg.packagefile)
 	}
@@ -1172,69 +1141,15 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			return true // we only want to rename the above
 		}
 
-		// Handle the case where the name is defined in an indirectly
-		// imported package. Since only direct imports show up in our
-		// importcfg, buildInfo.imports will not initially contain the
-		// package path we want.
-		//
-		// This edge case can happen, for example, if package A imports
-		// package B and calls its API, and B's API returns C's struct.
-		// Suddenly, A can use struct field names defined in C, even
-		// though A never directly imports C.
-		//
-		// For this rare case, for now, do an extra "go list -toolexec"
-		// call to retrieve its export path.
-		// TODO: Think about ways to avoid this extra exec call. Perhaps
-		// add an extra archive header to record all direct and indirect
-		// importcfg data, like we do with private name maps.
-		if _, e := buildInfo.imports[path]; !e && path != curPkgPath {
-			goArgs := []string{
-				"list",
-				"-json",
-				"-export",
-				"-trimpath",
-				"-toolexec=" + cache.ExecPath,
-			}
-			goArgs = append(goArgs, cache.BuildFlags...)
-			goArgs = append(goArgs, path)
-
-			cmd := exec.Command("go", goArgs...)
-			cmd.Dir = opts.GarbleDir
-			out, err := cmd.Output()
-			if err != nil {
-				if err := err.(*exec.ExitError); err != nil {
-					panic(fmt.Sprintf("%v: %s", err, err.Stderr))
-				}
-				panic(err)
-			}
-			var pkg listedPackage
-			if err := json.Unmarshal(out, &pkg); err != nil {
-				panic(err) // shouldn't happen
-			}
-			buildID, err := buildidOf(pkg.Export)
-			if err != nil {
-				panic(err) // shouldn't happen
-			}
-			// Adding it to buildInfo.imports allows us to reuse the
-			// "if" branch below. Plus, if this edge case triggers
-			// multiple times in a single package compile, we can
-			// call "go list" once and cache its result.
-			if pkg.ImportPath != path {
-				panic(fmt.Sprintf("unexpected path: %q vs %q", pkg.ImportPath, path))
-			}
-			buildInfo.imports[path] = importedPkg{
-				packagefile: pkg.Export,
-				actionID:    decodeHash(splitActionID(buildID)),
-			}
-			// log.Printf("fetched indirect dependency %q from: %s", path, pkg.Export)
+		lpkg, err := listPackage(path)
+		if err != nil {
+			panic(err) // shouldn't happen
 		}
-
-		actionID := curActionID
 		// TODO: Make this check less prone to bugs, like the one we had
 		// with indirect dependencies. If "path" is not our current
 		// package, then it must exist in buildInfo.imports. Otherwise
 		// we should panic.
-		if id := buildInfo.imports[path].actionID; len(id) > 0 {
+		if buildInfo.imports[path].packagefile != "" {
 			garbledPkg, err := garbledImport(path)
 			if err != nil {
 				panic(err) // shouldn't happen
@@ -1245,14 +1160,13 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			if o := garbledPkg.Scope().Lookup(obj.Name()); o != nil && reflect.TypeOf(o) == reflect.TypeOf(obj) {
 				return true
 			}
-			actionID = id
 		}
 
 		origName := node.Name
 		_ = origName // used for debug prints below
 
-		node.Name = hashWith(actionID, node.Name)
-		// log.Printf("%q hashed with %x to %q", origName, actionID, node.Name)
+		node.Name = hashWith(lpkg.GarbleActionID, node.Name)
+		// log.Printf("%q hashed with %x to %q", origName, lpkg.GarbleActionID, node.Name)
 		return true
 	}
 	return astutil.Apply(file, pre, nil).(*ast.File)
@@ -1320,6 +1234,8 @@ func transformLink(args []string) ([]string, error) {
 	// lack any extension.
 	flags, args := splitFlagsFromArgs(args)
 
+	curPkg = cache.ListedPackages[cache.MainImportPath]
+
 	newImportCfg, err := fillBuildInfo(flags)
 	if err != nil {
 		return nil, err
@@ -1344,11 +1260,9 @@ func transformLink(args []string) ([]string, error) {
 
 		pkgPath := pkg
 		if pkgPath == "main" {
-			// The main package is known under its import path in
-			// the import config map.
-			pkgPath = buildInfo.firstImport
+			pkgPath = cache.MainImportPath
 		}
-		id := buildInfo.imports[pkgPath].actionID
+		id := cache.ListedPackages[pkgPath].GarbleActionID
 		newName := hashWith(id, name)
 		newPkg := pkg
 		if pkg != "main" && isPrivate(pkg) {
