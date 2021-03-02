@@ -235,6 +235,13 @@ func stringTypeFunc(s stringType) stringType {
 	println(s)
 	return "stringType return" // skip
 }
+
+// obfuscating this broke before
+const (
+	iota0 uint8 = iota
+	iota1
+)
+
 -- main.stderr --
 Lorem true
 First Line

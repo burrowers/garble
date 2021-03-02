@@ -47,6 +47,11 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, ignoreO
 					return false
 				}
 
+				if len(spec.Values) == 0 {
+					// skip constants with inferred values
+					return false
+				}
+
 				for _, name := range spec.Names {
 					obj := info.ObjectOf(name)
 
