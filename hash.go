@@ -18,11 +18,7 @@ const buildIDSeparator = "/"
 
 // splitActionID returns the action ID half of a build ID, the first component.
 func splitActionID(buildID string) string {
-	i := strings.Index(buildID, buildIDSeparator)
-	if i < 0 {
-		return buildID
-	}
-	return buildID[:i]
+	return buildID[:strings.Index(buildID, buildIDSeparator)]
 }
 
 // splitContentID returns the content ID half of a build ID, the last component.
@@ -80,24 +76,15 @@ func alterToolVersion(tool string, args []string) error {
 }
 
 func ownContentID(toolID []byte) ([]byte, error) {
-	// We can't rely on the module version to exist, because it's
-	// missing in local builds without 'go get'.
-	// For now, use 'go tool buildid' on the garble binary.
-	// Just like Go's own cache, we use hex-encoded sha256 sums.
-	// Once https://github.com/golang/go/issues/37475 is fixed, we
-	// can likely just use that.
-	binaryBuildID, err := buildidOf(cache.ExecPath)
-	if err != nil {
-		return nil, err
-	}
-	binaryContentID := decodeHash(splitContentID(binaryBuildID))
-
 	// Join the two content IDs together into a single base64-encoded sha256
 	// sum. This includes the original tool's content ID, and garble's own
 	// content ID.
 	h := sha256.New()
 	h.Write(toolID)
-	h.Write(binaryContentID)
+	if len(cache.BinaryContentID) == 0 {
+		panic("missing binary content ID")
+	}
+	h.Write(cache.BinaryContentID)
 
 	// We also need to add the selected options to the full version string,
 	// because all of them result in different output. We use spaces to

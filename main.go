@@ -102,13 +102,12 @@ var (
 	// Basic information about the package being currently compiled or linked.
 	curPkg *listedPackage
 
-	buildInfo = struct {
-		// TODO: do we still need imports?
-		imports map[string]importedPkg // parsed importCfg plus cached info
-	}{imports: make(map[string]importedPkg)}
-
-	garbledImporter = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
-		return os.Open(buildInfo.imports[path].packagefile)
+	// These are pulled from -importcfg in the current obfuscated build.
+	// As such, they contain export data for the dependencies which might be
+	// themselves obfuscated, depending on GOPRIVATE.
+	importCfgEntries map[string]*importCfgEntry
+	garbledImporter  = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+		return os.Open(importCfgEntries[path].packagefile)
 	}).(types.ImporterFrom)
 
 	opts *flagOptions
@@ -116,29 +115,26 @@ var (
 	envGoPrivate = os.Getenv("GOPRIVATE") // complemented by 'go env' later
 )
 
-func garbledImport(path string) (*types.Package, error) {
-	ipkg, ok := buildInfo.imports[path]
+func obfuscatedTypesPackage(path string) *types.Package {
+	entry, ok := importCfgEntries[path]
 	if !ok {
-		return nil, fmt.Errorf("could not find imported package %q", path)
+		return nil
 	}
-	if ipkg.pkg != nil {
-		return ipkg.pkg, nil // cached
-	}
-	if opts.GarbleDir == "" {
-		return nil, fmt.Errorf("$GARBLE_DIR unset; did you run via 'garble build'?")
+	if entry.cachedPkg != nil {
+		return entry.cachedPkg
 	}
 	pkg, err := garbledImporter.ImportFrom(path, opts.GarbleDir, 0)
 	if err != nil {
-		return nil, err
+		return nil
 	}
-	ipkg.pkg = pkg // cache for later use
-	return pkg, nil
+	entry.cachedPkg = pkg // cache for later use
+	return pkg
 }
 
-type importedPkg struct {
+type importCfgEntry struct {
 	packagefile string
 
-	pkg *types.Package
+	cachedPkg *types.Package
 }
 
 func main1() int {
@@ -462,7 +458,7 @@ func transformCompile(args []string) ([]string, error) {
 	}
 	curPkg = cache.ListedPackages[curPkgPathFull]
 
-	newImportCfg, err := fillBuildInfo(flags)
+	newImportCfg, err := processImportCfg(flags)
 	if err != nil {
 		return nil, err
 	}
@@ -515,6 +511,7 @@ func transformCompile(args []string) ([]string, error) {
 		origImporter = importer.Default()
 	}
 
+	// TODO(mvdan): can we use IgnoreFuncBodies=true?
 	origTypesConfig := types.Config{Importer: origImporter}
 	tf.pkg, err = origTypesConfig.Check(curPkgPathFull, fset, files, tf.info)
 	if err != nil {
@@ -557,7 +554,6 @@ func transformCompile(args []string) ([]string, error) {
 	newPkgPath := curPkgPath
 	if curPkgPath != "main" && isPrivate(curPkgPath) {
 		newPkgPath = hashWith(curPkg.GarbleActionID, curPkgPath)
-		// println("compile -p:", curPkgPath, newPkgPath)
 		flags = flagSetValue(flags, "-p", newPkgPath)
 	}
 
@@ -730,8 +726,8 @@ func (tf *transformer) handleDirectives(comments []string) {
 		if err != nil {
 			continue // probably a made up symbol name
 		}
-		garbledPkg, _ := garbledImport(pkgPath)
-		if garbledPkg != nil && garbledPkg.Scope().Lookup(name) != nil {
+		obfPkg := obfuscatedTypesPackage(pkgPath)
+		if obfPkg != nil && obfPkg.Scope().Lookup(name) != nil {
 			continue // the name exists and was not garbled
 		}
 
@@ -855,10 +851,10 @@ func isPrivate(path string) bool {
 	return module.MatchPrefixPatterns(envGoPrivate, path)
 }
 
-// fillBuildInfo initializes the global buildInfo struct via the supplied flags,
-// and constructs a new importcfg with the obfuscated import paths changed as
+// processImportCfg initializes importCfgEntries via the supplied flags, and
+// constructs a new importcfg with the obfuscated import paths changed as
 // necessary.
-func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
+func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	importCfg := flagValue(flags, "-importcfg")
 	if importCfg == "" {
 		return "", fmt.Errorf("could not find -importcfg argument")
@@ -868,7 +864,9 @@ func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
 		return "", err
 	}
 
+	importCfgEntries = make(map[string]*importCfgEntry)
 	importMap := make(map[string]string)
+
 	for _, line := range strings.SplitAfter(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -896,11 +894,11 @@ func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
 			}
 			importPath, objectPath := args[:j], args[j+1:]
 
-			impPkg := importedPkg{packagefile: objectPath}
-			buildInfo.imports[importPath] = impPkg
+			impPkg := &importCfgEntry{packagefile: objectPath}
+			importCfgEntries[importPath] = impPkg
 
 			if otherPath, ok := importMap[importPath]; ok {
-				buildInfo.imports[otherPath] = impPkg
+				importCfgEntries[otherPath] = impPkg
 			}
 		}
 	}
@@ -916,7 +914,6 @@ func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
 	}
 	for beforePath, afterPath := range importMap {
 		if isPrivate(beforePath) {
-			println(beforePath, afterPath)
 			pkg, err := listPackage(beforePath)
 			if err != nil {
 				panic(err) // shouldn't happen
@@ -925,7 +922,7 @@ func fillBuildInfo(flags []string) (newImportCfg string, _ error) {
 		}
 		fmt.Fprintf(newCfg, "importmap %s=%s\n", beforePath, afterPath)
 	}
-	for impPath, pkg := range buildInfo.imports {
+	for impPath, pkg := range importCfgEntries {
 		if isPrivate(impPath) {
 			pkg, err := listPackage(impPath)
 			if err != nil {
@@ -1095,8 +1092,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 					// We're not obfuscating cgo names.
 					return true
 				}
-				if garbledPkg, _ := garbledImport(path); garbledPkg != nil {
-					if garbledPkg.Scope().Lookup(named.Obj().Name()) != nil {
+				if obfPkg := obfuscatedTypesPackage(path); obfPkg != nil {
+					if obfPkg.Scope().Lookup(named.Obj().Name()) != nil {
 						recordStruct(named, tf.ignoreObjects)
 						return true
 					}
@@ -1115,8 +1112,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				if named == nil {
 					break
 				}
-				if garbledPkg, _ := garbledImport(path); garbledPkg != nil {
-					if garbledPkg.Scope().Lookup(x.Name()) != nil {
+				if obfPkg := obfuscatedTypesPackage(path); obfPkg != nil {
+					if obfPkg.Scope().Lookup(x.Name()) != nil {
 						recordStruct(named, tf.ignoreObjects)
 						return true
 					}
@@ -1145,21 +1142,19 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		if err != nil {
 			panic(err) // shouldn't happen
 		}
-		// TODO: Make this check less prone to bugs, like the one we had
-		// with indirect dependencies. If "path" is not our current
-		// package, then it must exist in buildInfo.imports. Otherwise
-		// we should panic.
-		if buildInfo.imports[path].packagefile != "" {
-			garbledPkg, err := garbledImport(path)
-			if err != nil {
-				panic(err) // shouldn't happen
-			}
-			// Check if the imported name wasn't garbled, e.g. if it's assembly.
-			// If the object returned from the garbled package's scope has a different type as the object
-			// we're searching for, they are most likely two separate objects with the same name, so ok to garble
-			if o := garbledPkg.Scope().Lookup(obj.Name()); o != nil && reflect.TypeOf(o) == reflect.TypeOf(obj) {
-				return true
-			}
+
+		obfPkg := obfuscatedTypesPackage(path)
+		// Check if the imported name wasn't garbled, e.g. if it's assembly.
+		// If the object returned from the garbled package's scope has a
+		// different type as the object we're searching for, they are
+		// most likely two separate objects with the same name, so ok to
+		// garble
+		if obfPkg == nil {
+			// TODO(mvdan): This is probably a bug.
+			// Add a test case where an indirect package has a name
+			// that we did not obfuscate.
+		} else if o := obfPkg.Scope().Lookup(obj.Name()); o != nil && reflect.TypeOf(o) == reflect.TypeOf(obj) {
+			return true
 		}
 
 		origName := node.Name
@@ -1236,7 +1231,7 @@ func transformLink(args []string) ([]string, error) {
 
 	curPkg = cache.ListedPackages[cache.MainImportPath]
 
-	newImportCfg, err := fillBuildInfo(flags)
+	newImportCfg, err := processImportCfg(flags)
 	if err != nil {
 		return nil, err
 	}
