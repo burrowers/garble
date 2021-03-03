@@ -1257,11 +1257,17 @@ func transformLink(args []string) ([]string, error) {
 		if pkgPath == "main" {
 			pkgPath = cache.MainImportPath
 		}
-		id := cache.ListedPackages[pkgPath].GarbleActionID
-		newName := hashWith(id, name)
+		lpkg := cache.ListedPackages[pkgPath]
+		if lpkg == nil {
+			// We couldn't find the package.
+			// Perhaps a typo, perhaps not part of the build.
+			// cmd/link ignores those, so we should too.
+			return
+		}
+		newName := hashWith(lpkg.GarbleActionID, name)
 		newPkg := pkg
 		if pkg != "main" && isPrivate(pkg) {
-			newPkg = hashWith(id, pkg)
+			newPkg = hashWith(lpkg.GarbleActionID, pkg)
 		}
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPkg, newName, str))
 	})
