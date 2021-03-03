@@ -176,6 +176,14 @@ type listedPackage struct {
 	private bool
 }
 
+func (p *listedPackage) obfuscatedImportPath() string {
+	if p.Name == "main" || !isPrivate(p.ImportPath) {
+		return p.ImportPath
+	}
+	newPath := hashWith(p.GarbleActionID, p.ImportPath)
+	return newPath
+}
+
 // setListedPackages gets information about the current package
 // and all of its dependencies
 func setListedPackages(patterns []string) error {

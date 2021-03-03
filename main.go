@@ -407,8 +407,8 @@ func transformAsm(args []string) ([]string, error) {
 			curPkgPathFull = cache.MainImportPath
 		}
 
-		newPkgPath := hashWith(cache.ListedPackages[curPkgPathFull].GarbleActionID, curPkgPath)
-		flags = flagSetValue(flags, "-p", newPkgPath)
+		lpkg := cache.ListedPackages[curPkgPathFull]
+		flags = flagSetValue(flags, "-p", lpkg.obfuscatedImportPath())
 	}
 
 	return append(flags, paths...), nil
@@ -553,7 +553,7 @@ func transformCompile(args []string) ([]string, error) {
 	// package path.
 	newPkgPath := curPkgPath
 	if curPkgPath != "main" && isPrivate(curPkgPath) {
-		newPkgPath = hashWith(curPkg.GarbleActionID, curPkgPath)
+		newPkgPath = curPkg.obfuscatedImportPath()
 		flags = flagSetValue(flags, "-p", newPkgPath)
 	}
 
@@ -588,11 +588,6 @@ func transformCompile(args []string) ([]string, error) {
 		default:
 			file = tf.transformGo(file)
 
-			// Uncomment for some quick debugging. Do not delete.
-			// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", curPkgPath, origName)
-			// if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
-			// 	return nil, err
-			// }
 			ast.Inspect(file, func(node ast.Node) bool {
 				imp, ok := node.(*ast.ImportSpec)
 				if !ok {
@@ -613,7 +608,7 @@ func transformCompile(args []string) ([]string, error) {
 				if err != nil {
 					panic(err) // should never happen
 				}
-				newPath := hashWith(lpkg.GarbleActionID, path)
+				newPath := lpkg.obfuscatedImportPath()
 				imp.Path.Value = strconv.Quote(newPath)
 				if imp.Name == nil {
 					imp.Name = &ast.Ident{Name: lpkg.Name}
@@ -624,6 +619,12 @@ func transformCompile(args []string) ([]string, error) {
 		if curPkgPath != "main" && isPrivate(curPkgPath) {
 			file.Name.Name = newPkgPath
 		}
+
+		// Uncomment for some quick debugging. Do not delete.
+		// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", curPkgPath, origName)
+		// if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
+		// 	return nil, err
+		// }
 
 		tempFile, err := ioutil.TempFile(sharedTempDir, name+".*.go")
 		if err != nil {
@@ -736,7 +737,7 @@ func (tf *transformer) handleDirectives(comments []string) {
 		newName := hashWith(lpkg.GarbleActionID, name)
 		newPkgPath := pkgPath
 		if pkgPath != "main" {
-			newPkgPath = hashWith(lpkg.GarbleActionID, pkgPath)
+			newPkgPath = lpkg.obfuscatedImportPath()
 		}
 		fields[2] = newPkgPath + "." + newName
 		comments[i] = strings.Join(fields, " ")
@@ -820,6 +821,15 @@ var runtimeRelated = map[string]bool{
 	// Go 1.15's "net" package depends on "math/rand", but 1.16's does not.
 	// Keep it here to support 1.15.
 	"math/rand": true,
+
+	// These packages call pure Go functions from assembly functions.
+	// We obfuscate the pure Go function name, breaking the assembly.
+	// We do not deal with that edge case just yet, so for now,
+	// never obfuscate these packages.
+	// TODO: remove once we fix issue 261.
+	"math/big":      true,
+	"crypto/sha512": true,
+	"crypto":        true,
 }
 
 // isPrivate checks if GOPRIVATE matches path.
@@ -913,22 +923,29 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 		return "", err
 	}
 	for beforePath, afterPath := range importMap {
-		if isPrivate(beforePath) {
-			pkg, err := listPackage(beforePath)
+		if isPrivate(afterPath) {
+			lpkg, err := listPackage(beforePath)
 			if err != nil {
 				panic(err) // shouldn't happen
 			}
-			afterPath = hashWith(pkg.GarbleActionID, afterPath)
+
+			// Note that beforePath is not the canonical path.
+			// For beforePath="vendor/foo", afterPath and
+			// lpkg.ImportPath can be just "foo".
+			// Don't use obfuscatedImportPath here.
+			beforePath = hashWith(lpkg.GarbleActionID, beforePath)
+
+			afterPath = lpkg.obfuscatedImportPath()
 		}
 		fmt.Fprintf(newCfg, "importmap %s=%s\n", beforePath, afterPath)
 	}
 	for impPath, pkg := range importCfgEntries {
 		if isPrivate(impPath) {
-			pkg, err := listPackage(impPath)
+			lpkg, err := listPackage(impPath)
 			if err != nil {
 				panic(err) // shouldn't happen
 			}
-			impPath = hashWith(pkg.GarbleActionID, impPath)
+			impPath = lpkg.obfuscatedImportPath()
 		}
 		fmt.Fprintf(newCfg, "packagefile %s=%s\n", impPath, pkg.packagefile)
 	}
