@@ -1,19 +1,21 @@
 # Note the proper domain, since the dot adds an edge case.
 env GOPRIVATE=domain.test/main
 
-garble build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=domain.test/main/imported.ExportedVar=replaced'
+env LDFLAGS='-X=main.unexportedVersion=v1.0.0 -X=domain.test/main/imported.ExportedVar=replaced -X=domain.test/missing/path.missingVar=value'
+
+garble build -ldflags=${LDFLAGS}
 exec ./main
 cmp stderr main.stderr
 ! binsubstr main$exe 'unexportedVersion'
 
 [short] stop # no need to verify this with -short
 
-garble -tiny build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=domain.test/main/imported.ExportedVar=replaced'
+garble -tiny build -ldflags=${LDFLAGS}
 exec ./main
 cmp stderr main.stderr
 ! binsubstr main$exe 'unexportedVersion'
 
-exec go build -ldflags='-X=main.unexportedVersion=v1.0.0 -X=domain.test/main/imported.ExportedVar=replaced'
+exec go build -ldflags=${LDFLAGS}
 exec ./main
 cmp stderr main.stderr
 binsubstr main$exe 'unexportedVersion'
