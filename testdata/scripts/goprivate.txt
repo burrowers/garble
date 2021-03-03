@@ -6,7 +6,9 @@ env GOPRIVATE=test/main/imported
 ! garble build ./importer
 stderr '^public package "test/main/importer" can''t depend on obfuscated package "test/main/imported" \(matched via GOPRIVATE="test/main/imported"\)$'
 
-[short] stop
+[short] stop # rebuilding std is slow
+
+env GOPRIVATE='*'
 
 # Try garbling all of std, given some std packages.
 # No need for a main package here; building the std packages directly works the
@@ -15,8 +17,11 @@ stderr '^public package "test/main/importer" can''t depend on obfuscated package
 # packages so we must properly support ImportMap.
 # Plus, some packages like net make heavy use of complex features like Cgo.
 # Note that we won't obfuscate a few std packages just yet, mainly those around runtime.
-env GOPRIVATE='*'
 garble build std
+
+# Link a binary importing crypto/ecdsa, which will catch whether or not we
+# support ImportMap when linking.
+garble build -o=out ./stdimporter
 
 -- go.mod --
 module test/main
@@ -36,3 +41,13 @@ var _ = imported.Name
 package imported
 
 var Name = "value"
+-- stdimporter/main.go --
+package main
+
+import (
+        "crypto/ecdsa"
+)
+
+func main() {
+        ecdsa.Verify(nil, nil, nil, nil)
+}
