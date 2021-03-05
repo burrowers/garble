@@ -55,7 +55,7 @@ grep '^\s+type \w+ func\(byte\) \w+$' .obf-src/main/extra_literals.go
 -- go.mod --
 module test/main
 
-go 1.15
+go 1.16
 -- main.go --
 package main
 

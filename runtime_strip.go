@@ -123,7 +123,6 @@ func stripRuntime(filename string, file *ast.File) {
 	case "runtime1.go":
 		// On Go 1.16.x, the code above results in runtime1.go having an
 		// unused import. Mark it as used via "var _ = pkg.Func".
-		// Note that the file in Go 1.15.x does not import bytealg.
 		// If this is a recurring problem, we could go for a more
 		// generic solution like x/tools/imports.
 		for _, imp := range file.Imports {

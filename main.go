@@ -166,13 +166,13 @@ var errJustExit = errors.New("")
 
 func goVersionOK() bool {
 	const (
-		minGoVersion       = "v1.15.0"
+		minGoVersion       = "v1.16.0"
 		suggestedGoVersion = "1.16.x"
 
 		gitTimeFormat = "Mon Jan 2 15:04:05 2006 -0700"
 	)
-	// Go 1.15 was released on August 11th, 2020.
-	minGoVersionDate := time.Date(2020, 8, 11, 0, 0, 0, 0, time.UTC)
+	// Go 1.16 was released on Febuary 16th, 2021.
+	minGoVersionDate := time.Date(2021, 2, 16, 0, 0, 0, 0, time.UTC)
 
 	out, err := exec.Command("go", "version").CombinedOutput()
 	rawVersion := strings.TrimSpace(string(out))
@@ -811,21 +811,13 @@ var runtimeRelated = map[string]bool{
 	"vendor/golang.org/x/net/dns/dnsmessage": true,
 	"vendor/golang.org/x/net/route":          true,
 
-	// These packages were moved in Go 1.16, but 1.15's runtime still
-	// linknames to them.
-	"io/ioutil":     true,
-	"path/filepath": true,
-
-	// Go 1.15's "net" package depends on "math/rand", but 1.16's does not.
-	// Keep it here to support 1.15.
-	"math/rand": true,
-
 	// These packages call pure Go functions from assembly functions.
 	// We obfuscate the pure Go function name, breaking the assembly.
 	// We do not deal with that edge case just yet, so for now,
 	// never obfuscate these packages.
 	// TODO: remove once we fix issue 261.
 	"math/big":      true,
+	"math/rand":     true,
 	"crypto/sha512": true,
 	"crypto":        true,
 }
