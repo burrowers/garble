@@ -218,15 +218,7 @@ func setListedPackages(patterns []string) error {
 			return err
 		}
 		if pkg.Export != "" {
-			buildID := pkg.BuildID
-			if buildID == "" {
-				// go list only includes BuildID in 1.16+
-				buildID, err = buildidOf(pkg.Export)
-				if err != nil {
-					panic(err) // shouldn't happen
-				}
-			}
-			actionID := decodeHash(splitActionID(buildID))
+			actionID := decodeHash(splitActionID(pkg.BuildID))
 			h := sha256.New()
 			h.Write(actionID)
 			h.Write(cache.BinaryContentID)

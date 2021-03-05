@@ -20,13 +20,12 @@ env GO_VERSION='go version devel +afb5fca Sun Sep 99 99:99:99 9999 +0000 linux/a
 stderr 'Can''t recognize devel build timestamp: parsing time'
 
 # We should error on a devel version that's too old.
-# We support Go 1.15 and later, released on August 11th, 2020.
 env GO_VERSION='go version devel +afb5fca Sun Aug 07 00:00:00 2020 +0000 linux/amd64'
 ! garble build
 stderr 'Go version.*Aug 07.*too old; please upgrade to Go 1.16.x or a newer devel version'
 
-# A recent enough devel timestamp should be fine.
-env GO_VERSION='go version devel +afb5fca Sun Sep 13 07:54:42 2020 +0000 linux/amd64'
+# A future devel timestamp should be fine.
+env GO_VERSION='go version devel +afb5fca Sun Sep 13 07:54:42 2021 +0000 linux/amd64'
 ! garble build
 stderr 'mocking the real build'
 
@@ -36,15 +35,15 @@ env GO_VERSION='go version go1.14 windows/amd64'
 stderr 'Go version.*go1.14.*too old; please upgrade to Go 1.16.x'
 ! stderr 'or a newer devel version'
 
-# We should accept a supported stable version.
-env GO_VERSION='go version go1.15.2 windows/amd64'
+# We should accept a future stable version.
+env GO_VERSION='go version go1.16.2 windows/amd64'
 ! garble build
 stderr 'mocking the real build'
 
 -- go.mod --
 module test/main
 
-go 1.15
+go 1.16
 -- main.go --
 package main
 

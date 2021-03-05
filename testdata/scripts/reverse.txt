@@ -30,7 +30,7 @@ cmp stderr reverse.stdout
 -- go.mod --
 module test/main
 
-go 1.15
+go 1.16
 -- main.go --
 package main
 
