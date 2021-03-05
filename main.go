@@ -68,8 +68,6 @@ Usage:
 
 	garble [flags] build [build flags] [packages]
 
-Aside from "build", the "test" command mirroring "go test" is also supported.
-
 garble accepts the following flags:
 
 `[1:])
@@ -247,7 +245,7 @@ func mainErr(args []string) error {
 		return nil
 	case "reverse":
 		return commandReverse(args)
-	case "build", "test", "list":
+	case "build":
 		cmd, err := toolexecCmd(command, args)
 		if err != nil {
 			return err
