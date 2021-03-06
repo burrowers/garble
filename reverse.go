@@ -5,9 +5,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -35,47 +32,8 @@ func commandReverse(args []string) error {
 	listArgs = append(listArgs, mainPkg)
 	// TODO: We most likely no longer need this "list -toolexec" call, since
 	// we use the original build IDs.
-	cmd, err := toolexecCmd("list", listArgs)
-	if err != nil {
+	if _, err := toolexecCmd("list", listArgs); err != nil {
 		return err
-	}
-	curPkg = cache.ListedPackages[cache.MainImportPath]
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("go list error: %v", err)
-	}
-	mainPkgPath := ""
-	dec := json.NewDecoder(stdout)
-	var privatePkgPaths []string
-	for dec.More() {
-		var pkg listedPackage
-		if err := dec.Decode(&pkg); err != nil {
-			return err
-		}
-		if pkg.Export == "" {
-			continue
-		}
-		if pkg.Name == "main" {
-			if mainPkgPath != "" {
-				return fmt.Errorf("found two main packages: %s %s", mainPkgPath, pkg.ImportPath)
-			}
-			mainPkgPath = pkg.ImportPath
-		}
-		if isPrivate(pkg.ImportPath) {
-			privatePkgPaths = append(privatePkgPaths, pkg.ImportPath)
-		}
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("go list error: %v: %s", err, stderr.Bytes())
 	}
 
 	// A package's names are generally hashed with the action ID of its
@@ -86,17 +44,16 @@ func commandReverse(args []string) error {
 	var replaces []string
 	fset := token.NewFileSet()
 
-	for _, pkgPath := range privatePkgPaths {
-		lpkg, err := listPackage(pkgPath)
-		if err != nil {
-			return err
+	for _, lpkg := range cache.ListedPackages {
+		if !lpkg.Private {
+			continue
 		}
 		addReplace := func(str string) {
 			replaces = append(replaces, hashWith(lpkg.GarbleActionID, str), str)
 		}
 
 		// Package paths are obfuscated, too.
-		addReplace(pkgPath)
+		addReplace(lpkg.ImportPath)
 
 		for _, goFile := range lpkg.GoFiles {
 			goFile = filepath.Join(lpkg.Dir, goFile)

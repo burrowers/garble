@@ -29,7 +29,7 @@ generate-literals extra_literals.go
 
 # Also check that the binary is different from previous builds.
 rm main$exe
-garble -literals -debugdir=.obf-src -seed=8J+Ri/Cfh6fwn4e+ build
+garble -literals -debugdir=debug1 -seed=8J+Ri/Cfh6fwn4e+ build
 ! bincmp main$exe main_old$exe
 
 exec ./main$exe
@@ -38,19 +38,19 @@ cmp stderr main.stderr
 # Check obfuscators
 
 # Xor obfuscator. Detect a[i] = a[i] (^|-|+) b[i]
-grep '^\s+\w+\[\w+\] = \w+\[\w+\] [\^\-+] \w+$' .obf-src/main/extra_literals.go
+grep '^\s+\w+\[\w+\] = \w+\[\w+\] [\^\-+] \w+$' debug1/test/main/extra_literals.go
 
 # Swap obfuscator. Detect [...]byte|uint16|uint32|uint64{...}
-grep '^\s+\w+ := \[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' .obf-src/main/extra_literals.go
+grep '^\s+\w+ := \[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' debug1/test/main/extra_literals.go
 
 # Split obfuscator. Detect decryptKey ^= i * counter
-grep '^\s+\w+ \^= \w+ \* \w+$' .obf-src/main/extra_literals.go
+grep '^\s+\w+ \^= \w+ \* \w+$' debug1/test/main/extra_literals.go
 
 # XorShuffle obfuscator. Detect data = append(data, x (^|-|+) y...)
-grep '^\s+\w+ = append\(\w+,(\s+\w+\[\d+\][\^\-+]\w+\[\d+\],?)+\)$' .obf-src/main/extra_literals.go
+grep '^\s+\w+ = append\(\w+,(\s+\w+\[\d+\][\^\-+]\w+\[\d+\],?)+\)$' debug1/test/main/extra_literals.go
 
 # XorSeed obfuscator. Detect type decFunc func(byte) decFunc
-grep '^\s+type \w+ func\(byte\) \w+$' .obf-src/main/extra_literals.go
+grep '^\s+type \w+ func\(byte\) \w+$' debug1/test/main/extra_literals.go
 
 -- go.mod --
 module test/main
