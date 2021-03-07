@@ -1,23 +1,36 @@
-skip # see https://github.com/burrowers/garble/issues/241
-
-# Note that we need bar_test too.
-env GOPRIVATE=test/bar,test/bar_test
-
 # build the test binary
-garble test -c
+garble test -c -a
 binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
-! binsubstr bar.test$exe 'ImportedVar'
+! binsubstr bar.test$exe 'LocalFoo|ImportedVar|OriginalFuncName'
 
-# run the tests
+# run the tests; OriginalFuncName should be obfuscated
 exec ./bar.test -test.v
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
+stdout 'package bar, func name:'
+stdout 'package bar_test, func name:'
+! stdout 'OriginalFuncName'
 
 [short] stop # no need to verify this with -short
 
-# verify with regular cmd/go
+# also check that many packages test fine, including a main package and multiple
+# test packages
+garble test -v . ./somemain ./sometest
+stdout 'ok\s+test/bar\s'
+stdout 'PASS.*TestFoo'
+stdout 'PASS.*TestSeparateFoo'
+stdout 'package bar, func name:'
+stdout 'package bar_test, func name:'
+! stdout 'OriginalFuncName'
+stdout '\?\s+test/bar/somemain\s'
+stdout 'ok\s+test/bar/sometest\s'
+
+# verify with regular cmd/go; OriginalFuncName should appear
 go test -v
 stdout 'PASS.*TestFoo'
+stdout 'PASS.*TestSeparateFoo'
+stdout 'package bar, func name: test/bar\.OriginalFuncName'
+stdout 'package bar_test, func name: test/bar\.OriginalFuncName'
 
 -- go.mod --
 module test/bar
@@ -26,9 +39,18 @@ go 1.16
 -- bar.go --
 package bar
 
-func Foo() string { return "Foo" }
+import "runtime"
+
+func LocalFoo() string { return "Foo" }
 
 var ImportedVar = "imported var value"
+
+// OriginalFuncName returns its own func name.
+func OriginalFuncName() string {
+	pc, _, _, _ := runtime.Caller(0)
+	fn := runtime.FuncForPC(pc)
+	return fn.Name()
+}
 -- bar_test.go --
 package bar
 
@@ -36,9 +58,10 @@ import "testing"
 
 func TestFoo(t *testing.T) {
 	t.Log(ImportedVar)
-	if Foo() != "Foo" {
+	if LocalFoo() != "Foo" {
 		t.FailNow()
 	}
+	t.Logf("package bar, func name: %s", OriginalFuncName())
 }
 -- bar_separate_test.go --
 package bar_test
@@ -51,9 +74,10 @@ import (
 
 func TestSeparateFoo(t *testing.T) {
 	t.Log(bar.ImportedVar)
-	if bar.Foo() != "Foo" {
+	if bar.LocalFoo() != "Foo" {
 		t.FailNow()
 	}
+	t.Logf("package bar_test, func name: %s", bar.OriginalFuncName())
 }
 -- main_test.go --
 package bar
@@ -66,3 +90,13 @@ import (
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
+-- somemain/main.go --
+package main
+
+func main() {}
+-- sometest/foo_test.go --
+package sometest
+
+import "testing"
+
+func TestFoo(t *testing.T) {}
