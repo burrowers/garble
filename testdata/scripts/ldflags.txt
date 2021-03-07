@@ -15,7 +15,7 @@ exec ./main
 cmp stderr main.stderr
 ! binsubstr main$exe 'unexportedVersion'
 
-exec go build -ldflags=${LDFLAGS}
+go build -ldflags=${LDFLAGS}
 exec ./main
 cmp stderr main.stderr
 binsubstr main$exe 'unexportedVersion'
