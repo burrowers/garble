@@ -28,7 +28,7 @@ stdout 'unknown'
 [short] stop # checking that the build is reproducible is slow
 
 # Check that we fail if the user used "go build -toolexec garble" instead of "garble build"
-! exec go build -a -toolexec=garble main.go
+! go build -a -toolexec=garble main.go
 stderr 'not running "garble \[command\]"'
 
 # Also check that the binary is reproducible.
@@ -41,7 +41,7 @@ bincmp main$exe main_old$exe
 
 # Check that the program works as expected without garble. No need to verify
 # this when we run with -short.
-exec go build main.go
+go build main.go
 exec ./main
 cmp stderr main.stderr
 

@@ -8,7 +8,6 @@ env GOPRIVATE=test/main
 garble build
 exec ./main
 cp stderr main.stderr
-exec cat main.stderr
 
 # Ensure that the garbled panic output looks correct.
 # This output is not reproducible between 'go test' runs,

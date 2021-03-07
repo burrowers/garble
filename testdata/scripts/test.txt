@@ -16,7 +16,7 @@ stdout 'PASS.*TestSeparateFoo'
 [short] stop # no need to verify this with -short
 
 # verify with regular cmd/go
-exec go test -v
+go test -v
 stdout 'PASS.*TestFoo'
 
 -- go.mod --
