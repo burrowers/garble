@@ -39,8 +39,6 @@ type sharedCache struct {
 	// Once https://github.com/golang/go/issues/37475 is fixed, we
 	// can likely just use that.
 	BinaryContentID []byte
-
-	MainImportPath string // TODO: remove with TOOLEXEC_IMPORTPATH
 }
 
 var cache *sharedCache
@@ -162,6 +160,7 @@ type listedPackage struct {
 	BuildID    string
 	Deps       []string
 	ImportMap  map[string]string
+	Standard   bool
 
 	Dir     string
 	GoFiles []string
@@ -172,12 +171,11 @@ type listedPackage struct {
 
 	GarbleActionID []byte
 
-	// TODO(mvdan): reuse this field once TOOLEXEC_IMPORTPATH is used
-	private bool
+	Private bool
 }
 
 func (p *listedPackage) obfuscatedImportPath() string {
-	if p.Name == "main" || !isPrivate(p.ImportPath) {
+	if p.Name == "main" || !p.Private {
 		return p.ImportPath
 	}
 	newPath := hashWith(p.GarbleActionID, p.ImportPath)
@@ -225,12 +223,6 @@ func setListedPackages(patterns []string) error {
 
 			pkg.GarbleActionID = h.Sum(nil)[:buildIDComponentLength]
 		}
-		if pkg.Name == "main" {
-			if cache.MainImportPath != "" {
-				return fmt.Errorf("found two main packages: %s %s", cache.MainImportPath, pkg.ImportPath)
-			}
-			cache.MainImportPath = pkg.ImportPath
-		}
 		cache.ListedPackages[pkg.ImportPath] = &pkg
 	}
 
@@ -241,7 +233,7 @@ func setListedPackages(patterns []string) error {
 	anyPrivate := false
 	for path, pkg := range cache.ListedPackages {
 		if isPrivate(path) {
-			pkg.private = true
+			pkg.Private = true
 			anyPrivate = true
 		}
 	}
@@ -250,11 +242,11 @@ func setListedPackages(patterns []string) error {
 		return fmt.Errorf("GOPRIVATE=%q does not match any packages to be built", os.Getenv("GOPRIVATE"))
 	}
 	for path, pkg := range cache.ListedPackages {
-		if pkg.private {
+		if pkg.Private {
 			continue
 		}
 		for _, depPath := range pkg.Deps {
-			if cache.ListedPackages[depPath].private {
+			if cache.ListedPackages[depPath].Private {
 				return fmt.Errorf("public package %q can't depend on obfuscated package %q (matched via GOPRIVATE=%q)",
 					path, depPath, os.Getenv("GOPRIVATE"))
 			}

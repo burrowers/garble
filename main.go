@@ -277,6 +277,12 @@ func mainErr(args []string) error {
 		return alterToolVersion(tool, args)
 	}
 
+	toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
+	curPkg = cache.ListedPackages[toolexecImportPath]
+	if curPkg == nil {
+		return fmt.Errorf("TOOLEXEC_IMPORTPATH not found in listed packages: %s", toolexecImportPath)
+	}
+
 	transform := transformFuncs[tool]
 	transformed := args[1:]
 	// log.Println(tool, transformed)
@@ -390,23 +396,15 @@ func transformAsm(args []string) ([]string, error) {
 			symAbis = true
 		}
 	}
-	curPkgPath := flagValue(flags, "-p")
 
 	// If we are generating symbol ABIs, the output does not actually
-	// contain curPkgPath. Exported APIs show up as "".FooBar.
-	// Otherwise, we are assembling, and curPkgPath does make its way into
-	// the output object file.
+	// contain the package import path. Exported APIs show up as "".FooBar.
+	// Otherwise, we are assembling, and the import path does make its way
+	// into the output object file.
 	// To obfuscate the path in the -p flag, we need the current action ID,
 	// which we recover from the file that transformCompile wrote for us.
-	if !symAbis && curPkgPath != "main" && isPrivate(curPkgPath) {
-		curPkgPathFull := curPkgPath
-		if curPkgPathFull == "main" {
-			// TODO(mvdan): this can go with TOOLEXEC_IMPORTPATH
-			curPkgPathFull = cache.MainImportPath
-		}
-
-		lpkg := cache.ListedPackages[curPkgPathFull]
-		flags = flagSetValue(flags, "-p", lpkg.obfuscatedImportPath())
+	if !symAbis && curPkg.Name != "main" && curPkg.Private {
+		flags = flagSetValue(flags, "-p", curPkg.obfuscatedImportPath())
 	}
 
 	return append(flags, paths...), nil
@@ -420,14 +418,13 @@ func transformCompile(args []string) ([]string, error) {
 	// generating it.
 	flags = append(flags, "-dwarf=false")
 
-	curPkgPath := flagValue(flags, "-p")
-	if (curPkgPath == "runtime" && opts.Tiny) || curPkgPath == "runtime/internal/sys" {
+	if (curPkg.ImportPath == "runtime" && opts.Tiny) || curPkg.ImportPath == "runtime/internal/sys" {
 		// Even though these packages aren't private, we will still process
 		// them later to remove build information and strip code from the
 		// runtime. However, we only want flags to work on private packages.
 		opts.GarbleLiterals = false
 		opts.DebugDir = ""
-	} else if !isPrivate(curPkgPath) {
+	} else if !curPkg.Private {
 		return append(flags, paths...), nil
 	}
 
@@ -448,13 +445,6 @@ func transformCompile(args []string) ([]string, error) {
 	if !strings.Contains(trimpath, ";") {
 		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
 	}
-
-	curPkgPathFull := curPkgPath
-	if curPkgPathFull == "main" {
-		// TODO(mvdan): this can go with TOOLEXEC_IMPORTPATH
-		curPkgPathFull = cache.MainImportPath
-	}
-	curPkg = cache.ListedPackages[curPkgPathFull]
 
 	newImportCfg, err := processImportCfg(flags)
 	if err != nil {
@@ -485,16 +475,6 @@ func transformCompile(args []string) ([]string, error) {
 		},
 	}
 
-	standardLibrary := false
-	// Note that flagValue only supports "-foo=true" bool flags, but the std
-	// flag is generally just "-std".
-	// TODO: Better support boolean flags for the tools.
-	for _, flag := range flags {
-		if flag == "-std" {
-			standardLibrary = true
-		}
-	}
-
 	// The standard library vendors external packages, which results in them
 	// listing "golang.org/x/foo" in go list -json's Deps, plus an ImportMap
 	// entry to remap them to "vendor/golang.org/x/foo".
@@ -505,13 +485,13 @@ func transformCompile(args []string) ([]string, error) {
 	// Since this is a rare edge case and only occurs for a few std
 	// packages, do the extra 'go list' calls for now.
 	// TODO(mvdan): report this upstream and investigate further.
-	if standardLibrary && len(cache.ListedPackages[curPkgPath].ImportMap) > 0 {
+	if curPkg.Standard && len(curPkg.ImportMap) > 0 {
 		origImporter = importer.Default()
 	}
 
 	// TODO(mvdan): can we use IgnoreFuncBodies=true?
 	origTypesConfig := types.Config{Importer: origImporter}
-	tf.pkg, err = origTypesConfig.Check(curPkgPathFull, fset, files, tf.info)
+	tf.pkg, err = origTypesConfig.Check(curPkg.ImportPath, fset, files, tf.info)
 	if err != nil {
 		return nil, fmt.Errorf("typecheck error: %v", err)
 	}
@@ -549,8 +529,8 @@ func transformCompile(args []string) ([]string, error) {
 
 	// If this is a package to obfuscate, swap the -p flag with the new
 	// package path.
-	newPkgPath := curPkgPath
-	if curPkgPath != "main" && isPrivate(curPkgPath) {
+	newPkgPath := ""
+	if curPkg.Name != "main" && curPkg.Private {
 		newPkgPath = curPkg.obfuscatedImportPath()
 		flags = flagSetValue(flags, "-p", newPkgPath)
 	}
@@ -561,10 +541,10 @@ func transformCompile(args []string) ([]string, error) {
 		origName := filepath.Base(filepath.Clean(paths[i]))
 		name := origName
 		switch {
-		case curPkgPath == "runtime":
+		case curPkg.ImportPath == "runtime":
 			// strip unneeded runtime code
 			stripRuntime(origName, file)
-		case curPkgPath == "runtime/internal/sys":
+		case curPkg.ImportPath == "runtime/internal/sys":
 			// The first declaration in zversion.go contains the Go
 			// version as follows. Replace it here, since the
 			// linker's -X does not work with constants.
@@ -595,9 +575,6 @@ func transformCompile(args []string) ([]string, error) {
 				if err != nil {
 					panic(err) // should never happen
 				}
-				if !isPrivate(path) {
-					return true
-				}
 				// We're importing an obfuscated package.
 				// Replace the import path with its obfuscated version.
 				// If the import was unnamed, give it the name of the
@@ -605,6 +582,9 @@ func transformCompile(args []string) ([]string, error) {
 				lpkg, err := listPackage(path)
 				if err != nil {
 					panic(err) // should never happen
+				}
+				if !lpkg.Private {
+					return true
 				}
 				newPath := lpkg.obfuscatedImportPath()
 				imp.Path.Value = strconv.Quote(newPath)
@@ -614,7 +594,7 @@ func transformCompile(args []string) ([]string, error) {
 				return true
 			})
 		}
-		if curPkgPath != "main" && isPrivate(curPkgPath) {
+		if newPkgPath != "" {
 			file.Name.Name = newPkgPath
 		}
 
@@ -642,7 +622,7 @@ func transformCompile(args []string) ([]string, error) {
 			return nil, err
 		}
 		if opts.DebugDir != "" {
-			osPkgPath := filepath.FromSlash(curPkgPath)
+			osPkgPath := filepath.FromSlash(curPkg.ImportPath)
 			pkgDebugDir := filepath.Join(opts.DebugDir, osPkgPath)
 			if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
 				return nil, err
@@ -718,12 +698,12 @@ func (tf *transformer) handleDirectives(comments []string) {
 		if pkgPath == "runtime" && strings.HasPrefix(name, "cgo") {
 			continue // ignore cgo-generated linknames
 		}
-		if !isPrivate(pkgPath) {
-			continue // ignore non-private symbols
-		}
 		lpkg, err := listPackage(pkgPath)
 		if err != nil {
 			continue // probably a made up symbol name
+		}
+		if !lpkg.Private {
+			continue // ignore non-private symbols
 		}
 		obfPkg := obfuscatedTypesPackage(pkgPath)
 		if obfPkg != nil && obfPkg.Scope().Lookup(name) != nil {
@@ -827,25 +807,10 @@ var runtimeRelated = map[string]bool{
 // To allow using garble without GOPRIVATE for standalone main packages, it will
 // default to not matching standard library packages.
 func isPrivate(path string) bool {
-	// isPrivate is used in lots of places, so use it as a way to sanity
-	// check that none of our package paths are invalid.
-	// This can happen if we end up with an escaped or corrupted path.
-	// TODO: Do we want to support obfuscating test packages?
-	// It is a bit tricky as their import paths are confusing, such as
-	// "test/bar.test" and "test/bar [test/bar.test]".
-	if strings.HasSuffix(path, ".test") || strings.HasSuffix(path, ".test]") {
-		return false
-	}
-	if err := module.CheckImportPath(path); err != nil {
-		panic(err)
-	}
 	if runtimeRelated[path] {
 		return false
 	}
-	if path == "main" || path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
-		// TODO: why don't we see the full package path for main
-		// packages? The linker has it at the top of -importcfg, but not
-		// the compiler.
+	if path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
 		return true
 	}
 	return module.MatchPrefixPatterns(envGoPrivate, path)
@@ -1066,7 +1031,11 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		}
 
 		path := pkg.Path()
-		if !isPrivate(path) {
+		lpkg, err := listPackage(path)
+		if err != nil {
+			panic(err) // shouldn't happen
+		}
+		if !lpkg.Private {
 			return true // only private packages are transformed
 		}
 
@@ -1143,11 +1112,6 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			}
 		default:
 			return true // we only want to rename the above
-		}
-
-		lpkg, err := listPackage(path)
-		if err != nil {
-			panic(err) // shouldn't happen
 		}
 
 		obfPkg := obfuscatedTypesPackage(path)
@@ -1236,8 +1200,6 @@ func transformLink(args []string) ([]string, error) {
 	// lack any extension.
 	flags, args := splitFlagsFromArgs(args)
 
-	curPkg = cache.ListedPackages[cache.MainImportPath]
-
 	newImportCfg, err := processImportCfg(flags)
 	if err != nil {
 		return nil, err
@@ -1260,22 +1222,25 @@ func transformLink(args []string) ([]string, error) {
 		pkg := name[:j]
 		name = name[j+1:]
 
-		pkgPath := pkg
-		if pkgPath == "main" {
-			pkgPath = cache.MainImportPath
+		// If the package path is "main", it's the current top-level
+		// package we are linking.
+		// Otherwise, find it in the cache.
+		lpkg := curPkg
+		if pkg != "main" {
+			lpkg = cache.ListedPackages[pkg]
 		}
-		lpkg := cache.ListedPackages[pkgPath]
 		if lpkg == nil {
 			// We couldn't find the package.
 			// Perhaps a typo, perhaps not part of the build.
 			// cmd/link ignores those, so we should too.
 			return
 		}
-		newName := hashWith(lpkg.GarbleActionID, name)
+		// As before, the main package must remain as "main".
 		newPkg := pkg
-		if pkg != "main" && isPrivate(pkg) {
-			newPkg = hashWith(lpkg.GarbleActionID, pkg)
+		if pkg != "main" {
+			newPkg = lpkg.obfuscatedImportPath()
 		}
+		newName := hashWith(lpkg.GarbleActionID, name)
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPkg, newName, str))
 	})
 

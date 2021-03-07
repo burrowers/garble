@@ -1,19 +1,19 @@
 env GOPRIVATE=test/main
 
-garble -debugdir ./test1 build
-exists 'test1/test/main/imported/imported.go' 'test1/main/main.go'
-! grep ImportedFunc $WORK/test1/test/main/imported/imported.go
-! grep ImportedFunc $WORK/test1/main/main.go
-! grep 'some comment' $WORK/test1/main/main.go
+garble -debugdir ./debug1 build
+exists 'debug1/test/main/imported/imported.go' 'debug1/test/main/main.go'
+! grep ImportedFunc $WORK/debug1/test/main/imported/imported.go
+! grep ImportedFunc $WORK/debug1/test/main/main.go
+! grep 'some comment' $WORK/debug1/test/main/main.go
 
 [short] stop
 
 # Sources from previous builds should be deleted
-cp $WORK/test1/main/main.go $WORK/test1/some_file_from_prev_build.go
+cp $WORK/debug1/test/main/main.go $WORK/debug1/some_file_from_prev_build.go
 
-garble -debugdir ./test1 build -v
+garble -debugdir ./debug1 build -v
 stderr 'test/main' # we force rebuilds with -debugdir
-! exists $WORK/test1/some_file_from_prev_build.go
+! exists $WORK/debug1/some_file_from_prev_build.go
 
 -- go.mod --
 module test/main
