@@ -156,6 +156,7 @@ func setFlagOptions() error {
 type listedPackage struct {
 	Name       string
 	ImportPath string
+	ForTest    string
 	Export     string
 	BuildID    string
 	Deps       []string
@@ -179,6 +180,7 @@ func (p *listedPackage) obfuscatedImportPath() string {
 		return p.ImportPath
 	}
 	newPath := hashWith(p.GarbleActionID, p.ImportPath)
+	// log.Printf("%q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
 	return newPath
 }
 
@@ -232,7 +234,12 @@ func setListedPackages(patterns []string) error {
 
 	anyPrivate := false
 	for path, pkg := range cache.ListedPackages {
-		if isPrivate(path) {
+		// If "GOPRIVATE=foo/bar", "foo/bar_test" is also private.
+		if pkg.ForTest != "" {
+			path = pkg.ForTest
+		}
+		// Test main packages like "foo/bar.test" are always private.
+		if (pkg.Name == "main" && strings.HasSuffix(path, ".test")) || isPrivate(path) {
 			pkg.Private = true
 			anyPrivate = true
 		}

@@ -68,6 +68,8 @@ Usage:
 
 	garble [flags] build [build flags] [packages]
 
+Aside from "build", the "test" command mirroring "go test" is also supported.
+
 garble accepts the following flags:
 
 `[1:])
@@ -245,7 +247,7 @@ func mainErr(args []string) error {
 		return nil
 	case "reverse":
 		return commandReverse(args)
-	case "build":
+	case "build", "test":
 		cmd, err := toolexecCmd(command, args)
 		if err != nil {
 			return err
@@ -278,6 +280,32 @@ func mainErr(args []string) error {
 	}
 
 	toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
+
+	// Unfortunately, TOOLEXEC_IMPORTPATH is just "foo/bar" for the package
+	// whose ImportPath in "go list -json" is "foo/bar [foo/bar.test]".
+	// The ImportPath "foo/bar" also exists in "go list -json", so we can't
+	// possibly differentiate between the two versions of a package.
+	// The same happens with "foo/bar_test", whose ImportPath is actually
+	// "foo/bar_test [foo/bar.test]".
+	// We'll likely file this as an upstream bug to fix in Go 1.17.
+	//
+	// Until then, here's our workaround: since this edge case only happens
+	// for the compiler, check if any "_test.go" files are being compiled.
+	// If so, we are compiling a test package, so we add the missing extra.
+	if tool == "compile" {
+		isTestPkg := false
+		_, paths := splitFlagsFromFiles(args, ".go")
+		for _, path := range paths {
+			if strings.HasSuffix(path, "_test.go") {
+				isTestPkg = true
+				break
+			}
+		}
+		if isTestPkg {
+			forPkg := strings.TrimSuffix(toolexecImportPath, "_test")
+			toolexecImportPath = fmt.Sprintf("%s [%s.test]", toolexecImportPath, forPkg)
+		}
+	}
 	curPkg = cache.ListedPackages[toolexecImportPath]
 	if curPkg == nil {
 		return fmt.Errorf("TOOLEXEC_IMPORTPATH not found in listed packages: %s", toolexecImportPath)
@@ -434,9 +462,6 @@ func transformCompile(args []string) ([]string, error) {
 			paths = append(paths[:i], paths[i+1:]...)
 			break
 		}
-	}
-	if len(paths) == 1 && filepath.Base(paths[0]) == "_testmain.go" {
-		return append(flags, paths...), nil
 	}
 
 	// If the value of -trimpath doesn't contain the separator ';', the 'go
@@ -599,9 +624,11 @@ func transformCompile(args []string) ([]string, error) {
 		}
 
 		// Uncomment for some quick debugging. Do not delete.
-		// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", curPkgPath, origName)
-		// if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
-		// 	return nil, err
+		// if curPkg.Private {
+		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", curPkg.ImportPath, origName)
+		// 	if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
+		// 		return nil, err
+		// 	}
 		// }
 
 		tempFile, err := ioutil.TempFile(sharedTempDir, name+".*.go")
@@ -802,14 +829,14 @@ var runtimeRelated = map[string]bool{
 	"crypto":        true,
 }
 
-// isPrivate checks if GOPRIVATE matches path.
-//
-// To allow using garble without GOPRIVATE for standalone main packages, it will
-// default to not matching standard library packages.
+// isPrivate checks if a package import path should be considered private,
+// meaning that it should be obfuscated.
 func isPrivate(path string) bool {
+	// We don't support obfuscating these yet.
 	if runtimeRelated[path] {
 		return false
 	}
+	// These are main packages, so we must always obfuscate them.
 	if path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
 		return true
 	}
@@ -904,6 +931,11 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 		}
 		fmt.Fprintf(newCfg, "packagefile %s=%s\n", impPath, pkg.packagefile)
 	}
+
+	// Uncomment to debug the transformed importcfg. Do not delete.
+	// newCfg.Seek(0, 0)
+	// io.Copy(os.Stderr, newCfg)
+
 	if err := newCfg.Close(); err != nil {
 		return "", err
 	}
