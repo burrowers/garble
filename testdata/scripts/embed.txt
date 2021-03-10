@@ -1,0 +1,31 @@
+env GOPRIVATE=*
+
+garble build
+
+exec ./main
+cmp stdout main.stdout
+
+-- go.mod --
+module test/main
+
+go 1.16
+
+-- main.go --
+package main
+
+import (
+	_ "embed"
+	"fmt"
+)
+
+//go:embed test.txt
+var x string
+
+func main() {
+	fmt.Printf("%q\n", x)
+}
+
+-- test.txt --
+test content
+-- main.stdout --
+"test content\n"
