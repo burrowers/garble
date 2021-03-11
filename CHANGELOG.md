@@ -20,3 +20,5 @@ Known bugs:
 
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
+
+[0.1.0]: https://github.com/burrowers/garble/releases/tag/v0.1.0
