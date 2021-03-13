@@ -19,7 +19,7 @@ env GOPRIVATE='*'
 # Note that we won't obfuscate a few std packages just yet, mainly those around runtime.
 garble build std
 
-# Link a binary importing crypto/ecdsa, which will catch whether or not we
+# Link a binary importing net/http, which will catch whether or not we
 # support ImportMap when linking.
 garble build -o=out ./stdimporter
 
@@ -44,10 +44,8 @@ var Name = "value"
 -- stdimporter/main.go --
 package main
 
-import (
-        "crypto/ecdsa"
-)
+import "net/http"
 
 func main() {
-        ecdsa.Verify(nil, nil, nil, nil)
+	http.ListenAndServe("", nil)
 }
