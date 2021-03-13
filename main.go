@@ -4,9 +4,7 @@
 package main
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -415,23 +413,9 @@ var transformFuncs = map[string]func([]string) (args []string, _ error){
 func transformAsm(args []string) ([]string, error) {
 	flags, paths := splitFlagsFromFiles(args, ".s")
 
-	symAbis := false
-	// Note that flagValue only supports "-foo=true" bool flags, but the std
-	// flag is generally just "-std".
-	// TODO: Better support boolean flags for the tools.
-	for _, flag := range flags {
-		if flag == "-gensymabis" {
-			symAbis = true
-		}
-	}
-
-	// If we are generating symbol ABIs, the output does not actually
-	// contain the package import path. Exported APIs show up as "".FooBar.
-	// Otherwise, we are assembling, and the import path does make its way
-	// into the output object file.
-	// To obfuscate the path in the -p flag, we need the current action ID,
-	// which we recover from the file that transformCompile wrote for us.
-	if !symAbis && curPkg.Name != "main" && curPkg.Private {
+	// When assembling, the import path can make its way into the output
+	// object file.
+	if curPkg.Name != "main" && curPkg.Private {
 		flags = flagSetValue(flags, "-p", curPkg.obfuscatedImportPath())
 	}
 
@@ -544,13 +528,6 @@ func transformCompile(args []string) ([]string, error) {
 
 		detachedComments[i], files[i] = comments, file
 	}
-
-	obfSrcArchive := &bytes.Buffer{}
-	obfSrcGzipWriter := gzip.NewWriter(obfSrcArchive)
-	defer obfSrcGzipWriter.Close()
-
-	obfSrcTarWriter := tar.NewWriter(obfSrcGzipWriter)
-	defer obfSrcTarWriter.Close()
 
 	// If this is a package to obfuscate, swap the -p flag with the new
 	// package path.
@@ -669,18 +646,6 @@ func transformCompile(args []string) ([]string, error) {
 		}
 
 		if err := tempFile.Close(); err != nil {
-			return nil, err
-		}
-
-		if err := obfSrcTarWriter.WriteHeader(&tar.Header{
-			Name:    name,
-			Mode:    0o755,
-			ModTime: time.Now(), // Need for restoring obfuscation time
-			Size:    int64(obfSrc.Len()),
-		}); err != nil {
-			return nil, err
-		}
-		if _, err := obfSrcTarWriter.Write(obfSrc.Bytes()); err != nil {
 			return nil, err
 		}
 
