@@ -115,10 +115,6 @@ var (
 	envGoPrivate = os.Getenv("GOPRIVATE") // complemented by 'go env' later
 )
 
-// TODO(mvdan): now that we also obfuscate assembly funcs, we could likely get
-// rid of obfuscatedTypesPackage and have a function that tells us if a
-// *types.Func (from the original types.Package) should be obfuscated.
-
 func obfuscatedTypesPackage(path string) *types.Package {
 	entry, ok := importCfgEntries[path]
 	if !ok {
@@ -578,7 +574,6 @@ func transformCompile(args []string) ([]string, error) {
 		origImporter = importer.Default()
 	}
 
-	// TODO(mvdan): can we use IgnoreFuncBodies=true?
 	origTypesConfig := types.Config{Importer: origImporter}
 	tf.pkg, err = origTypesConfig.Check(curPkg.ImportPath, fset, files, tf.info)
 	if err != nil {
@@ -617,7 +612,6 @@ func transformCompile(args []string) ([]string, error) {
 		flags = flagSetValue(flags, "-p", newPkgPath)
 	}
 
-	// TODO: randomize the order and names of the files
 	newPaths := make([]string, 0, len(files))
 	for i, file := range files {
 		origName := filepath.Base(filepath.Clean(paths[i]))
