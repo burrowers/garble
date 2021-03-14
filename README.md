@@ -69,9 +69,6 @@ to document the current shortcomings of this tool.
 * Exported methods are never obfuscated at the moment, since they could
   be required by interfaces and reflection. This area is a work in progress.
 
-* Functions implemented outside Go, such as assembly, aren't obfuscated since we
-  currently only transform the input Go source.
-
 * Go plugins are not currently supported; see [#87](https://github.com/burrowers/garble/issues/87).
 
 * There are cases where garble is a little too agressive with obfuscation, this may lead to identifiers getting obfuscated which are needed for reflection, e.g. to parse JSON into a struct; see [#162](https://github.com/burrowers/garble/issues/162). To work around this you can pass a hint to garble, that an type is used for reflection via passing it to `reflect.TypeOf` or `reflect.ValueOf` in the same file:

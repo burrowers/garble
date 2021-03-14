@@ -3,18 +3,19 @@ env GOPRIVATE=test/main
 garble build
 exec ./main
 cmp stderr main.stderr
-binsubstr main$exe 'privateAdd' 'PublicAdd'
+! binsubstr main$exe 'privateAdd' 'PublicAdd'
 
 [short] stop # no need to verify this with -short
 
 garble -tiny build
 exec ./main
 cmp stderr main.stderr
-binsubstr main$exe 'privateAdd' 'PublicAdd'
+! binsubstr main$exe 'privateAdd' 'PublicAdd'
 
 go build
 exec ./main
 cmp stderr main.stderr
+binsubstr main$exe 'privateAdd' 'PublicAdd'
 
 -- go.mod --
 module test/main

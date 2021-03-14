@@ -29,6 +29,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
@@ -112,6 +114,10 @@ var (
 
 	envGoPrivate = os.Getenv("GOPRIVATE") // complemented by 'go env' later
 )
+
+// TODO(mvdan): now that we also obfuscate assembly funcs, we could likely get
+// rid of obfuscatedTypesPackage and have a function that tells us if a
+// *types.Func (from the original types.Package) should be obfuscated.
 
 func obfuscatedTypesPackage(path string) *types.Package {
 	entry, ok := importCfgEntries[path]
@@ -411,6 +417,11 @@ var transformFuncs = map[string]func([]string) (args []string, _ error){
 }
 
 func transformAsm(args []string) ([]string, error) {
+	// If the current package isn't private, we have nothing to do.
+	if !curPkg.Private {
+		return args, nil
+	}
+
 	flags, paths := splitFlagsFromFiles(args, ".s")
 
 	// When assembling, the import path can make its way into the output
@@ -419,7 +430,76 @@ func transformAsm(args []string) ([]string, error) {
 		flags = flagSetValue(flags, "-p", curPkg.obfuscatedImportPath())
 	}
 
-	return append(flags, paths...), nil
+	// We need to replace all function references with their obfuscated name
+	// counterparts.
+	// Luckily, all func names in Go assembly files are immediately followed
+	// by the unicode "middle dot", like:
+	//
+	//     TEXT ·privateAdd(SB),$0-24
+	const middleDot = '·'
+	middleDotLen := utf8.RuneLen(middleDot)
+
+	newPaths := make([]string, 0, len(paths))
+	for _, path := range paths {
+
+		// Read the entire file into memory.
+		// If we find issues with large files, we can use bufio.
+		content, err := ioutil.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+
+		// Find all middle-dot names, and replace them.
+		remaining := content
+		var buf bytes.Buffer
+		for {
+			i := bytes.IndexRune(remaining, middleDot)
+			if i < 0 {
+				buf.Write(remaining)
+				remaining = nil
+				break
+			}
+			i += middleDotLen
+
+			buf.Write(remaining[:i])
+			remaining = remaining[i:]
+
+			// The name ends at the first rune which cannot be part
+			// of a Go identifier, such as a comma or space.
+			nameEnd := 0
+			for nameEnd < len(remaining) {
+				c, size := utf8.DecodeRune(remaining[nameEnd:])
+				if !unicode.IsLetter(c) && c != '_' && !unicode.IsDigit(c) {
+					break
+				}
+				nameEnd += size
+			}
+			name := string(remaining[:nameEnd])
+			remaining = remaining[nameEnd:]
+
+			newName := hashWith(curPkg.GarbleActionID, name)
+			// log.Printf("%q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+			buf.WriteString(newName)
+		}
+
+		// TODO: do the original asm filenames ever matter?
+		tempFile, err := ioutil.TempFile(sharedTempDir, "*.s")
+		if err != nil {
+			return nil, err
+		}
+		defer tempFile.Close()
+
+		if _, err := tempFile.Write(buf.Bytes()); err != nil {
+			return nil, err
+		}
+		if err := tempFile.Close(); err != nil {
+			return nil, err
+		}
+
+		newPaths = append(newPaths, tempFile.Name())
+	}
+
+	return append(flags, newPaths...), nil
 }
 
 func transformCompile(args []string) ([]string, error) {
@@ -782,16 +862,6 @@ var runtimeRelated = map[string]bool{
 	"unsafe":                                 true,
 	"vendor/golang.org/x/net/dns/dnsmessage": true,
 	"vendor/golang.org/x/net/route":          true,
-
-	// These packages call pure Go functions from assembly functions.
-	// We obfuscate the pure Go function name, breaking the assembly.
-	// We do not deal with that edge case just yet, so for now,
-	// never obfuscate these packages.
-	// TODO: remove once we fix issue 261.
-	"math/big":      true,
-	"math/rand":     true,
-	"crypto/sha512": true,
-	"crypto":        true,
 }
 
 // isPrivate checks if a package import path should be considered private,
@@ -1097,9 +1167,6 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			if obj.Exported() && sign.Recv() != nil {
 				return true // might implement an interface
 			}
-			if implementedOutsideGo(x) {
-				return true // give up in this case
-			}
 			switch node.Name {
 			case "main", "init", "TestMain":
 				return true // don't break them
@@ -1112,7 +1179,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		}
 
 		obfPkg := obfuscatedTypesPackage(path)
-		// Check if the imported name wasn't garbled, e.g. if it's assembly.
+		// Check if the imported name wasn't garbled.
 		// If the object returned from the garbled package's scope has a
 		// different type as the object we're searching for, they are
 		// most likely two separate objects with the same name, so ok to
@@ -1147,18 +1214,6 @@ func recordStruct(named *types.Named, m map[types.Object]bool) {
 	for i := 0; i < strct.NumFields(); i++ {
 		m[strct.Field(i)] = true
 	}
-}
-
-// implementedOutsideGo returns whether a *types.Func does not have a body, for
-// example when it's implemented in assembly, or when one uses go:linkname.
-//
-// Note that this function can only return true if the obj parameter was
-// type-checked from source - that is, if it's the top-level package we're
-// building. Dependency packages, whose type information comes from export data,
-// do not differentiate these "external funcs" in any way.
-func implementedOutsideGo(obj *types.Func) bool {
-	return obj.Type().(*types.Signature).Recv() == nil &&
-		(obj.Scope() != nil && obj.Scope().End() == token.NoPos)
 }
 
 // named tries to obtain the *types.Named behind a type, if there is one.
