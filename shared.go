@@ -90,7 +90,6 @@ type flagOptions struct {
 	GarbleDir      string
 	DebugDir       string
 	Seed           []byte
-	Random         bool
 }
 
 // setFlagOptions sets flagOptions from the user supplied flags.
@@ -115,17 +114,17 @@ func setFlagOptions() error {
 			return fmt.Errorf("error generating random seed: %v", err)
 		}
 
-		opts.Random = true
-
-	} else {
+	} else if len(flagSeed) > 0 {
+		// We expect unpadded base64, but to be nice, accept padded
+		// strings too.
 		flagSeed = strings.TrimRight(flagSeed, "=")
 		seed, err := base64.RawStdEncoding.DecodeString(flagSeed)
 		if err != nil {
 			return fmt.Errorf("error decoding seed: %v", err)
 		}
 
-		if len(seed) != 0 && len(seed) < 8 {
-			return fmt.Errorf("the seed needs to be at least 8 bytes, but is only %v bytes", len(seed))
+		if len(seed) < 8 {
+			return fmt.Errorf("-seed needs at least 8 bytes, have %d", len(seed))
 		}
 
 		opts.Seed = seed
