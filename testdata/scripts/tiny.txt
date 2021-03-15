@@ -20,7 +20,7 @@ stderr '^recovered: ya like jazz?'
 env GODEBUG=
 garble build
 ! exec ./main$exe
-stderr '^caller: \w\.go [1-9]'
+stderr '^caller: [0-9a-zA-Z_]+\.go [1-9]'
 stderr '^recovered: ya like jazz?'
 stderr 'panic: oh noes'
 

@@ -548,6 +548,7 @@ func transformCompile(args []string) ([]string, error) {
 		files = append(files, file)
 	}
 
+	// Literal obfuscation uses math/rand, so seed it deterministically.
 	randSeed := opts.Seed
 	if len(randSeed) == 0 {
 		randSeed = curPkg.GarbleActionID
