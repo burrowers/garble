@@ -688,15 +688,12 @@ func transformCompile(args []string) ([]string, error) {
 		}
 		defer tempFile.Close()
 
-		obfSrc := &bytes.Buffer{}
-		printWriter := io.MultiWriter(tempFile, obfSrc)
-
 		for _, comment := range detachedComments[i] {
-			if _, err := printWriter.Write([]byte(comment + "\n")); err != nil {
+			if _, err := tempFile.Write([]byte(comment + "\n")); err != nil {
 				return nil, err
 			}
 		}
-		if err := printConfig.Fprint(printWriter, fset, file); err != nil {
+		if err := printConfig.Fprint(tempFile, fset, file); err != nil {
 			return nil, err
 		}
 		if opts.DebugDir != "" {
