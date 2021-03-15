@@ -174,7 +174,7 @@ type listedPackage struct {
 }
 
 func (p *listedPackage) obfuscatedImportPath() string {
-	if p.Name == "main" || p.Name == "embed" || !p.Private {
+	if p.Name == "main" || p.ImportPath == "embed" || !p.Private {
 		return p.ImportPath
 	}
 	newPath := hashWith(p.GarbleActionID, p.ImportPath)
