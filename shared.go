@@ -8,7 +8,6 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,7 +64,7 @@ func saveSharedCache() (string, error) {
 	if cache == nil {
 		panic("saving a missing cache?")
 	}
-	dir, err := ioutil.TempDir("", "garble-shared")
+	dir, err := os.MkdirTemp("", "garble-shared")
 	if err != nil {
 		return "", err
 	}

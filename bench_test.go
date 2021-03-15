@@ -4,7 +4,6 @@
 package main
 
 import (
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,13 +22,7 @@ import (
 // At the moment, each iteration takes 1-2s on a laptop, so we can't make the
 // benchmark include any more features unless we make it significantly faster.
 func BenchmarkBuild(b *testing.B) {
-	tdir, err := ioutil.TempDir("", "garble-bench")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer os.RemoveAll(tdir)
-
-	garbleBin := filepath.Join(tdir, "garble")
+	garbleBin := filepath.Join(b.TempDir(), "garble")
 	if runtime.GOOS == "windows" {
 		garbleBin += ".exe"
 	}
