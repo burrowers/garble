@@ -6,7 +6,6 @@ package main
 import (
 	"fmt"
 	"go/ast"
-	mathrand "math/rand"
 	"strings"
 )
 
@@ -92,9 +91,9 @@ func clearNodeComments(node ast.Node) {
 
 // transformLineInfo removes the comment except go directives and build tags. Converts comments to the node view.
 // It returns comments not attached to declarations and names of declarations which cannot be renamed.
-func (tf *transformer) transformLineInfo(file *ast.File, name string) (detachedComments []string, f *ast.File) {
+func (tf *transformer) transformLineInfo(file *ast.File, filename string) (detachedComments []string, f *ast.File) {
 	prefix := ""
-	if strings.HasPrefix(name, "_cgo_") {
+	if strings.HasPrefix(filename, "_cgo_") {
 		prefix = "_cgo_"
 	}
 
@@ -114,9 +113,7 @@ func (tf *transformer) transformLineInfo(file *ast.File, name string) (detachedC
 		return true
 	})
 
-	newLines := mathrand.Perm(len(file.Decls))
-
-	for i, decl := range file.Decls {
+	for _, decl := range file.Decls {
 		var doc **ast.CommentGroup
 		switch decl := decl.(type) {
 		case *ast.FuncDecl:
@@ -124,14 +121,13 @@ func (tf *transformer) transformLineInfo(file *ast.File, name string) (detachedC
 		case *ast.GenDecl:
 			doc = &decl.Doc
 		}
-		newPos := prefix + ":1"
+		newName := ""
 		if !opts.Tiny {
-			newPos = fmt.Sprintf("%s%c.go:%d",
-				prefix,
-				nameCharset[mathrand.Intn(len(nameCharset))],
-				PosMin+newLines[i],
-			)
+			origPos := fmt.Sprintf("%s:%d", filename, fset.Position(decl.Pos()).Offset)
+			newName = hashWith(curPkg.GarbleActionID, origPos) + ".go"
+			// log.Printf("%q hashed with %x to %q", origPos, curPkg.GarbleActionID, newName)
 		}
+		newPos := fmt.Sprintf("%s%s:1", prefix, newName)
 
 		comment := &ast.Comment{Text: "//line " + newPos}
 		*doc = prependComment(*doc, comment)
