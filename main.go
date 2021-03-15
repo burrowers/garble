@@ -155,6 +155,10 @@ func main1() int {
 		case errJustExit:
 		default:
 			fmt.Fprintln(os.Stderr, err)
+
+			// If the build failed and a random seed was used,
+			// the failure might not reproduce with a different seed.
+			// Print it before we exit.
 			if flagSeed == "random" {
 				fmt.Fprintf(os.Stderr, "random seed: %s\n", base64.RawStdEncoding.EncodeToString(opts.Seed))
 			}
