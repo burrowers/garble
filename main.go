@@ -17,7 +17,6 @@ import (
 	"go/token"
 	"go/types"
 	"io"
-	"io/ioutil"
 	"log"
 	mathrand "math/rand"
 	"os"
@@ -444,7 +443,7 @@ func transformAsm(args []string) ([]string, error) {
 
 		// Read the entire file into memory.
 		// If we find issues with large files, we can use bufio.
-		content, err := ioutil.ReadFile(path)
+		content, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}
@@ -483,7 +482,7 @@ func transformAsm(args []string) ([]string, error) {
 		}
 
 		// TODO: do the original asm filenames ever matter?
-		tempFile, err := ioutil.TempFile(sharedTempDir, "*.s")
+		tempFile, err := os.CreateTemp(sharedTempDir, "*.s")
 		if err != nil {
 			return nil, err
 		}
@@ -686,7 +685,7 @@ func transformCompile(args []string) ([]string, error) {
 		// 	}
 		// }
 
-		tempFile, err := ioutil.TempFile(sharedTempDir, name+".*.go")
+		tempFile, err := os.CreateTemp(sharedTempDir, name+".*.go")
 		if err != nil {
 			return nil, err
 		}
@@ -881,7 +880,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	if importCfg == "" {
 		return "", fmt.Errorf("could not find -importcfg argument")
 	}
-	data, err := ioutil.ReadFile(importCfg)
+	data, err := os.ReadFile(importCfg)
 	if err != nil {
 		return "", err
 	}
@@ -930,7 +929,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	// This is mainly replacing the obfuscated paths.
 	// Note that we range over maps, so this is non-deterministic, but that
 	// should not matter as the file is treated like a lookup table.
-	newCfg, err := ioutil.TempFile(sharedTempDir, "importcfg")
+	newCfg, err := os.CreateTemp(sharedTempDir, "importcfg")
 	if err != nil {
 		return "", err
 	}
