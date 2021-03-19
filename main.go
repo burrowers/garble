@@ -13,7 +13,6 @@ import (
 	"go/ast"
 	"go/importer"
 	"go/parser"
-	"go/printer"
 	"go/token"
 	"go/types"
 	"io"
@@ -84,8 +83,6 @@ func main() { os.Exit(main1()) }
 var (
 	fset          = token.NewFileSet()
 	sharedTempDir = os.Getenv("GARBLE_SHARED")
-
-	printConfig = printer.Config{Mode: printer.RawFormat}
 
 	// origImporter is a go/types importer which uses the original versions
 	// of packages, without any obfuscation. This is helpful to make
@@ -541,6 +538,7 @@ func transformCompile(args []string) ([]string, error) {
 
 	var files []*ast.File
 	for _, path := range paths {
+		// Note that we want
 		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
 			return nil, err
@@ -597,17 +595,6 @@ func transformCompile(args []string) ([]string, error) {
 	flags = flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 	// log.Println(flags)
 
-	detachedComments := make([][]string, len(files))
-
-	for i, file := range files {
-		name := filepath.Base(filepath.Clean(paths[i]))
-
-		comments, file := tf.transformLineInfo(file, name)
-		tf.handleDirectives(comments)
-
-		detachedComments[i], files[i] = comments, file
-	}
-
 	// If this is a package to obfuscate, swap the -p flag with the new
 	// package path.
 	newPkgPath := ""
@@ -618,7 +605,9 @@ func transformCompile(args []string) ([]string, error) {
 
 	newPaths := make([]string, 0, len(files))
 	for i, file := range files {
-		origName := filepath.Base(filepath.Clean(paths[i]))
+		tf.handleDirectives(file.Comments)
+
+		origName := filepath.Base(paths[i])
 		name := origName
 		switch {
 		case curPkg.ImportPath == "runtime":
@@ -678,12 +667,14 @@ func transformCompile(args []string) ([]string, error) {
 			file.Name.Name = newPkgPath
 		}
 
+		src, err := printFile(file)
+		if err != nil {
+			return nil, err
+		}
+
 		// Uncomment for some quick debugging. Do not delete.
 		// if curPkg.Private {
-		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n", curPkg.ImportPath, origName)
-		// 	if err := printConfig.Fprint(os.Stderr, fset, file); err != nil {
-		// 		return nil, err
-		// 	}
+		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, origName, src)
 		// }
 
 		tempFile, err := os.CreateTemp(sharedTempDir, name+".*.go")
@@ -691,13 +682,7 @@ func transformCompile(args []string) ([]string, error) {
 			return nil, err
 		}
 		defer tempFile.Close()
-
-		for _, comment := range detachedComments[i] {
-			if _, err := tempFile.Write([]byte(comment + "\n")); err != nil {
-				return nil, err
-			}
-		}
-		if err := printConfig.Fprint(tempFile, fset, file); err != nil {
+		if _, err := tempFile.Write(src); err != nil {
 			return nil, err
 		}
 		if opts.DebugDir != "" {
@@ -708,14 +693,7 @@ func transformCompile(args []string) ([]string, error) {
 			}
 
 			debugFilePath := filepath.Join(pkgDebugDir, origName)
-			debugFile, err := os.Create(debugFilePath)
-			if err != nil {
-				return nil, err
-			}
-			if err := printConfig.Fprint(debugFile, fset, file); err != nil {
-				return nil, err
-			}
-			if err := debugFile.Close(); err != nil {
+			if err := os.WriteFile(debugFilePath, src, 0666); err != nil {
 				return nil, err
 			}
 		}
@@ -736,56 +714,61 @@ func transformCompile(args []string) ([]string, error) {
 //
 // Right now, this means recording what local names are used with go:linkname,
 // and rewriting those directives to use obfuscated name from other packages.
-func (tf *transformer) handleDirectives(comments []string) {
-	for i, comment := range comments {
-		if !strings.HasPrefix(comment, "//go:linkname ") {
-			continue
-		}
-		fields := strings.Fields(comment)
-		if len(fields) != 3 {
-			continue
-		}
-		// This directive has two arguments: "go:linkname localName newName"
-		localName := fields[1]
+func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
+	if !curPkg.Private {
+		return
+	}
+	for _, group := range comments {
+		for _, comment := range group.List {
+			if !strings.HasPrefix(comment.Text, "//go:linkname ") {
+				continue
+			}
+			fields := strings.Fields(comment.Text)
+			if len(fields) != 3 {
+				continue
+			}
+			// This directive has two arguments: "go:linkname localName newName"
+			localName := fields[1]
 
-		// The local name must not be obfuscated.
-		obj := tf.pkg.Scope().Lookup(localName)
-		if obj != nil {
-			tf.ignoreObjects[obj] = true
-		}
+			// The local name must not be obfuscated.
+			obj := tf.pkg.Scope().Lookup(localName)
+			if obj != nil {
+				tf.ignoreObjects[obj] = true
+			}
 
-		// If the new name is of the form "pkgpath.Name", and
-		// we've obfuscated "Name" in that package, rewrite the
-		// directive to use the obfuscated name.
-		target := strings.Split(fields[2], ".")
-		if len(target) != 2 {
-			continue
-		}
-		pkgPath, name := target[0], target[1]
-		if pkgPath == "runtime" && strings.HasPrefix(name, "cgo") {
-			continue // ignore cgo-generated linknames
-		}
-		lpkg, err := listPackage(pkgPath)
-		if err != nil {
-			continue // probably a made up symbol name
-		}
-		if !lpkg.Private {
-			continue // ignore non-private symbols
-		}
-		obfPkg := obfuscatedTypesPackage(pkgPath)
-		if obfPkg != nil && obfPkg.Scope().Lookup(name) != nil {
-			continue // the name exists and was not garbled
-		}
+			// If the new name is of the form "pkgpath.Name", and
+			// we've obfuscated "Name" in that package, rewrite the
+			// directive to use the obfuscated name.
+			target := strings.Split(fields[2], ".")
+			if len(target) != 2 {
+				continue
+			}
+			pkgPath, name := target[0], target[1]
+			if pkgPath == "runtime" && strings.HasPrefix(name, "cgo") {
+				continue // ignore cgo-generated linknames
+			}
+			lpkg, err := listPackage(pkgPath)
+			if err != nil {
+				continue // probably a made up symbol name
+			}
+			if !lpkg.Private {
+				continue // ignore non-private symbols
+			}
+			obfPkg := obfuscatedTypesPackage(pkgPath)
+			if obfPkg != nil && obfPkg.Scope().Lookup(name) != nil {
+				continue // the name exists and was not garbled
+			}
 
-		// The name exists and was obfuscated; replace the
-		// comment with the obfuscated name.
-		newName := hashWith(lpkg.GarbleActionID, name)
-		newPkgPath := pkgPath
-		if pkgPath != "main" {
-			newPkgPath = lpkg.obfuscatedImportPath()
+			// The name exists and was obfuscated; replace the
+			// comment with the obfuscated name.
+			newName := hashWith(lpkg.GarbleActionID, name)
+			newPkgPath := pkgPath
+			if pkgPath != "main" {
+				newPkgPath = lpkg.obfuscatedImportPath()
+			}
+			fields[2] = newPkgPath + "." + newName
+			comment.Text = strings.Join(fields, " ")
 		}
-		fields[2] = newPkgPath + "." + newName
-		comments[i] = strings.Join(fields, " ")
 	}
 }
 
