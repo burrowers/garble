@@ -54,7 +54,7 @@ func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Obfuscate literals such as strings")
 	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing the ability to reverse the process")
-	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the garbled source to a directory, e.g. -debugdir=out")
+	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
 	flagSet.StringVar(&flagSeed, "seed", "", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
 
@@ -396,7 +396,7 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 		goArgs = append(goArgs, "-a")
 	}
 	if command == "test" {
-		// vet is generally not useful on garbled code; keep it
+		// vet is generally not useful on obfuscated code; keep it
 		// disabled by default.
 		goArgs = append(goArgs, "-vet=off")
 	}
@@ -629,7 +629,7 @@ func transformCompile(args []string) ([]string, error) {
 			lit.Value = "`unknown`"
 		case strings.HasPrefix(origName, "_cgo_"):
 			// Cgo generated code requires a prefix. Also, don't
-			// garble it, since it's just generated code and it gets
+			// obfuscate it, since it's just generated code and it gets
 			// messy.
 			name = "_cgo_" + name
 		default:
@@ -756,7 +756,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			}
 			obfPkg := obfuscatedTypesPackage(pkgPath)
 			if obfPkg != nil && obfPkg.Scope().Lookup(name) != nil {
-				continue // the name exists and was not garbled
+				continue // the name exists and was not obfuscated
 			}
 
 			// The name exists and was obfuscated; replace the
@@ -1093,7 +1093,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				return true
 			}
 
-			// if the struct of this field was not garbled, do not garble
+			// if the struct of this field was not obfuscated, do not obfuscate
 			// any of that struct's fields
 			if parentScope != tf.pkg.Scope() && x.IsField() && !x.Embedded() {
 				parent, ok := cursor.Parent().(*ast.SelectorExpr)
@@ -1126,8 +1126,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				return true
 			}
 
-			// if the type was not garbled in the package were it was defined,
-			// do not garble it here
+			// if the type was not obfuscated in the package were it was defined,
+			// do not obfuscate it here
 			if parentScope != tf.pkg.Scope() {
 				named := namedType(x.Type())
 				if named == nil {
@@ -1157,11 +1157,11 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		}
 
 		obfPkg := obfuscatedTypesPackage(path)
-		// Check if the imported name wasn't garbled.
-		// If the object returned from the garbled package's scope has a
+		// Check if the imported name wasn't obfuscated.
+		// If the object returned from the obfuscated package's scope has a
 		// different type as the object we're searching for, they are
 		// most likely two separate objects with the same name, so ok to
-		// garble
+		// obfuscate.
 		if obfPkg == nil {
 			// TODO(mvdan): This is probably a bug.
 			// Add a test case where an indirect package has a name
@@ -1235,8 +1235,9 @@ func transformLink(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	// Make sure -X works with garbled identifiers. To cover both garbled
-	// and non-garbled names, duplicate each flag with a garbled version.
+	// Make sure -X works with obfuscated identifiers.
+	// To cover both obfuscated and non-obfuscated names,
+	// duplicate each flag with a obfuscated version.
 	flagValueIter(flags, "-X", func(val string) {
 		// val is in the form of "pkg.name=str"
 		i := strings.IndexByte(val, '=')

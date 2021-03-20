@@ -26,9 +26,9 @@ type sharedCache struct {
 
 	Options flagOptions // garble options being used, i.e. our own flags
 
-	// ListedPackages contains data obtained via 'go list -json -export -deps'. This
-	// allows us to obtain the non-garbled export data of all dependencies, useful
-	// for type checking of the packages as we obfuscate them.
+	// ListedPackages contains data obtained via 'go list -json -export -deps'.
+	// This allows us to obtain the non-obfuscated export data of all dependencies,
+	// useful for type checking of the packages as we obfuscate them.
 	ListedPackages map[string]*listedPackage
 
 	// We can't rely on the module version to exist, because it's
