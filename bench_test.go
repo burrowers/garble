@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sync/atomic"
 	"testing"
 )
 
@@ -31,27 +30,54 @@ func BenchmarkBuild(b *testing.B) {
 		b.Fatalf("building garble: %v", err)
 	}
 
-	// We collect extra metrics.
-	var n, userTime, systemTime int64
+	for _, name := range [...]string{"Cache", "NoCache"} {
+		b.Run(name, func(b *testing.B) {
+			buildArgs := []string{"build", "-o=" + b.TempDir()}
+			switch name {
+			case "Cache":
+				buildArgs = append(buildArgs, "./testdata/bench-cache")
 
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			cmd := exec.Command(garbleBin, "build", "./testdata/bench")
-			if out, err := cmd.CombinedOutput(); err != nil {
-				b.Fatalf("%v: %s", err, out)
+				// Ensure the build cache is warm,
+				// for the sake of consistent results.
+				cmd := exec.Command(garbleBin, buildArgs...)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					b.Fatalf("%v: %s", err, out)
+				}
+			case "NoCache":
+				buildArgs = append(buildArgs, "./testdata/bench-nocache")
+			default:
+				b.Fatalf("unknown name: %q", name)
 			}
 
-			atomic.AddInt64(&n, 1)
-			atomic.AddInt64(&userTime, int64(cmd.ProcessState.UserTime()))
-			atomic.AddInt64(&systemTime, int64(cmd.ProcessState.SystemTime()))
-		}
-	})
-	b.ReportMetric(float64(userTime)/float64(n), "user-ns/op")
-	b.ReportMetric(float64(systemTime)/float64(n), "sys-ns/op")
-	info, err := os.Stat(garbleBin)
-	if err != nil {
-		b.Fatal(err)
+			// We collect extra metrics.
+			var userTime, systemTime int64
+
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					cmd := exec.Command(garbleBin, buildArgs...)
+					if name == "NoCache" {
+						gocache, err := os.MkdirTemp(b.TempDir(), "gocache-*")
+						if err != nil {
+							b.Fatal(err)
+						}
+						cmd.Env = append(os.Environ(), "GOCACHE="+gocache)
+					}
+					if out, err := cmd.CombinedOutput(); err != nil {
+						b.Fatalf("%v: %s", err, out)
+					}
+
+					userTime += int64(cmd.ProcessState.UserTime())
+					systemTime += int64(cmd.ProcessState.SystemTime())
+				}
+			})
+			b.ReportMetric(float64(userTime)/float64(b.N), "user-ns/op")
+			b.ReportMetric(float64(systemTime)/float64(b.N), "sys-ns/op")
+			info, err := os.Stat(garbleBin)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportMetric(float64(info.Size()), "bin-B")
+		})
 	}
-	b.ReportMetric(float64(info.Size()), "bin-B")
 }
