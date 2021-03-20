@@ -479,23 +479,35 @@ func transformAsm(args []string) ([]string, error) {
 		}
 
 		// TODO: do the original asm filenames ever matter?
-		tempFile, err := os.CreateTemp(sharedTempDir, "*.s")
-		if err != nil {
+		if path, err := writeTemp("*.s", buf.Bytes()); err != nil {
 			return nil, err
+		} else {
+			newPaths = append(newPaths, path)
 		}
-		defer tempFile.Close()
-
-		if _, err := tempFile.Write(buf.Bytes()); err != nil {
-			return nil, err
-		}
-		if err := tempFile.Close(); err != nil {
-			return nil, err
-		}
-
-		newPaths = append(newPaths, tempFile.Name())
 	}
 
 	return append(flags, newPaths...), nil
+}
+
+// writeTemp is a mix between os.CreateTemp and os.WriteFile, as it writes a
+// temporary file in sharedTempDir given an input buffer.
+//
+// This helper func also makes the "defer" more truthful, as it's often used
+// within a loop.
+func writeTemp(name string, content []byte) (string, error) {
+	tempFile, err := os.CreateTemp(sharedTempDir, name)
+	if err != nil {
+		return "", err
+	}
+	defer tempFile.Close()
+
+	if _, err := tempFile.Write(content); err != nil {
+		return "", err
+	}
+	if err := tempFile.Close(); err != nil {
+		return "", err
+	}
+	return tempFile.Name(), nil
 }
 
 func transformCompile(args []string) ([]string, error) {
@@ -677,13 +689,10 @@ func transformCompile(args []string) ([]string, error) {
 		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, origName, src)
 		// }
 
-		tempFile, err := os.CreateTemp(sharedTempDir, name+".*.go")
-		if err != nil {
+		if path, err := writeTemp(name+".*.go", src); err != nil {
 			return nil, err
-		}
-		defer tempFile.Close()
-		if _, err := tempFile.Write(src); err != nil {
-			return nil, err
+		} else {
+			newPaths = append(newPaths, path)
 		}
 		if opts.DebugDir != "" {
 			osPkgPath := filepath.FromSlash(curPkg.ImportPath)
@@ -697,12 +706,6 @@ func transformCompile(args []string) ([]string, error) {
 				return nil, err
 			}
 		}
-
-		if err := tempFile.Close(); err != nil {
-			return nil, err
-		}
-
-		newPaths = append(newPaths, tempFile.Name())
 	}
 	flags = flagSetValue(flags, "-importcfg", newImportCfg)
 
