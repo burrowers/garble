@@ -21,7 +21,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -757,10 +756,6 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			if !lpkg.Private {
 				continue // ignore non-private symbols
 			}
-			obfPkg := obfuscatedTypesPackage(pkgPath)
-			if obfPkg != nil && obfPkg.Scope().Lookup(name) != nil {
-				continue // the name exists and was not obfuscated
-			}
 
 			// The name exists and was obfuscated; replace the
 			// comment with the obfuscated name.
@@ -1089,33 +1084,32 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 
 		// log.Printf("%#v %T", node, obj)
 		parentScope := obj.Parent()
-		switch x := obj.(type) {
+		switch obj := obj.(type) {
 		case *types.Var:
 			if parentScope != nil && parentScope != pkg.Scope() {
-				// identifiers of non-global variables never show up in the binary
+				// Identifiers of non-global variables never show up in the binary.
 				return true
 			}
 
-			// if the struct of this field was not obfuscated, do not obfuscate
-			// any of that struct's fields
-			if parentScope != tf.pkg.Scope() && x.IsField() && !x.Embedded() {
+			// If the struct of this field was not obfuscated, do not obfuscate
+			// any of that struct's fields.
+			if parentScope != tf.pkg.Scope() && obj.IsField() && !obj.Embedded() {
 				parent, ok := cursor.Parent().(*ast.SelectorExpr)
 				if !ok {
 					break
 				}
-				parentType := tf.info.TypeOf(parent.X)
-				if parentType == nil {
-					break
-				}
-				named := namedType(parentType)
+				named := namedType(tf.info.TypeOf(parent.X))
 				if named == nil {
-					break
+					break // TODO(mvdan): add a test
 				}
 				if name := named.Obj().Name(); strings.HasPrefix(name, "_Ctype") {
 					// A field accessor on a cgo type, such as a C struct.
 					// We're not obfuscating cgo names.
 					return true
 				}
+				// If the type originates from an indirect import,
+				// it's possible for obfPkg to be nil here.
+				// TODO(mvdan): add a test and think how to fix this
 				if obfPkg := obfuscatedTypesPackage(path); obfPkg != nil {
 					if obfPkg.Scope().Lookup(named.Obj().Name()) != nil {
 						recordStruct(named, tf.ignoreObjects)
@@ -1125,22 +1119,22 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			}
 		case *types.TypeName:
 			if parentScope != pkg.Scope() {
-				// identifiers of non-global types never show up in the binary
+				// Identifiers of non-global types never show up in the binary.
 				return true
 			}
 
-			// if the type was not obfuscated in the package were it was defined,
-			// do not obfuscate it here
+			// If the type was not obfuscated in the package were it was defined,
+			// do not obfuscate it here.
 			if parentScope != tf.pkg.Scope() {
-				named := namedType(x.Type())
+				named := namedType(obj.Type())
 				if named == nil {
-					break
+					break // TODO(mvdan): add a test
 				}
-				if obfPkg := obfuscatedTypesPackage(path); obfPkg != nil {
-					if obfPkg.Scope().Lookup(x.Name()) != nil {
-						recordStruct(named, tf.ignoreObjects)
-						return true
-					}
+				// The type is directly referenced by name,
+				// so obfuscatedTypesPackage can't return nil.
+				if obfuscatedTypesPackage(path).Scope().Lookup(obj.Name()) != nil {
+					recordStruct(named, tf.ignoreObjects)
+					return true
 				}
 			}
 		case *types.Func:
@@ -1157,20 +1151,6 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			}
 		default:
 			return true // we only want to rename the above
-		}
-
-		obfPkg := obfuscatedTypesPackage(path)
-		// Check if the imported name wasn't obfuscated.
-		// If the object returned from the obfuscated package's scope has a
-		// different type as the object we're searching for, they are
-		// most likely two separate objects with the same name, so ok to
-		// obfuscate.
-		if obfPkg == nil {
-			// TODO(mvdan): This is probably a bug.
-			// Add a test case where an indirect package has a name
-			// that we did not obfuscate.
-		} else if o := obfPkg.Scope().Lookup(obj.Name()); o != nil && reflect.TypeOf(o) == reflect.TypeOf(obj) {
-			return true
 		}
 
 		origName := node.Name
