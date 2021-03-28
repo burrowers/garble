@@ -21,11 +21,11 @@ func isDirective(text string) bool {
 // printFile prints a Go file to a buffer, while also removing non-directive
 // comments and adding extra compiler directives to obfuscate position
 // information.
-func printFile(file *ast.File) ([]byte, error) {
+func printFile(file1 *ast.File) ([]byte, error) {
 	printConfig := printer.Config{Mode: printer.RawFormat}
 
 	var buf1 bytes.Buffer
-	if err := printConfig.Fprint(&buf1, fset, file); err != nil {
+	if err := printConfig.Fprint(&buf1, fset, file1); err != nil {
 		return nil, err
 	}
 	src := buf1.Bytes()
@@ -36,8 +36,9 @@ func printFile(file *ast.File) ([]byte, error) {
 		return src, nil
 	}
 
-	filename := fset.Position(file.Pos()).Filename
-	if strings.HasPrefix(filepath.Base(filename), "_cgo_") {
+	absFilename := fset.Position(file1.Pos()).Filename
+	filename := filepath.Base(absFilename)
+	if strings.HasPrefix(filename, "_cgo_") {
 		// cgo-generated files don't need changed line numbers.
 		// Plus, the compiler can complain rather easily.
 		return src, nil
@@ -48,7 +49,7 @@ func printFile(file *ast.File) ([]byte, error) {
 	// and those are the only source of truth that go/printer uses.
 	// So the positions of the comments in the given file are wrong.
 	// The only way we can get the final ones is to parse again.
-	file, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
+	file2, err := parser.ParseFile(fset, absFilename, src, parser.ParseComments)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +64,7 @@ func printFile(file *ast.File) ([]byte, error) {
 		toAdd = append(toAdd, commentToAdd{offset, text})
 	}
 	addComment(0, "/*line :1*/")
-	for _, group := range file.Comments {
+	for _, group := range file2.Comments {
 		for _, comment := range group.List {
 			if isDirective(comment.Text) {
 				// TODO(mvdan): merge with the zeroing below
@@ -73,7 +74,9 @@ func printFile(file *ast.File) ([]byte, error) {
 		}
 	}
 	// Remove all existing comments by making them whitespace.
-	for _, group := range file.Comments {
+	// This is superior to removing the comments before printing,
+	// because then the final source would have different line numbers.
+	for _, group := range file2.Comments {
 		for _, comment := range group.List {
 			start := fset.Position(comment.Pos()).Offset
 			end := fset.Position(comment.End()).Offset
@@ -83,9 +86,10 @@ func printFile(file *ast.File) ([]byte, error) {
 		}
 	}
 
-	for _, decl := range file.Decls {
+	for i, decl := range file2.Decls {
 		newName := ""
 		if !opts.Tiny {
+			decl := file1.Decls[i]
 			origPos := fmt.Sprintf("%s:%d", filename, fset.Position(decl.Pos()).Offset)
 			newName = hashWith(curPkg.GarbleActionID, origPos) + ".go"
 			// log.Printf("%q hashed with %x to %q", origPos, curPkg.GarbleActionID, newName)
