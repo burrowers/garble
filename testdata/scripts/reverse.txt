@@ -13,14 +13,13 @@ cp stderr main.stderr
 # This output is not reproducible between 'go test' runs,
 # so we can't use a static golden file.
 grep 'goroutine 1 \[running\]' main.stderr
-! grep 'ExportedLibFunc|unexportedMainFunc|test/main|main.go|lib.go' main.stderr
+! grep 'ExportedLibFunc|unexportedMainFunc|test/main|main\.go|lib\.go' main.stderr
 
 stdin main.stderr
 garble reverse
-stdout -count=1 'test/main/lib\.ExportedLibFunc'
-stdout -count=1 'main\.unexportedMainFunc'
-# TODO: this is what we want when "reverse" is finished
-# cmp stdout reverse.stdout
+cmp stdout reverse.stdout
+
+# TODO: test with -literals too, as it modifies the source.
 
 # Ensure that the reversed output matches the non-garbled output.
 go build -trimpath
@@ -64,6 +63,8 @@ func ExportedLibFunc(w io.Writer) error {
 	// Strip them out here, to have portable static stdout files.
 	rxVariableSuffix := regexp.MustCompile(`0x[0-9a-f]+`)
 
+	// Keep this comment here, because comments affect line numbers.
+
 	stack := debug.Stack()
 	stack = rxVariableSuffix.ReplaceAll(stack, []byte("0x??"))
 	_, err := w.Write(stack)
@@ -74,7 +75,7 @@ goroutine 1 [running]:
 runtime/debug.Stack(0x??, 0x??, 0x??)
 	runtime/debug/stack.go:24 +0x??
 test/main/lib.ExportedLibFunc(0x??, 0x??, 0x??, 0x??)
-	test/main/lib/lib.go:15 +0x??
+	test/main/lib/lib.go:17 +0x??
 main.unexportedMainFunc(...)
 	test/main/main.go:14
 main.main()

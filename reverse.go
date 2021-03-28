@@ -5,6 +5,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -56,12 +57,29 @@ func commandReverse(args []string) error {
 		addReplace(lpkg.ImportPath)
 
 		for _, goFile := range lpkg.GoFiles {
-			goFile = filepath.Join(lpkg.Dir, goFile)
-			file, err := parser.ParseFile(fset, goFile, nil, 0)
+			fullGoFile := filepath.Join(lpkg.Dir, goFile)
+			file, err := parser.ParseFile(fset, fullGoFile, nil, 0)
 			if err != nil {
 				return err
 			}
 			for _, decl := range file.Decls {
+				// Reverse position information.
+				pos := fset.Position(decl.Pos())
+				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
+				newFilename := hashWith(lpkg.GarbleActionID, origPos) + ".go"
+
+				// For each line number within this function,
+				// replace the obfuscated position with its original form.
+				// Remember that the "/*line" directive starts at 1.
+				numLines := fset.Position(decl.End()).Line - pos.Line
+				for i := 0; i < numLines; i++ {
+					replaces = append(replaces,
+						fmt.Sprintf("%s:%d", newFilename, 1+i),
+						fmt.Sprintf("%s/%s:%d", lpkg.ImportPath, goFile, pos.Line+i),
+					)
+				}
+
+				// Reverse the name itself.
 				// TODO: Probably do type names too. What else?
 				switch decl := decl.(type) {
 				case *ast.FuncDecl:
