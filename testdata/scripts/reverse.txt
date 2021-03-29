@@ -19,12 +19,24 @@ stdin main.stderr
 garble reverse
 cmp stdout reverse.stdout
 
-# TODO: test with -literals too, as it modifies the source.
-
 # Ensure that the reversed output matches the non-garbled output.
 go build -trimpath
 exec ./main
 cmp stderr reverse.stdout
+
+# Ensure that we can still reverse with -literals.
+garble -literals build
+exec ./main
+cp stderr main-literals.stderr
+
+stdin main-literals.stderr
+garble -literals reverse
+cmp stdout reverse.stdout
+
+# Reversing a -literals output without the flag should fail.
+stdin main-literals.stderr
+garble reverse
+cmp stdout main-literals.stderr
 
 -- go.mod --
 module test/main
@@ -44,9 +56,13 @@ func main() {
 }
 
 func unexportedMainFunc() {
-	if err := lib.ExportedLibFunc(os.Stderr); err != nil {
-		panic(err)
+	anonFunc := func() {
+		lt := lib.ExportedLibType{}
+		if err := lt.ExportedLibMethod(os.Stderr); err != nil {
+			panic(err)
+		}
 	}
+	anonFunc()
 }
 -- lib/lib.go --
 package lib
@@ -57,7 +73,13 @@ import (
 	"runtime/debug"
 )
 
-func ExportedLibFunc(w io.Writer) error {
+type ExportedLibType struct{}
+
+func (*ExportedLibType) ExportedLibMethod(w io.Writer) error {
+	return printStackTrace(w)
+}
+
+func printStackTrace(w io.Writer) error {
 	// Panic outputs include "0xNN" pointers and offsets which change
 	// between platforms.
 	// Strip them out here, to have portable static stdout files.
@@ -74,9 +96,13 @@ func ExportedLibFunc(w io.Writer) error {
 goroutine 1 [running]:
 runtime/debug.Stack(0x??, 0x??, 0x??)
 	runtime/debug/stack.go:24 +0x??
-test/main/lib.ExportedLibFunc(0x??, 0x??, 0x??, 0x??)
-	test/main/lib/lib.go:17 +0x??
-main.unexportedMainFunc(...)
-	test/main/main.go:14
+test/main/lib.printStackTrace(0x??, 0x??, 0x??, 0x??)
+	test/main/lib/lib.go:23 +0x??
+test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
+	test/main/lib/lib.go:12
+main.unexportedMainFunc.func1()
+	test/main/main.go:16 +0x??
+main.unexportedMainFunc()
+	test/main/main.go:20 +0x??
 main.main()
 	test/main/main.go:10 +0x??

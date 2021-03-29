@@ -2,7 +2,9 @@ env GOPRIVATE=test/main
 
 garble build
 exec ./main
-! stdout 'main.go|other_file_name|is sorted'
+! stdout 'main\.go|other_file_name|is sorted'
+
+! binsubstr main$exe 'main.go' 'other_file_name'
 
 [short] stop # no need to verify this with -short
 
@@ -55,6 +57,12 @@ func main() {
 	if sort.IsSorted(sort.StringSlice(varPositions)) {
 		fmt.Println("varPositions is sorted")
 	}
+
+	// Adding "/*text*/" comments here is tricky,
+	// as we don't want to turn "a/b" into "a//*text*/b".
+	// We need "a/ /*text*/b" to preserve the syntax.
+	// The nested expression is needed to prevent spaces.
+	fmt.Printf("%v\n", 10*float64(3.0)/float64(4.0))
 }
 -- other_file_name.go --
 package main

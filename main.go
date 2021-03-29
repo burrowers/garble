@@ -286,7 +286,8 @@ func mainErr(args []string) error {
 	// possibly differentiate between the two versions of a package.
 	// The same happens with "foo/bar_test", whose ImportPath is actually
 	// "foo/bar_test [foo/bar.test]".
-	// We'll likely file this as an upstream bug to fix in Go 1.17.
+	//
+	// TODO(mvdan): remove once https://github.com/golang/go/issues/44963 is fixed
 	//
 	// Until then, here's our workaround: since this edge case only happens
 	// for the compiler, check if any "_test.go" files are being compiled.
@@ -582,7 +583,7 @@ func transformCompile(args []string) ([]string, error) {
 	// extra calls to 'go list'.
 	// Since this is a rare edge case and only occurs for a few std
 	// packages, do the extra 'go list' calls for now.
-	// TODO(mvdan): report this upstream and investigate further.
+	// TODO(mvdan): remove once https://github.com/golang/go/issues/44630 is fixed
 	if curPkg.Standard && len(curPkg.ImportMap) > 0 {
 		origImporter = importer.Default()
 	}

@@ -63,21 +63,20 @@ func printFile(file1 *ast.File) ([]byte, error) {
 	addComment := func(offset int, text string) {
 		toAdd = append(toAdd, commentToAdd{offset, text})
 	}
+
+	// Make sure the entire file gets a zero filename by default,
+	// in case we miss any positions below.
 	addComment(0, "/*line :1*/")
-	for _, group := range file2.Comments {
-		for _, comment := range group.List {
-			if isDirective(comment.Text) {
-				// TODO(mvdan): merge with the zeroing below
-				pos := fset.Position(comment.Pos())
-				addComment(pos.Offset, comment.Text)
-			}
-		}
-	}
-	// Remove all existing comments by making them whitespace.
+
+	// Remove any comments by making them whitespace.
+	// Keep directives, as they affect the build.
 	// This is superior to removing the comments before printing,
 	// because then the final source would have different line numbers.
 	for _, group := range file2.Comments {
 		for _, comment := range group.List {
+			if isDirective(comment.Text) {
+				continue
+			}
 			start := fset.Position(comment.Pos()).Offset
 			end := fset.Position(comment.End()).Offset
 			for i := start; i < end; i++ {
@@ -86,21 +85,36 @@ func printFile(file1 *ast.File) ([]byte, error) {
 		}
 	}
 
-	for i, decl := range file2.Decls {
+	var origCallExprs []*ast.CallExpr
+	ast.Inspect(file1, func(node ast.Node) bool {
+		if node, ok := node.(*ast.CallExpr); ok {
+			origCallExprs = append(origCallExprs, node)
+		}
+		return true
+	})
+
+	i := 0
+	ast.Inspect(file2, func(node ast.Node) bool {
+		node, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		origNode := origCallExprs[i]
+		i++
 		newName := ""
 		if !opts.Tiny {
-			decl := file1.Decls[i]
-			origPos := fmt.Sprintf("%s:%d", filename, fset.Position(decl.Pos()).Offset)
+			origPos := fmt.Sprintf("%s:%d", filename, fset.Position(origNode.Pos()).Offset)
 			newName = hashWith(curPkg.GarbleActionID, origPos) + ".go"
 			// log.Printf("%q hashed with %x to %q", origPos, curPkg.GarbleActionID, newName)
 		}
 		newPos := fmt.Sprintf("%s:1", newName)
-		pos := fset.Position(decl.Pos())
+		pos := fset.Position(node.Pos())
 
-		// We use the /*text*/ form, since we can use multiple of them
+		// We use the "/*text*/" form, since we can use multiple of them
 		// on a single line, and they don't require extra newlines.
 		addComment(pos.Offset, "/*line "+newPos+"*/")
-	}
+		return true
+	})
 
 	// We add comments in order.
 	sort.Slice(toAdd, func(i, j int) bool {
@@ -111,12 +125,19 @@ func printFile(file1 *ast.File) ([]byte, error) {
 	var buf2 bytes.Buffer
 	for _, comment := range toAdd {
 		buf2.Write(src[copied:comment.offset])
+		copied = comment.offset
+
+		// Make sure there is whitespace at either side of a comment.
+		// Otherwise, we could change the syntax of the program.
+		// Inserting "/*text*/" in "a/b" // must be "a/ /*text*/ b",
+		// as "a//*text*/b" is tokenized as a "//" comment.
+		buf2.WriteByte(' ')
 		buf2.WriteString(comment.text)
 		if strings.HasPrefix(comment.text, "//") {
 			buf2.WriteByte('\n')
+		} else {
+			buf2.WriteByte(' ')
 		}
-
-		copied = comment.offset
 	}
 	buf2.Write(src[copied:])
 	return buf2.Bytes(), nil
