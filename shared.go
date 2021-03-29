@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
@@ -217,11 +216,7 @@ func setListedPackages(patterns []string) error {
 		}
 		if pkg.Export != "" {
 			actionID := decodeHash(splitActionID(pkg.BuildID))
-			h := sha256.New()
-			h.Write(actionID)
-			h.Write(cache.BinaryContentID)
-
-			pkg.GarbleActionID = h.Sum(nil)[:buildIDComponentLength]
+			pkg.GarbleActionID = addGarbleToBuildIDComponent(actionID)
 		}
 		cache.ListedPackages[pkg.ImportPath] = &pkg
 	}
