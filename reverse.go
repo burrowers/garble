@@ -62,30 +62,34 @@ func commandReverse(args []string) error {
 			if err != nil {
 				return err
 			}
-			for _, decl := range file.Decls {
-				// Reverse position information.
-				pos := fset.Position(decl.Pos())
-				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
-				newFilename := hashWith(lpkg.GarbleActionID, origPos) + ".go"
+			ast.Inspect(file, func(node ast.Node) bool {
+				switch node := node.(type) {
 
-				// For each line number within this function,
-				// replace the obfuscated position with its original form.
-				// Remember that the "/*line" directive starts at 1.
-				numLines := fset.Position(decl.End()).Line - pos.Line
-				for i := 0; i < numLines; i++ {
-					replaces = append(replaces,
-						fmt.Sprintf("%s:%d", newFilename, 1+i),
-						fmt.Sprintf("%s/%s:%d", lpkg.ImportPath, goFile, pos.Line+i),
-					)
-				}
-
-				// Reverse the name itself.
-				// TODO: Probably do type names too. What else?
-				switch decl := decl.(type) {
+				// Replace names.
+				// TODO: do var names ever show up in output?
 				case *ast.FuncDecl:
-					addReplace(decl.Name.Name)
+					addReplace(node.Name.Name)
+				case *ast.TypeSpec:
+					addReplace(node.Name.Name)
+
+				case *ast.CallExpr:
+					// continues below
+				default:
+					return true
 				}
-			}
+
+				// Reverse position information.
+				pos := fset.Position(node.Pos())
+				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
+				newPos := hashWith(lpkg.GarbleActionID, origPos) + ".go:1"
+
+				replaces = append(replaces,
+					newPos,
+					fmt.Sprintf("%s/%s:%d", lpkg.ImportPath, goFile, pos.Line),
+				)
+
+				return true
+			})
 		}
 	}
 	repl := strings.NewReplacer(replaces...)
