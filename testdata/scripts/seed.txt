@@ -1,41 +1,79 @@
 env GOPRIVATE=test/main
 
-# Check the binary with a given base64 encoded seed
-garble -literals -seed=OQg9kACEECQ build
-exec ./main$exe
-cmp stderr main.stdout
-! binsubstr main$exe 'teststring' 'teststringVar' 'imported var value' 'ImportedVar'
+env SEED1=OQg9kACEECQ
+env SEED2=NruiDmVz6/s
 
-[short] stop # checking that the build is reproducible and random is slow
+# Check the binary with a given base64 encoded seed
+garble -seed=${SEED1} build
+exec ./main$exe
+cmp stderr main.stderr
+binsubstr main$exe 'teststring' 'imported var value'
+! binsubstr main$exe 'ImportedVar'
+
+[short] stop # the extra checks are relatively expensive
+
+exec ./main$exe funcName
+cp stderr funcName-seed-static-1
 
 # Also check that the binary is reproducible.
 # No packages should be rebuilt either, thanks to the build cache.
 cp main$exe main_old$exe
 rm main$exe
-garble -literals -seed=OQg9kACEECQ= build -v
+garble -seed=${SEED1}= build -v
 ! stderr .
 bincmp main$exe main_old$exe
+
+exec ./main$exe funcName
+cmp stderr funcName-seed-static-1
 
 # Also check that a different seed leads to a different binary.
 # We can't know if caching happens here, because of previous test runs.
 cp main$exe main_old$exe
 rm main$exe
-garble -literals -seed=NruiDmVz6/s build
+garble -seed=${SEED2} build
 ! bincmp main$exe main_old$exe
 
+exec ./main$exe funcName
+cp stderr funcName-seed-static-2
+! bincmp funcName-seed-static-2 funcName-seed-static-1
+
 # Use a random seed, which should always trigger a full build.
-garble -literals -seed=random build -v
-stderr .
+garble -seed=random build -v
+stderr -count=1 '^runtime$'
+stderr -count=1 '^test/main$'
 exec ./main$exe
-cmp stderr main.stdout
-! binsubstr main$exe 'teststring' 'teststringVar' 'imported var value' 'ImportedVar'
+cmp stderr main.stderr
+binsubstr main$exe 'teststring' 'imported var value'
+! binsubstr main$exe 'ImportedVar'
+
+exec ./main$exe funcName
+cp stderr funcName-seed-random-1
+! bincmp funcName-seed-random-1 funcName-seed-static-1
 
 # Also check that the random binary is not reproducible.
 cp main$exe main_old$exe
 rm main$exe
-garble -literals -seed=random build -v
+garble -seed=random build -v
 stderr .
 ! bincmp main$exe main_old$exe
+
+exec ./main$exe funcName
+cp stderr funcName-seed-random-2
+! bincmp funcName-seed-random-2 funcName-seed-random-1
+
+# Using different flags which affect the build, such as -literals or -tiny,
+# should result in different obfuscation of names etc.
+# There's strictly no reason to have this rule,
+# but the flags result in different builds and binaries anyway,
+# so we might as well make them as different as possible.
+
+garble -seed=${SEED1} -literals build
+exec ./main$exe funcName
+! bincmp stderr funcName-seed-static-1
+
+garble -seed=${SEED1} -tiny build
+exec ./main$exe funcName
+! bincmp stderr funcName-seed-static-1
 
 -- go.mod --
 module test/main
@@ -44,19 +82,34 @@ go 1.16
 -- main.go --
 package main
 
-import "test/main/imported"
+import (
+	"os"
+	"runtime"
+
+	"test/main/imported"
+)
 
 var teststringVar = "teststring"
 
 func main() {
-	println(teststringVar)
-	println(imported.ImportedVar)
+	if len(os.Args) > 1 && os.Args[1] == "funcName" {
+		println(originalFuncName())
+	} else {
+		println(teststringVar)
+		println(imported.ImportedVar)
+	}
+}
+
+func originalFuncName() string {
+	pc, _, _, _ := runtime.Caller(0)
+	fn := runtime.FuncForPC(pc)
+	return fn.Name()
 }
 -- imported/imported.go --
 package imported
 
 var ImportedVar = "imported var value"
 
--- main.stdout --
+-- main.stderr --
 teststring
 imported var value
