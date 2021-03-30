@@ -1,5 +1,6 @@
 # build the test binary
 garble test -c -a
+! stdout 'PASS'
 binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
 ! binsubstr bar.test$exe 'LocalFoo|ImportedVar|OriginalFuncName'
 
@@ -19,11 +20,16 @@ garble test -v . ./somemain ./sometest
 stdout 'ok\s+test/bar\s'
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
+stdout 'SKIP.*TestWithFlag'
 stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
 ! stdout 'OriginalFuncName'
 stdout '\?\s+test/bar/somemain\s'
 stdout 'ok\s+test/bar/sometest\s'
+
+# verify that non-build flags are kept
+garble test -withflag -v
+stdout 'PASS.*TestWithFlag'
 
 # verify with regular cmd/go; OriginalFuncName should appear
 go test -v
@@ -67,10 +73,13 @@ func TestFoo(t *testing.T) {
 package bar_test
 
 import (
+	"flag"
 	"testing"
 
 	"test/bar"
 )
+
+var withFlag = flag.Bool("withflag", false, "")
 
 func TestSeparateFoo(t *testing.T) {
 	t.Log(bar.ImportedVar)
@@ -78,6 +87,12 @@ func TestSeparateFoo(t *testing.T) {
 		t.FailNow()
 	}
 	t.Logf("package bar_test, func name: %s", bar.OriginalFuncName())
+}
+
+func TestWithFlag(t *testing.T) {
+	if !*withFlag {
+		t.Skip()
+	}
 }
 -- main_test.go --
 package bar
