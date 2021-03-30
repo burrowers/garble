@@ -104,25 +104,37 @@ func commandReverse(args []string) error {
 	}
 	repl := strings.NewReplacer(replaces...)
 
-	// TODO: return a non-zero status code if we could not reverse any string.
 	if len(args) == 0 {
-		return reverseContent(os.Stdout, os.Stdin, repl)
+		modified, err := reverseContent(os.Stdout, os.Stdin, repl)
+		if err != nil {
+			return err
+		}
+		if !modified {
+			return errJustExit
+		}
+		return nil
 	}
+	anyModified := false
 	for _, path := range args {
 		f, err := os.Open(path)
 		if err != nil {
 			return err
 		}
 		defer f.Close()
-		if err := reverseContent(os.Stdout, f, repl); err != nil {
+		any, err := reverseContent(os.Stdout, f, repl)
+		if err != nil {
 			return err
 		}
+		anyModified = anyModified || any
 		f.Close() // since we're in a loop
+	}
+	if !anyModified {
+		return errJustExit
 	}
 	return nil
 }
 
-func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer) error {
+func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer) (bool, error) {
 	// Read line by line.
 	// Reading the entire content at once wouldn't be interactive,
 	// nor would it support large files well.
@@ -130,19 +142,25 @@ func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer) error {
 	// We use bufio.Reader instead of bufio.Scanner,
 	// to also obtain the newline characters themselves.
 	br := bufio.NewReader(r)
+	modified := false
 	for {
 		// Note that ReadString can return a line as well as an error if
 		// we hit EOF without a newline.
 		// In that case, we still want to process the string.
 		line, readErr := br.ReadString('\n')
-		if _, err := repl.WriteString(w, line); err != nil {
-			return err
+
+		newLine := repl.Replace(line)
+		if newLine != line {
+			modified = true
+		}
+		if _, err := io.WriteString(w, newLine); err != nil {
+			return modified, err
 		}
 		if readErr == io.EOF {
-			return nil
+			return modified, nil
 		}
 		if readErr != nil {
-			return readErr
+			return modified, readErr
 		}
 	}
 }
