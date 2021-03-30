@@ -1,9 +1,8 @@
 env GOPRIVATE=test/main
 
 # Unknown build flags should result in errors.
-# TODO: reenable and fix
-# ! garble reverse -badflag
-# stderr 'flag provided but not defined'
+! garble reverse -badflag
+stderr 'flag provided but not defined'
 
 garble build
 exec ./main

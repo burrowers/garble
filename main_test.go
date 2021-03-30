@@ -298,7 +298,7 @@ func TestFilterBuildFlags(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			got := filterBuildFlags(test.flags)
+			got, _ := filterBuildFlags(test.flags)
 
 			if diff := cmp.Diff(test.want, got); diff != "" {
 				t.Fatalf("filterBuildFlags(%q) mismatch (-want +got):\n%s", test.flags, diff)

@@ -358,7 +358,7 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.
-	cache.BuildFlags = filterBuildFlags(flags)
+	cache.BuildFlags, _ = filterBuildFlags(flags)
 	if command == "test" {
 		cache.BuildFlags = append(cache.BuildFlags, "-test")
 	}
@@ -1337,7 +1337,7 @@ var booleanFlags = map[string]bool{
 	"-benchmem": true,
 }
 
-func filterBuildFlags(flags []string) (filtered []string) {
+func filterBuildFlags(flags []string) (filtered []string, firstUnknown string) {
 	for i := 0; i < len(flags); i++ {
 		arg := flags[i]
 		name := arg
@@ -1348,6 +1348,8 @@ func filterBuildFlags(flags []string) (filtered []string) {
 		buildFlag := buildFlags[name]
 		if buildFlag {
 			filtered = append(filtered, arg)
+		} else {
+			firstUnknown = name
 		}
 		if booleanFlags[arg] || strings.Contains(arg, "=") {
 			// Either "-bool" or "-name=value".
@@ -1358,7 +1360,7 @@ func filterBuildFlags(flags []string) (filtered []string) {
 			filtered = append(filtered, flags[i])
 		}
 	}
-	return filtered
+	return filtered, firstUnknown
 }
 
 // splitFlagsFromFiles splits args into a list of flag and file arguments. Since
