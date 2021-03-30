@@ -34,7 +34,7 @@ cmp stdout reverse.stdout
 
 # Reversing a -literals output without the flag should fail.
 stdin main-literals.stderr
-garble reverse
+! garble reverse
 cmp stdout main-literals.stderr
 
 -- go.mod --
