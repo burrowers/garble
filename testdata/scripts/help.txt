@@ -1,25 +1,29 @@
 ! garble
 stderr -count=1 'Usage'
-stderr 'garble \[flags\] build'
+stderr 'garble \[garble flags\] command'
 ! stderr 'usage: go build'
 ! stdout .
 
 ! garble -h
-stderr 'garble \[flags\] build'
+stderr 'garble \[garble flags\] command'
 ! stdout .
 
 ! garble help
-stderr 'garble \[flags\] build'
+stderr 'garble \[garble flags\] command'
+! stdout .
+
+! garble help foo bar
+stderr 'does not take arguments'
 ! stdout .
 
 ! garble build -h
-stderr 'garble \[flags\] build'
+stderr 'garble \[garble flags\] command'
 ! stderr 'usage: go build'
 ! stdout .
 
 ! garble -badflag
 stderr 'flag provided but not defined'
-stderr 'garble \[flags\] build'
+stderr 'garble \[garble flags\] command'
 ! stdout .
 
 ! garble badcmd
