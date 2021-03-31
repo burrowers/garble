@@ -63,9 +63,17 @@ Garble obfuscates Go code by wrapping the Go toolchain.
 
 Usage:
 
-	garble [flags] build [build flags] [packages]
+	garble [garble flags] command [arguments]
 
-Aside from "build", the "test" command mirroring "go test" is also supported.
+For example, to build an obfuscated program:
+
+	garble build ./cmd/foo
+
+The following commands are supported:
+
+	build [packages]   wraps "go build"
+	test [packages]    wraps "go test"
+	reverse [files]    de-obfuscates output such as stack traces
 
 garble accepts the following flags:
 
