@@ -237,6 +237,9 @@ func mainErr(args []string) error {
 	// If we recognize an argument, we're not running within -toolexec.
 	switch command, args := args[0], args[1:]; command {
 	case "help":
+		if len(args) > 0 {
+			return fmt.Errorf("the help command does not take arguments")
+		}
 		return flag.ErrHelp
 	case "version":
 		if len(args) > 0 {
