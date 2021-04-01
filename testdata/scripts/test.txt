@@ -1,5 +1,5 @@
 # build the test binary
-garble test -c -a
+garble test -c
 ! stdout 'PASS'
 binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
 ! binsubstr bar.test$exe 'LocalFoo|ImportedVar|OriginalFuncName'

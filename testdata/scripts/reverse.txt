@@ -18,6 +18,8 @@ stdin main.stderr
 garble reverse
 cmp stdout reverse.stdout
 
+[short] stop # no need to verify this with -short
+
 # Ensure that the reversed output matches the non-garbled output.
 go build -trimpath
 exec ./main

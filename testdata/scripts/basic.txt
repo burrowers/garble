@@ -28,7 +28,7 @@ stdout 'unknown'
 [short] stop # checking that the build is reproducible is slow
 
 # Check that we fail if the user used "go build -toolexec garble" instead of "garble build"
-! go build -a -toolexec=garble main.go
+! go build -toolexec=garble main.go
 stderr 'not running "garble \[command\]"'
 
 # Also check that the binary is reproducible.
