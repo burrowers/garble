@@ -657,34 +657,6 @@ func transformCompile(args []string) ([]string, error) {
 			name = "_cgo_" + name
 		default:
 			file = tf.transformGo(file)
-
-			ast.Inspect(file, func(node ast.Node) bool {
-				imp, ok := node.(*ast.ImportSpec)
-				if !ok {
-					return true
-				}
-				path, err := strconv.Unquote(imp.Path.Value)
-				if err != nil {
-					panic(err) // should never happen
-				}
-				// We're importing an obfuscated package.
-				// Replace the import path with its obfuscated version.
-				// If the import was unnamed, give it the name of the
-				// original package name, to keep references working.
-				lpkg, err := listPackage(path)
-				if err != nil {
-					panic(err) // should never happen
-				}
-				if !lpkg.Private {
-					return true
-				}
-				newPath := lpkg.obfuscatedImportPath()
-				imp.Path.Value = strconv.Quote(newPath)
-				if imp.Name == nil {
-					imp.Name = &ast.Ident{Name: lpkg.Name}
-				}
-				return true
-			})
 		}
 		if newPkgPath != "" {
 			file.Name.Name = newPkgPath
@@ -1172,7 +1144,35 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		// log.Printf("%q hashed with %x to %q", origName, lpkg.GarbleActionID, node.Name)
 		return true
 	}
-	return astutil.Apply(file, pre, nil).(*ast.File)
+	post := func(cursor *astutil.Cursor) bool {
+		imp, ok := cursor.Node().(*ast.ImportSpec)
+		if !ok {
+			return true
+		}
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			panic(err) // should never happen
+		}
+		// We're importing an obfuscated package.
+		// Replace the import path with its obfuscated version.
+		// If the import was unnamed, give it the name of the
+		// original package name, to keep references working.
+		lpkg, err := listPackage(path)
+		if err != nil {
+			panic(err) // should never happen
+		}
+		if !lpkg.Private {
+			return true
+		}
+		newPath := lpkg.obfuscatedImportPath()
+		imp.Path.Value = strconv.Quote(newPath)
+		if imp.Name == nil {
+			imp.Name = &ast.Ident{Name: lpkg.Name}
+		}
+		return true
+	}
+
+	return astutil.Apply(file, pre, post).(*ast.File)
 }
 
 // recordStruct adds the given named type to the map, plus all of its fields if
