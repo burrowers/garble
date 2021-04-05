@@ -242,6 +242,55 @@ const (
 	iota0 uint8 = iota
 	iota1
 )
+-- directives.go --
+// If we misplace any of the directives below,
+// cmd/compile will complain with "misplaced compiler directive".
+//
+// We use many literals and functions, mixing different types,
+// so that it's more likely that bugs will be caught.
+package main
+
+//go:noinline
+func str0() { println("foo") }
+
+//go:noinline
+func str1() { println("foo") }
+
+//go:noinline
+func str2() { println("foo") }
+
+//go:noinline
+func str3() { println("foo") }
+
+//go:noinline
+func str4() { println("foo") }
+
+//go:noinline
+func arr0() { println(len([...]byte{0, 1, 2})) }
+
+//go:noinline
+func arr1() { println(len([...]byte{0, 1, 2})) }
+
+//go:noinline
+func slc0() { println([]byte{0, 1, 2}) }
+
+//go:noinline
+func slc1() { println([]byte{0, 1, 2}) }
+
+//go:noinline
+func str5() { println("foo") }
+
+//go:noinline
+func str6() { println("foo") }
+
+//go:noinline
+func str7() { println("foo") }
+
+//go:noinline
+func str8() { println("foo") }
+
+//go:noinline
+func str9() { println("foo") }
 
 -- main.stderr --
 Lorem true

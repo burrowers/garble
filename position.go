@@ -51,7 +51,7 @@ func printFile(file1 *ast.File) ([]byte, error) {
 	// The only way we can get the final ones is to parse again.
 	file2, err := parser.ParseFile(fset, absFilename, src, parser.ParseComments)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("re-parse error: %w", err)
 	}
 
 	// Keep the compiler directives, and change position info.
