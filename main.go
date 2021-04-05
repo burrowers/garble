@@ -607,11 +607,6 @@ func transformCompile(args []string) ([]string, error) {
 
 	tf.recordReflectArgs(files)
 
-	if opts.GarbleLiterals {
-		// TODO: use transformer here?
-		files = literals.Obfuscate(files, tf.info, fset, tf.ignoreObjects)
-	}
-
 	// Add our temporary dir to the beginning of -trimpath, so that we don't
 	// leak temporary dirs. Needs to be at the beginning, since there may be
 	// shorter prefixes later in the list, such as $PWD if TMPDIR=$PWD/tmp.
@@ -964,7 +959,6 @@ func (tf *transformer) recordReflectArgs(files []*ast.File) {
 
 	visit := func(node ast.Node) bool {
 		if opts.GarbleLiterals {
-			// TODO: use transformer here?
 			literals.RecordUsedAsConstants(node, tf.info, tf.ignoreObjects)
 		}
 
@@ -1014,8 +1008,12 @@ type transformer struct {
 	ignoreObjects map[types.Object]bool
 }
 
-// transformGo garbles the provided Go syntax node.
+// transformGo obfuscates the provided Go syntax file.
 func (tf *transformer) transformGo(file *ast.File) *ast.File {
+	if opts.GarbleLiterals {
+		file = literals.Obfuscate(file, tf.info, fset, tf.ignoreObjects)
+	}
+
 	pre := func(cursor *astutil.Cursor) bool {
 		node, ok := cursor.Node().(*ast.Ident)
 		if !ok {

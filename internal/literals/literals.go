@@ -33,8 +33,8 @@ func randObfuscator() obfuscator {
 	return obfuscators[randPos]
 }
 
-// Obfuscate replace literals with obfuscated lambda functions
-func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, ignoreObj map[types.Object]bool) []*ast.File {
+// Obfuscate replaces literals with obfuscated anonymous functions.
+func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj map[types.Object]bool) *ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
 		switch x := cursor.Node().(type) {
 		case *ast.GenDecl:
@@ -174,10 +174,7 @@ func Obfuscate(files []*ast.File, info *types.Info, fset *token.FileSet, ignoreO
 		return true
 	}
 
-	for i := range files {
-		files[i] = astutil.Apply(files[i], pre, post).(*ast.File)
-	}
-	return files
+	return astutil.Apply(file, pre, post).(*ast.File)
 }
 
 func obfuscateString(data string) *ast.CallExpr {
