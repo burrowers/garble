@@ -191,14 +191,21 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 			node.ValuePos = pos
 		case *ast.Ident:
 			node.NamePos = pos
-		case *ast.StarExpr:
-			node.Star = pos
 		case *ast.CompositeLit:
 			node.Lbrace = pos
+			node.Rbrace = pos
 		case *ast.ArrayType:
 			node.Lbrack = pos
 		case *ast.FuncType:
 			node.Func = pos
+		case *ast.BinaryExpr:
+			node.OpPos = pos
+		case *ast.StarExpr:
+			node.Star = pos
+		case *ast.CallExpr:
+			node.Lparen = pos
+			node.Rparen = pos
+
 		case *ast.GenDecl:
 			node.TokPos = pos
 		case *ast.ReturnStmt:
@@ -207,8 +214,8 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 			node.For = pos
 		case *ast.RangeStmt:
 			node.For = pos
-		case *ast.CallExpr:
-			node.Lparen = pos
+		case *ast.BranchStmt:
+			node.TokPos = pos
 		}
 		return true
 	})
@@ -278,8 +285,13 @@ func RecordUsedAsConstants(node ast.Node, info *types.Info, ignoreObj map[types.
 			return true
 		}
 
+		// Only record *types.Const objects.
+		// Other objects, such as builtins or type names,
+		// must not be recorded as they would be false positives.
 		obj := info.ObjectOf(ident)
-		ignoreObj[obj] = true
+		if _, ok := obj.(*types.Const); ok {
+			ignoreObj[obj] = true
+		}
 
 		return true
 	}

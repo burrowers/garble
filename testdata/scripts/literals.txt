@@ -27,15 +27,11 @@ binsubstr main$exe 'Lorem' 'dolor' 'second assign' 'First Line' 'Second Line' 'm
 # seconds, it means we're trying to obfuscate them.
 generate-literals extra_literals.go
 
-# Also check that the binary is different from previous builds.
-rm main$exe
-garble -literals -debugdir=debug1 -seed=8J+Ri/Cfh6fwn4e+ build
-! bincmp main$exe main_old$exe
-
+garble -literals -debugdir=debug1 build
 exec ./main$exe
 cmp stderr main.stderr
 
-# Check obfuscators
+# Check obfuscators.
 
 # Xor obfuscator. Detect a[i] = a[i] (^|-|+) b[i]
 grep '^\s+\w+\[\w+\] = \w+\[\w+\] [\^\-+] \w+$' debug1/test/main/extra_literals.go
@@ -53,12 +49,19 @@ grep '^\s+\w+ = .*\bappend\(\w+,(\s+\w+\[\d+\][\^\-+]\w+\[\d+\],?)+\)$' debug1/t
 # XorSeed obfuscator. Detect type decFunc func(byte) decFunc
 grep '^\s+type \w+ func\(byte\) \w+$' debug1/test/main/extra_literals.go
 
+# Finally, sanity check that we can build all of std with -literals.
+# Analogous to goprivate.txt.
+env GOPRIVATE='*'
+garble -literals build std
+
 -- go.mod --
 module test/main
 
 go 1.16
 -- main.go --
 package main
+
+import "test/main/imported"
 
 type strucTest struct {
 	field        string
@@ -203,6 +206,11 @@ func constantTest() {
 	const f = "foo" // skip
 	const i = length + len(f)
 	println(length, i)
+
+	// We should still obfuscate ImportedType here.
+	// Otherwise, the build will fail,
+	// as the name was obfuscated in the original package.
+	const impType = imported.ImportedType(3)
 }
 
 func byteTest() {
@@ -242,6 +250,10 @@ const (
 	iota0 uint8 = iota
 	iota1
 )
+-- imported/imported.go --
+package imported
+
+type ImportedType int
 -- directives.go --
 // If we misplace any of the directives below,
 // cmd/compile will complain with "misplaced compiler directive".
