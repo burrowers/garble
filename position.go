@@ -64,10 +64,6 @@ func printFile(file1 *ast.File) ([]byte, error) {
 		toAdd = append(toAdd, commentToAdd{offset, text})
 	}
 
-	// Make sure the entire file gets a zero filename by default,
-	// in case we miss any positions below.
-	addComment(0, "/*line :1*/")
-
 	// Remove any comments by making them whitespace.
 	// Keep directives, as they affect the build.
 	// This is superior to removing the comments before printing,
@@ -123,6 +119,13 @@ func printFile(file1 *ast.File) ([]byte, error) {
 
 	copied := 0
 	var buf2 bytes.Buffer
+
+	// Make sure the entire file gets a zero filename by default,
+	// in case we miss any positions below.
+	// We use a //-style comment, because there might be build tags.
+	// addComment is for /*-style comments, so add it to buf2 directly.
+	buf2.WriteString("//line :1\n")
+
 	for _, comment := range toAdd {
 		buf2.Write(src[copied:comment.offset])
 		copied = comment.offset

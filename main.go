@@ -817,6 +817,10 @@ var runtimeRelated = map[string]bool{
 	"unsafe":                                 true,
 	"vendor/golang.org/x/net/dns/dnsmessage": true,
 	"vendor/golang.org/x/net/route":          true,
+
+	// Manual additions for Go 1.17 as of April 2021.
+	"internal/abi":  true,
+	"internal/itoa": true,
 }
 
 // isPrivate checks if a package import path should be considered private,
