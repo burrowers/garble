@@ -21,7 +21,7 @@ part of the test.
 Note that the tests do real builds, so they are quite slow; on an average
 laptop, `go test` can take over thirty seconds. Here are some tips:
 
-* Use `go test -short` to skip some extra sanity checks
+* Use `go test -short` to skip some extra and slow sanity checks
 * Use `go test -run Script/foo` to just run `testdata/scripts/foo.txt`
 
 ### Development tips
@@ -51,8 +51,8 @@ the hash of the operation's output. For more, read
 ### Benchmarking
 
 A build benchmark is available, to be able to measure the cost of builing a
-fairly simple main program. Here is an example of how to use the benchmark with
-[benchstat](https://golang.org/x/perf/cmd/benchstat):
+fairly simple main program with and without caching. Here is an example of how
+to use the benchmark with [benchstat](https://golang.org/x/perf/cmd/benchstat):
 
 	# Run the benchmark six times with five iterations each.
 	go test -run=- -bench=. -count=6 -benchtime=5x >old.txt
@@ -77,12 +77,18 @@ running the benchmark. The provided example should be a sane default, and each
 
 For example, below are the final results for a run where nothing was changed:
 
-	$ benchstat old.txt new.txt
-	name     old time/op       new time/op       delta
-	Build-8        1.63s ± 6%        1.65s ± 6%   ~     (p=0.699 n=6+6)
+	name             old time/op       new time/op       delta
+	Build/Cache-8          165ms ± 3%        165ms ± 2%   ~     (p=1.000 n=6+6)
+	Build/NoCache-8        1.26s ± 7%        1.27s ± 5%   ~     (p=0.699 n=6+6)
 
-	name     old sys-time/op   new sys-time/op   delta
-	Build-8        1.18s ± 6%        1.22s ± 8%   ~     (p=0.310 n=6+6)
+	name             old bin-B         new bin-B         delta
+	Build/Cache-8          6.36M ± 0%        6.36M ± 0%   ~     (all equal)
+	Build/NoCache-8        6.36M ± 0%        6.36M ± 0%   ~     (all equal)
 
-	name     old user-time/op  new user-time/op  delta
-	Build-8        9.82s ± 6%       10.01s ± 7%   ~     (p=0.485 n=6+6)
+	name             old sys-time/op   new sys-time/op   delta
+	Build/Cache-8          205ms ± 6%        214ms ± 4%   ~     (p=0.093 n=6+6)
+	Build/NoCache-8        512ms ± 6%        512ms ±12%   ~     (p=0.699 n=6+6)
+
+	name             old user-time/op  new user-time/op  delta
+	Build/Cache-8          829ms ± 1%        822ms ± 1%   ~     (p=0.177 n=6+5)
+	Build/NoCache-8        8.44s ± 7%        8.55s ± 5%   ~     (p=0.589 n=6+6)
