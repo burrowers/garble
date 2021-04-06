@@ -6,6 +6,8 @@ Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.16 or later.
 
 	garble build [build flags] [packages]
 
+The tool also supports `garble test` to run tests with obfuscated code,
+and `garble reverse` to de-obfuscate text such as stack traces.
 See `garble -h` for up to date usage information.
 
 ### Purpose
@@ -17,7 +19,7 @@ The tool is designed to be:
 
 * Coupled with `cmd/go`, to support modules and build caching
 * Deterministic and reproducible, given the same initial source code
-* Reversible given the original source, to deobfuscate panic stack traces
+* Reversible given the original source, to de-obfuscate panic stack traces
 
 ### Mechanism
 
@@ -64,7 +66,7 @@ Go binary. This includes line numbers, filenames, and code in the runtime that
 prints panics, fatal errors, and trace/debug info. All in all this can make binaries
 2-5% smaller in our testing.
 
-Note: if `-tiny` is passed, no panics, fatal errors will ever be printed, but they can
+Note: if `-tiny` is passed, no panics or fatal errors will ever be printed, but they can
 still be handled internally with `recover` as normal. In addition, the `GODEBUG`
 environmental variable will be ignored.
 
