@@ -30,9 +30,18 @@ jobs:
     continue-on-error: true # master breaks sometimes
     steps:
     - name: Install Go
+      env:
+        GO_COMMIT: f60aa7a18cedd8f09dabbef9840893442fd2bda4 # 2021-04-07
       run: |
-        git clone --depth=1 https://go.googlesource.com/go $HOME/gotip
-        cd $HOME/gotip/src
+        cd $HOME
+        mkdir $HOME/gotip
+        cd $HOME/gotip
+
+        wget -O gotip.tar.gz https://go.googlesource.com/go/+archive/${GO_COMMIT}.tar.gz
+        tar -xf gotip.tar.gz
+        echo "devel go1.17-${GO_COMMIT}" >VERSION
+
+        cd src
         ./make.bash
         echo "GOROOT=$HOME/gotip" >>$GITHUB_ENV
         echo "$HOME/gotip/bin" >>$GITHUB_PATH
