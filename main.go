@@ -204,16 +204,16 @@ How to install Go: https://golang.org/doc/install
 		// Remove commit hash and architecture from version
 		startDateIdx := strings.IndexByte(commitAndDate, ' ') + 1
 		endDateIdx := strings.LastIndexByte(commitAndDate, ' ')
-		if endDateIdx <= 0 {
-			fmt.Fprintf(os.Stderr, "Can't recognize devel build timestamp")
-			return false
+		if endDateIdx <= 0 || endDateIdx <= startDateIdx {
+			// Custom version; assume the user knows what they're doing.
+			return true
 		}
 		date := commitAndDate[startDateIdx:endDateIdx]
 
 		versionDate, err := time.Parse(gitTimeFormat, date)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Can't recognize devel build timestamp: %v\n", err)
-			return false
+			// Custom version; assume the user knows what they're doing.
+			return true
 		}
 
 		if versionDate.After(minGoVersionDate) {

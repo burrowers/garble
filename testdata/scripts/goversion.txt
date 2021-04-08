@@ -9,16 +9,6 @@ env GO_VERSION=''
 ! garble build
 stderr 'Can''t get Go version'
 
-# An invalid devel string.
-env GO_VERSION='go version devel someinvalidversion'
-! garble build
-stderr 'Can''t recognize devel build timestamp'
-
-# An invalid devel date.
-env GO_VERSION='go version devel +afb5fca Sun Sep 99 99:99:99 9999 +0000 linux/amd64'
-! garble build
-stderr 'Can''t recognize devel build timestamp: parsing time'
-
 # We should error on a devel version that's too old.
 env GO_VERSION='go version devel +afb5fca Sun Aug 07 00:00:00 2020 +0000 linux/amd64'
 ! garble build
@@ -37,6 +27,11 @@ stderr 'Go version.*go1.14.*too old; please upgrade to Go 1.16.x'
 
 # We should accept a future stable version.
 env GO_VERSION='go version go1.16.2 windows/amd64'
+! garble build
+stderr 'mocking the real build'
+
+# We should accept custom devel strings.
+env GO_VERSION='go version devel somecustomversion linux/amd64'
 ! garble build
 stderr 'mocking the real build'
 
