@@ -1135,6 +1135,18 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			if strings.HasPrefix(node.Name, "Test") && isTestSignature(sign) {
 				return true // don't break tests
 			}
+
+			// If this is an imported func that was linknamed to a
+			// different symbol name, the imported package did not
+			// obfuscate the original func name.
+			// Don't do it here either.
+			if parentScope != tf.pkg.Scope() {
+				if obfPkg := obfuscatedTypesPackage(path); obfPkg != nil {
+					if obfPkg.Scope().Lookup(obj.Name()) != nil {
+						return true
+					}
+				}
+			}
 		default:
 			return true // we only want to rename the above
 		}

@@ -4,7 +4,7 @@ garble build
 exec ./main
 cmp stderr main.stderr
 
-! binsubstr main$exe 'garbledFunc' 'GarbledFunc'
+! binsubstr main$exe 'obfuscatedFunc' 'ObfuscatedFunc'
 
 [short] stop # no need to verify this with -short
 
@@ -24,20 +24,20 @@ import (
 	_ "strings"
 	_ "unsafe"
 
-	_ "test/main/imported"
+	"test/main/imported"
 )
 
-// A linkname to an external non-garbled func.
+// A linkname to an external non-obfuscated func.
 //go:linkname byteIndex strings.IndexByte
 func byteIndex(s string, c byte) int
 
-// A linkname to an external non-garbled non-exported func.
+// A linkname to an external non-obfuscated non-exported func.
 //go:linkname interfaceEqual os/exec.interfaceEqual
 func interfaceEqual(a, b interface{}) bool
 
-// A linkname to an external garbled func.
-//go:linkname garbledFunc test/main/imported.GarbledFuncImpl
-func garbledFunc() string
+// A linkname to an external obfuscated func.
+//go:linkname obfuscatedFunc test/main/imported.ObfuscatedFuncImpl
+func obfuscatedFunc() string
 
 // A linkname to an entirely made up name, implemented elsewhere.
 //go:linkname renamedFunc madeup.newName
@@ -46,8 +46,9 @@ func renamedFunc() string
 func main() {
 	println(byteIndex("01234", '3'))
 	println(interfaceEqual("Sephiroth", 7))
-	println(garbledFunc())
+	println(obfuscatedFunc())
 	println(renamedFunc())
+	println(imported.ByteIndex("01234", '3'))
 }
 -- imported/imported.go --
 package imported
@@ -56,16 +57,22 @@ import (
 	_ "unsafe"
 )
 
-func GarbledFuncImpl() string {
-	return "garbled func"
+func ObfuscatedFuncImpl() string {
+	return "obfuscated func"
 }
 
 //go:linkname renamedFunc madeup.newName
 func renamedFunc() string {
 	return "renamed func"
 }
+
+// A linkname to an external non-obfuscated func.
+// Different from byteIndex, as we call this from an importer package.
+//go:linkname ByteIndex strings.IndexByte
+func ByteIndex(s string, c byte) int
 -- main.stderr --
 3
 false
-garbled func
+obfuscated func
 renamed func
+3
