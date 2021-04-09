@@ -92,8 +92,8 @@ func addGarbleToBuildIDComponent(inputHash []byte) []byte {
 	// We also need to add the selected options to the full version string,
 	// because all of them result in different output. We use spaces to
 	// separate the env vars and flags, to reduce the chances of collisions.
-	if envGoPrivate != "" {
-		fmt.Fprintf(h, " GOPRIVATE=%s", envGoPrivate)
+	if cache.GoEnv.GOPRIVATE != "" {
+		fmt.Fprintf(h, " GOPRIVATE=%s", cache.GoEnv.GOPRIVATE)
 	}
 	if opts.GarbleLiterals {
 		fmt.Fprintf(h, " -literals")

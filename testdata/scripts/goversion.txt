@@ -5,33 +5,33 @@ go build -o .bin/go$exe ./fakego
 env PATH=${WORK}/.bin${:}${PATH}
 
 # An empty go version.
-env GO_VERSION=''
+env GOVERSION=''
 ! garble build
-stderr 'Can''t get Go version'
+stderr 'Go version is too old'
 
 # We should error on a devel version that's too old.
-env GO_VERSION='go version devel +afb5fca Sun Aug 07 00:00:00 2020 +0000 linux/amd64'
+env GOVERSION='devel +afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! garble build
 stderr 'Go version.*Aug 07.*too old; please upgrade to Go 1.16.x or a newer devel version'
 
 # A future devel timestamp should be fine.
-env GO_VERSION='go version devel +afb5fca Sun Sep 13 07:54:42 2021 +0000 linux/amd64'
+env GOVERSION='devel +afb5fca Sun Sep 13 07:54:42 2021 +0000'
 ! garble build
 stderr 'mocking the real build'
 
 # We should error on a stable version that's too old.
-env GO_VERSION='go version go1.14 windows/amd64'
+env GOVERSION='go1.14'
 ! garble build
 stderr 'Go version.*go1.14.*too old; please upgrade to Go 1.16.x'
 ! stderr 'or a newer devel version'
 
 # We should accept a future stable version.
-env GO_VERSION='go version go1.16.2 windows/amd64'
+env GOVERSION='go1.16.2'
 ! garble build
 stderr 'mocking the real build'
 
 # We should accept custom devel strings.
-env GO_VERSION='go version devel somecustomversion linux/amd64'
+env GOVERSION='devel somecustomversion'
 ! garble build
 stderr 'mocking the real build'
 
@@ -48,13 +48,19 @@ func main() {}
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 )
 
 func main() {
-	if len(os.Args) > 0 && os.Args[1] == "version" {
-		fmt.Println(os.Getenv("GO_VERSION"))
+	if len(os.Args) > 0 && os.Args[1] == "env" {
+		enc, _ := json.Marshal(struct{
+			GOVERSION string
+		} {
+			GOVERSION: os.Getenv("GOVERSION"),
+		})
+		fmt.Printf("%s\n", enc)
 		return
 	}
 	fmt.Fprintln(os.Stderr, "mocking the real build")

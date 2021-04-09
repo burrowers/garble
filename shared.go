@@ -37,6 +37,13 @@ type sharedCache struct {
 	// Once https://github.com/golang/go/issues/37475 is fixed, we
 	// can likely just use that.
 	BinaryContentID []byte
+
+	// From "go env", primarily.
+	GoEnv struct {
+		GOPRIVATE string // Set to the module path as a fallback.
+		GOMOD     string
+		GOVERSION string
+	}
 }
 
 var cache *sharedCache
