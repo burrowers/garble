@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	"io/ioutil"
 	"log"
 	mathrand "math/rand"
 	"os"
@@ -29,6 +31,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
@@ -114,8 +117,6 @@ var (
 	}).(types.ImporterFrom)
 
 	opts *flagOptions
-
-	envGoPrivate = os.Getenv("GOPRIVATE") // complemented by 'go env' later
 )
 
 func obfuscatedTypesPackage(path string) *types.Package {
@@ -175,7 +176,7 @@ var errJustExit = errors.New("")
 
 func goVersionOK() bool {
 	const (
-		minGoVersion       = "v1.16.0"
+		minGoVersionSemver = "v1.16.0"
 		suggestedGoVersion = "1.16.x"
 
 		gitTimeFormat = "Mon Jan 2 15:04:05 2006 -0700"
@@ -183,32 +184,30 @@ func goVersionOK() bool {
 	// Go 1.16 was released on Febuary 16th, 2021.
 	minGoVersionDate := time.Date(2021, 2, 16, 0, 0, 0, 0, time.UTC)
 
-	out, err := exec.Command("go", "version").CombinedOutput()
-	rawVersion := strings.TrimSpace(string(out))
-	if err != nil || !strings.HasPrefix(rawVersion, "go version ") {
-		fmt.Fprintf(os.Stderr, `Can't get Go version: %v
-
-This is likely due to go not being installed/setup correctly.
-
-How to install Go: https://golang.org/doc/install
-`, err)
+	version := cache.GoEnv.GOVERSION
+	if version == "" {
+		// Go 1.15.x and older do not have GOVERSION yet.
+		// We could go the extra mile and fetch it via 'go version',
+		// but we'd have to error anyway.
+		fmt.Fprintf(os.Stderr, "Go version is too old; please upgrade to Go %s or a newer devel version\n", suggestedGoVersion)
 		return false
 	}
 
-	rawVersion = strings.TrimPrefix(rawVersion, "go version ")
-
-	tagIdx := strings.IndexByte(rawVersion, ' ')
-	tag := rawVersion[:tagIdx]
-	if tag == "devel" {
-		commitAndDate := rawVersion[tagIdx+1:]
+	if strings.HasPrefix(version, "devel ") {
+		commitAndDate := strings.TrimPrefix(version, "devel ")
 		// Remove commit hash and architecture from version
 		startDateIdx := strings.IndexByte(commitAndDate, ' ') + 1
-		endDateIdx := strings.LastIndexByte(commitAndDate, ' ')
-		if endDateIdx <= 0 || endDateIdx <= startDateIdx {
+		if startDateIdx < 0 {
 			// Custom version; assume the user knows what they're doing.
 			return true
 		}
-		date := commitAndDate[startDateIdx:endDateIdx]
+
+		// TODO: once we support Go 1.17 and later, use the major Go
+		// version included in its devel versions:
+		//
+		//   go version devel go1.17-8518aac314 ...
+
+		date := commitAndDate[startDateIdx:]
 
 		versionDate, err := time.Parse(gitTimeFormat, date)
 		if err != nil {
@@ -220,13 +219,13 @@ How to install Go: https://golang.org/doc/install
 			return true
 		}
 
-		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s or a newer devel version\n", rawVersion, suggestedGoVersion)
+		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s or a newer devel version\n", version, suggestedGoVersion)
 		return false
 	}
 
-	version := "v" + strings.TrimPrefix(tag, "go")
-	if semver.Compare(version, minGoVersion) < 0 {
-		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", rawVersion, suggestedGoVersion)
+	versionSemver := "v" + strings.TrimPrefix(version, "go")
+	if semver.Compare(versionSemver, minGoVersionSemver) < 0 {
+		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", version, suggestedGoVersion)
 		return false
 	}
 
@@ -346,9 +345,6 @@ func mainErr(args []string) error {
 // Note that it uses and modifies global state; in general, it should only be
 // called once from mainErr in the top-level garble process.
 func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
-	if !goVersionOK() {
-		return nil, errJustExit
-	}
 	// Split the flags from the package arguments, since we'll need
 	// to run 'go list' on the same set of packages.
 	flags, args := splitFlagsFromArgs(args)
@@ -374,8 +370,12 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 		cache.BuildFlags = append(cache.BuildFlags, "-test")
 	}
 
-	if err := setGoPrivate(); err != nil {
+	if err := fetchGoEnv(); err != nil {
 		return nil, err
+	}
+
+	if !goVersionOK() {
+		return nil, errJustExit
 	}
 
 	var err error
@@ -834,7 +834,7 @@ func isPrivate(path string) bool {
 	if path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
 		return true
 	}
-	return module.MatchPrefixPatterns(envGoPrivate, path)
+	return module.MatchPrefixPatterns(cache.GoEnv.GOPRIVATE, path)
 }
 
 // processImportCfg initializes importCfgEntries via the supplied flags, and
@@ -1452,26 +1452,33 @@ func flagSetValue(flags []string, name, value string) []string {
 	return append(flags, name+"="+value)
 }
 
-func setGoPrivate() error {
-	if envGoPrivate == "" {
-		// Try 'go env' too, to query ${CONFIG}/go/env as well.
-		out, err := exec.Command("go", "env", "GOPRIVATE").CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%v: %s", err, out)
-		}
-		envGoPrivate = string(bytes.TrimSpace(out))
+func fetchGoEnv() error {
+	out, err := exec.Command("go", "env", "-json",
+		"GOPRIVATE", "GOMOD", "GOVERSION",
+	).CombinedOutput()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, `Can't find Go toolchain: %v
+
+This is likely due to go not being installed/setup correctly.
+
+How to install Go: https://golang.org/doc/install
+`, err)
+		return errJustExit
+	}
+	if err := json.Unmarshal(out, &cache.GoEnv); err != nil {
+		return err
 	}
 	// If GOPRIVATE isn't set and we're in a module, use its module
 	// path as a GOPRIVATE default. Include a _test variant too.
-	if envGoPrivate == "" {
-		modpath, err := exec.Command("go", "list", "-m").Output()
-		if err == nil {
-			path := string(bytes.TrimSpace(modpath))
-			envGoPrivate = path + "," + path + "_test"
+	// TODO(mvdan): we shouldn't need the _test variant here,
+	// as the import path should not include it; only the package name.
+	if cache.GoEnv.GOPRIVATE == "" {
+		if mod, err := ioutil.ReadFile(cache.GoEnv.GOMOD); err == nil {
+			modpath := modfile.ModulePath(mod)
+			if modpath != "" {
+				cache.GoEnv.GOPRIVATE = modpath + "," + modpath + "_test"
+			}
 		}
 	}
-	// Explicitly set GOPRIVATE, since future garble processes won't
-	// query 'go env' again.
-	os.Setenv("GOPRIVATE", envGoPrivate)
 	return nil
 }
