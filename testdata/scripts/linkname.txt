@@ -16,6 +16,18 @@ cmp stderr main.stderr
 module test/main
 
 go 1.16
+
+-- a.go --
+package main
+
+// Call a function which is linknamed to another symbol.
+// What's special here is that we obfuscate this call before the function declaration.
+// If we decide not to obfuscate the name in the function declaration,
+// we shouldn't obfuscate the name here either.
+func linknameCalledInPkg() {
+	println(obfuscatedFunc())
+}
+
 -- main.go --
 package main
 
@@ -49,6 +61,7 @@ func main() {
 	println(obfuscatedFunc())
 	println(renamedFunc())
 	println(imported.ByteIndex("01234", '3'))
+	linknameCalledInPkg()
 }
 -- imported/imported.go --
 package imported
@@ -76,3 +89,4 @@ false
 obfuscated func
 renamed func
 3
+obfuscated func

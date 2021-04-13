@@ -622,9 +622,15 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	newPaths := make([]string, 0, len(files))
-	for i, file := range files {
-		tf.handleDirectives(file.Comments)
 
+	for _, file := range files {
+		// Process directives before obfuscating any names of the package,
+		// this is needed for functions which are linknamed to another package,
+		// but also used in the package declaring them.
+		tf.handleDirectives(file.Comments)
+	}
+
+	for i, file := range files {
 		origName := filepath.Base(paths[i])
 		name := origName
 		switch {
