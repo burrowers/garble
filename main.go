@@ -97,13 +97,13 @@ var (
 	// origImporter is a go/types importer which uses the original versions
 	// of packages, without any obfuscation. This is helpful to make
 	// decisions on how to obfuscate our input code.
-	origImporter = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+	origImporter = importerWithMap(importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
 		pkg, err := listPackage(path)
 		if err != nil {
 			return nil, err
 		}
 		return os.Open(pkg.Export)
-	})
+	}).(types.ImporterFrom).ImportFrom)
 
 	// Basic information about the package being currently compiled or linked.
 	curPkg *listedPackage
@@ -118,6 +118,19 @@ var (
 
 	opts *flagOptions
 )
+
+type importerWithMap func(path, dir string, mode types.ImportMode) (*types.Package, error)
+
+func (fn importerWithMap) Import(path string) (*types.Package, error) {
+	panic("should never be called")
+}
+
+func (fn importerWithMap) ImportFrom(path, dir string, mode types.ImportMode) (*types.Package, error) {
+	if path2 := curPkg.ImportMap[path]; path2 != "" {
+		path = path2
+	}
+	return fn(path, dir, mode)
+}
 
 func obfuscatedTypesPackage(path string) *types.Package {
 	entry, ok := importCfgEntries[path]
@@ -583,20 +596,6 @@ func transformCompile(args []string) ([]string, error) {
 			Defs:  make(map[*ast.Ident]types.Object),
 			Uses:  make(map[*ast.Ident]types.Object),
 		},
-	}
-
-	// The standard library vendors external packages, which results in them
-	// listing "golang.org/x/foo" in go list -json's Deps, plus an ImportMap
-	// entry to remap them to "vendor/golang.org/x/foo".
-	// We support that edge case in listPackage, presumably, though it seems
-	// like importer.ForCompiler with a lookup function isn't capable of it.
-	// It does work without an explicit lookup func though, which results in
-	// extra calls to 'go list'.
-	// Since this is a rare edge case and only occurs for a few std
-	// packages, do the extra 'go list' calls for now.
-	// TODO(mvdan): remove once https://github.com/golang/go/issues/44630 is fixed
-	if curPkg.Standard && len(curPkg.ImportMap) > 0 {
-		origImporter = importer.Default()
 	}
 
 	origTypesConfig := types.Config{Importer: origImporter}
