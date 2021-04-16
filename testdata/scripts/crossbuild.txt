@@ -1,0 +1,26 @@
+# TODO: always cross-build, even on a windows/arm host
+env GOOS=windows
+env GOARCH=arm
+
+env GOPRIVATE='*'
+
+# TODO: seems like the linker fails for some reason with the full binary build below.
+# For now, just test that we can build the library.
+garble build net/http
+
+# Link a binary importing net/http, which will catch whether or not we
+# support ImportMap when linking.
+# garble build
+
+-- go.mod --
+module test/main
+
+go 1.16
+-- main.go --
+package main
+
+import "net/http"
+
+func main() {
+	http.ListenAndServe("", nil)
+}
