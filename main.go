@@ -950,22 +950,6 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 func (tf *transformer) recordReflectArgs(files []*ast.File) {
 	tf.ignoreObjects = make(map[types.Object]bool)
 
-	visitReflectArg := func(node ast.Node) bool {
-		expr, _ := node.(ast.Expr) // info.TypeOf(nil) will just return nil
-		named := namedType(tf.info.TypeOf(expr))
-		if named == nil {
-			return true
-		}
-
-		obj := named.Obj()
-		if obj == nil || obj.Pkg() != tf.pkg {
-			return true
-		}
-		recordStruct(named, tf.ignoreObjects)
-
-		return true
-	}
-
 	visit := func(node ast.Node) bool {
 		if opts.GarbleLiterals {
 			literals.RecordUsedAsConstants(node, tf.info, tf.ignoreObjects)
@@ -987,7 +971,7 @@ func (tf *transformer) recordReflectArgs(files []*ast.File) {
 
 		if fnType.Pkg().Path() == "reflect" && (fnType.Name() == "TypeOf" || fnType.Name() == "ValueOf") {
 			for _, arg := range call.Args {
-				ast.Inspect(arg, visitReflectArg)
+				tf.recordIgnore(tf.info.TypeOf(arg), false)
 			}
 		}
 		return true
@@ -1103,7 +1087,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				// TODO(mvdan): add a test and think how to fix this
 				if obfPkg := obfuscatedTypesPackage(path); obfPkg != nil {
 					if obfPkg.Scope().Lookup(named.Obj().Name()) != nil {
-						recordStruct(named, tf.ignoreObjects)
+						tf.recordIgnore(named, true)
 						return true
 					}
 				}
@@ -1124,7 +1108,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				// The type is directly referenced by name,
 				// so obfuscatedTypesPackage can't return nil.
 				if obfuscatedTypesPackage(path).Scope().Lookup(obj.Name()) != nil {
-					recordStruct(named, tf.ignoreObjects)
+					tf.recordIgnore(named, true)
 					return true
 				}
 			}
@@ -1194,17 +1178,40 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	return astutil.Apply(file, pre, post).(*ast.File)
 }
 
-// recordStruct adds the given named type to the map, plus all of its fields if
-// it is a struct. This function is mainly used for types used via reflection,
-// so we want to record their members too.
-func recordStruct(named *types.Named, m map[types.Object]bool) {
-	m[named.Obj()] = true
-	strct, ok := named.Underlying().(*types.Struct)
-	if !ok {
-		return
-	}
-	for i := 0; i < strct.NumFields(); i++ {
-		m[strct.Field(i)] = true
+// recordIgnore adds any named types (including fields) under typ to
+// ignoreObjects.
+//
+// When allPkgs is false, we stop if we encounter a named type defined in a
+// dependency package. This is useful to only record uses of reflection on local
+// types.
+func (tf *transformer) recordIgnore(t types.Type, allPkgs bool) {
+	switch t := t.(type) {
+	case *types.Named:
+		obj := t.Obj()
+		if !allPkgs && obj.Pkg() != tf.pkg {
+			return // not from the current package
+		}
+		if tf.ignoreObjects[obj] {
+			return // prevent endless recursion
+		}
+		tf.ignoreObjects[obj] = true
+
+		// Record the underlying type, too.
+		tf.recordIgnore(t.Underlying(), allPkgs)
+
+	case *types.Struct:
+		for i := 0; i < t.NumFields(); i++ {
+			field := t.Field(i)
+
+			// Record the field itself, too.
+			tf.ignoreObjects[field] = true
+
+			tf.recordIgnore(field.Type(), allPkgs)
+		}
+
+	case interface{ Elem() types.Type }:
+		// Get past pointers, slices, etc.
+		tf.recordIgnore(t.Elem(), allPkgs)
 	}
 }
 
