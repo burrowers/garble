@@ -81,6 +81,10 @@ func commandReverse(args []string) error {
 					addReplace(node.Name.Name)
 				case *ast.TypeSpec:
 					addReplace(node.Name.Name)
+				case *ast.Field:
+					for _, name := range node.Names {
+						addReplace(name.Name)
+					}
 
 				case *ast.CallExpr:
 					// continues below

@@ -12,11 +12,19 @@ cp stderr main.stderr
 # This output is not reproducible between 'go test' runs,
 # so we can't use a static golden file.
 grep 'goroutine 1 \[running\]' main.stderr
-! grep 'ExportedLibFunc|unexportedMainFunc|test/main|main\.go|lib\.go' main.stderr
+# Note that ExportedLibMethod isn't obfuscated.
+! grep 'ExportedLib(Type|Field)|unexportedMainFunc|test/main|main\.go|lib\.go' main.stderr
 
 stdin main.stderr
 garble reverse
 cmp stdout reverse.stdout
+
+! garble build ./build-error
+cp stderr build-error.stderr
+
+stdin build-error.stderr
+garble reverse ./build-error
+cmp stdout build-error-reverse.stdout
 
 [short] stop # no need to verify this with -short
 
@@ -93,6 +101,25 @@ func printStackTrace(w io.Writer) error {
 	_, err := w.Write(stack)
 	return err
 }
+-- build-error/error.go --
+package p
+
+import "reflect"
+
+// This program is especially crafted to work with "go build",
+// but fail with "garble build".
+// This is because we attempt to convert from two different struct types,
+// since only the anonymous one has its field name obfuscated.
+// This is useful, because we test that build errors can be reversed,
+// and it also includes a field name.
+
+type UnobfuscatedStruct struct {
+	SomeField int
+}
+
+var _ = reflect.TypeOf(UnobfuscatedStruct{})
+
+var _ = struct{SomeField int}(UnobfuscatedStruct{})
 -- reverse.stdout --
 goroutine 1 [running]:
 runtime/debug.Stack(0x??, 0x??, 0x??)
@@ -107,3 +134,8 @@ main.unexportedMainFunc()
 	test/main/main.go:20 +0x??
 main.main()
 	test/main/main.go:10 +0x??
+-- build-error-reverse.stdout --
+# test/main/build-error
+test/main/build-error/error.go:18: cannot convert UnobfuscatedStruct{} (type UnobfuscatedStruct) to type struct { SomeField int }
+exit status 2
+exit status 2
