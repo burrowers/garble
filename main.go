@@ -622,14 +622,9 @@ func transformCompile(args []string) ([]string, error) {
 
 	newPaths := make([]string, 0, len(files))
 
-	for _, file := range files {
-		// Process directives before obfuscating any names of the package,
-		// this is needed for functions which are linknamed to another package,
-		// but also used in the package declaring them.
-		tf.handleDirectives(file.Comments)
-	}
-
 	for i, file := range files {
+		tf.handleDirectives(file.Comments)
+
 		origName := filepath.Base(paths[i])
 		name := origName
 		switch {
@@ -714,13 +709,9 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 				continue
 			}
 			// This directive has two arguments: "go:linkname localName newName"
-			localName := fields[1]
 
-			// The local name must not be obfuscated.
-			obj := tf.pkg.Scope().Lookup(localName)
-			if obj != nil {
-				tf.ignoreObjects[obj] = true
-			}
+			// obfuscate the local name.
+			fields[1] = hashWith(curPkg.GarbleActionID, fields[1])
 
 			// If the new name is of the form "pkgpath.Name", and
 			// we've obfuscated "Name" in that package, rewrite the
@@ -735,20 +726,22 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			}
 			lpkg, err := listPackage(pkgPath)
 			if err != nil {
-				continue // probably a made up symbol name
+				// probably a made up symbol name, replace the comment
+				// in case the local name was obfuscated.
+				comment.Text = strings.Join(fields, " ")
+				continue
 			}
-			if !lpkg.Private {
-				continue // ignore non-private symbols
+			if lpkg.Private {
+				// The name exists and was obfuscated; obfuscate
+				// the new name.
+				newName := hashWith(lpkg.GarbleActionID, name)
+				newPkgPath := pkgPath
+				if pkgPath != "main" {
+					newPkgPath = lpkg.obfuscatedImportPath()
+				}
+				fields[2] = newPkgPath + "." + newName
 			}
 
-			// The name exists and was obfuscated; replace the
-			// comment with the obfuscated name.
-			newName := hashWith(lpkg.GarbleActionID, name)
-			newPkgPath := pkgPath
-			if pkgPath != "main" {
-				newPkgPath = lpkg.obfuscatedImportPath()
-			}
-			fields[2] = newPkgPath + "." + newName
 			comment.Text = strings.Join(fields, " ")
 		}
 	}
