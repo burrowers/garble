@@ -479,8 +479,24 @@ func transformAsm(args []string) ([]string, error) {
 				remaining = nil
 				break
 			}
-			i += middleDotLen
 
+			// We want to replace "OP ·foo" and "OP $·foo",
+			// but not "OP somepkg·foo" just yet.
+			// "somepkg" is often runtime, syscall, etc.
+			// We don't obfuscate any of those for now.
+			//
+			// TODO: we'll likely need to deal with this
+			// when we start obfuscating the runtime.
+			// When we do, note that we can't hash with curPkg.
+			localName := false
+			if i >= 0 {
+				switch remaining[i-1] {
+				case ' ', '\t', '$':
+					localName = true
+				}
+			}
+
+			i += middleDotLen
 			buf.Write(remaining[:i])
 			remaining = remaining[i:]
 
@@ -496,6 +512,11 @@ func transformAsm(args []string) ([]string, error) {
 			}
 			name := string(remaining[:nameEnd])
 			remaining = remaining[nameEnd:]
+
+			if !localName {
+				buf.WriteString(name)
+				continue
+			}
 
 			newName := hashWith(curPkg.GarbleActionID, name)
 			// log.Printf("%q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
