@@ -1,16 +1,18 @@
-# TODO: always cross-build, even on a windows/arm host
-env GOOS=windows
-env GOARCH=arm
+# We always build for a foreign GOOS.
+# GOOS=windows, unless the host is also windows; then linux.
+# GOARCH=arm, unless the host is also arm; then amd64.
+# Windows and ARM are both interesting,
+# and it helps with coverage as we mainly test on linux/amd64.
+[!windows] env GOOS=windows
+[windows] env GOOS=linux
+[!arm] env GOARCH=arm
+[arm] env GOARCH=arm64
 
 env GOPRIVATE='*'
 
-# TODO: seems like the linker fails for some reason with the full binary build below.
-# For now, just test that we can build the library.
-garble build net/http
-
 # Link a binary importing net/http, which will catch whether or not we
 # support ImportMap when linking.
-# garble build
+garble build
 
 -- go.mod --
 module test/main
