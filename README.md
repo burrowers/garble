@@ -64,11 +64,16 @@ declaration.
 When the `-tiny` flag is passed, extra information is stripped from the resulting
 Go binary. This includes line numbers, filenames, and code in the runtime that
 prints panics, fatal errors, and trace/debug info. All in all this can make binaries
-2-5% smaller in our testing.
+2-5% smaller in our testing, as well as prevent extracting some more information.
 
-Note: if `-tiny` is passed, no panics or fatal errors will ever be printed, but they can
-still be handled internally with `recover` as normal. In addition, the `GODEBUG`
-environmental variable will be ignored.
+With this flag, no panics or fatal runtime errors will ever be printed, but they
+can still be handled internally with `recover` as normal. In addition, the
+`GODEBUG` environmental variable will be ignored.
+
+Note that this flag can make debugging crashes harder, as a panic will simply
+exit the entire program without printing a stack trace, and all source code
+positions are set to line 1. Similarly, `garble reverse` is generally not useful
+in this mode.
 
 ### Speed
 
