@@ -727,6 +727,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			}
 			fields := strings.Fields(comment.Text)
 			if len(fields) != 3 {
+				// TODO: the 2nd argument is optional, handle when it's not present
 				continue
 			}
 			// This directive has two arguments: "go:linkname localName newName"
@@ -737,11 +738,25 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			// If the new name is of the form "pkgpath.Name", and
 			// we've obfuscated "Name" in that package, rewrite the
 			// directive to use the obfuscated name.
-			target := strings.Split(fields[2], ".")
-			if len(target) != 2 {
+			newName := fields[2]
+			dotCnt := strings.Count(newName, ".")
+			if dotCnt < 1 {
+				// probably a malformed linkname directive
 				continue
 			}
-			pkgPath, name := target[0], target[1]
+
+			// If the package path has multiple dots, split on the
+			// last one.
+			var pkgPath, name string
+			if dotCnt == 1 {
+				target := strings.Split(newName, ".")
+				pkgPath, name = target[0], target[1]
+			} else {
+				lastDotIdx := strings.LastIndex(newName, ".")
+				target := strings.Split(newName[lastDotIdx-1:], ".")
+				pkgPath, name = target[0], target[1]
+			}
+
 			if pkgPath == "runtime" && strings.HasPrefix(name, "cgo") {
 				continue // ignore cgo-generated linknames
 			}

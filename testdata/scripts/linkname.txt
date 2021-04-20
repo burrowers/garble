@@ -17,6 +17,12 @@ module test/main
 
 go 1.16
 
+replace big.chungus/meme => ./big.chungus/meme
+
+require (
+	big.chungus/meme v0.0.0
+)
+
 -- a.go --
 package main
 
@@ -36,6 +42,7 @@ import (
 	_ "strings"
 	_ "unsafe"
 
+	_ "big.chungus/meme"
 	"test/main/imported"
 )
 
@@ -55,11 +62,17 @@ func obfuscatedFunc() string
 //go:linkname renamedFunc madeup.newName
 func renamedFunc() string
 
+// A linkname to an external non-obfuscated func in another
+// module whose package path has a dot in it.
+//go:linkname tagline big.chungus/meme.chungify
+func tagline() string
+
 func main() {
 	println(byteIndex("01234", '3'))
 	println(interfaceEqual("Sephiroth", 7))
 	println(obfuscatedFunc())
 	println(renamedFunc())
+	println(tagline())
 	println(imported.ByteIndex("01234", '3'))
 	linknameCalledInPkg()
 }
@@ -83,10 +96,22 @@ func renamedFunc() string {
 // Different from byteIndex, as we call this from an importer package.
 //go:linkname ByteIndex strings.IndexByte
 func ByteIndex(s string, c byte) int
+-- big.chungus/meme/go.mod --
+module test/main
+
+go 1.16
+
+-- big.chungus/meme/dante.go --
+package meme
+
+func chungify() string {
+	return "featuring Dante from the Devil May Cry series"
+}
 -- main.stderr --
 3
 false
 obfuscated func
 renamed func
+featuring Dante from the Devil May Cry series
 3
 obfuscated func
