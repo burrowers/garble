@@ -2,15 +2,15 @@ env GOPRIVATE=test/main
 
 garble build
 exec ./main
-! stdout 'main\.go|other_file_name|is sorted'
+! stdout 'someverylongmain\.go|other_file_name|is sorted'
 
-! binsubstr main$exe 'main.go' 'other_file_name'
+! binsubstr main$exe 'someverylongmain.go' 'other_file_name'
 
 [short] stop # no need to verify this with -short
 
 go build
 exec ./main
-stdout 'main.go'
+stdout 'someverylongmain.go'
 stdout 'other_file_name'
 stdout ':19: main'
 stdout 'initPositions is sorted'
@@ -20,7 +20,7 @@ stdout 'varPositions is sorted'
 module test/main
 
 go 1.16
--- main.go --
+-- someverylongmain.go --
 package main
 
 import (
