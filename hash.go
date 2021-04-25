@@ -60,7 +60,7 @@ func alterToolVersion(tool string, args []string) error {
 		toolID = []byte(line)
 	}
 
-	contentID := addGarbleToBuildIDComponent(toolID)
+	contentID := addGarbleToHash(toolID)
 	// The part of the build ID that matters is the last, since it's the
 	// "content ID" which is used to work out whether there is a need to redo
 	// the action (build) or not. Since cmd/go parses the last word in the
@@ -72,13 +72,13 @@ func alterToolVersion(tool string, args []string) error {
 	return nil
 }
 
-// addGarbleToBuildIDComponent takes a build ID component hash, such as an
-// action ID or a content ID, and returns a new hash which also contains
-// garble's own deterministic inputs.
+// addGarbleToHash takes some arbitrary input bytes,
+// typically a hash such as an action ID or a content ID,
+// and returns a new hash which also contains garble's own deterministic inputs.
 //
 // This includes garble's own version, obtained via its own binary's content ID,
 // as well as any other options which affect a build, such as GOPRIVATE and -tiny.
-func addGarbleToBuildIDComponent(inputHash []byte) []byte {
+func addGarbleToHash(inputHash []byte) []byte {
 	// Join the two content IDs together into a single base64-encoded sha256
 	// sum. This includes the original tool's content ID, and garble's own
 	// content ID.
