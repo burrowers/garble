@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/parser"
-	"go/token"
+	"go/types"
 	"io"
 	"os"
 	"path/filepath"
@@ -53,37 +53,60 @@ func commandReverse(args []string) error {
 	// export data only exposes exported names. Parsing Go files is cheap,
 	// so it's unnecessary to try to avoid this cost.
 	var replaces []string
-	fset := token.NewFileSet()
 
 	for _, lpkg := range cache.ListedPackages {
 		if !lpkg.Private {
 			continue
 		}
-		addReplace := func(str string) {
-			replaces = append(replaces, hashWith(lpkg.GarbleActionID, str), str)
+		curPkg = lpkg
+
+		addReplace := func(hash []byte, str string) {
+			if hash == nil {
+				hash = lpkg.GarbleActionID
+			}
+			replaces = append(replaces, hashWith(hash, str), str)
 		}
 
 		// Package paths are obfuscated, too.
-		addReplace(lpkg.ImportPath)
+		addReplace(nil, lpkg.ImportPath)
 
+		var files []*ast.File
 		for _, goFile := range lpkg.GoFiles {
 			fullGoFile := filepath.Join(lpkg.Dir, goFile)
 			file, err := parser.ParseFile(fset, fullGoFile, nil, 0)
 			if err != nil {
 				return err
 			}
+			files = append(files, file)
+		}
+		tf := newTransformer()
+		if err := tf.typecheck(files); err != nil {
+			return err
+		}
+		for i, file := range files {
+			goFile := lpkg.GoFiles[i]
 			ast.Inspect(file, func(node ast.Node) bool {
 				switch node := node.(type) {
 
 				// Replace names.
 				// TODO: do var names ever show up in output?
 				case *ast.FuncDecl:
-					addReplace(node.Name.Name)
+					addReplace(nil, node.Name.Name)
 				case *ast.TypeSpec:
-					addReplace(node.Name.Name)
+					addReplace(nil, node.Name.Name)
 				case *ast.Field:
 					for _, name := range node.Names {
-						addReplace(name.Name)
+						obj, _ := tf.info.ObjectOf(name).(*types.Var)
+						if obj == nil || !obj.IsField() {
+							continue
+						}
+						strct := tf.fieldToStruct[obj]
+						if strct == nil {
+							panic("could not find for " + name.Name)
+						}
+						fieldsHash := []byte(strct.String())
+						hashToUse := addGarbleToHash(fieldsHash)
+						addReplace(hashToUse, name.Name)
 					}
 
 				case *ast.CallExpr:

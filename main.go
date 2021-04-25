@@ -595,7 +595,6 @@ func transformCompile(args []string) ([]string, error) {
 
 	var files []*ast.File
 	for _, path := range paths {
-		// Note that we want
 		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
 			return nil, err
@@ -611,18 +610,9 @@ func transformCompile(args []string) ([]string, error) {
 	// log.Printf("seeding math/rand with %x\n", randSeed)
 	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
 
-	tf := &transformer{
-		info: &types.Info{
-			Types: make(map[ast.Expr]types.TypeAndValue),
-			Defs:  make(map[*ast.Ident]types.Object),
-			Uses:  make(map[*ast.Ident]types.Object),
-		},
-	}
-
-	origTypesConfig := types.Config{Importer: origImporter}
-	tf.pkg, err = origTypesConfig.Check(curPkg.ImportPath, fset, files, tf.info)
-	if err != nil {
-		return nil, fmt.Errorf("typecheck error: %v", err)
+	tf := newTransformer()
+	if err := tf.typecheck(files); err != nil {
+		return nil, err
 	}
 
 	tf.recordReflectArgs(files)
@@ -1028,6 +1018,78 @@ type transformer struct {
 	//  * Types or variables from external packages which were not
 	//    obfuscated, for caching reasons; see transformGo.
 	ignoreObjects map[types.Object]bool
+
+	// These fields are used to locate struct types from any of their field
+	// objects. Useful when obfuscating field names.
+	fieldToStruct  map[*types.Var]*types.Struct
+	recordTypeDone map[types.Type]bool
+}
+
+// newTransformer helps initialize some maps.
+func newTransformer() *transformer {
+	return &transformer{
+		info: &types.Info{
+			Types: make(map[ast.Expr]types.TypeAndValue),
+			Defs:  make(map[*ast.Ident]types.Object),
+			Uses:  make(map[*ast.Ident]types.Object),
+		},
+		recordTypeDone: make(map[types.Type]bool),
+		fieldToStruct:  make(map[*types.Var]*types.Struct),
+	}
+}
+
+func (tf *transformer) typecheck(files []*ast.File) error {
+	origTypesConfig := types.Config{Importer: origImporter}
+	pkg, err := origTypesConfig.Check(curPkg.ImportPath, fset, files, tf.info)
+	if err != nil {
+		return fmt.Errorf("typecheck error: %v", err)
+	}
+	tf.pkg = pkg
+
+	// Run recordType on all types reachable via types.Info.
+	// A bit hacky, but I could not find an easier way to do this.
+	for _, obj := range tf.info.Defs {
+		if obj != nil {
+			tf.recordType(obj.Type())
+		}
+	}
+	for _, obj := range tf.info.Uses {
+		if obj != nil {
+			tf.recordType(obj.Type())
+		}
+	}
+	for _, tv := range tf.info.Types {
+		tf.recordType(tv.Type)
+	}
+	return nil
+}
+
+// recordType visits every reachable type after typechecking a package.
+// Right now, all it does is fill the fieldToStruct field.
+// Since types can be recursive, we need a map to avoid cycles.
+func (tf *transformer) recordType(t types.Type) {
+	if tf.recordTypeDone[t] {
+		return
+	}
+	tf.recordTypeDone[t] = true
+	switch t := t.(type) {
+	case interface{ Elem() types.Type }:
+		tf.recordType(t.Elem())
+	case *types.Named:
+		tf.recordType(t.Underlying())
+	}
+	strct, _ := t.(*types.Struct)
+	if strct == nil {
+		return
+	}
+	for i := 0; i < strct.NumFields(); i++ {
+		field := strct.Field(i)
+		tf.fieldToStruct[field] = strct
+
+		if field.Embedded() {
+			tf.recordType(field.Type())
+		}
+	}
 }
 
 // transformGo obfuscates the provided Go syntax file.
@@ -1085,6 +1147,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		if !lpkg.Private {
 			return true // only private packages are transformed
 		}
+		hashToUse := lpkg.GarbleActionID
 
 		// log.Printf("%#v %T", node, obj)
 		parentScope := obj.Parent()
@@ -1093,6 +1156,30 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			if parentScope != nil && parentScope != pkg.Scope() {
 				// Identifiers of non-global variables never show up in the binary.
 				return true
+			}
+
+			// Fields don't get hashed with the package's action ID.
+			// They get hashed with the type of their parent struct.
+			// This is because one struct can be converted to another,
+			// as long as the underlying types are identical,
+			// even if the structs are defined in different packages.
+			//
+			// TODO: Consider only doing this for structs where all
+			// fields are exported. We only need this special case
+			// for cross-package conversions, which can't work if
+			// any field is unexported. If that is done, add a test
+			// that ensures unexported fields from different
+			// packages result in different obfuscated names.
+			if obj.IsField() {
+				strct := tf.fieldToStruct[obj]
+				if strct == nil {
+					panic("could not find for " + node.Name)
+				}
+				// TODO: We should probably strip field tags here.
+				// Do we need to do anything else to make a
+				// struct type "canonical"?
+				fieldsHash := []byte(strct.String())
+				hashToUse = addGarbleToHash(fieldsHash)
 			}
 
 			// If the struct of this field was not obfuscated, do not obfuscate
@@ -1172,8 +1259,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		origName := node.Name
 		_ = origName // used for debug prints below
 
-		node.Name = hashWith(lpkg.GarbleActionID, node.Name)
-		// log.Printf("%q hashed with %x to %q", origName, lpkg.GarbleActionID, node.Name)
+		node.Name = hashWith(hashToUse, node.Name)
+		// log.Printf("%q hashed with %x to %q", origName, hashToUse, node.Name)
 		return true
 	}
 	post := func(cursor *astutil.Cursor) bool {

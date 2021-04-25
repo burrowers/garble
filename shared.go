@@ -223,7 +223,7 @@ func setListedPackages(patterns []string) error {
 		}
 		if pkg.Export != "" {
 			actionID := decodeHash(splitActionID(pkg.BuildID))
-			pkg.GarbleActionID = addGarbleToBuildIDComponent(actionID)
+			pkg.GarbleActionID = addGarbleToHash(actionID)
 		}
 		cache.ListedPackages[pkg.ImportPath] = &pkg
 	}

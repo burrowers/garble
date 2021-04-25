@@ -6,6 +6,13 @@ cmp stderr main.stderr
 
 ! binsubstr main$exe 'unexportedMethod' 'privateIface'
 
+[short] stop # no need to verify this with -short
+
+# Check that the program works as expected without garble.
+go build
+exec ./main
+cmp stderr main.stderr
+
 -- go.mod --
 module test/main
 
@@ -13,7 +20,12 @@ go 1.16
 -- main.go --
 package main
 
-import "test/main/tinyfmt"
+import (
+	"test/main/lib1"
+	"test/main/lib2"
+	"test/main/lib3"
+	"test/main/tinyfmt"
+)
 
 type T string
 
@@ -33,9 +45,52 @@ func (T) privateIface() {}
 
 var _ privateInterface = T("")
 
+type StructUnnamed = struct {
+	Foo int
+	Bar struct {
+		Nested *[]string
+	}
+	lib3.StructEmbed
+}
+
+var _ = lib1.Struct1(lib2.Struct2{})
+
+var _ = StructUnnamed(lib2.Struct2{})
+
 func main() {
 	tinyfmt.Println(T("foo"))
 	tinyfmt.Println(T("foo").unexportedMethod())
+}
+-- lib1/lib1.go --
+package lib1
+
+import "test/main/lib3"
+
+type Struct1 struct {
+	Foo int
+	Bar struct {
+		Nested *[]string
+	}
+	lib3.StructEmbed
+}
+
+-- lib2/lib2.go --
+package lib2
+
+import "test/main/lib3"
+
+type Struct2 struct {
+	Foo int
+	Bar struct {
+		Nested *[]string
+	}
+	lib3.StructEmbed
+}
+-- lib3/lib3.go --
+package lib3
+
+type StructEmbed struct {
+	Baz interface{}
 }
 -- tinyfmt/fmt.go --
 package tinyfmt
