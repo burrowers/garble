@@ -303,18 +303,8 @@ func mainErr(args []string) error {
 
 	toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
 
-	// Unfortunately, TOOLEXEC_IMPORTPATH is just "foo/bar" for the package
-	// whose ImportPath in "go list -json" is "foo/bar [foo/bar.test]".
-	// The ImportPath "foo/bar" also exists in "go list -json", so we can't
-	// possibly differentiate between the two versions of a package.
-	// The same happens with "foo/bar_test", whose ImportPath is actually
-	// "foo/bar_test [foo/bar.test]".
-	//
-	// TODO(mvdan): remove once https://github.com/golang/go/issues/44963 is fixed
-	//
-	// Until then, here's our workaround: since this edge case only happens
-	// for the compiler, check if any "_test.go" files are being compiled.
-	// If so, we are compiling a test package, so we add the missing extra.
+	// Workaround for https://github.com/golang/go/issues/44963.
+	// TODO(mvdan): remove once we only support Go 1.17 and later.
 	if tool == "compile" {
 		isTestPkg := false
 		_, paths := splitFlagsFromFiles(args, ".go")
@@ -329,6 +319,7 @@ func mainErr(args []string) error {
 			toolexecImportPath = fmt.Sprintf("%s [%s.test]", toolexecImportPath, forPkg)
 		}
 	}
+
 	curPkg = cache.ListedPackages[toolexecImportPath]
 	if curPkg == nil {
 		return fmt.Errorf("TOOLEXEC_IMPORTPATH not found in listed packages: %s", toolexecImportPath)
