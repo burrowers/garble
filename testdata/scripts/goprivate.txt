@@ -23,6 +23,12 @@ garble build std
 # support ImportMap when linking.
 garble build -o=out ./stdimporter
 
+# Also check that a full rebuild is reproducible,
+# with -a to rebuild all packages.
+# This is slow, but necessary to uncover bugs hidden by the build cache.
+garble build -o=out_rebuild -a ./stdimporter
+bincmp out_rebuild out
+
 -- go.mod --
 module test/main
 
