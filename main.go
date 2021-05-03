@@ -441,6 +441,12 @@ func transformAsm(args []string) ([]string, error) {
 		flags = flagSetValue(flags, "-p", curPkg.obfuscatedImportPath())
 	}
 
+	var err error
+	flags, err = alterTrimpath(flags)
+	if err != nil {
+		return nil, err
+	}
+
 	// We need to replace all function references with their obfuscated name
 	// counterparts.
 	// Luckily, all func names in Go assembly files are immediately followed
@@ -514,8 +520,8 @@ func transformAsm(args []string) ([]string, error) {
 			buf.WriteString(newName)
 		}
 
-		// TODO: do the original asm filenames ever matter?
-		if path, err := writeTemp("*.s", buf.Bytes()); err != nil {
+		name := filepath.Base(path)
+		if path, err := writeTemp(name, buf.Bytes()); err != nil {
 			return nil, err
 		} else {
 			newPaths = append(newPaths, path)
@@ -526,24 +532,20 @@ func transformAsm(args []string) ([]string, error) {
 }
 
 // writeTemp is a mix between os.CreateTemp and os.WriteFile, as it writes a
-// temporary file in sharedTempDir given an input buffer.
+// named source file in sharedTempDir given an input buffer.
 //
-// This helper func also makes the "defer" more truthful, as it's often used
-// within a loop.
+// Note that the file is created under a directory tree following curPkg's
+// import path, mimicking how files are laid out in modules and GOROOT.
 func writeTemp(name string, content []byte) (string, error) {
-	tempFile, err := os.CreateTemp(sharedTempDir, name)
-	if err != nil {
+	pkgDir := filepath.Join(sharedTempDir, filepath.FromSlash(curPkg.ImportPath))
+	if err := os.MkdirAll(pkgDir, 0o777); err != nil {
 		return "", err
 	}
-	defer tempFile.Close()
-
-	if _, err := tempFile.Write(content); err != nil {
+	dstPath := filepath.Join(pkgDir, name)
+	if err := os.WriteFile(dstPath, content, 0o666); err != nil {
 		return "", err
 	}
-	if err := tempFile.Close(); err != nil {
-		return "", err
-	}
-	return tempFile.Name(), nil
+	return dstPath, nil
 }
 
 func transformCompile(args []string) ([]string, error) {
@@ -572,11 +574,9 @@ func transformCompile(args []string) ([]string, error) {
 		}
 	}
 
-	// If the value of -trimpath doesn't contain the separator ';', the 'go
-	// build' command is most likely not using '-trimpath'.
-	trimpath := flagValue(flags, "-trimpath")
-	if !strings.Contains(trimpath, ";") {
-		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
+	flags, err = alterTrimpath(flags)
+	if err != nil {
+		return nil, err
 	}
 
 	newImportCfg, err := processImportCfg(flags)
@@ -607,11 +607,6 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	tf.recordReflectArgs(files)
-
-	// Add our temporary dir to the beginning of -trimpath, so that we don't
-	// leak temporary dirs. Needs to be at the beginning, since there may be
-	// shorter prefixes later in the list, such as $PWD if TMPDIR=$PWD/tmp.
-	flags = flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 	// log.Println(flags)
 
 	// If this is a package to obfuscate, swap the -p flag with the new
@@ -627,12 +622,11 @@ func transformCompile(args []string) ([]string, error) {
 	for i, file := range files {
 		tf.handleDirectives(file.Comments)
 
-		origName := filepath.Base(paths[i])
-		name := origName
+		name := filepath.Base(paths[i])
 		switch {
 		case curPkg.ImportPath == "runtime":
 			// strip unneeded runtime code
-			stripRuntime(origName, file)
+			stripRuntime(name, file)
 		case curPkg.ImportPath == "runtime/internal/sys":
 			// The first declaration in zversion.go contains the Go
 			// version as follows. Replace it here, since the
@@ -641,17 +635,14 @@ func transformCompile(args []string) ([]string, error) {
 			//     const TheVersion = `devel ...`
 			//
 			// Don't touch the source in any other way.
-			if origName != "zversion.go" {
+			if name != "zversion.go" {
 				break
 			}
 			spec := file.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec)
 			lit := spec.Values[0].(*ast.BasicLit)
 			lit.Value = "`unknown`"
-		case strings.HasPrefix(origName, "_cgo_"):
-			// Cgo generated code requires a prefix. Also, don't
-			// obfuscate it, since it's just generated code and it gets
-			// messy.
-			name = "_cgo_" + name
+		case strings.HasPrefix(name, "_cgo_"):
+			// Don't obfuscate cgo code, since it's generated and it gets messy.
 		default:
 			file = tf.transformGo(file)
 		}
@@ -666,10 +657,10 @@ func transformCompile(args []string) ([]string, error) {
 
 		// Uncomment for some quick debugging. Do not delete.
 		// if curPkg.Private {
-		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, origName, src)
+		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, name, src)
 		// }
 
-		if path, err := writeTemp(name+".*.go", src); err != nil {
+		if path, err := writeTemp(name, src); err != nil {
 			return nil, err
 		} else {
 			newPaths = append(newPaths, path)
@@ -681,7 +672,7 @@ func transformCompile(args []string) ([]string, error) {
 				return nil, err
 			}
 
-			debugFilePath := filepath.Join(pkgDebugDir, origName)
+			debugFilePath := filepath.Join(pkgDebugDir, name)
 			if err := os.WriteFile(debugFilePath, src, 0666); err != nil {
 				return nil, err
 			}
@@ -1428,6 +1419,21 @@ func splitFlagsFromArgs(all []string) (flags, args []string) {
 		i++
 	}
 	return all, nil
+}
+
+func alterTrimpath(flags []string) ([]string, error) {
+	// If the value of -trimpath doesn't contain the separator ';', the 'go
+	// build' command is most likely not using '-trimpath'.
+	trimpath := flagValue(flags, "-trimpath")
+	if !strings.Contains(trimpath, ";") {
+		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
+	}
+
+	// Add our temporary dir to the beginning of -trimpath, so that we don't
+	// leak temporary dirs. Needs to be at the beginning, since there may be
+	// shorter prefixes later in the list, such as $PWD if TMPDIR=$PWD/tmp.
+	flags = flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
+	return flags, nil
 }
 
 // buildFlags is obtained from 'go help build' as of Go 1.15.
