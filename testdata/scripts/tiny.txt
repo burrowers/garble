@@ -12,6 +12,9 @@ stderr '^caller: \?\? 1$' # position info is removed
 stderr '^recovered: ya like jazz?'
 ! stderr 'panic: oh noes' # panics are hidden
 
+# Ensure further commands don't have weirdness due to GODEBUG.
+env GODEBUG=''
+
 [short] stop # no need to verify this with -short
 
 # Default mode
