@@ -31,7 +31,7 @@ order to:
 * Remove all [build](https://golang.org/pkg/runtime/#Version) and [module](https://golang.org/pkg/runtime/debug/#ReadBuildInfo) information
 * Strip filenames and shuffle position information
 * Strip debugging information and symbol tables via `-ldflags="-w -s"`
-* [Obfuscate literals](#obfuscate-literals), if the `-literals` flag is given
+* [Obfuscate literals](#literal-obfuscation), if the `-literals` flag is given
 * Remove [extra information](#tiny-mode), if the `-tiny` flag is given
 
 By default, the tool obfuscates the packages under the current module. If not
