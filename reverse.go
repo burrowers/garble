@@ -110,20 +110,28 @@ func commandReverse(args []string) error {
 					}
 
 				case *ast.CallExpr:
-					// continues below
-				default:
-					return true
+					// Reverse position information of call sites.
+					pos := fset.Position(node.Pos())
+					origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
+					newFilename := hashWith(lpkg.GarbleActionID, origPos) + ".go"
+
+					// Do "obfuscated.go:1", corresponding to the call site's line.
+					// Most common in stack traces.
+					replaces = append(replaces,
+						newFilename+":1",
+						fmt.Sprintf("%s/%s:%d", lpkg.ImportPath, goFile, pos.Line),
+					)
+
+					// Do "obfuscated.go" as a fallback.
+					// Most useful in build errors in obfuscated code,
+					// since those might land on any line.
+					// Any ":N" line number will end up being useless,
+					// but at least the filename will be correct.
+					replaces = append(replaces,
+						newFilename,
+						fmt.Sprintf("%s/%s", lpkg.ImportPath, goFile),
+					)
 				}
-
-				// Reverse position information.
-				pos := fset.Position(node.Pos())
-				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
-				newPos := hashWith(lpkg.GarbleActionID, origPos) + ".go:1"
-
-				replaces = append(replaces,
-					newPos,
-					fmt.Sprintf("%s/%s:%d", lpkg.ImportPath, goFile, pos.Line),
-				)
 
 				return true
 			})

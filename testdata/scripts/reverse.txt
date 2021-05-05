@@ -56,12 +56,17 @@ package main
 
 import (
 	"os"
+	"runtime"
 
 	"test/main/lib"
 )
 
 func main() {
 	unexportedMainFunc()
+
+	_, filename, _, _ := runtime.Caller(0)
+	println()
+	println("main filename:", filename)
 }
 
 func unexportedMainFunc() {
@@ -79,12 +84,17 @@ package lib
 import (
 	"io"
 	"regexp"
+	"runtime"
 	"runtime/debug"
 )
 
 type ExportedLibType struct{}
 
 func (*ExportedLibType) ExportedLibMethod(w io.Writer) error {
+	_, filename, _, _ := runtime.Caller(0)
+	println("lib filename:", filename)
+	println()
+
 	return printStackTrace(w)
 }
 
@@ -121,19 +131,23 @@ var _ = reflect.TypeOf(UnobfuscatedStruct{})
 
 var _ = struct{SomeField int}(UnobfuscatedStruct{})
 -- reverse.stdout --
+lib filename: test/main/lib/lib.go
+
 goroutine 1 [running]:
 runtime/debug.Stack(0x??, 0x??, 0x??)
 	runtime/debug/stack.go:24 +0x??
 test/main/lib.printStackTrace(0x??, 0x??, 0x??, 0x??)
-	test/main/lib/lib.go:23 +0x??
-test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
-	test/main/lib/lib.go:12
-main.unexportedMainFunc.func1()
-	test/main/main.go:16 +0x??
+	test/main/lib/lib.go:28 +0x??
+test/main/lib.(*ExportedLibType).ExportedLibMethod(0x??, 0x??, 0x??, 0x??, 0x??)
+	test/main/lib/lib.go:17 +0x??
+main.unexportedMainFunc.func1(...)
+	test/main/main.go:21
 main.unexportedMainFunc()
-	test/main/main.go:20 +0x??
+	test/main/main.go:25 +0x??
 main.main()
-	test/main/main.go:10 +0x??
+	test/main/main.go:11 +0x??
+
+main filename: test/main/main.go
 -- build-error-reverse.stdout --
 # test/main/build-error
 test/main/build-error/error.go:18: cannot convert UnobfuscatedStruct{} (type UnobfuscatedStruct) to type struct { SomeField int }
