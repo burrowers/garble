@@ -673,7 +673,7 @@ func transformCompile(args []string) ([]string, error) {
 			}
 
 			debugFilePath := filepath.Join(pkgDebugDir, name)
-			if err := os.WriteFile(debugFilePath, src, 0666); err != nil {
+			if err := os.WriteFile(debugFilePath, src, 0o666); err != nil {
 				return nil, err
 			}
 		}
@@ -972,7 +972,8 @@ func (tf *transformer) recordReflectArgs(files []*ast.File) {
 
 		if fnType.Pkg().Path() == "reflect" && (fnType.Name() == "TypeOf" || fnType.Name() == "ValueOf") {
 			for _, arg := range call.Args {
-				tf.recordIgnore(tf.info.TypeOf(arg), false)
+				argType := tf.info.TypeOf(arg)
+				tf.recordIgnore(argType, false)
 			}
 		}
 		return true
@@ -1300,6 +1301,13 @@ func (tf *transformer) recordIgnore(t types.Type, allPkgs bool) {
 	case *types.Struct:
 		for i := 0; i < t.NumFields(); i++ {
 			field := t.Field(i)
+
+			// This check is similar to the one in *types.Named.
+			// It's necessary for unnamed struct types,
+			// as they aren't named but still have named fields.
+			if !allPkgs && field.Pkg() != tf.pkg {
+				return // not from the current package
+			}
 
 			// Record the field itself, too.
 			tf.ignoreObjects[field] = true
