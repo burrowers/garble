@@ -49,7 +49,12 @@ func printFile(file1 *ast.File) ([]byte, error) {
 	// and those are the only source of truth that go/printer uses.
 	// So the positions of the comments in the given file are wrong.
 	// The only way we can get the final ones is to parse again.
-	file2, err := parser.ParseFile(fset, absFilename, src, parser.ParseComments)
+	//
+	// We use an empty filename here.
+	// Syntax errors should be rare, and when they do happen,
+	// we don't want to point to the original source file on disk.
+	// That would be confusing, as we've changed the source in memory.
+	file2, err := parser.ParseFile(fset, "", src, parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("re-parse error: %w", err)
 	}
