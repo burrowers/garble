@@ -51,7 +51,7 @@ func main() {
 
 	// Use of a common library using reflect, encoding/json.
 	// TODO: remove the TypeOf hint once we detect json.Marshal.
-	var _ = reflect.TypeOf(EncodingT{})
+	_ = reflect.TypeOf(EncodingT{})
 	enc, _ := json.Marshal(EncodingT{Foo: 3})
 	println(string(enc))
 
@@ -60,10 +60,24 @@ func main() {
 	outer.InnerField = 3
 	enc, _ = json.Marshal(outer)
 	println(string(enc))
+
+	// An edge case; the struct type is defined in a different package.
+	// Note that the struct type is unnamed, but it still has named fields.
+	// We only use reflection on it here, not the declaring package.
+	// As such, we should obfuscate the field name.
+	// Simply using the field name here used to cause build failures.
+	_ = reflect.TypeOf(importedpkg.UnnamedWithDownstreamReflect{})
+	fmt.Printf("%v\n", importedpkg.UnnamedWithDownstreamReflect{
+		ExportedField: "foo",
+	})
 }
 
 func printfWithoutPackage(format string, v interface{}) {
-	fmt.Print(strings.Split(fmt.Sprintf(format, v), ".")[1])
+	s := fmt.Sprintf(format, v)
+	if i := strings.IndexByte(s, '.'); i > 0 {
+		s = s[i+1:]
+	}
+	fmt.Print(s)
 }
 
 type EncodingT struct {
@@ -128,6 +142,10 @@ type EmbeddingInner struct {
 	InnerField int
 }
 
+type UnnamedWithDownstreamReflect = struct {
+	ExportedField string
+}
+
 -- main.stdout --
 9000
 {5 0}
@@ -135,3 +153,4 @@ ReflectTypeOf
 ReflectTypeOfIndirect
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
+{foo}
