@@ -2,7 +2,7 @@ env GOPRIVATE=test/main
 
 garble build
 exec ./main
-cmp stderr main.stderr
+cmp stdout main.stdout
 
 ! binsubstr main$exe 'unexportedMethod' 'privateIface'
 
@@ -11,7 +11,7 @@ cmp stderr main.stderr
 # Check that the program works as expected without garble.
 go build
 exec ./main
-cmp stderr main.stderr
+cmp stdout main.stdout
 
 -- go.mod --
 module test/main
@@ -21,10 +21,11 @@ go 1.16
 package main
 
 import (
+	"fmt"
+
 	"test/main/lib1"
 	"test/main/lib2"
 	"test/main/lib3"
-	"test/main/tinyfmt"
 )
 
 type T string
@@ -58,8 +59,8 @@ var _ = lib1.Struct1(lib2.Struct2{})
 var _ = StructUnnamed(lib2.Struct2{})
 
 func main() {
-	tinyfmt.Println(T("foo"))
-	tinyfmt.Println(T("foo").unexportedMethod())
+	fmt.Println(T("foo"))
+	fmt.Println(T("foo").unexportedMethod())
 }
 -- lib1/lib1.go --
 package lib1
@@ -92,25 +93,6 @@ package lib3
 type StructEmbed struct {
 	Baz interface{}
 }
--- tinyfmt/fmt.go --
-package tinyfmt
-
-// Println emulates fmt.Println, and allows the main package to indirectly use
-// T.String in a realistic way. We don't want to import fmt to avoid compiling
-// too many packages, since we don't have build caching yet.
-func Println(args ...interface{}) {
-	for _, arg := range args {
-		switch arg := arg.(type) {
-		case interface{String() string}:
-			print(arg.String())
-		case string:
-			print(arg)
-		default:
-			panic("unsupported type")
-		}
-	}
-	println()
-}
--- main.stderr --
+-- main.stdout --
 String method for foo
 unexported method for foo
