@@ -1,0 +1,137 @@
+env GOPRIVATE=test/main
+
+garble build
+exec ./main
+cmp stdout main.stdout
+
+! binsubstr main$exe 'main.go' 'test/main' 'importedpkg.'
+binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2'
+
+[short] stop # no need to verify this with -short
+
+# Check that the program works as expected without garble.
+go build
+exec ./main
+cmp stdout main.stdout
+
+-- go.mod --
+module test/main
+
+go 1.16
+-- main.go --
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"strings"
+
+	"test/main/importedpkg"
+)
+
+func main() {
+	// Fields still work fine when they are not obfuscated.
+	fmt.Println(importedpkg.ReflectInDefinedVar.ExportedField2)
+	fmt.Println(importedpkg.ReflectInDefined{ExportedField2: 5})
+
+	// Type names are not obfuscated either, when reflection is used.
+	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOf(2))
+	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOfIndirect(4))
+
+	// More complex use of reflect.
+	v := importedpkg.ReflectValueOfVar
+	printfWithoutPackage("%#v\n", v)
+	method := reflect.ValueOf(&v).MethodByName("ExportedMethodName")
+	if method.IsValid() {
+		fmt.Println(method.Call(nil))
+	} else {
+		fmt.Println("method not found")
+	}
+
+	// Use of a common library using reflect, encoding/json.
+	// TODO: remove the TypeOf hint once we detect json.Marshal.
+	var _ = reflect.TypeOf(EncodingT{})
+	enc, _ := json.Marshal(EncodingT{Foo: 3})
+	println(string(enc))
+
+	// Another complex case, involving embedding and another package.
+	outer := &importedpkg.EmbeddingOuter{}
+	outer.InnerField = 3
+	enc, _ = json.Marshal(outer)
+	println(string(enc))
+}
+
+func printfWithoutPackage(format string, v interface{}) {
+	fmt.Print(strings.Split(fmt.Sprintf(format, v), ".")[1])
+}
+
+type EncodingT struct {
+	Foo int
+}
+
+type RecursiveStruct struct {
+	*RecursiveStruct
+	list []RecursiveStruct
+}
+
+// This could crash or hang if we don't deal with loops.
+var _ = reflect.TypeOf(RecursiveStruct{})
+
+-- importedpkg/imported.go --
+package importedpkg
+
+import (
+	"reflect"
+)
+
+type ReflectTypeOf int
+
+var _ = reflect.TypeOf(ReflectTypeOf(0))
+
+type ReflectTypeOfIndirect int
+
+var _ = reflect.TypeOf(new([]*ReflectTypeOfIndirect))
+
+type ReflectValueOf struct {
+	ExportedField string
+
+	unexportedField string
+}
+
+func (r *ReflectValueOf) ExportedMethodName() string { return "method: " + r.ExportedField }
+
+var ReflectValueOfVar = ReflectValueOf{ExportedField: "abc"}
+
+var _ = reflect.TypeOf(ReflectValueOfVar)
+
+type ReflectInDefined struct {
+	ExportedField2 int
+
+	unexportedField2 int
+}
+
+var ReflectInDefinedVar = ReflectInDefined{ExportedField2: 9000}
+
+var _ = reflect.TypeOf(ReflectInDefinedVar)
+
+var _ = reflect.TypeOf([]*struct{EmbeddingOuter}{})
+
+type EmbeddingOuter struct {
+	EmbeddingInner
+	Anon struct {
+		AnonField int
+	}
+}
+
+type EmbeddingInner struct {
+	InnerField int
+}
+
+-- main.stdout --
+9000
+{5 0}
+ReflectTypeOf
+ReflectTypeOfIndirect
+ReflectValueOf{ExportedField:"abc", unexportedField:""}
+[method: abc]

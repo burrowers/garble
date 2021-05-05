@@ -40,9 +40,7 @@ replace private.source/extra => ./extra
 package main
 
 import (
-	"encoding/json"
 	"go/ast"
-	"reflect"
 
 	"private.source/extra"
 	"test/main/sub"
@@ -54,10 +52,6 @@ var V interface{}
 type T struct {
 	ast.Node
 	*ast.Ident
-}
-
-type EncodingT struct {
-	Foo int
 }
 
 type Embedded int
@@ -102,29 +96,11 @@ func main() {
 		println("nil case")
 	}
 
-	var _ = reflect.TypeOf(EncodingT{})
-	enc, _ := json.Marshal(EncodingT{Foo: 3})
-	println(string(enc))
 	scopesTest()
 	println(extra.Func())
 	sub.Test()
 	neverInlined()
-
-	// A harder case of detecting reflection.
-	// The type is defined in a dependency,
-	// and the types involved are more complex.
-	outer := &sub.EmbeddingOuter{}
-	outer.InnerField = 3
-	enc, _ = json.Marshal(outer)
-	println(string(enc))
 }
-
-type RecursiveStruct struct {
-	*RecursiveStruct
-	list []RecursiveStruct
-}
-
-var _ = reflect.TypeOf(RecursiveStruct{})
 
 -- scopes.go --
 package main
@@ -159,8 +135,6 @@ func input(localNameParam string) (localNameReturn string) { return localNamePar
 -- sub/names.go --
 package sub
 
-import "reflect"
-
 var someGlobalVar0 = "0"
 var someGlobalVar1 = "1"
 var someGlobalVar2 = "2"
@@ -181,24 +155,9 @@ func TestFoo(s string) {}
 
 func TestBar(*struct{}) {}
 
-var _ = reflect.TypeOf([]*struct{EmbeddingOuter}{})
-
-type EmbeddingOuter struct {
-	EmbeddingInner
-	Anon struct {
-		AnonField int
-	}
-}
-
-type EmbeddingInner struct {
-	InnerField int
-}
-
 -- main.stderr --
 nil case
-{"Foo":3}
 1 1 1
 1 4 5 1 input
 This is a separate module to obfuscate.
 This func is never inlined.
-{"InnerField":3,"Anon":{"AnonField":0}}
