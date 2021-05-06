@@ -133,9 +133,78 @@ func (fn importerWithMap) ImportFrom(path, dir string, mode types.ImportMode) (*
 }
 
 func obfuscatedTypesPackage(path string) *types.Package {
+	if path == curPkg.ImportPath {
+		panic("called obfuscatedTypesPackage on the current package?")
+	}
 	entry, ok := importCfgEntries[path]
+
+	// A "test/bar_test [test/bar.test]" package can try to look at
+	// "test/bar [test/bar.test]", for some reason.
+	// That really shouldn't happen, because external test packages are
+	// meant to just import the original non-test package.
+	// For now, correct for this weirdness by stripping the suffix.
+	// Without this change, test.txt fails.
+	// TODO(mvdan): figure out the cause of this.
+	if !ok && strings.HasSuffix(path, ".test]") {
+		path = path[:strings.IndexByte(path, ' ')]
+		entry, ok = importCfgEntries[path]
+	}
+
 	if !ok {
-		return nil
+		// Handle the case where the name is defined in an indirectly
+		// imported package. Since only direct imports show up in our
+		// importcfg, importCfgEntries will not initially contain the
+		// package path we want.
+		//
+		// This edge case can happen, for example, if package A imports
+		// package B and calls its API, and B's API returns C's struct.
+		// Suddenly, A can use struct field names defined in C, even
+		// though A never directly imports C.
+		//
+		// Another edge case is if A uses C's named type via a type
+		// alias in B.
+		//
+		// For this rare case, for now, do an extra "go list -toolexec"
+		// call to retrieve its export path.
+		//
+		// TODO: Think about ways to avoid this extra exec call. Perhaps
+		// avoid relying on importcfg to know whether an imported name
+		// was obfuscated. Or perhaps record indirect importcfg entries
+		// somehow.
+		goArgs := []string{
+			"list",
+			"-json",
+			"-export",
+			"-trimpath",
+			"-toolexec=" + cache.ExecPath,
+		}
+		goArgs = append(goArgs, cache.BuildFlags...)
+		goArgs = append(goArgs, path)
+
+		cmd := exec.Command("go", goArgs...)
+		cmd.Dir = opts.GarbleDir
+		out, err := cmd.Output()
+		if err != nil {
+			if err := err.(*exec.ExitError); err != nil {
+				panic(fmt.Sprintf("%v: %s", err, err.Stderr))
+			}
+			panic(err)
+		}
+		var pkg listedPackage
+		if err := json.Unmarshal(out, &pkg); err != nil {
+			panic(err) // shouldn't happen
+		}
+		if pkg.ImportPath != path {
+			panic(fmt.Sprintf("unexpected path: %q vs %q", pkg.ImportPath, path))
+		}
+		entry = &importCfgEntry{
+			packagefile: pkg.Export,
+		}
+		// Adding it to buildInfo.imports allows us to reuse the
+		// "if" branch below. Plus, if this edge case triggers
+		// multiple times in a single package compile, we can
+		// call "go list" once and cache its result.
+		importCfgEntries[path] = entry
 	}
 	if entry.cachedPkg != nil {
 		return entry.cachedPkg
@@ -1141,6 +1210,12 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				return true
 			}
 
+			if !obj.IsField() {
+				// Identifiers of global variables are always obfuscated.
+				break
+			}
+			// From this point on, we deal with struct fields.
+
 			// Fields don't get hashed with the package's action ID.
 			// They get hashed with the type of their parent struct.
 			// This is because one struct can be converted to another,
@@ -1153,21 +1228,19 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			// any field is unexported. If that is done, add a test
 			// that ensures unexported fields from different
 			// packages result in different obfuscated names.
-			if obj.IsField() {
-				strct := tf.fieldToStruct[obj]
-				if strct == nil {
-					panic("could not find for " + node.Name)
-				}
-				// TODO: We should probably strip field tags here.
-				// Do we need to do anything else to make a
-				// struct type "canonical"?
-				fieldsHash := []byte(strct.String())
-				hashToUse = addGarbleToHash(fieldsHash)
+			strct := tf.fieldToStruct[obj]
+			if strct == nil {
+				panic("could not find for " + node.Name)
 			}
+			// TODO: We should probably strip field tags here.
+			// Do we need to do anything else to make a
+			// struct type "canonical"?
+			fieldsHash := []byte(strct.String())
+			hashToUse = addGarbleToHash(fieldsHash)
 
 			// If the struct of this field was not obfuscated, do not obfuscate
 			// any of that struct's fields.
-			if parentScope != tf.pkg.Scope() && obj.IsField() && !obj.Embedded() {
+			if !obj.Embedded() {
 				parent, ok := cursor.Parent().(*ast.SelectorExpr)
 				if !ok {
 					break
@@ -1181,10 +1254,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 					// We're not obfuscating cgo names.
 					return true
 				}
-				// If the type originates from an indirect import,
-				// it's possible for obfPkg to be nil here.
-				// TODO(mvdan): add a test and think how to fix this
-				if obfPkg := obfuscatedTypesPackage(path); obfPkg != nil {
+				if path != curPkg.ImportPath {
+					obfPkg := obfuscatedTypesPackage(path)
 					if obfPkg.Scope().Lookup(named.Obj().Name()) != nil {
 						tf.recordIgnore(named, path)
 						return true
@@ -1197,16 +1268,23 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				return true
 			}
 
+			// TODO: we need to obfuscate aliases too.
+			// When used as anonymous struct fields,
+			// their names end up in the binary as a field name.
+			// For now, skip them, as they are hard to obfuscate.
+			if obj.IsAlias() {
+				return true
+			}
+
 			// If the type was not obfuscated in the package were it was defined,
 			// do not obfuscate it here.
-			if parentScope != tf.pkg.Scope() {
+			if path != curPkg.ImportPath {
 				named := namedType(obj.Type())
 				if named == nil {
 					break // TODO(mvdan): add a test
 				}
-				// The type is directly referenced by name,
-				// so obfuscatedTypesPackage can't return nil.
-				if obfuscatedTypesPackage(path).Scope().Lookup(obj.Name()) != nil {
+				obfPkg := obfuscatedTypesPackage(path)
+				if obfPkg.Scope().Lookup(obj.Name()) != nil {
 					tf.recordIgnore(named, path)
 					return true
 				}
@@ -1228,11 +1306,10 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			// different symbol name, the imported package did not
 			// obfuscate the original func name.
 			// Don't do it here either.
-			if parentScope != tf.pkg.Scope() {
-				if obfPkg := obfuscatedTypesPackage(path); obfPkg != nil {
-					if obfPkg.Scope().Lookup(obj.Name()) != nil {
-						return true
-					}
+			if path != curPkg.ImportPath {
+				obfPkg := obfuscatedTypesPackage(path)
+				if obfPkg.Scope().Lookup(obj.Name()) != nil {
+					return true
 				}
 			}
 		default:
@@ -1243,7 +1320,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		_ = origName // used for debug prints below
 
 		node.Name = hashWith(hashToUse, node.Name)
-		// log.Printf("%q hashed with %x to %q", origName, hashToUse, node.Name)
+		// log.Printf("%q (%T) hashed with %x to %q", origName, obj, hashToUse, node.Name)
 		return true
 	}
 	post := func(cursor *astutil.Cursor) bool {
