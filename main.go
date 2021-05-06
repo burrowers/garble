@@ -1167,13 +1167,26 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		}
 		pkg := obj.Pkg()
 		if vr, ok := obj.(*types.Var); ok && vr.Embedded() {
-			// ObjectOf returns the field for embedded struct
-			// fields, not the type it uses. Use the type.
-			named := namedType(obj.Type())
-			if named == nil {
-				return true // unnamed type (probably a basic type, e.g. int)
+			// The docs for ObjectOf say:
+			//
+			//     If id is an embedded struct field, ObjectOf returns the
+			//     field (*Var) it defines, not the type (*TypeName) it uses.
+			//
+			// If this embedded field is a type alias, we want to
+			// handle that instead of treating it as the type the
+			// alias points to.
+			//
+			// Alternatively, if we don't have an alias, we want to
+			// use the embedded type, not the field.
+			if tname, ok := tf.info.Uses[node].(*types.TypeName); ok && tname.IsAlias() {
+				obj = tname
+			} else {
+				named := namedType(obj.Type())
+				if named == nil {
+					return true // unnamed type (probably a basic type, e.g. int)
+				}
+				obj = named.Obj()
 			}
-			obj = named.Obj()
 			pkg = obj.Pkg()
 		}
 		if pkg == nil {
@@ -1265,14 +1278,6 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		case *types.TypeName:
 			if parentScope != pkg.Scope() {
 				// Identifiers of non-global types never show up in the binary.
-				return true
-			}
-
-			// TODO: we need to obfuscate aliases too.
-			// When used as anonymous struct fields,
-			// their names end up in the binary as a field name.
-			// For now, skip them, as they are hard to obfuscate.
-			if obj.IsAlias() {
 				return true
 			}
 

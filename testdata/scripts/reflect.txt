@@ -4,9 +4,7 @@ garble build
 exec ./main
 cmp stdout main.stdout
 
-# TODO: also check for these once we obfuscate aliases:
-# 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect'
-! binsubstr main$exe 'main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect'
+! binsubstr main$exe 'main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect'
 binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect'
 
 [short] stop # no need to verify this with -short
@@ -83,12 +81,15 @@ func main() {
 		SiblingObfuscated: "sibling",
 	})
 
-
+	// Using type aliases as both regular fields, and embedded fields.
 	var emb EmbeddingIndirect
 	emb.With.IndirectUnobfuscated = "indirect-with"
 	emb.Without.IndirectObfuscated = "indirect-without"
 	fmt.Printf("%v\n", emb)
 	printfWithoutPackage("%#v\n", emb.With)
+
+	// TODO: don't obfuscate the embedded field name here
+	// printfWithoutPackage("%#v\n", importedpkg.ReflectEmbeddingAlias{})
 }
 
 type EmbeddingIndirect struct {
@@ -183,6 +184,16 @@ type (
 	AliasIndirectNamedWithReflect = indirect.IndirectNamedWithReflect
 	AliasIndirectNamedWithoutReflect = indirect.IndirectNamedWithoutReflect
 )
+
+var _ = reflect.TypeOf(ReflectEmbeddingAlias{})
+
+type ReflectEmbeddingAlias struct {
+	ReflectEmbeddedAlias
+}
+
+type ReflectEmbeddedAlias = ReflectEmbeddingNamed
+
+type ReflectEmbeddingNamed struct{}
 
 -- importedpkg2/imported2.go --
 package importedpkg2

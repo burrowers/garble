@@ -155,6 +155,17 @@ func TestFoo(s string) {}
 
 func TestBar(*struct{}) {}
 
+// If we obfuscate the alias name, we must obfuscate its use here too.
+type EmbeddingAlias struct {
+	EmbeddedAlias
+}
+
+type EmbeddedAlias = EmbeddedStruct
+
+type EmbeddedStruct struct {
+	Foo int
+}
+
 -- main.stderr --
 nil case
 1 1 1
