@@ -4,8 +4,10 @@ garble build
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'main.go' 'test/main' 'importedpkg.'
-binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2'
+# TODO: also check for these once we obfuscate aliases:
+# 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect'
+! binsubstr main$exe 'main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect'
+binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect'
 
 [short] stop # no need to verify this with -short
 
@@ -69,7 +71,7 @@ func main() {
 	// Simply using the field name here used to cause build failures.
 	_ = reflect.TypeOf(importedpkg.UnnamedWithDownstreamReflect{})
 	fmt.Printf("%v\n", importedpkg.UnnamedWithDownstreamReflect{
-		ExportedField: "downstream",
+		DownstreamObfuscated: "downstream",
 	})
 
 	// An edge case; the struct type is defined in package importedpkg2.
@@ -78,8 +80,24 @@ func main() {
 	// If our logic is incorrect, we might inconsistently obfuscate the type.
 	// We should not obfuscate it when building any package.
 	fmt.Printf("%v\n", importedpkg2.ReflectInSiblingImport{
-		ExportedField: "sibling",
+		SiblingObfuscated: "sibling",
 	})
+
+
+	var emb EmbeddingIndirect
+	emb.With.IndirectUnobfuscated = "indirect-with"
+	emb.Without.IndirectObfuscated = "indirect-without"
+	fmt.Printf("%v\n", emb)
+	printfWithoutPackage("%#v\n", emb.With)
+}
+
+type EmbeddingIndirect struct {
+	// With field names, to test selectors above.
+	With importedpkg.AliasIndirectNamedWithReflect
+	Without importedpkg.AliasIndirectNamedWithoutReflect
+
+	// Embedding used to crash garble, too.
+	importedpkg.AliasIndirectNamedWithReflect
 }
 
 func printfWithoutPackage(format string, v interface{}) {
@@ -108,6 +126,7 @@ package importedpkg
 import (
 	"reflect"
 
+	"test/main/importedpkg/indirect"
 	"test/main/importedpkg2"
 )
 
@@ -157,14 +176,34 @@ type EmbeddingInner struct {
 }
 
 type UnnamedWithDownstreamReflect = struct {
-	ExportedField string
+	DownstreamObfuscated string
 }
+
+type (
+	AliasIndirectNamedWithReflect = indirect.IndirectNamedWithReflect
+	AliasIndirectNamedWithoutReflect = indirect.IndirectNamedWithoutReflect
+)
 
 -- importedpkg2/imported2.go --
 package importedpkg2
 
 type ReflectInSiblingImport struct {
-	ExportedField string
+	SiblingObfuscated string
+}
+
+-- importedpkg/indirect/indirect.go --
+package indirect
+
+import "reflect"
+
+var _ = reflect.TypeOf(IndirectNamedWithReflect{})
+
+type IndirectNamedWithReflect struct {
+	IndirectUnobfuscated string
+}
+
+type IndirectNamedWithoutReflect struct {
+	IndirectObfuscated string
 }
 
 -- main.stdout --
@@ -176,3 +215,5 @@ ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
 {downstream}
 {sibling}
+{{indirect-with} {indirect-without} {}}
+IndirectNamedWithReflect{IndirectUnobfuscated:"indirect-with"}
