@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"test/main/importedpkg"
+	"test/main/importedpkg2"
 )
 
 func main() {
@@ -68,7 +69,16 @@ func main() {
 	// Simply using the field name here used to cause build failures.
 	_ = reflect.TypeOf(importedpkg.UnnamedWithDownstreamReflect{})
 	fmt.Printf("%v\n", importedpkg.UnnamedWithDownstreamReflect{
-		ExportedField: "foo",
+		ExportedField: "downstream",
+	})
+
+	// An edge case; the struct type is defined in package importedpkg2.
+	// importedpkg2 does not use reflection on it, so it's not obfuscated there.
+	// importedpkg uses reflection on a type containing ReflectInSiblingImport.
+	// If our logic is incorrect, we might inconsistently obfuscate the type.
+	// We should not obfuscate it when building any package.
+	fmt.Printf("%v\n", importedpkg2.ReflectInSiblingImport{
+		ExportedField: "sibling",
 	})
 }
 
@@ -97,6 +107,8 @@ package importedpkg
 
 import (
 	"reflect"
+
+	"test/main/importedpkg2"
 )
 
 type ReflectTypeOf int
@@ -123,6 +135,8 @@ type ReflectInDefined struct {
 	ExportedField2 int
 
 	unexportedField2 int
+
+	importedpkg2.ReflectInSiblingImport
 }
 
 var ReflectInDefinedVar = ReflectInDefined{ExportedField2: 9000}
@@ -146,11 +160,19 @@ type UnnamedWithDownstreamReflect = struct {
 	ExportedField string
 }
 
+-- importedpkg2/imported2.go --
+package importedpkg2
+
+type ReflectInSiblingImport struct {
+	ExportedField string
+}
+
 -- main.stdout --
 9000
-{5 0}
+{5 0 {}}
 ReflectTypeOf
 ReflectTypeOfIndirect
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
-{foo}
+{downstream}
+{sibling}
