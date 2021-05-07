@@ -26,22 +26,6 @@ func IntLit(value int) *ast.BasicLit {
 	}
 }
 
-// Float32Lit returns an ast.BasicLit of kind FLOAT, 32 bit
-func Float32Lit(value float32) *ast.BasicLit {
-	return &ast.BasicLit{
-		Kind:  token.FLOAT,
-		Value: strconv.FormatFloat(float64(value), 'f', -1, 32),
-	}
-}
-
-// Float64Lit returns an ast.BasicLit of kind FLOAT, 64 bit
-func Float64Lit(value float64) *ast.BasicLit {
-	return &ast.BasicLit{
-		Kind:  token.FLOAT,
-		Value: strconv.FormatFloat(value, 'f', -1, 64),
-	}
-}
-
 // IndexExpr "name[index]"
 func IndexExpr(name string, index ast.Expr) *ast.IndexExpr {
 	return &ast.IndexExpr{
@@ -78,15 +62,6 @@ func LambdaCall(resultType ast.Expr, block *ast.BlockStmt) *ast.CallExpr {
 func ReturnStmt(results ...ast.Expr) *ast.ReturnStmt {
 	return &ast.ReturnStmt{
 		Results: results,
-	}
-}
-
-// BoundsCheck "_ = name[pos]"
-func BoundsCheck(name string, pos int) *ast.AssignStmt {
-	return &ast.AssignStmt{
-		Lhs: []ast.Expr{ast.NewIdent("_")},
-		Tok: token.ASSIGN,
-		Rhs: []ast.Expr{IndexExpr("data", IntLit(pos))},
 	}
 }
 

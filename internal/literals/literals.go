@@ -42,11 +42,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj 
 				return true
 			}
 			for _, spec := range x.Specs {
-				spec, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					return false
-				}
-
+				spec := spec.(*ast.ValueSpec) // guaranteed for Tok==CONST
 				if len(spec.Values) == 0 {
 					// skip constants with inferred values
 					return false

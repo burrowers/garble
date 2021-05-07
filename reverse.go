@@ -149,6 +149,7 @@ func commandReverse(args []string) error {
 		}
 		return nil
 	}
+	// TODO: cover this code in the tests too
 	anyModified := false
 	for _, path := range args {
 		f, err := os.Open(path)
