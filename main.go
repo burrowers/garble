@@ -137,19 +137,6 @@ func obfuscatedTypesPackage(path string) *types.Package {
 		panic("called obfuscatedTypesPackage on the current package?")
 	}
 	entry, ok := importCfgEntries[path]
-
-	// A "test/bar_test [test/bar.test]" package can try to look at
-	// "test/bar [test/bar.test]", for some reason.
-	// That really shouldn't happen, because external test packages are
-	// meant to just import the original non-test package.
-	// For now, correct for this weirdness by stripping the suffix.
-	// Without this change, test.txt fails.
-	// TODO(mvdan): figure out the cause of this.
-	if !ok && strings.HasSuffix(path, ".test]") {
-		path = path[:strings.IndexByte(path, ' ')]
-		entry, ok = importCfgEntries[path]
-	}
-
 	if !ok {
 		// Handle the case where the name is defined in an indirectly
 		// imported package. Since only direct imports show up in our
@@ -281,6 +268,7 @@ func goVersionOK() bool {
 		startDateIdx := strings.IndexByte(commitAndDate, ' ') + 1
 		if startDateIdx < 0 {
 			// Custom version; assume the user knows what they're doing.
+			// TODO: cover this in a test
 			return true
 		}
 
@@ -510,11 +498,7 @@ func transformAsm(args []string) ([]string, error) {
 		flags = flagSetValue(flags, "-p", curPkg.obfuscatedImportPath())
 	}
 
-	var err error
-	flags, err = alterTrimpath(flags)
-	if err != nil {
-		return nil, err
-	}
+	flags = alterTrimpath(flags)
 
 	// We need to replace all function references with their obfuscated name
 	// counterparts.
@@ -643,10 +627,7 @@ func transformCompile(args []string) ([]string, error) {
 		}
 	}
 
-	flags, err = alterTrimpath(flags)
-	if err != nil {
-		return nil, err
-	}
+	flags = alterTrimpath(flags)
 
 	newImportCfg, err := processImportCfg(flags)
 	if err != nil {
@@ -1253,26 +1234,24 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 
 			// If the struct of this field was not obfuscated, do not obfuscate
 			// any of that struct's fields.
-			if !obj.Embedded() {
-				parent, ok := cursor.Parent().(*ast.SelectorExpr)
-				if !ok {
-					break
-				}
-				named := namedType(tf.info.TypeOf(parent.X))
-				if named == nil {
-					break // TODO(mvdan): add a test
-				}
-				if name := named.Obj().Name(); strings.HasPrefix(name, "_Ctype") {
-					// A field accessor on a cgo type, such as a C struct.
-					// We're not obfuscating cgo names.
+			parent, ok := cursor.Parent().(*ast.SelectorExpr)
+			if !ok {
+				break
+			}
+			named := namedType(tf.info.TypeOf(parent.X))
+			if named == nil {
+				break // TODO(mvdan): add a test
+			}
+			if name := named.Obj().Name(); strings.HasPrefix(name, "_Ctype") {
+				// A field accessor on a cgo type, such as a C struct.
+				// We're not obfuscating cgo names.
+				return true
+			}
+			if path != curPkg.ImportPath {
+				obfPkg := obfuscatedTypesPackage(path)
+				if obfPkg.Scope().Lookup(named.Obj().Name()) != nil {
+					tf.recordIgnore(named, path)
 					return true
-				}
-				if path != curPkg.ImportPath {
-					obfPkg := obfuscatedTypesPackage(path)
-					if obfPkg.Scope().Lookup(named.Obj().Name()) != nil {
-						tf.recordIgnore(named, path)
-						return true
-					}
 				}
 			}
 		case *types.TypeName:
@@ -1305,17 +1284,6 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			}
 			if strings.HasPrefix(node.Name, "Test") && isTestSignature(sign) {
 				return true // don't break tests
-			}
-
-			// If this is an imported func that was linknamed to a
-			// different symbol name, the imported package did not
-			// obfuscate the original func name.
-			// Don't do it here either.
-			if path != curPkg.ImportPath {
-				obfPkg := obfuscatedTypesPackage(path)
-				if obfPkg.Scope().Lookup(obj.Name()) != nil {
-					return true
-				}
 			}
 		default:
 			return true // we only want to rename the above
@@ -1511,19 +1479,15 @@ func splitFlagsFromArgs(all []string) (flags, args []string) {
 	return all, nil
 }
 
-func alterTrimpath(flags []string) ([]string, error) {
+func alterTrimpath(flags []string) []string {
 	// If the value of -trimpath doesn't contain the separator ';', the 'go
 	// build' command is most likely not using '-trimpath'.
 	trimpath := flagValue(flags, "-trimpath")
-	if !strings.Contains(trimpath, ";") {
-		return nil, fmt.Errorf("-toolexec=garble should be used alongside -trimpath")
-	}
 
 	// Add our temporary dir to the beginning of -trimpath, so that we don't
 	// leak temporary dirs. Needs to be at the beginning, since there may be
 	// shorter prefixes later in the list, such as $PWD if TMPDIR=$PWD/tmp.
-	flags = flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
-	return flags, nil
+	return flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 }
 
 // buildFlags is obtained from 'go help build' as of Go 1.15.
