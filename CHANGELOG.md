@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+This release of Garble fixes a number of bugs and improves existing features,
+while maintaining support for Go 1.16.x. Notably:
+
+* Make builds reproducible even when cleaning `GOCACHE`
+* Detecting types used with reflection is more reliable
+* Cross builds with `GOPRIVATE=*` are now supported
+* Support conversion between struct types from different packages
+* Improve support for type aliases
+* Function names used with `go:linkname` are now obfuscated
+* `garble reverse` can now reverse field names and lone filenames
+
+Known bugs:
+
+* obfuscating the entire standard library with `GOPRIVATE=*` is not well supported yet
+
 ## [0.2.0] - 2021-04-08
 
 This release of Garble drops support for Go 1.15.x, which is necessary for some
