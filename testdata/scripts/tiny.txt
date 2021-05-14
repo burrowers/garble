@@ -2,7 +2,7 @@ env GOPRIVATE=test/main
 
 # Tiny mode
 garble -tiny build
-! binsubstr main$exe 'main.go' 'fmt/print.go'
+! binsubstr main$exe 'garble_main.go' 'fmt/print.go'
 env GODEBUG='allocfreetrace=1,gcpacertrace=1,gctrace=1,inittrace=1,scavenge=1,scavtrace=1,scheddetail=1,schedtrace=10'
 ! exec ./main$exe
 stderr '^\(0x[\d\w]{4,8},0x[\d\w]{4,8}\)' # interfaces/pointers print correctly
@@ -29,7 +29,7 @@ stderr 'panic: oh noes'
 module test/main
 
 go 1.16
--- main.go --
+-- garble_main.go --
 package main
 
 import "runtime"
