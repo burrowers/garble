@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -64,8 +63,6 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `
 Garble obfuscates Go code by wrapping the Go toolchain.
 
-Usage:
-
 	garble [garble flags] command [arguments]
 
 For example, to build an obfuscated program:
@@ -78,7 +75,7 @@ The following commands are supported:
 	test [packages]    wraps "go test"
 	reverse [files]    de-obfuscates output such as stack traces
 
-garble accepts the following flags:
+garble accepts the following flags before a command:
 
 `[1:])
 	flagSet.PrintDefaults()
@@ -221,27 +218,25 @@ func main1() int {
 		return 2
 	}
 	if err := mainErr(args); err != nil {
-		switch err {
-		case flag.ErrHelp:
-			usage()
-			return 2
-		case errJustExit:
-		default:
-			fmt.Fprintln(os.Stderr, err)
+		if code, ok := err.(errJustExit); ok {
+			os.Exit(int(code))
+		}
+		fmt.Fprintln(os.Stderr, err)
 
-			// If the build failed and a random seed was used,
-			// the failure might not reproduce with a different seed.
-			// Print it before we exit.
-			if flagSeed == "random" {
-				fmt.Fprintf(os.Stderr, "random seed: %s\n", base64.RawStdEncoding.EncodeToString(opts.Seed))
-			}
+		// If the build failed and a random seed was used,
+		// the failure might not reproduce with a different seed.
+		// Print it before we exit.
+		if flagSeed == "random" {
+			fmt.Fprintf(os.Stderr, "random seed: %s\n", base64.RawStdEncoding.EncodeToString(opts.Seed))
 		}
 		return 1
 	}
 	return 0
 }
 
-var errJustExit = errors.New("")
+type errJustExit int
+
+func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
 func goVersionOK() bool {
 	const (
@@ -309,7 +304,8 @@ func mainErr(args []string) error {
 		if len(args) > 0 {
 			return fmt.Errorf("the help command does not take arguments")
 		}
-		return flag.ErrHelp
+		usage()
+		return errJustExit(2)
 	case "version":
 		if len(args) > 0 {
 			return fmt.Errorf("the version command does not take arguments")
@@ -400,6 +396,16 @@ func mainErr(args []string) error {
 	return nil
 }
 
+func hasHelpFlag(flags []string) bool {
+	for _, f := range flags {
+		switch f {
+		case "-h", "-help", "--help":
+			return true
+		}
+	}
+	return false
+}
+
 // toolexecCmd builds an *exec.Cmd which is set up for running "go <command>"
 // with -toolexec=garble and the supplied arguments.
 //
@@ -409,11 +415,15 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 	// Split the flags from the package arguments, since we'll need
 	// to run 'go list' on the same set of packages.
 	flags, args := splitFlagsFromArgs(args)
-	for _, f := range flags {
-		switch f {
-		case "-h", "-help", "--help":
-			return nil, flag.ErrHelp
-		}
+	if hasHelpFlag(flags) {
+		out, _ := exec.Command("go", command, "-h").CombinedOutput()
+		fmt.Fprintf(os.Stderr, `
+usage: garble [garble flags] %s [arguments]
+
+This command wraps "go %s". Below is its help:
+
+%s`[1:], command, command, out)
+		return nil, errJustExit(2)
 	}
 
 	if err := setFlagOptions(); err != nil {
@@ -436,7 +446,7 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 	}
 
 	if !goVersionOK() {
-		return nil, errJustExit
+		return nil, errJustExit(1)
 	}
 
 	var err error
@@ -1642,7 +1652,7 @@ This is likely due to go not being installed/setup correctly.
 
 How to install Go: https://golang.org/doc/install
 `, err)
-		return errJustExit
+		return errJustExit(1)
 	}
 	if err := json.Unmarshal(out, &cache.GoEnv); err != nil {
 		return err

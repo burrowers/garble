@@ -1,14 +1,16 @@
 ! garble
-stderr -count=1 'Usage'
+stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
 ! stderr 'usage: go build'
 ! stdout .
 
 ! garble -h
+stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
 ! stdout .
 
 ! garble help
+stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
 ! stdout .
 
@@ -17,8 +19,24 @@ stderr 'does not take arguments'
 ! stdout .
 
 ! garble build -h
-stderr 'garble \[garble flags\] command'
-! stderr 'usage: go build'
+stderr 'garble \[garble flags\] build'
+stderr 'This command wraps "go build"'
+stderr 'usage: go build'
+stderr 'Run .go help build.'
+! stderr 'Garble obfuscates Go code'
+! stdout .
+
+! garble test -h
+stderr 'garble \[garble flags\] test'
+stderr 'This command wraps "go test"'
+stderr 'usage: go test'
+stderr 'Run .go help test.'
+! stderr 'Garble obfuscates Go code'
+! stdout .
+
+! garble reverse -h
+stderr 'garble \[garble flags\] reverse \[files\]'
+! stderr 'usage: go '
 ! stdout .
 
 ! garble -badflag
