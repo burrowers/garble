@@ -20,7 +20,7 @@ garble build -tags buildtag
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'main.go' 'test/main' 'importedpkg.' 'NormalStruct' 'normalUnexportedField'
+! binsubstr main$exe 'ImportedVar' 'ImportedConst' 'ImportedFunc' 'garble_main.go' 'test/main' 'importedpkg.' 'NormalStruct' 'normalUnexportedField'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -59,7 +59,7 @@ rsc.io/quote v1.5.2 h1:3fEykkD9k7lYzXqCYrwGAf7iNhbk4yCjHmKBN9td4L0=
 rsc.io/quote v1.5.2/go.mod h1:LzX7hefJvL54yjefDEDHNONDjII0t9xZLPXsUe+TKr0=
 rsc.io/sampler v1.3.0 h1:HLGR/BgEtI3r0uymSP/nl2uPLsUnNJX8toRyhfpBTII=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
--- main.go --
+-- garble_main.go --
 package main
 
 import (

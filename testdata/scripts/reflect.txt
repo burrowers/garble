@@ -4,7 +4,7 @@ garble build
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect'
+! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect'
 binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect'
 
 [short] stop # no need to verify this with -short
@@ -18,7 +18,7 @@ cmp stdout main.stdout
 module test/main
 
 go 1.16
--- main.go --
+-- garble_main.go --
 package main
 
 import (

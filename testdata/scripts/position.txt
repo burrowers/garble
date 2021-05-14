@@ -2,16 +2,16 @@ env GOPRIVATE=test/main
 
 garble build
 exec ./main
-! stdout 'someverylongmain\.go|other_file_name|is sorted'
+! stdout 'garble_main\.go|garble_other_filename|is sorted'
 
-! binsubstr main$exe 'someverylongmain.go' 'other_file_name'
+! binsubstr main$exe 'garble_main.go' 'garble_other_filename'
 
 [short] stop # no need to verify this with -short
 
 go build
 exec ./main
-stdout 'someverylongmain.go'
-stdout 'other_file_name'
+stdout 'garble_main.go'
+stdout 'garble_other_filename'
 stdout ':19: main'
 stdout 'initPositions is sorted'
 stdout 'varPositions is sorted'
@@ -20,7 +20,7 @@ stdout 'varPositions is sorted'
 module test/main
 
 go 1.16
--- someverylongmain.go --
+-- garble_main.go --
 package main
 
 import (
@@ -64,7 +64,7 @@ func main() {
 	// The nested expression is needed to prevent spaces.
 	fmt.Printf("%v\n", 10*float64(3.0)/float64(4.0))
 }
--- other_file_name.go --
+-- garble_other_filename.go --
 package main
 
 import (

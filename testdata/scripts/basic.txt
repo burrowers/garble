@@ -1,5 +1,5 @@
 # Check that the simplest use of garble works. Note the lack of a module or GOPRIVATE.
-garble build main.go
+garble build -o=main$exe garble_main.go
 exec ./main
 cmp stderr main.stderr
 
@@ -23,25 +23,25 @@ stdout 'unknown'
 ! stdout $gofullversion
 
 # The binary can't contain the version string either.
-! binsubstr main$exe ${WORK@R} 'main.go' 'globalVar' 'globalFunc' 'garble' $gofullversion
+! binsubstr main$exe ${WORK@R} 'garble_main.go' 'globalVar' 'globalFunc' 'garble' $gofullversion
 
 [short] stop # checking that the build is reproducible is slow
 
 # Check that we fail if the user used "go build -toolexec garble" instead of "garble build"
-! go build -toolexec=garble main.go
+! go build -toolexec=garble -o=main$exe garble_main.go
 stderr 'not running "garble \[command\]"'
 
 # Also check that the binary is reproducible.
 # No packages should be rebuilt either, thanks to the build cache.
 cp main$exe main_old$exe
 rm main$exe
-garble build -v main.go
+garble build -v -o=main$exe garble_main.go
 ! stderr .
 bincmp main$exe main_old$exe
 
 # Check that the program works as expected without garble. No need to verify
 # this when we run with -short.
-go build main.go
+go build -o=main$exe garble_main.go
 exec ./main
 cmp stderr main.stderr
 
@@ -52,14 +52,14 @@ cmp stderr main.stderr
 
 # The default build includes full non-trimmed paths, as well as our names.
 # Only check $WORK on non-windows, because it's difficult to do it there.
-binsubstr main$exe 'main.go' 'globalVar' 'globalFunc' $gofullversion
+binsubstr main$exe 'garble_main.go' 'globalVar' 'globalFunc' $gofullversion
 [!windows] binsubstr main$exe ${WORK@R}
 
 -- go.mod --
 module test/mainfoo
 
 go 1.16
--- main.go --
+-- garble_main.go --
 package main
 
 var globalVar = "global value"
