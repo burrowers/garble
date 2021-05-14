@@ -19,6 +19,11 @@ import (
 // commandReverse implements "garble reverse".
 func commandReverse(args []string) error {
 	flags, args := splitFlagsFromArgs(args)
+	if hasHelpFlag(flags) {
+		fmt.Fprintf(os.Stderr, "usage: garble [garble flags] reverse [files]\n")
+		return errJustExit(2)
+	}
+
 	mainPkg := "."
 	if len(args) > 0 {
 		mainPkg = args[0]
@@ -145,7 +150,7 @@ func commandReverse(args []string) error {
 			return err
 		}
 		if !modified {
-			return errJustExit
+			return errJustExit(1)
 		}
 		return nil
 	}
@@ -165,7 +170,7 @@ func commandReverse(args []string) error {
 		f.Close() // since we're in a loop
 	}
 	if !anyModified {
-		return errJustExit
+		return errJustExit(1)
 	}
 	return nil
 }
