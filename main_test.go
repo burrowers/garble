@@ -58,8 +58,25 @@ func TestScripts(t *testing.T) {
 		Dir: filepath.Join("testdata", "scripts"),
 		Setup: func(env *testscript.Env) error {
 			env.Vars = append(env.Vars,
+				// Use testdata/mod as our module proxy.
 				"GOPROXY="+proxyURL,
+
+				// We use our own proxy, so avoid sum.golang.org.
 				"GONOSUMDB=*",
+
+				// "go build" starts many short-lived Go processes,
+				// such as asm, buildid, compile, and link.
+				// They don't allocate huge amounts of memory,
+				// and they'll exit within seconds,
+				// so using the GC is basically a waste of CPU.
+				// Turn it off entirely, releasing memory on exit.
+				//
+				// We don't want this setting always on,
+				// as it could result in memory problems for users.
+				// But it helps for our test suite,
+				// as the packages are relatively small.
+				"GOGC=off",
+
 				"gofullversion="+runtime.Version(),
 			)
 
