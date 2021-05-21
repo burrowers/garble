@@ -1062,10 +1062,16 @@ type transformer struct {
 	//    obfuscated, for caching reasons; see transformGo.
 	ignoreObjects map[types.Object]bool
 
-	// These fields are used to locate struct types from any of their field
-	// objects. Useful when obfuscating field names.
-	fieldToStruct  map[*types.Var]*types.Struct
+	// recordTypeDone helps avoid cycles in recordType.
 	recordTypeDone map[types.Type]bool
+
+	// fieldToStruct helps locate struct types from any of their field
+	// objects. Useful when obfuscating field names.
+	fieldToStruct map[*types.Var]*types.Struct
+
+	// fieldToAlias helps tell if an embedded struct field object is a type
+	// alias. Useful when obfuscating field names.
+	fieldToAlias map[*types.Var]*types.TypeName
 }
 
 // newTransformer helps initialize some maps.
@@ -1078,6 +1084,7 @@ func newTransformer() *transformer {
 		},
 		recordTypeDone: make(map[types.Type]bool),
 		fieldToStruct:  make(map[*types.Var]*types.Struct),
+		fieldToAlias:   make(map[*types.Var]*types.TypeName),
 	}
 }
 
@@ -1096,8 +1103,14 @@ func (tf *transformer) typecheck(files []*ast.File) error {
 			tf.recordType(obj.Type())
 		}
 	}
-	for _, obj := range tf.info.Uses {
+	for name, obj := range tf.info.Uses {
 		if obj != nil {
+			if obj, ok := obj.(*types.TypeName); ok && obj.IsAlias() {
+				vr, _ := tf.info.Defs[name].(*types.Var)
+				if vr != nil {
+					tf.fieldToAlias[vr] = obj
+				}
+			}
 			tf.recordType(obj.Type())
 		}
 	}
@@ -1169,7 +1182,10 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			//
 			// Alternatively, if we don't have an alias, we want to
 			// use the embedded type, not the field.
-			if tname, ok := tf.info.Uses[node].(*types.TypeName); ok && tname.IsAlias() {
+			if tname := tf.fieldToAlias[vr]; tname != nil {
+				if !tname.IsAlias() {
+					panic("fieldToAlias recorded a non-alias TypeName?")
+				}
 				obj = tname
 			} else {
 				named := namedType(obj.Type())
@@ -1213,7 +1229,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		}
 		hashToUse := lpkg.GarbleActionID
 
-		// log.Printf("%#v %T", node, obj)
+		// log.Printf("%s: %#v %T", fset.Position(node.Pos()), node, obj)
 		parentScope := obj.Parent()
 		switch obj := obj.(type) {
 		case *types.Var:
