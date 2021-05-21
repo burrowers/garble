@@ -1190,6 +1190,14 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			return true // could be a Go plugin API
 		}
 
+		if pkg.Path() == "embed" {
+			// The Go compiler needs to detect types such as embed.FS.
+			// That will fail if we change the import path or type name.
+			// Leave it as is.
+			// Luckily, the embed package just declares the FS type.
+			return true
+		}
+
 		// We don't want to obfuscate this object.
 		if tf.ignoreObjects[obj] {
 			return true

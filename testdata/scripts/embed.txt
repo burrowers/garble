@@ -5,6 +5,12 @@ garble build
 exec ./main
 cmp stdout main.stdout
 
+[short] stop # no need to verify this with -short
+
+go build
+exec ./main
+cmp stdout main.stdout
+
 -- go.mod --
 module test/main
 
@@ -14,18 +20,44 @@ go 1.16
 package main
 
 import (
-	_ "embed"
+	"embed"
 	"fmt"
+	"io/fs"
 )
 
-//go:embed test.txt
-var x string
+//go:embed embed-string.txt
+var embedStr string
+
+//go:embed embed-dir
+var embedDir embed.FS
 
 func main() {
-	fmt.Printf("%q\n", x)
+	fmt.Printf("%q\n", embedStr)
+
+	fs.WalkDir(embedDir, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			fmt.Printf("%s: %v\n", path, err)
+			return nil
+		}
+		if !d.IsDir() {
+			body, err := fs.ReadFile(embedDir, path)
+			if err != nil {
+				fmt.Printf("%s: %v\n", path, err)
+				return nil
+			}
+			fmt.Printf("%s: %q\n", path, body)
+		}
+		return nil
+	})
 }
 
--- test.txt --
-test content
+-- embed-string.txt --
+string content
+-- embed-dir/file1.txt --
+file1 content
+-- embed-dir/file2.txt --
+file2 content
 -- main.stdout --
-"test content\n"
+"string content\n"
+embed-dir/file1.txt: "file1 content\n"
+embed-dir/file2.txt: "file2 content\n"
