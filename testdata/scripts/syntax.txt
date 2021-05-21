@@ -135,6 +135,8 @@ func input(localNameParam string) (localNameReturn string) { return localNamePar
 -- sub/names.go --
 package sub
 
+import "io"
+
 var someGlobalVar0 = "0"
 var someGlobalVar1 = "1"
 var someGlobalVar2 = "2"
@@ -164,6 +166,22 @@ type EmbeddedAlias = EmbeddedStruct
 
 type EmbeddedStruct struct {
 	Foo int
+}
+
+// We obfuscate the name foreignAlias, but not the name Reader,
+// as it's not declared in a private package.
+// Both names must do the same when used as struct fields,
+// both in the struct declaration and in the composite literal below.
+type embeddingForeignAlias struct {
+	foreignAlias
+	io.Reader
+}
+
+type foreignAlias = io.Reader
+
+var _ = embeddingForeignAlias{
+	foreignAlias: nil,
+	Reader: nil,
 }
 
 -- main.stderr --
