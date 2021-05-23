@@ -169,6 +169,7 @@ type listedPackage struct {
 
 	Dir     string
 	GoFiles []string
+	Imports []string
 
 	// The fields below are not part of 'go list', but are still reused
 	// between garble processes. Use "Garble" as a prefix to ensure no

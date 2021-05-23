@@ -1171,14 +1171,15 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		}
 		pkg := obj.Pkg()
 		if vr, ok := obj.(*types.Var); ok && vr.Embedded() {
+
 			// The docs for ObjectOf say:
 			//
 			//     If id is an embedded struct field, ObjectOf returns the
 			//     field (*Var) it defines, not the type (*TypeName) it uses.
 			//
 			// If this embedded field is a type alias, we want to
-			// handle that instead of treating it as the type the
-			// alias points to.
+			// handle the alias's TypeName instead of treating it as
+			// the type the alias points to.
 			//
 			// Alternatively, if we don't have an alias, we want to
 			// use the embedded type, not the field.
@@ -1192,7 +1193,24 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				if named == nil {
 					return true // unnamed type (probably a basic type, e.g. int)
 				}
-				obj = named.Obj()
+				// If the field embeds an alias,
+				// and the field is declared in a dependency,
+				// fieldToAlias might not tell us about the alias.
+				// We lack the *ast.Ident for the field declaration,
+				// so we can't see it in types.Info.Uses.
+				//
+				// Instead, detect such a "foreign alias embed".
+				// If we embed a final named type,
+				// but the field name does not match its name,
+				// then it must have been done via an alias.
+				// We dig out the alias's TypeName via locateForeignAlias.
+				if named.Obj().Name() != node.Name {
+					tname := locateForeignAlias(vr.Pkg().Path(), node.Name)
+					tf.fieldToAlias[vr] = tname // to reuse it later
+					obj = tname
+				} else {
+					obj = named.Obj()
+				}
 			}
 			pkg = obj.Pkg()
 		}
@@ -1359,6 +1377,44 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	}
 
 	return astutil.Apply(file, pre, post).(*ast.File)
+}
+
+// locateForeignAlias finds the TypeName for an alias by the name aliasName,
+// which must be declared in one of the dependencies of dependentImportPath.
+func locateForeignAlias(dependentImportPath, aliasName string) *types.TypeName {
+	var found *types.TypeName
+	lpkg, err := listPackage(dependentImportPath)
+	if err != nil {
+		panic(err) // shouldn't happen
+	}
+	for _, importedPath := range lpkg.Imports {
+		pkg2, err := origImporter.ImportFrom(importedPath, opts.GarbleDir, 0)
+		if err != nil {
+			panic(err)
+		}
+		tname, ok := pkg2.Scope().Lookup(aliasName).(*types.TypeName)
+		if ok && tname.IsAlias() {
+			if found != nil {
+				// We assume that the alias is declared exactly
+				// once in the set of direct imports.
+				// This might not be the case, e.g. if two
+				// imports declare the same alias name.
+				//
+				// TODO: Think how we could solve that
+				// efficiently, if it happens in practice.
+				panic(fmt.Sprintf("found multiple TypeNames for %s", aliasName))
+			}
+			found = tname
+		}
+	}
+	if found == nil {
+		// This should never happen.
+		// If package A embeds an alias declared in a dependency,
+		// it must show up in the form of "B.Alias",
+		// so A must import B and B must declare "Alias".
+		panic(fmt.Sprintf("could not find TypeName for %s", aliasName))
+	}
+	return found
 }
 
 // recordIgnore adds any named types (including fields) under typ to
