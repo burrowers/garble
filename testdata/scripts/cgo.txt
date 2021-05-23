@@ -7,6 +7,13 @@ binsubstr main$exe 'privateAdd'
 
 [short] stop # no need to verify this with -short
 
+env GOPRIVATE=*
+garble build
+exec ./main
+cmp stderr main.stderr
+binsubstr main$exe 'privateAdd'
+env GOPRIVATE=test/main
+
 garble -tiny build
 exec ./main
 cmp stderr main.stderr
@@ -23,6 +30,8 @@ go 1.16
 -- main.go --
 package main
 
+import "os/user"
+
 /*
 static int privateAdd(int a, int b) {
 	return a + b;
@@ -32,6 +41,7 @@ import "C"
 
 func main() {
 	println(C.privateAdd(C.int(1), C.int(2)))
+	_, _ = user.Current()
 }
 -- main.stderr --
 3

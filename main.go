@@ -680,9 +680,9 @@ func transformCompile(args []string) ([]string, error) {
 	newPaths := make([]string, 0, len(files))
 
 	for i, file := range files {
-		tf.handleDirectives(file.Comments)
-
 		name := filepath.Base(paths[i])
+		// TODO(mvdan): allow running handleDirectives and transformGo
+		// on runtime too, by splitting the conditionals here.
 		switch {
 		case curPkg.ImportPath == "runtime":
 			// strip unneeded runtime code
@@ -704,6 +704,7 @@ func transformCompile(args []string) ([]string, error) {
 		case strings.HasPrefix(name, "_cgo_"):
 			// Don't obfuscate cgo code, since it's generated and it gets messy.
 		default:
+			tf.handleDirectives(file.Comments)
 			file = tf.transformGo(file)
 		}
 		if newPkgPath != "" {
@@ -789,9 +790,6 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 				pkgPath, name = target[0], target[1]
 			}
 
-			if pkgPath == "runtime" && strings.HasPrefix(name, "cgo") {
-				continue // ignore cgo-generated linknames
-			}
 			lpkg, err := listPackage(pkgPath)
 			if err != nil {
 				// probably a made up symbol name, replace the comment
