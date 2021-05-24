@@ -619,13 +619,14 @@ func transformCompile(args []string) ([]string, error) {
 	// generating it.
 	flags = append(flags, "-dwarf=false")
 
-	if (curPkg.ImportPath == "runtime" && opts.Tiny) || curPkg.ImportPath == "runtime/internal/sys" {
-		// Even though these packages aren't private, we will still process
-		// them later to remove build information and strip code from the
-		// runtime. However, we only want flags to work on private packages.
+	if runtimeRelated[curPkg.ImportPath] {
+		// needed to not obfuscate literals in the runtime, which leads to
+		// compiler errors (x escapes to heap, not allowed in runtime)
 		opts.GarbleLiterals = false
-		opts.DebugDir = ""
-	} else if !curPkg.Private {
+	}
+
+	if /* scripts/reverse.txt breaks otherwise */ curPkg.ImportPath == "runtime/debug" ||
+		/* Importfg breaks for net if the files are copied elsewhere */ curPkg.ImportPath == "net" {
 		return append(flags, paths...), nil
 	}
 
@@ -684,7 +685,7 @@ func transformCompile(args []string) ([]string, error) {
 		// TODO(mvdan): allow running handleDirectives and transformGo
 		// on runtime too, by splitting the conditionals here.
 		switch {
-		case curPkg.ImportPath == "runtime":
+		case curPkg.ImportPath == "runtime" && opts.Tiny:
 			// strip unneeded runtime code
 			stripRuntime(name, file)
 		case curPkg.ImportPath == "runtime/internal/sys":
@@ -750,9 +751,6 @@ func transformCompile(args []string) ([]string, error) {
 // Right now, this means recording what local names are used with go:linkname,
 // and rewriting those directives to use obfuscated name from other packages.
 func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
-	if !curPkg.Private {
-		return
-	}
 	for _, group := range comments {
 		for _, comment := range group.List {
 			if !strings.HasPrefix(comment.Text, "//go:linkname ") {
@@ -766,7 +764,9 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			// This directive has two arguments: "go:linkname localName newName"
 
 			// obfuscate the local name.
-			fields[1] = hashWith(curPkg.GarbleActionID, fields[1])
+			if curPkg.Private {
+				fields[1] = hashWith(curPkg.GarbleActionID, fields[1])
+			}
 
 			// If the new name is of the form "pkgpath.Name", and
 			// we've obfuscated "Name" in that package, rewrite the
@@ -821,70 +821,64 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 //
 // The list was obtained via scripts/runtime-related.sh on Go 1.16.
 var runtimeRelated = map[string]bool{
-	"bufio":                                  true,
-	"bytes":                                  true,
-	"compress/flate":                         true,
-	"compress/gzip":                          true,
-	"context":                                true,
-	"crypto/x509/internal/macos":             true,
-	"encoding/binary":                        true,
-	"errors":                                 true,
-	"fmt":                                    true,
-	"hash":                                   true,
-	"hash/crc32":                             true,
-	"internal/bytealg":                       true,
-	"internal/cpu":                           true,
-	"internal/fmtsort":                       true,
-	"internal/nettrace":                      true,
-	"internal/oserror":                       true,
-	"internal/poll":                          true,
-	"internal/race":                          true,
-	"internal/reflectlite":                   true,
-	"internal/singleflight":                  true,
-	"internal/syscall/execenv":               true,
-	"internal/syscall/unix":                  true,
-	"internal/syscall/windows":               true,
-	"internal/syscall/windows/registry":      true,
-	"internal/syscall/windows/sysdll":        true,
-	"internal/testlog":                       true,
-	"internal/unsafeheader":                  true,
-	"io":                                     true,
-	"io/fs":                                  true,
-	"math":                                   true,
-	"math/bits":                              true,
-	"net":                                    true,
-	"os":                                     true,
-	"os/signal":                              true,
-	"path":                                   true,
-	"plugin":                                 true,
-	"reflect":                                true,
-	"runtime":                                true,
-	"runtime/cgo":                            true,
-	"runtime/debug":                          true,
-	"runtime/internal/atomic":                true,
-	"runtime/internal/math":                  true,
-	"runtime/internal/sys":                   true,
-	"runtime/metrics":                        true,
-	"runtime/pprof":                          true,
-	"runtime/trace":                          true,
-	"sort":                                   true,
-	"strconv":                                true,
-	"strings":                                true,
-	"sync":                                   true,
-	"sync/atomic":                            true,
-	"syscall":                                true,
-	"text/tabwriter":                         true,
-	"time":                                   true,
-	"unicode":                                true,
-	"unicode/utf16":                          true,
-	"unicode/utf8":                           true,
-	"unsafe":                                 true,
-	"vendor/golang.org/x/net/dns/dnsmessage": true,
-	"vendor/golang.org/x/net/route":          true,
+	"runtime":                 true,
+	"internal/bytealg":        true,
+	"internal/cpu":            true,
+	"runtime/internal/atomic": true,
+	"runtime/internal/math":   true,
+	"runtime/internal/sys":    true,
+	"runtime/cgo":             true,
+	"unsafe":                  true,
+	"syscall":                 true,
+	"sync/atomic":             true,
+	"time":                    true,
+	"crypto/md5":              true,
 
 	// Manual additions for Go 1.17 as of April 2021.
-	"internal/abi":  true,
-	"internal/itoa": true,
+	"internal/abi":          true,
+	"internal/itoa":         true,
+	"internal/goexperiment": true,
+
+	// Most of these are because public packages can't depend on
+	// private packages yet
+	"errors":                            true,
+	"internal/race":                     true,
+	"internal/oserror":                  true,
+	"crypto":                            true,
+	"sync":                              true,
+	"hash":                              true,
+	"internal/reflectlite":              true,
+	"internal/unsafeheader":             true,
+	"io":                                true,
+	"math":                              true,
+	"encoding/binary":                   true,
+	"math/bits":                         true,
+	"reflect":                           true,
+	"strconv":                           true,
+	"unicode/utf8":                      true,
+	"unicode":                           true,
+	"internal/syscall/windows":          true,
+	"internal/syscall/windows/sysdll":   true,
+	"internal/syscall/windows/registry": true,
+	"runtime/debug":                     true,
+	"internal/poll":                     true,
+	"internal/syscall/execenv":          true,
+	"internal/syscall/unix":             true,
+	"unicode/utf16":                     true,
+	"internal/testlog":                  true,
+	"io/fs":                             true,
+	"os":                                true,
+	"path":                              true,
+	"sort":                              true,
+	"strings":                           true,
+
+	// net and its dependencies can't be obfuscated
+	"net":                                    true,
+	"context":                                true,
+	"internal/nettrace":                      true,
+	"internal/singleflight":                  true,
+	"vendor/golang.org/x/net/dns/dnsmessage": true,
+	"vendor/golang.org/x/net/route":          true,
 }
 
 // isPrivate checks if a package import path should be considered private,

@@ -249,6 +249,8 @@ func setListedPackages(patterns []string) error {
 	if !anyPrivate {
 		return fmt.Errorf("GOPRIVATE=%q does not match any packages to be built", os.Getenv("GOPRIVATE"))
 	}
+
+	// TODO: remove this check to obfuscate more of the standard libary
 	for path, pkg := range cache.ListedPackages {
 		if pkg.Private {
 			continue
