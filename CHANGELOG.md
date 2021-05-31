@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.3.0] - 2021-05-31
 
 This release of Garble fixes a number of bugs and improves existing features,
 while maintaining support for Go 1.16.x. Notably:
@@ -54,5 +54,6 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[0.3.0]: https://github.com/burrowers/garble/releases/tag/v0.3.0
 [0.2.0]: https://github.com/burrowers/garble/releases/tag/v0.2.0
 [0.1.0]: https://github.com/burrowers/garble/releases/tag/v0.1.0
