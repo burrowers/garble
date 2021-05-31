@@ -87,55 +87,117 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj 
 
 			switch y := info.TypeOf(x.Type).(type) {
 			case *types.Array:
-				if y.Elem() != byteType {
-					return true
-				}
-				if y.Len() > maxSizeBytes {
-					return true
-				}
-
-				data := make([]byte, y.Len())
-
-				for i, el := range x.Elts {
-					lit, ok := el.(*ast.BasicLit)
-					if !ok {
+				if y.Elem() == byteType {
+					if y.Len() > maxSizeBytes {
 						return true
 					}
 
-					value, err := strconv.Atoi(lit.Value)
-					if err != nil {
-						return true
-					}
+					data := make([]byte, y.Len())
 
-					data[i] = byte(value)
+					for i, el := range x.Elts {
+						lit, ok := el.(*ast.BasicLit)
+						if !ok {
+							return true
+						}
+
+						// if the element is a rune literal, parse it as such
+						var value byte
+						if lit.Value[0] == '\'' {
+							val, _, _, err := strconv.UnquoteChar(lit.Value, 0)
+							if err != nil {
+								panic(fmt.Sprintf("cannot parse rune: %v", err))
+							}
+							value = byte(val)
+						} else {
+							val, err := strconv.ParseUint(lit.Value, 0, 8)
+							if err != nil {
+								panic(fmt.Sprintf("cannot parse byte: %v", err))
+							}
+							value = byte(val)
+						}
+
+						data[i] = value
+					}
+					cursor.Replace(withPos(obfuscateByteArray(data, y.Len()), x.Pos()))
+				} else if y.Elem() == types.Typ[types.String] || y.Elem() == types.Typ[types.UntypedString] {
+					for i, el := range x.Elts {
+						lit, ok := el.(*ast.BasicLit)
+						if !ok {
+							return true
+						}
+						if len(lit.Value) > maxSizeBytes {
+							return true
+						}
+
+						value, err := strconv.Unquote(lit.Value)
+						if err != nil {
+							panic(fmt.Sprintf("cannot unquote string: %v", err))
+						}
+						if len(value) == 0 {
+							return true
+						}
+
+						x.Elts[i] = withPos(obfuscateString(value), lit.Pos()).(ast.Expr)
+					}
 				}
-				cursor.Replace(withPos(obfuscateByteArray(data, y.Len()), x.Pos()))
 
 			case *types.Slice:
-				if y.Elem() != byteType {
-					return true
-				}
-				if len(x.Elts) > maxSizeBytes {
-					return true
-				}
-
-				data := make([]byte, 0, len(x.Elts))
-
-				for _, el := range x.Elts {
-					lit, ok := el.(*ast.BasicLit)
-					if !ok {
+				if y.Elem() == byteType {
+					if len(x.Elts) > maxSizeBytes {
 						return true
 					}
 
-					value, err := strconv.Atoi(lit.Value)
-					if err != nil {
-						return true
+					data := make([]byte, 0, len(x.Elts))
+
+					for _, el := range x.Elts {
+						lit, ok := el.(*ast.BasicLit)
+						if !ok {
+							return true
+						}
+						if len(lit.Value) > maxSizeBytes {
+							return true
+						}
+
+						// if the element is a rune literal, parse it as such
+						var value byte
+						if lit.Value[0] == '\'' {
+							val, _, _, err := strconv.UnquoteChar(lit.Value, 0)
+							if err != nil {
+								panic(fmt.Sprintf("cannot parse rune: %v", err))
+							}
+							value = byte(val)
+						} else {
+							val, err := strconv.ParseUint(lit.Value, 0, 8)
+							if err != nil {
+								panic(fmt.Sprintf("cannot parse byte: %v", err))
+							}
+							value = byte(val)
+						}
+
+						data = append(data, value)
 					}
+					cursor.Replace(withPos(obfuscateByteSlice(data), x.Pos()))
+				} else if y.Elem() == types.Typ[types.String] || y.Elem() == types.Typ[types.UntypedString] {
+					for i, el := range x.Elts {
+						lit, ok := el.(*ast.BasicLit)
+						if !ok {
+							return true
+						}
+						if len(lit.Value) > maxSizeBytes {
+							return true
+						}
 
-					data = append(data, byte(value))
+						value, err := strconv.Unquote(lit.Value)
+						if err != nil {
+							panic(fmt.Sprintf("cannot unquote string: %v", err))
+						}
+						if len(value) == 0 {
+							return true
+						}
+
+						x.Elts[i] = withPos(obfuscateString(value), lit.Pos()).(ast.Expr)
+					}
 				}
-				cursor.Replace(withPos(obfuscateByteSlice(data), x.Pos()))
-
 			}
 
 		case *ast.BasicLit:
