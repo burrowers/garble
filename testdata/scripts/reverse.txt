@@ -101,13 +101,16 @@ func (*ExportedLibType) ExportedLibMethod(w io.Writer) error {
 func printStackTrace(w io.Writer) error {
 	// Panic outputs include "0xNN" pointers and offsets which change
 	// between platforms.
+	// The format also changes depending on the ABI.
 	// Strip them out here, to have portable static stdout files.
-	rxVariableSuffix := regexp.MustCompile(`0x[0-9a-f]+`)
+	rxCallArgs := regexp.MustCompile(`\(({|0x)[^)]+\)|\(\)`)
+	rxPointer := regexp.MustCompile(`0x[0-9a-f]+`)
 
 	// Keep this comment here, because comments affect line numbers.
 
 	stack := debug.Stack()
-	stack = rxVariableSuffix.ReplaceAll(stack, []byte("0x??"))
+	stack = rxCallArgs.ReplaceAll(stack, []byte("(...)"))
+	stack = rxPointer.ReplaceAll(stack, []byte("0x??"))
 	_, err := w.Write(stack)
 	return err
 }
@@ -134,17 +137,17 @@ var _ = struct{SomeField int}(UnobfuscatedStruct{})
 lib filename: test/main/lib/lib.go
 
 goroutine 1 [running]:
-runtime/debug.Stack(0x??, 0x??, 0x??)
+runtime/debug.Stack(...)
 	runtime/debug/stack.go:24 +0x??
-test/main/lib.printStackTrace(0x??, 0x??, 0x??, 0x??)
-	test/main/lib/lib.go:28 +0x??
-test/main/lib.(*ExportedLibType).ExportedLibMethod(0x??, 0x??, 0x??, 0x??, 0x??)
+test/main/lib.printStackTrace(...)
+	test/main/lib/lib.go:30 +0x??
+test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
 	test/main/lib/lib.go:17 +0x??
 main.unexportedMainFunc.func1(...)
 	test/main/main.go:21
-main.unexportedMainFunc()
+main.unexportedMainFunc(...)
 	test/main/main.go:25 +0x??
-main.main()
+main.main(...)
 	test/main/main.go:11 +0x??
 
 main filename: test/main/main.go

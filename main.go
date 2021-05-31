@@ -358,7 +358,7 @@ func mainErr(args []string) error {
 
 	// Workaround for https://github.com/golang/go/issues/44963.
 	// TODO(mvdan): remove once we only support Go 1.17 and later.
-	if tool == "compile" {
+	if tool == "compile" && !strings.Contains(toolexecImportPath, ".test]") {
 		isTestPkg := false
 		_, paths := splitFlagsFromFiles(args, ".go")
 		for _, path := range paths {
@@ -695,10 +695,15 @@ func transformCompile(args []string) ([]string, error) {
 			//     const TheVersion = `devel ...`
 			//
 			// Don't touch the source in any other way.
+			// TODO: remove once we only support Go 1.17 and later,
+			// as from that point we can just rely on linking -X flags.
 			if name != "zversion.go" {
 				break
 			}
 			spec := file.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec)
+			if len(spec.Names) != 1 || spec.Names[0].Name != "TheVersion" {
+				break
+			}
 			lit := spec.Values[0].(*ast.BasicLit)
 			lit.Value = "`unknown`"
 		case strings.HasPrefix(name, "_cgo_"):
@@ -882,9 +887,10 @@ var runtimeRelated = map[string]bool{
 	"vendor/golang.org/x/net/dns/dnsmessage": true,
 	"vendor/golang.org/x/net/route":          true,
 
-	// Manual additions for Go 1.17 as of April 2021.
-	"internal/abi":  true,
-	"internal/itoa": true,
+	// Manual additions for Go 1.17 as of June 2021.
+	"internal/abi":          true,
+	"internal/itoa":         true,
+	"internal/goexperiment": true,
 }
 
 // isPrivate checks if a package import path should be considered private,
@@ -1539,6 +1545,10 @@ func transformLink(args []string) ([]string, error) {
 		newName := hashWith(lpkg.GarbleActionID, name)
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPkg, newName, str))
 	})
+
+	// Starting in Go 1.17, Go's version is implicitly injected by the linker.
+	// It's the same method as -X, so we can override it with an extra flag.
+	flags = append(flags, "-X=runtime.buildVersion=unknown")
 
 	// Ensure we strip the -buildid flag, to not leak any build IDs for the
 	// link operation or the main package's compilation.
