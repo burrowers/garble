@@ -140,7 +140,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj 
 
 		case *ast.BasicLit:
 			switch cursor.Name() {
-			case "Values", "Rhs", "Value", "Args", "X", "Y", "Results":
+			case "Values", "Rhs", "Value", "Args", "X", "Y", "Results", "Elts":
 			default:
 				return true // we don't want to obfuscate imports etc.
 			}
