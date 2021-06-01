@@ -5,7 +5,7 @@ exec ./main$exe
 cmp stderr main.stderr
 
 binsubstr main$exe 'Skip this block' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
-! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
+! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' '1: literal in' 'an array' '2: literal in' 'a slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -131,6 +131,13 @@ func main() {
 	typedTest()
 	constantTest()
 	byteTest()
+
+	strArray := [2]string{"1: literal in", "an array"}
+	println(strArray[0], strArray[1])
+	strSlice := []string{"2: literal in", "a slice"}
+	println(strSlice[0], strSlice[1])
+	emptyStrSlice := []string{""}
+	print(emptyStrSlice[0])
 }
 
 type stringType string
@@ -330,3 +337,5 @@ foo
 12,13,
 12,13,
 12,13,0,0,
+1: literal in an array
+2: literal in a slice
