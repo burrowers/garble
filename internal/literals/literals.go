@@ -81,62 +81,62 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj 
 		case *ast.CompositeLit:
 			byteType := types.Universe.Lookup("byte").Type()
 
-			if len(x.Elts) == 0 {
+			if len(x.Elts) == 0 || len(x.Elts) > maxSizeBytes {
 				return true
 			}
 
+			var arrayLen int64
 			switch y := info.TypeOf(x.Type).(type) {
 			case *types.Array:
 				if y.Elem() != byteType {
 					return true
 				}
-				if y.Len() > maxSizeBytes {
-					return true
-				}
 
-				data := make([]byte, y.Len())
-
-				for i, el := range x.Elts {
-					lit, ok := el.(*ast.BasicLit)
-					if !ok {
-						return true
-					}
-
-					value, err := strconv.Atoi(lit.Value)
-					if err != nil {
-						return true
-					}
-
-					data[i] = byte(value)
-				}
-				cursor.Replace(withPos(obfuscateByteArray(data, y.Len()), x.Pos()))
+				arrayLen = y.Len()
 
 			case *types.Slice:
 				if y.Elem() != byteType {
 					return true
 				}
-				if len(x.Elts) > maxSizeBytes {
-					return true
-				}
 
-				data := make([]byte, 0, len(x.Elts))
-
-				for _, el := range x.Elts {
-					lit, ok := el.(*ast.BasicLit)
-					if !ok {
-						return true
-					}
-
-					value, err := strconv.Atoi(lit.Value)
-					if err != nil {
-						return true
-					}
-
-					data = append(data, byte(value))
-				}
-				cursor.Replace(withPos(obfuscateByteSlice(data), x.Pos()))
-
+			default:
+				return true
 			}
+
+			data := make([]byte, 0, len(x.Elts))
+
+			for _, el := range x.Elts {
+				lit, ok := el.(*ast.BasicLit)
+				if !ok {
+					return false
+				}
+				var value byte
+				if lit.Kind == token.CHAR {
+					val, _, _, err := strconv.UnquoteChar(lit.Value, 0)
+					if err != nil {
+						return false
+					}
+
+					value = byte(val)
+				} else {
+					val, err := strconv.ParseUint(lit.Value, 0, 8)
+					if err != nil {
+						return false
+					}
+
+					value = byte(val)
+				}
+
+				data = append(data, value)
+			}
+
+			if arrayLen > 0 {
+				cursor.Replace(withPos(obfuscateByteArray(data, arrayLen), x.Pos()))
+			} else {
+				cursor.Replace(withPos(obfuscateByteSlice(data), x.Pos()))
+			}
+
+			return true
 
 		case *ast.BasicLit:
 			switch cursor.Name() {
@@ -256,7 +256,7 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 		&ast.RangeStmt{
 			Key: ast.NewIdent("i"),
 			Tok: token.DEFINE,
-			X:   ast.NewIdent("newdata"),
+			X:   ast.NewIdent("data"),
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{ah.IndexExpr("newdata", ast.NewIdent("i"))},

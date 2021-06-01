@@ -220,6 +220,9 @@ func constantTest() {
 	const impType = imported.ImportedType(3)
 }
 
+// TODO: this only tests, that we don't break byte slices 
+// it was verified manually that these actually get obfuscated,
+// however we should add regression tests 
 func byteTest() {
 	a := []byte{12, 13}
 	for _, elm := range a {
@@ -242,6 +245,12 @@ func byteTest() {
 		return [4]byte{12, 13}
 	}()
 	for _, elm := range d {
+		print(elm, ",")
+	}
+	println()
+
+	e := []byte{0x43, 11_1, 0b01101101, 'p', 'l', 'e', 'x'}
+	for _, elm := range e {
 		print(elm, ",")
 	}
 	println()
@@ -337,5 +346,6 @@ foo
 12,13,
 12,13,
 12,13,0,0,
+67,111,109,39,39,39,39,
 1: literal in an array
 2: literal in a slice
