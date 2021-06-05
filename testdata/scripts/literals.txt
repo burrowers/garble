@@ -88,6 +88,11 @@ const (
 	skip2 = "also skip this"
 )
 
+// We used to conver this to a var in an attempt of obfuscating the literal.
+// That would break the iota, which only works inside const declarations.
+// We only obfuscate constant declarations with string values, anyway.
+const fooTyped uint64 = 1 << iota
+
 const arrayLen = 4
 
 var array [arrayLen]byte

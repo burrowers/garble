@@ -51,14 +51,8 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj 
 				for _, name := range spec.Names {
 					obj := info.ObjectOf(name)
 
-					basic, ok := obj.Type().(*types.Basic)
-					if !ok {
-						// skip the block if it contains non basic types
-						return false
-					}
-
-					if basic.Info()&types.IsUntyped != 0 {
-						// skip the block if it contains untyped constants
+					// We only obfuscate const declarations with typed string values.
+					if obj.Type() != types.Typ[types.String] {
 						return false
 					}
 
