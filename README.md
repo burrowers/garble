@@ -123,6 +123,8 @@ to document the current shortcomings of this tool.
 	var _ = reflect.TypeOf(Message{})
 	```
 
+* Go declarations exported for cgo via `//export` are not obfuscated.
+
 * Go plugins are not currently supported; see [#87](https://github.com/burrowers/garble/issues/87).
 
 ### Contributing

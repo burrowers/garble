@@ -36,12 +36,26 @@ import "os/user"
 static int privateAdd(int a, int b) {
 	return a + b;
 }
+
+extern void goCallback();
+
+static void callGoCallback() {
+	goCallback();
+}
 */
 import "C"
 
 func main() {
 	println(C.privateAdd(C.int(1), C.int(2)))
 	_, _ = user.Current()
+
+	C.callGoCallback()
+}
+
+//export goCallback
+func goCallback() {
+	println("go callback")
 }
 -- main.stderr --
 3
+go callback
