@@ -671,7 +671,7 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	tf.recordReflectArgs(files)
+	tf.prefillIgnoreObjects(files)
 	// log.Println(flags)
 
 	// If this is a package to obfuscate, swap the -p flag with the new
@@ -1010,13 +1010,11 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	return newCfg.Name(), nil
 }
 
-// recordReflectArgs collects all the objects in a package which are known to be
-// used as arguments to reflect.TypeOf or reflect.ValueOf. Since we obfuscate
-// one package at a time, we only detect those if the type definition and the
-// reflect usage are both in the same package.
-//
-// The resulting map mainly contains named types and their field declarations.
-func (tf *transformer) recordReflectArgs(files []*ast.File) {
+// prefillIgnoreObjects collects objects which should not be obfuscated,
+// such as those used as arguments to reflect.TypeOf or reflect.ValueOf.
+// Since we obfuscate one package at a time, we only detect those if the type
+// definition and the reflect usage are both in the same package.
+func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
 	tf.ignoreObjects = make(map[types.Object]bool)
 
 	visit := func(node ast.Node) bool {
@@ -1047,6 +1045,20 @@ func (tf *transformer) recordReflectArgs(files []*ast.File) {
 		return true
 	}
 	for _, file := range files {
+		for _, group := range file.Comments {
+			for _, comment := range group.List {
+				name := strings.TrimPrefix(comment.Text, "//export ")
+				if name == comment.Text {
+					continue
+				}
+				name = strings.TrimSpace(name)
+				obj := tf.pkg.Scope().Lookup(name)
+				if obj == nil {
+					continue // not found; skip
+				}
+				tf.ignoreObjects[obj] = true
+			}
+		}
 		ast.Inspect(file, visit)
 	}
 }
@@ -1061,13 +1073,15 @@ type transformer struct {
 	// ignoreObjects records all the objects we cannot obfuscate. An object
 	// is any named entity, such as a declared variable or type.
 	//
-	// So far, this map records:
+	// This map is initialized by prefillIgnoreObjects at the start,
+	// and extra entries from dependencies are added by transformGo,
+	// for the sake of caching type lookups.
+	// So far, it records:
 	//
-	//  * Types which are used for reflection; see recordReflectArgs.
-	//  * Identifiers used in constant expressions; see RecordUsedAsConstants.
-	//  * Identifiers used in go:linkname directives; see handleDirectives.
-	//  * Types or variables from external packages which were not
-	//    obfuscated, for caching reasons; see transformGo.
+	//  * Types which are used for reflection.
+	//  * Identifiers used in constant expressions.
+	//  * Declarations exported via "//export".
+	//  * Types or variables from external packages which were not obfuscated.
 	ignoreObjects map[types.Object]bool
 
 	// recordTypeDone helps avoid cycles in recordType.
