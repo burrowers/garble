@@ -583,6 +583,11 @@ func transformAsm(args []string) ([]string, error) {
 			buf.WriteString(newName)
 		}
 
+		// Uncomment for some quick debugging. Do not delete.
+		// if curPkg.Private {
+		// 	fmt.Fprintf(os.Stderr, "\n-- %s --\n%s", path, buf.Bytes())
+		// }
+
 		name := filepath.Base(path)
 		if path, err := writeTemp(name, buf.Bytes()); err != nil {
 			return nil, err
@@ -681,13 +686,11 @@ func transformCompile(args []string) ([]string, error) {
 
 	for i, file := range files {
 		name := filepath.Base(paths[i])
-		// TODO(mvdan): allow running handleDirectives and transformGo
-		// on runtime too, by splitting the conditionals here.
-		switch {
-		case curPkg.ImportPath == "runtime":
+		switch curPkg.ImportPath {
+		case "runtime":
 			// strip unneeded runtime code
 			stripRuntime(name, file)
-		case curPkg.ImportPath == "runtime/internal/sys":
+		case "runtime/internal/sys":
 			// The first declaration in zversion.go contains the Go
 			// version as follows. Replace it here, since the
 			// linker's -X does not work with constants.
@@ -706,9 +709,10 @@ func transformCompile(args []string) ([]string, error) {
 			}
 			lit := spec.Values[0].(*ast.BasicLit)
 			lit.Value = "`unknown`"
-		case strings.HasPrefix(name, "_cgo_"):
+		}
+		if strings.HasPrefix(name, "_cgo_") {
 			// Don't obfuscate cgo code, since it's generated and it gets messy.
-		default:
+		} else {
 			tf.handleDirectives(file.Comments)
 			file = tf.transformGo(file)
 		}

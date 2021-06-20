@@ -75,12 +75,30 @@ func stripRuntime(filename string, file *ast.File) {
 					break
 				}
 			case "runtime1.go":
+				usesEnv := func(node ast.Node) bool {
+					seen := false
+					ast.Inspect(node, func(node ast.Node) bool {
+						ident, ok := node.(*ast.Ident)
+						if ok && ident.Name == "gogetenv" {
+							seen = true
+							return false
+						}
+						return true
+					})
+					return seen
+				}
+			filenames:
 				switch x.Name.Name {
 				case "parsedebugvars":
-					// set defaults for GODEBUG cgocheck and
-					// invalidptr, remove code that reads in
-					// GODEBUG
-					x.Body = parsedebugvarsStmts
+					// keep defaults for GODEBUG cgocheck and invalidptr,
+					// remove code that reads GODEBUG via gogetenv
+					for i, stmt := range x.Body.List {
+						if usesEnv(stmt) {
+							x.Body.List = x.Body.List[:i]
+							break filenames
+						}
+					}
+					panic("did not see any gogetenv call in parsedebugvars")
 				case "setTraceback":
 					// tracebacks are completely hidden, no
 					// sense keeping this function
@@ -127,7 +145,7 @@ func stripRuntime(filename string, file *ast.File) {
 		// generic solution like x/tools/imports.
 		for _, imp := range file.Imports {
 			if imp.Path.Value == `"internal/bytealg"` {
-				file.Decls = append(file.Decls, markUsedBytealg)
+				imp.Name = &ast.Ident{Name: "_"}
 				break
 			}
 		}
@@ -154,17 +172,6 @@ func removeImport(importPath string, specs []ast.Spec) []ast.Spec {
 	return specs
 }
 
-var markUsedBytealg = &ast.GenDecl{
-	Tok: token.VAR,
-	Specs: []ast.Spec{&ast.ValueSpec{
-		Names: []*ast.Ident{{Name: "_"}},
-		Values: []ast.Expr{&ast.SelectorExpr{
-			X:   &ast.Ident{Name: "bytealg"},
-			Sel: &ast.Ident{Name: "IndexByteString"},
-		}},
-	}},
-}
-
 var hidePrintDecl = &ast.FuncDecl{
 	Name: ast.NewIdent("hidePrint"),
 	Type: &ast.FuncType{Params: &ast.FieldList{
@@ -177,22 +184,3 @@ var hidePrintDecl = &ast.FuncDecl{
 	}},
 	Body: &ast.BlockStmt{},
 }
-
-var parsedebugvarsStmts = ah.BlockStmt(
-	&ast.AssignStmt{
-		Lhs: []ast.Expr{&ast.SelectorExpr{
-			X:   ast.NewIdent("debug"),
-			Sel: ast.NewIdent("cgocheck"),
-		}},
-		Tok: token.ASSIGN,
-		Rhs: []ast.Expr{ah.IntLit(1)},
-	},
-	&ast.AssignStmt{
-		Lhs: []ast.Expr{&ast.SelectorExpr{
-			X:   ast.NewIdent("debug"),
-			Sel: ast.NewIdent("invalidptr"),
-		}},
-		Tok: token.ASSIGN,
-		Rhs: []ast.Expr{ah.IntLit(1)},
-	},
-)
