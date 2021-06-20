@@ -106,16 +106,16 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj 
 				}
 				var value byte
 				if lit.Kind == token.CHAR {
-					val, _, _, err := strconv.UnquoteChar(lit.Value, '\'')
+					val, err := strconv.Unquote(lit.Value)
 					if err != nil {
-						return true
+						panic(fmt.Sprintf("cannot unquote character: %v", err))
 					}
 
-					value = byte(val)
+					value = byte(val[0])
 				} else {
 					val, err := strconv.ParseUint(lit.Value, 0, 8)
 					if err != nil {
-						return true
+						panic(fmt.Sprintf("cannot parse integer: %v", err))
 					}
 
 					value = byte(val)

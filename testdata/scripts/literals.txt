@@ -225,9 +225,12 @@ func constantTest() {
 	const impType = imported.ImportedType(3)
 }
 
-// TODO: this only tests, that we don't break byte slices 
-// it was verified manually that these actually get obfuscated,
-// however we should add regression tests 
+// TODO: This only tests that we don't break byte slices.
+// It was manually verified that they do get obfuscated,
+// The original bytes don't seem to show up in the binary,
+// meaning that we can't test for them via binsubstr.
+// We should figure out a way to test for the byte sequences.
+// For now, we manually tested these when they got added.
 func byteTest() {
 	a := []byte{12, 13}
 	for _, elm := range a {
