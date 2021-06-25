@@ -54,7 +54,7 @@ var (
 func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Obfuscate literals such as strings")
-	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing the ability to reverse the process")
+	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
 	flagSet.StringVar(&flagSeed, "seed", "", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
@@ -63,7 +63,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `
 Garble obfuscates Go code by wrapping the Go toolchain.
 
-	garble [garble flags] command [arguments]
+	garble [garble flags] command [go flags] [go arguments]
 
 For example, to build an obfuscated program:
 
