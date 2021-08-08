@@ -107,12 +107,14 @@ Most of these can improve with time and effort. The purpose of this section is
 to document the current shortcomings of this tool.
 
 * Exported methods are never obfuscated at the moment, since they could
-  be required by interfaces and reflection. This area is a work in progress.
+  be required by interfaces and reflection. This area is a work in progress; see
+  [#3](https://github.com/burrowers/garble/issues/3).
 
 * It can be hard for garble to know what types will be used with
-  [reflection](https://golang.org/pkg/reflect), including JSON encoding or
-  decoding. If your program breaks because a type's names are obfuscated when
-  they should not be, you can add an explicit hint:
+  [reflection](https://golang.org/pkg/reflect).
+  Its detection will improve over time with [#162](https://github.com/burrowers/garble/issues/162)
+  Until then, if your program breaks due to the obfuscation of field names,
+  you can add an explicit hint:
 	```go
 	type Message struct {
 		Command string
