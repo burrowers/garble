@@ -1610,7 +1610,7 @@ func alterTrimpath(flags []string) []string {
 	return flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 }
 
-// buildFlags is obtained from 'go help build' as of Go 1.15.
+// buildFlags is obtained from 'go help build' as of Go 1.16.
 var buildFlags = map[string]bool{
 	"-a":             true,
 	"-n":             true,
@@ -1635,10 +1635,10 @@ var buildFlags = map[string]bool{
 	"-tags":          true,
 	"-trimpath":      true,
 	"-toolexec":      true,
+	"-overlay":       true,
 }
 
-// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go
-// 1.15.
+// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.16.
 var booleanFlags = map[string]bool{
 	// Shared build flags.
 	"-a":          true,
