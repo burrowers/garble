@@ -69,6 +69,10 @@ For example, to build an obfuscated program:
 
 	garble build ./cmd/foo
 
+Similarly, to combine garble flags and Go build flags:
+
+	garble -literals build -tags=purego ./cmd/foo
+
 The following commands are supported:
 
 	build [packages]   wraps "go build"
