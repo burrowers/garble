@@ -1014,6 +1014,60 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	return newCfg.Name(), nil
 }
 
+type knownReflect struct {
+	pkgPath string
+	name    string
+}
+
+type funcFullName = string
+
+// knownReflectAPIs is a static record of what std APIs use reflection on their
+// parameters, so we can avoid obfuscating types used with them.
+//
+// For now, this table is manually maintained, until we automatically detect and
+// propagate the uses of reflect in std and third party APIs.
+// If we end up maintaining this table for a long time, we should probably
+// improve the process via either code generation or sanity checks.
+//
+// TODO: record which parameters get used with reflection, as it's often not all
+// of them.
+//
+// TODO: we're not including fmt.Printf, as it would have many false positives,
+// unless we were smart enough to detect which arguments get used as %#v or %T.
+//
+// TODO: this should also support third party APIs; see
+// https://github.com/burrowers/garble/issues/162
+var knownReflectAPIs = map[funcFullName]bool{
+	"reflect.TypeOf":  true,
+	"reflect.ValueOf": true,
+
+	"encoding/json.Marshal":           true,
+	"encoding/json.MarshalIndent":     true,
+	"encoding/json.Unmarshal":         true,
+	"(*encoding/json.Decoder).Decode": true,
+	"(*encoding/json.Encoder).Encode": true,
+
+	"encoding/gob.Register":          true,
+	"encoding/gob.RegisterName":      true,
+	"(*encoding/gob.Decoder).Decode": true,
+	"(*encoding/gob.Encoder).Encode": true,
+
+	"encoding/xml.Marshal":                  true,
+	"encoding/xml.MarshalIndent":            true,
+	"encoding/xml.Unmarshal":                true,
+	"(*encoding/xml.Decoder).Decode":        true,
+	"(*encoding/xml.Encoder).Encode":        true,
+	"(*encoding/xml.Decoder).DecodeElement": true,
+	"(*encoding/xml.Encoder).EncodeElement": true,
+
+	"(*text/template.Template).Execute": true,
+
+	"(*html/template.Template).Execute": true,
+
+	"net/rpc.Register":     true,
+	"net/rpc.RegisterName": true,
+}
+
 // prefillIgnoreObjects collects objects which should not be obfuscated,
 // such as those used as arguments to reflect.TypeOf or reflect.ValueOf.
 // Since we obfuscate one package at a time, we only detect those if the type
@@ -1034,13 +1088,14 @@ func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
 		if !ok {
 			return true
 		}
-		fnType := tf.info.ObjectOf(sel.Sel)
-
-		if fnType.Pkg() == nil {
+		fnType, _ := tf.info.ObjectOf(sel.Sel).(*types.Func)
+		if fnType == nil || fnType.Pkg() == nil {
 			return true
 		}
 
-		if fnType.Pkg().Path() == "reflect" && (fnType.Name() == "TypeOf" || fnType.Name() == "ValueOf") {
+		fullName := fnType.FullName()
+		// log.Printf("%s: %s", fset.Position(node.Pos()), fullName)
+		if knownReflectAPIs[fullName] {
 			for _, arg := range call.Args {
 				argType := tf.info.TypeOf(arg)
 				tf.recordIgnore(argType, tf.pkg.Path())

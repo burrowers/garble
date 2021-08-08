@@ -24,8 +24,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
+	"text/template"
 
 	"test/main/importedpkg"
 	"test/main/importedpkg2"
@@ -51,16 +53,19 @@ func main() {
 	}
 
 	// Use of a common library using reflect, encoding/json.
-	// TODO: remove the TypeOf hint once we detect json.Marshal.
-	_ = reflect.TypeOf(EncodingT{})
 	enc, _ := json.Marshal(EncodingT{Foo: 3})
-	println(string(enc))
+	fmt.Println(string(enc))
+
+	// Another common library, text/template.
+	tmpl := template.Must(template.New("").Parse("Hello {{.Name}}."))
+	_ = tmpl.Execute(os.Stdout, struct{Name string}{Name: "Dave"})
+	fmt.Println() // Always print a newline.
 
 	// Another complex case, involving embedding and another package.
 	outer := &importedpkg.EmbeddingOuter{}
 	outer.InnerField = 3
 	enc, _ = json.Marshal(outer)
-	println(string(enc))
+	fmt.Println(string(enc))
 
 	// An edge case; the struct type is defined in a different package.
 	// Note that the struct type is unnamed, but it still has named fields.
@@ -224,6 +229,9 @@ ReflectTypeOf
 ReflectTypeOfIndirect
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
+{"Foo":3}
+Hello Dave.
+{"InnerField":3,"Anon":{"AnonField":0}}
 {downstream}
 {sibling}
 {{indirect-with} {indirect-without} {}}
