@@ -8,7 +8,7 @@ import (
 	"go/token"
 	mathrand "math/rand"
 
-	ah "mvdan.cc/garble/internal/asthelper"
+	ah "github.com/hahahrfool/garble/internal/asthelper"
 )
 
 type shuffle struct{}
