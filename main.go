@@ -35,7 +35,7 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 
-	"mvdan.cc/garble/internal/literals"
+	"./internal/literals"
 )
 
 var (
