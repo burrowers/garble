@@ -294,8 +294,8 @@ func goVersionOK() bool {
 
 	versionSemver := "v" + strings.TrimPrefix(version, "go")
 	if semver.Compare(versionSemver, minGoVersionSemver) < 0 {
-		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", version, suggestedGoVersion)
-		return false
+		//fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", version, suggestedGoVersion)
+		//return false
 	}
 
 	return true
