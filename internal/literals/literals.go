@@ -267,7 +267,7 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 	return ah.LambdaCall(arrayType, block)
 }
 
-// RecordUsedAsConstants records identifieres used in constant expressions.
+// RecordUsedAsConstants records identifiers used in constant expressions.
 func RecordUsedAsConstants(node ast.Node, info *types.Info, ignoreObj map[types.Object]bool) {
 	visit := func(node ast.Node) bool {
 		ident, ok := node.(*ast.Ident)
