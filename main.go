@@ -35,7 +35,7 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 
-	"github.com/hahahrfool/garble/internal/literals"
+	"mvdan.cc/garble/internal/literals"
 )
 
 var (
@@ -294,8 +294,8 @@ func goVersionOK() bool {
 
 	versionSemver := "v" + strings.TrimPrefix(version, "go")
 	if semver.Compare(versionSemver, minGoVersionSemver) < 0 {
-		//fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", version, suggestedGoVersion)
-		//return false
+		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", version, suggestedGoVersion)
+		return false
 	}
 
 	return true
@@ -1073,7 +1073,7 @@ var knownReflectAPIs = map[funcFullName]bool{
 // Since we obfuscate one package at a time, we only detect those if the type
 // definition and the reflect usage are both in the same package.
 func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
-	tf.ignoreObjects = make(map[types.Object]bool)
+	//tf.ignoreObjects = make(map[types.Object]bool)
 
 	visit := func(node ast.Node) bool {
 		if opts.GarbleLiterals {
@@ -1094,7 +1094,7 @@ func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
 		}
 
 		fullName := fnType.FullName()
-		// log.Printf("%s: %s", fset.Position(node.Pos()), fullName)
+		//log.Printf("%s: %s", fset.Position(node.Pos()), fullName)
 		if knownReflectAPIs[fullName] {
 			for _, arg := range call.Args {
 				argType := tf.info.TypeOf(arg)
@@ -1166,6 +1166,7 @@ func newTransformer() *transformer {
 		recordTypeDone: make(map[types.Type]bool),
 		fieldToStruct:  make(map[*types.Var]*types.Struct),
 		fieldToAlias:   make(map[*types.Var]*types.TypeName),
+		ignoreObjects:  make(map[types.Object]bool),
 	}
 }
 
@@ -1219,12 +1220,28 @@ func (tf *transformer) recordType(t types.Type) {
 	if strct == nil {
 		return
 	}
+
+	sn := strct.String()
+
+	ignored := false
+
 	for i := 0; i < strct.NumFields(); i++ {
 		field := strct.Field(i)
 		tf.fieldToStruct[field] = strct
 
 		if field.Embedded() {
 			tf.recordType(field.Type())
+		}
+
+		if ignored || strings.Contains(sn, "_Ctype_") {
+
+			if !ignored {
+				fmt.Println("ilegal strut", sn)
+			}
+
+			tf.ignoreObjects[field] = true
+
+			ignored = true
 		}
 	}
 }
@@ -1237,9 +1254,11 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 
 	pre := func(cursor *astutil.Cursor) bool {
 		node, ok := cursor.Node().(*ast.Ident)
+
 		if !ok {
 			return true
 		}
+
 		if node.Name == "_" {
 			return true // unnamed remains unnamed
 		}
@@ -1341,6 +1360,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				// Identifiers of global variables are always obfuscated.
 				break
 			}
+
 			// From this point on, we deal with struct fields.
 
 			// Fields don't get hashed with the package's action ID.
@@ -1359,6 +1379,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			if strct == nil {
 				panic("could not find for " + node.Name)
 			}
+
 			// TODO: We should probably strip field tags here.
 			// Do we need to do anything else to make a
 			// struct type "canonical"?
@@ -1505,6 +1526,7 @@ func locateForeignAlias(dependentImportPath, aliasName string) *types.TypeName {
 // that reflection detection only happens within the package declaring a type.
 // Detecting it in downstream packages could result in inconsistencies.
 func (tf *transformer) recordIgnore(t types.Type, pkgPath string) {
+
 	switch t := t.(type) {
 	case *types.Named:
 		obj := t.Obj()
@@ -1520,6 +1542,11 @@ func (tf *transformer) recordIgnore(t types.Type, pkgPath string) {
 		tf.recordIgnore(t.Underlying(), pkgPath)
 
 	case *types.Struct:
+
+		if strings.HasPrefix(t.String(), "_Ctype_struct") {
+			tf.recordIgnore(t, pkgPath)
+			return
+		}
 		for i := 0; i < t.NumFields(); i++ {
 			field := t.Field(i)
 
