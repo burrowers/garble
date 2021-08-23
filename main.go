@@ -1543,10 +1543,6 @@ func (tf *transformer) recordIgnore(t types.Type, pkgPath string) {
 
 	case *types.Struct:
 
-		if strings.HasPrefix(t.String(), "_Ctype_struct") {
-			tf.recordIgnore(t, pkgPath)
-			return
-		}
 		for i := 0; i < t.NumFields(); i++ {
 			field := t.Field(i)
 
