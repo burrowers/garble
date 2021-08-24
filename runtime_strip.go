@@ -8,7 +8,7 @@ import (
 	"go/token"
 	"strings"
 
-	ah "github.com/hahahrfool/garble/internal/asthelper"
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 // stripRuntime removes unnecessary code from the runtime,
