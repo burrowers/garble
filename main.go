@@ -75,9 +75,10 @@ Similarly, to combine garble flags and Go build flags:
 
 The following commands are supported:
 
-	build [packages]   wraps "go build"
-	test [packages]    wraps "go test"
-	reverse [files]    de-obfuscates output such as stack traces
+	build [packages]   replace "go build"
+	test [packages]    replace "go test"
+	version            print Garble version
+	reverse [files]    de-obfuscate output such as stack traces
 
 garble accepts the following flags before a command:
 
