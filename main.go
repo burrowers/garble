@@ -1235,9 +1235,9 @@ func (tf *transformer) recordType(t types.Type) {
 
 		if ignored || strings.Contains(sn, "_Ctype_") {
 
-			if !ignored {
-				fmt.Println("ilegal strut", sn)
-			}
+		//	if !ignored {
+		//		fmt.Println("ilegal strut", sn)
+		//	}
 
 			tf.ignoreObjects[field] = true
 
