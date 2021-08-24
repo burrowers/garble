@@ -1,6 +1,6 @@
 # garble
 
-	GO111MODULE=on go get mvdan.cc/garble
+	go install mvdan.cc/garble@latest
 
 Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.16 or later.
 
@@ -44,7 +44,7 @@ Note that commands like `garble build` will use the `go` version found in your
 and set up `$PATH` with them. For example, for Go 1.16.1:
 
 ```sh
-$ go get golang.org/dl/go1.16.1
+$ go install golang.org/dl/go1.16.1@latest
 $ go1.16.1 download
 $ PATH=$(go1.16.1 env GOROOT)/bin:${PATH} garble build
 ```
