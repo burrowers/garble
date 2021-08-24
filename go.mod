@@ -1,4 +1,4 @@
-module github.com/hahahrfool/garble
+module mvdan.cc/garble
 
 go 1.16
 
