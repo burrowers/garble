@@ -12,7 +12,7 @@ import (
 	"strconv"
 
 	"golang.org/x/tools/go/ast/astutil"
-	ah "github.com/hahahrfool/garble/internal/asthelper"
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 // maxSizeBytes is the limit, in bytes, of the size of string-like literals
