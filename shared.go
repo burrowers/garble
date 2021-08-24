@@ -30,12 +30,12 @@ type sharedCache struct {
 	// useful for type checking of the packages as we obfuscate them.
 	ListedPackages map[string]*listedPackage
 
-	// We can't rely on the module version to exist, because it's
-	// missing in local builds without 'go get'.
+	// We can't rely on the module version to exist,
+	// because it's missing in local builds without 'go install'.
 	// For now, use 'go tool buildid' on the garble binary.
 	// Just like Go's own cache, we use hex-encoded sha256 sums.
-	// Once https://github.com/golang/go/issues/37475 is fixed, we
-	// can likely just use that.
+	// Once https://github.com/golang/go/issues/37475 is fixed,
+	// we can likely just use that.
 	BinaryContentID []byte
 
 	// From "go env", primarily.
