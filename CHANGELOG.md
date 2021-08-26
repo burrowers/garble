@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0] - 2021-08-26
+
+This release of Garble adds support for Go 1.17.x while maintaining support for
+Go 1.16.x. A few other noteworthy changes are included:
+
+* Support obfuscating literals in more edge cases with `-literals`
+* Improve detection of `reflect` usage with standard library APIs
+* Names exported for cgo are no longer obfuscated
+* Avoid breaking consts using `iota` with `-literals`
+
+Known bugs:
+
+* obfuscating the entire standard library with `GOPRIVATE=*` is not well supported yet
+
 ## [0.3.0] - 2021-05-31
 
 This release of Garble fixes a number of bugs and improves existing features,
@@ -54,6 +68,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[0.4.0]: https://github.com/burrowers/garble/releases/tag/v0.4.0
 [0.3.0]: https://github.com/burrowers/garble/releases/tag/v0.3.0
 [0.2.0]: https://github.com/burrowers/garble/releases/tag/v0.2.0
 [0.1.0]: https://github.com/burrowers/garble/releases/tag/v0.1.0
