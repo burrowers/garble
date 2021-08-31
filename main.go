@@ -76,10 +76,12 @@ Similarly, to combine garble flags and Go build flags:
 
 The following commands are supported:
 
-	build [packages]   replace "go build"
-	test [packages]    replace "go test"
-	version            print Garble version
-	reverse [files]    de-obfuscate output such as stack traces
+	build          replace "go build"
+	test           replace "go test"
+	version        print Garble version
+	reverse        de-obfuscate output such as stack traces
+
+To learn more about a command, run "garble help <command>".
 
 garble accepts the following flags before a command:
 
@@ -307,14 +309,19 @@ func mainErr(args []string) error {
 	// If we recognize an argument, we're not running within -toolexec.
 	switch command, args := args[0], args[1:]; command {
 	case "help":
-		if len(args) > 0 {
-			return fmt.Errorf("the help command does not take arguments")
+		if hasHelpFlag(args) || len(args) > 1 {
+			fmt.Fprintf(os.Stderr, "usage: garble help [command]\n")
+			return errJustExit(2)
+		}
+		if len(args) == 1 {
+			return mainErr([]string{args[0], "-h"})
 		}
 		usage()
 		return errJustExit(2)
 	case "version":
-		if len(args) > 0 {
-			return fmt.Errorf("the version command does not take arguments")
+		if hasHelpFlag(args) || len(args) > 0 {
+			fmt.Fprintf(os.Stderr, "usage: garble version\n")
+			return errJustExit(2)
 		}
 		// don't overwrite the version if it was set by -ldflags=-X
 		if info, ok := debug.ReadBuildInfo(); ok && version == "(devel)" {
@@ -1023,8 +1030,10 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	return newCfg.Name(), nil
 }
 
-type funcFullName = string
-type reflectParameterPosition = int
+type (
+	funcFullName             = string
+	reflectParameterPosition = int
+)
 
 // knownReflectAPIs is a static record of what std APIs use reflection on their
 // parameters, so we can avoid obfuscating types used with them.

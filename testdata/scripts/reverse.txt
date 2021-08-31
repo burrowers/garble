@@ -1,7 +1,7 @@
 env GOPRIVATE=test/main
 
 # Unknown build flags should result in errors.
-! garble reverse -badflag
+! garble reverse -badflag=foo .
 stderr 'flag provided but not defined'
 
 garble build
@@ -16,7 +16,7 @@ grep 'goroutine 1 \[running\]' main.stderr
 ! grep 'ExportedLib(Type|Field)|unexportedMainFunc|test/main|main\.go|lib\.go' main.stderr
 
 stdin main.stderr
-garble reverse
+garble reverse .
 cmp stdout reverse.stdout
 
 ! garble build ./build-error
@@ -39,12 +39,12 @@ exec ./main
 cp stderr main-literals.stderr
 
 stdin main-literals.stderr
-garble -literals reverse
+garble -literals reverse .
 cmp stdout reverse.stdout
 
 # Reversing a -literals output without the flag should fail.
 stdin main-literals.stderr
-! garble reverse
+! garble reverse .
 cmp stdout main-literals.stderr
 
 -- go.mod --

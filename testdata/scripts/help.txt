@@ -15,7 +15,12 @@ stderr 'garble \[garble flags\] command'
 ! stdout .
 
 ! garble help foo bar
-stderr 'does not take arguments'
+stderr 'usage: garble help'
+! stderr 'Garble obfuscates Go code'
+! stdout .
+
+! garble help -h
+stderr 'usage: garble help'
 ! stdout .
 
 ! garble build -h
@@ -35,7 +40,12 @@ stderr 'Run .go help test.'
 ! stdout .
 
 ! garble reverse -h
-stderr 'garble \[garble flags\] reverse \[files\]'
+stderr 'garble \[garble flags\] reverse \[build flags\] package \[files\]'
+! stderr 'usage: go '
+! stdout .
+
+! garble help reverse
+stderr 'garble \[garble flags\] reverse \[build flags\] package \[files\]'
 ! stderr 'usage: go '
 ! stdout .
 
@@ -59,10 +69,10 @@ garble version
 stdout 'devel|^v0'
 
 ! garble version -flag
-stderr 'does not take arguments'
+stderr 'usage: garble version'
 
 ! garble version arg
-stderr 'does not take arguments'
+stderr 'usage: garble version'
 
 # We need a dummy module for "garble build -badflag".
 -- go.mod --

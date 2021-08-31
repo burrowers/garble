@@ -19,24 +19,29 @@ import (
 // commandReverse implements "garble reverse".
 func commandReverse(args []string) error {
 	flags, args := splitFlagsFromArgs(args)
-	if hasHelpFlag(flags) {
-		fmt.Fprintf(os.Stderr, "usage: garble [garble flags] reverse [files]\n")
+	if hasHelpFlag(flags) || len(args) == 0 {
+		fmt.Fprintf(os.Stderr, `
+usage: garble [garble flags] reverse [build flags] package [files]
+
+For example, after building an obfuscated program as follows:
+
+	garble -literals build -tags=mytag ./cmd/mycmd
+
+One can reverse a captured panic stack trace as follows:
+
+	garble -literals reverse -tags=mytag ./cmd/mycmd panic-output.txt
+`[1:])
 		return errJustExit(2)
 	}
 
-	mainPkg := "."
-	if len(args) > 0 {
-		mainPkg = args[0]
-		args = args[1:]
-	}
-
+	pkg, args := args[0], args[1:]
 	listArgs := []string{
 		"-json",
 		"-deps",
 		"-export",
 	}
 	listArgs = append(listArgs, flags...)
-	listArgs = append(listArgs, mainPkg)
+	listArgs = append(listArgs, pkg)
 	// TODO: We most likely no longer need this "list -toolexec" call, since
 	// we use the original build IDs.
 	if _, err := toolexecCmd("list", listArgs); err != nil {
