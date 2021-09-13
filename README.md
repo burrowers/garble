@@ -110,20 +110,8 @@ to document the current shortcomings of this tool.
   be required by interfaces and reflection. This area is a work in progress; see
   [#3](https://github.com/burrowers/garble/issues/3).
 
-* It can be hard for garble to know what types will be used with
-  [reflection](https://golang.org/pkg/reflect).
-  Its detection will improve over time with [#162](https://github.com/burrowers/garble/issues/162)
-  Until then, if your program breaks due to the obfuscation of field names,
-  you can add an explicit hint:
-	```go
-	type Message struct {
-		Command string
-		Args    string
-	}
-
-	// Never obfuscate the Message type.
-	var _ = reflect.TypeOf(Message{})
-	```
+* If your program breaks due to an issue with reflection please [open an issue](https://github.com/burrowers/garble/issues/new),
+  we'll try to resolve new edge cases.
 
 * Go declarations exported for cgo via `//export` are not obfuscated.
 
