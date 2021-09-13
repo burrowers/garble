@@ -2,7 +2,7 @@ env GOPRIVATE=test/main
 
 garble build
 exec ./main
-cmp stderr main.stderr
+cmp stdout main.stdout
 binsubstr main$exe 'privateAdd'
 
 [short] stop # no need to verify this with -short
@@ -10,18 +10,18 @@ binsubstr main$exe 'privateAdd'
 env GOPRIVATE=*
 garble build
 exec ./main
-cmp stderr main.stderr
+cmp stdout main.stdout
 binsubstr main$exe 'privateAdd'
 env GOPRIVATE=test/main
 
 garble -tiny build
 exec ./main
-cmp stderr main.stderr
+cmp stdout main.stdout
 binsubstr main$exe 'privateAdd'
 
 go build
 exec ./main
-cmp stderr main.stderr
+cmp stdout main.stdout
 
 -- go.mod --
 module test/main
@@ -42,20 +42,28 @@ extern void goCallback();
 static void callGoCallback() {
 	goCallback();
 }
+
+struct portedStruct {
+	char*  PortedField;
+};
 */
 import "C"
+import "fmt"
 
 func main() {
-	println(C.privateAdd(C.int(1), C.int(2)))
+	fmt.Println(C.privateAdd(C.int(1), C.int(2)))
 	_, _ = user.Current()
+
+	fmt.Printf("%#v\n", C.struct_portedStruct{})
 
 	C.callGoCallback()
 }
 
 //export goCallback
 func goCallback() {
-	println("go callback")
+	fmt.Println("go callback")
 }
--- main.stderr --
+-- main.stdout --
 3
+main._Ctype_struct_portedStruct{PortedField:(*main._Ctype_char)(nil)}
 go callback
