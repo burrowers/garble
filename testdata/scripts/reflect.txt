@@ -4,7 +4,7 @@ garble build
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect'
+! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField'
 binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect'
 
 [short] stop # no need to verify this with -short
@@ -95,6 +95,9 @@ func main() {
 
 	// TODO: don't obfuscate the embedded field name here
 	// printfWithoutPackage("%#v\n", importedpkg.ReflectEmbeddingAlias{})
+
+	indirectReflection(IndirectReflection{})
+	fmt.Println(FmtType{})
 }
 
 type EmbeddingIndirect struct {
@@ -125,6 +128,18 @@ type RecursiveStruct struct {
 
 // This could crash or hang if we don't deal with loops.
 var _ = reflect.TypeOf(RecursiveStruct{})
+
+type IndirectReflection struct {
+	ReflectionField string
+}
+
+func indirectReflection(v interface{}) {
+	fmt.Println(reflect.TypeOf(v).Field(0).Name)
+}
+
+type FmtType struct {
+	FmtTypeField int
+}
 
 -- importedpkg/imported.go --
 package importedpkg
@@ -236,3 +251,5 @@ Hello Dave.
 {sibling}
 {{indirect-with} {indirect-without} {}}
 IndirectNamedWithReflect{IndirectUnobfuscated:"indirect-with"}
+ReflectionField
+{0}

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/gob"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -629,29 +630,12 @@ func transformCompile(args []string) ([]string, error) {
 	// generating it.
 	flags = append(flags, "-dwarf=false")
 
-	if (curPkg.ImportPath == "runtime" && opts.Tiny) || curPkg.ImportPath == "runtime/internal/sys" {
-		// Even though these packages aren't private, we will still process
-		// them later to remove build information and strip code from the
-		// runtime. However, we only want flags to work on private packages.
-		opts.GarbleLiterals = false
-		opts.DebugDir = ""
-	} else if !curPkg.Private {
-		return append(flags, paths...), nil
-	}
-
 	for i, path := range paths {
 		if filepath.Base(path) == "_gomod_.go" {
 			// never include module info
 			paths = append(paths[:i], paths[i+1:]...)
 			break
 		}
-	}
-
-	flags = alterTrimpath(flags)
-
-	newImportCfg, err := processImportCfg(flags)
-	if err != nil {
-		return nil, err
 	}
 
 	var files []*ast.File
@@ -662,6 +646,35 @@ func transformCompile(args []string) ([]string, error) {
 		}
 		files = append(files, file)
 	}
+	tf := newTransformer()
+	if err := tf.typecheck(files); err != nil {
+		return nil, err
+	}
+
+	flags = alterTrimpath(flags)
+
+	newImportCfg, err := processImportCfg(flags)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = loadKnownReflectAPIs(curPkg); err != nil {
+		return nil, err
+	}
+	tf.findReflectFunctions(files)
+	if err := saveKnownReflectAPIs(curPkg); err != nil {
+		return nil, err
+	}
+
+	if (curPkg.ImportPath == "runtime" && opts.Tiny) || curPkg.ImportPath == "runtime/internal/sys" {
+		// Even though these packages aren't private, we will still process
+		// them later to remove build information and strip code from the
+		// runtime. However, we only want flags to work on private packages.
+		opts.GarbleLiterals = false
+		opts.DebugDir = ""
+	} else if !curPkg.Private {
+		return append(flags, paths...), nil
+	}
 
 	// Literal obfuscation uses math/rand, so seed it deterministically.
 	randSeed := opts.Seed
@@ -670,11 +683,6 @@ func transformCompile(args []string) ([]string, error) {
 	}
 	// log.Printf("seeding math/rand with %x\n", randSeed)
 	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
-
-	tf := newTransformer()
-	if err := tf.typecheck(files); err != nil {
-		return nil, err
-	}
 
 	tf.prefillIgnoreObjects(files)
 	// log.Println(flags)
@@ -1015,58 +1023,132 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	return newCfg.Name(), nil
 }
 
-type knownReflect struct {
-	pkgPath string
-	name    string
-}
-
 type funcFullName = string
+type reflectParameterPosition = int
 
 // knownReflectAPIs is a static record of what std APIs use reflection on their
 // parameters, so we can avoid obfuscating types used with them.
 //
-// For now, this table is manually maintained, until we automatically detect and
-// propagate the uses of reflect in std and third party APIs.
-// If we end up maintaining this table for a long time, we should probably
-// improve the process via either code generation or sanity checks.
-//
-// TODO: record which parameters get used with reflection, as it's often not all
-// of them.
-//
 // TODO: we're not including fmt.Printf, as it would have many false positives,
 // unless we were smart enough to detect which arguments get used as %#v or %T.
-//
-// TODO: this should also support third party APIs; see
-// https://github.com/burrowers/garble/issues/162
-var knownReflectAPIs = map[funcFullName]bool{
-	"reflect.TypeOf":  true,
-	"reflect.ValueOf": true,
+var knownReflectAPIs = map[funcFullName][]reflectParameterPosition{
+	"reflect.TypeOf":  {0},
+	"reflect.ValueOf": {0},
+}
 
-	"encoding/json.Marshal":           true,
-	"encoding/json.MarshalIndent":     true,
-	"encoding/json.Unmarshal":         true,
-	"(*encoding/json.Decoder).Decode": true,
-	"(*encoding/json.Encoder).Encode": true,
+func loadKnownReflectAPIs(currPkg *listedPackage) error {
+	for path := range importCfgEntries {
+		pkg, err := listPackage(path)
+		if err != nil {
+			return err
+		}
 
-	"encoding/gob.Register":          true,
-	"encoding/gob.RegisterName":      true,
-	"(*encoding/gob.Decoder).Decode": true,
-	"(*encoding/gob.Encoder).Encode": true,
+		// this function literal is used for the deferred close
+		err = func() error {
+			filename := strings.TrimSuffix(pkg.Export, "-d") + "-garble-d"
+			f, err := os.Open(filename)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
 
-	"encoding/xml.Marshal":                  true,
-	"encoding/xml.MarshalIndent":            true,
-	"encoding/xml.Unmarshal":                true,
-	"(*encoding/xml.Decoder).Decode":        true,
-	"(*encoding/xml.Encoder).Encode":        true,
-	"(*encoding/xml.Decoder).DecodeElement": true,
-	"(*encoding/xml.Encoder).EncodeElement": true,
+			// Decode appends new entries to the existing map
+			return gob.NewDecoder(f).Decode(&knownReflectAPIs)
+		}()
+		if err != nil {
+			return err
+		}
+	}
 
-	"(*text/template.Template).Execute": true,
+	return nil
+}
 
-	"(*html/template.Template).Execute": true,
+func saveKnownReflectAPIs(currPkg *listedPackage) error {
+	filename := strings.TrimSuffix(currPkg.Export, "-d") + "-garble-d"
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
-	"net/rpc.Register":     true,
-	"net/rpc.RegisterName": true,
+	return gob.NewEncoder(f).Encode(knownReflectAPIs)
+}
+
+func (tf *transformer) findReflectFunctions(files []*ast.File) {
+	visitReflect := func(node ast.Node) {
+		funcDecl, ok := node.(*ast.FuncDecl)
+		if !ok {
+			return
+		}
+
+		funcObj := tf.info.ObjectOf(funcDecl.Name).(*types.Func)
+
+		var paramNames []string
+		for _, param := range funcDecl.Type.Params.List {
+			for _, name := range param.Names {
+				paramNames = append(paramNames, name.Name)
+			}
+		}
+
+		ast.Inspect(funcDecl, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			fnType, _ := tf.info.ObjectOf(sel.Sel).(*types.Func)
+			if fnType == nil || fnType.Pkg() == nil {
+				return true
+			}
+
+			fullName := fnType.FullName()
+			var identifiers []string
+			for _, argPos := range knownReflectAPIs[fullName] {
+				arg := call.Args[argPos]
+
+				ident, ok := arg.(*ast.Ident)
+				if !ok {
+					continue
+				}
+
+				obj := tf.info.ObjectOf(ident)
+				if obj.Parent() == funcObj.Scope() {
+					identifiers = append(identifiers, ident.Name)
+				}
+			}
+
+			if identifiers == nil {
+				return true
+			}
+
+			var argumentPosReflect []int
+			for _, ident := range identifiers {
+				for paramPos, paramName := range paramNames {
+					if ident == paramName {
+						argumentPosReflect = append(argumentPosReflect, paramPos)
+					}
+				}
+			}
+			knownReflectAPIs[funcObj.FullName()] = argumentPosReflect
+
+			return true
+		})
+	}
+
+	lenPrevKnownReflectAPIs := len(knownReflectAPIs)
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			visitReflect(decl)
+		}
+	}
+
+	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
+	if len(knownReflectAPIs) > lenPrevKnownReflectAPIs {
+		tf.findReflectFunctions(files)
+	}
 }
 
 // prefillIgnoreObjects collects objects which should not be obfuscated,
@@ -1085,23 +1167,30 @@ func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
 		if !ok {
 			return true
 		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
+
+		ident, ok := call.Fun.(*ast.Ident)
 		if !ok {
-			return true
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+
+			ident = sel.Sel
 		}
-		fnType, _ := tf.info.ObjectOf(sel.Sel).(*types.Func)
+
+		fnType, _ := tf.info.ObjectOf(ident).(*types.Func)
 		if fnType == nil || fnType.Pkg() == nil {
 			return true
 		}
 
 		fullName := fnType.FullName()
 		// log.Printf("%s: %s", fset.Position(node.Pos()), fullName)
-		if knownReflectAPIs[fullName] {
-			for _, arg := range call.Args {
-				argType := tf.info.TypeOf(arg)
-				tf.recordIgnore(argType, tf.pkg.Path())
-			}
+		for _, argPos := range knownReflectAPIs[fullName] {
+			arg := call.Args[argPos]
+			argType := tf.info.TypeOf(arg)
+			tf.recordIgnore(argType, tf.pkg.Path())
 		}
+
 		return true
 	}
 	for _, file := range files {
