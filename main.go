@@ -658,11 +658,11 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	if err = loadKnownReflectAPIs(curPkg); err != nil {
+	if err := loadKnownReflectAPIs(); err != nil {
 		return nil, err
 	}
 	tf.findReflectFunctions(files)
-	if err := saveKnownReflectAPIs(curPkg); err != nil {
+	if err := saveKnownReflectAPIs(); err != nil {
 		return nil, err
 	}
 
@@ -1036,16 +1036,37 @@ var knownReflectAPIs = map[funcFullName][]reflectParameterPosition{
 	"reflect.ValueOf": {0},
 }
 
-func loadKnownReflectAPIs(currPkg *listedPackage) error {
-	for path := range importCfgEntries {
+// garbleExportFile returns an absolute path to a build cache entry
+// which belongs to garble and corresponds to the given Go package.
+//
+// Unlike pkg.Export, it is only read and written by garble itself.
+// Also unlike pkg.Export, it includes GarbleActionID,
+// so its path will change if the obfuscated build changes.
+//
+// The purpose of such a file is to store garble-specific information
+// in the build cache, to be reused at a later time.
+// The file should have the same lifetime as pkg.Export,
+// as it lives under the same cache directory that gets trimmed automatically.
+func garbleExportFile(pkg *listedPackage) string {
+	trimmed := strings.TrimSuffix(pkg.Export, "-d")
+	if trimmed == pkg.Export {
+		panic(fmt.Sprintf("unexpected export path of %s: %q", pkg.ImportPath, pkg.Export))
+	}
+	return trimmed + "-garble-" + hashToString(pkg.GarbleActionID) + "-d"
+}
+
+func loadKnownReflectAPIs() error {
+	for _, path := range curPkg.Deps {
 		pkg, err := listPackage(path)
 		if err != nil {
 			return err
 		}
-
+		if pkg.Export == "" {
+			continue // nothing to load
+		}
 		// this function literal is used for the deferred close
 		err = func() error {
-			filename := strings.TrimSuffix(pkg.Export, "-d") + "-garble-d"
+			filename := garbleExportFile(pkg)
 			f, err := os.Open(filename)
 			if err != nil {
 				return err
@@ -1053,7 +1074,10 @@ func loadKnownReflectAPIs(currPkg *listedPackage) error {
 			defer f.Close()
 
 			// Decode appends new entries to the existing map
-			return gob.NewDecoder(f).Decode(&knownReflectAPIs)
+			if err := gob.NewDecoder(f).Decode(&knownReflectAPIs); err != nil {
+				return fmt.Errorf("gob decode: %w", err)
+			}
+			return nil
 		}()
 		if err != nil {
 			return err
@@ -1063,15 +1087,18 @@ func loadKnownReflectAPIs(currPkg *listedPackage) error {
 	return nil
 }
 
-func saveKnownReflectAPIs(currPkg *listedPackage) error {
-	filename := strings.TrimSuffix(currPkg.Export, "-d") + "-garble-d"
+func saveKnownReflectAPIs() error {
+	filename := garbleExportFile(curPkg)
 	f, err := os.Create(filename)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	return gob.NewEncoder(f).Encode(knownReflectAPIs)
+	if err := gob.NewEncoder(f).Encode(knownReflectAPIs); err != nil {
+		return fmt.Errorf("gob encode: %w", err)
+	}
+	return f.Close()
 }
 
 func (tf *transformer) findReflectFunctions(files []*ast.File) {
