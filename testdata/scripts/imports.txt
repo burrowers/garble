@@ -44,11 +44,17 @@ cmp stdout main.stdout
 -- go.mod --
 module test/main
 
-go 1.16
+go 1.17
 
 require (
-	rsc.io/quote v1.5.2
 	gopkg.in/garbletest.v2 v2.999.0
+	rsc.io/quote v1.5.2
+)
+
+require (
+	golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c // indirect
+	rsc.io/sampler v1.3.0 // indirect
+	rsc.io/testonly v1.0.0 // indirect
 )
 -- go.sum --
 golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c h1:pvCbr/wm8HzDD3fVywevekufpn6tCGPY3spdHeZJEsw=
@@ -59,6 +65,8 @@ rsc.io/quote v1.5.2 h1:3fEykkD9k7lYzXqCYrwGAf7iNhbk4yCjHmKBN9td4L0=
 rsc.io/quote v1.5.2/go.mod h1:LzX7hefJvL54yjefDEDHNONDjII0t9xZLPXsUe+TKr0=
 rsc.io/sampler v1.3.0 h1:HLGR/BgEtI3r0uymSP/nl2uPLsUnNJX8toRyhfpBTII=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
+rsc.io/testonly v1.0.0 h1:K/VWHdO+Jv7woUXG0GzVNx1czBXUt3Ib1deaMn+xk64=
+rsc.io/testonly v1.0.0/go.mod h1:OqmGbIFOcF+XrFReLOGZ6BhMM7uMBiQwZsyNmh74SzY=
 -- garble_main.go --
 package main
 

@@ -58,7 +58,7 @@ binsubstr main$exe 'garble_main.go' 'globalVar' 'globalFunc' $gofullversion
 -- go.mod --
 module test/mainfoo
 
-go 1.16
+go 1.17
 -- garble_main.go --
 package main
 
