@@ -7,38 +7,44 @@ env PATH=${WORK}/.bin${:}${PATH}
 # An empty go version.
 env GOVERSION=''
 ! garble build
-stderr 'Go version is too old'
+stderr 'Go version is too old; please upgrade to Go 1.17.x or a newer devel version'
 
 # We should error on a devel version that's too old.
+# Note that they lacked the "goN.M-" prefix.
 env GOVERSION='devel +afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! garble build
-stderr 'Go version.*Aug 07.*too old; please upgrade to Go 1.16.x or a newer devel version'
+stderr 'Go version is too old; please upgrade to Go 1.17.x or a newer devel version'
 
-# A future devel timestamp should be fine.
-env GOVERSION='devel +afb5fca Sun Sep 13 07:54:42 2021 +0000'
+# Another form of old version; with an old "goN.M-" prefix.
+env GOVERSION='devel go1.15-afb5fca Sun Aug 07 00:00:00 2020 +0000'
+! garble build
+stderr 'Go version "go1.15" is too old; please upgrade to Go 1.17.x'
+
+# A current devel version should be fine
+env GOVERSION='devel go1.18-ad97d204f0 Sun Sep 12 16:46:58 2021 +0000'
 ! garble build
 stderr 'mocking the real build'
 
 # We should error on a stable version that's too old.
 env GOVERSION='go1.14'
 ! garble build
-stderr 'Go version.*go1.14.*too old; please upgrade to Go 1.16.x'
+stderr 'Go version "go1.14" is too old; please upgrade to Go 1.17.x'
 ! stderr 'or a newer devel version'
 
 # We should accept a future stable version.
-env GOVERSION='go1.16.2'
+env GOVERSION='go1.18.2'
 ! garble build
 stderr 'mocking the real build'
 
 # We should accept custom devel strings.
-env GOVERSION='devel somecustomversion'
+env GOVERSION='devel go1.18-somecustomversion'
 ! garble build
 stderr 'mocking the real build'
 
 -- go.mod --
 module test/main
 
-go 1.16
+go 1.17
 -- main.go --
 package main
 

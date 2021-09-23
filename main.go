@@ -23,11 +23,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -248,51 +248,17 @@ func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
 func goVersionOK() bool {
 	const (
-		minGoVersionSemver = "v1.16.0"
-		suggestedGoVersion = "1.16.x"
-
-		gitTimeFormat = "Mon Jan 2 15:04:05 2006 -0700"
+		minGoVersionSemver = "v1.17.0"
+		suggestedGoVersion = "1.17.x"
 	)
-	// Go 1.16 was released on Febuary 16th, 2021.
-	minGoVersionDate := time.Date(2021, 2, 16, 0, 0, 0, 0, time.UTC)
 
-	version := cache.GoEnv.GOVERSION
+	rxVersion := regexp.MustCompile(`go\d+\.\d+(\.\d)?`)
+	version := rxVersion.FindString(cache.GoEnv.GOVERSION)
 	if version == "" {
 		// Go 1.15.x and older do not have GOVERSION yet.
 		// We could go the extra mile and fetch it via 'go version',
 		// but we'd have to error anyway.
 		fmt.Fprintf(os.Stderr, "Go version is too old; please upgrade to Go %s or a newer devel version\n", suggestedGoVersion)
-		return false
-	}
-
-	if strings.HasPrefix(version, "devel ") {
-		commitAndDate := strings.TrimPrefix(version, "devel ")
-		// Remove commit hash and architecture from version
-		startDateIdx := strings.IndexByte(commitAndDate, ' ') + 1
-		if startDateIdx < 0 {
-			// Custom version; assume the user knows what they're doing.
-			// TODO: cover this in a test
-			return true
-		}
-
-		// TODO: once we support Go 1.17 and later, use the major Go
-		// version included in its devel versions:
-		//
-		//   go version devel go1.17-8518aac314 ...
-
-		date := commitAndDate[startDateIdx:]
-
-		versionDate, err := time.Parse(gitTimeFormat, date)
-		if err != nil {
-			// Custom version; assume the user knows what they're doing.
-			return true
-		}
-
-		if versionDate.After(minGoVersionDate) {
-			return true
-		}
-
-		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s or a newer devel version\n", version, suggestedGoVersion)
 		return false
 	}
 
@@ -368,23 +334,6 @@ func mainErr(args []string) error {
 	}
 
 	toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
-
-	// Workaround for https://github.com/golang/go/issues/44963.
-	// TODO(mvdan): remove once we only support Go 1.17 and later.
-	if tool == "compile" && !strings.Contains(toolexecImportPath, ".test]") {
-		isTestPkg := false
-		_, paths := splitFlagsFromFiles(args, ".go")
-		for _, path := range paths {
-			if strings.HasSuffix(path, "_test.go") {
-				isTestPkg = true
-				break
-			}
-		}
-		if isTestPkg {
-			forPkg := strings.TrimSuffix(toolexecImportPath, "_test")
-			toolexecImportPath = fmt.Sprintf("%s [%s.test]", toolexecImportPath, forPkg)
-		}
-	}
 
 	curPkg = cache.ListedPackages[toolexecImportPath]
 	if curPkg == nil {
@@ -673,10 +622,9 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	if (curPkg.ImportPath == "runtime" && opts.Tiny) || curPkg.ImportPath == "runtime/internal/sys" {
-		// Even though these packages aren't private, we will still process
-		// them later to remove build information and strip code from the
-		// runtime. However, we only want flags to work on private packages.
+	if curPkg.ImportPath == "runtime" && opts.Tiny {
+		// When using -tiny, we call stripRuntime below.
+		// We don't want -literals and -debugdir to apply, though.
 		opts.GarbleLiterals = false
 		opts.DebugDir = ""
 	} else if !curPkg.Private {
@@ -706,29 +654,9 @@ func transformCompile(args []string) ([]string, error) {
 
 	for i, file := range files {
 		name := filepath.Base(paths[i])
-		switch curPkg.ImportPath {
-		case "runtime":
+		if curPkg.ImportPath == "runtime" && opts.Tiny {
 			// strip unneeded runtime code
 			stripRuntime(name, file)
-		case "runtime/internal/sys":
-			// The first declaration in zversion.go contains the Go
-			// version as follows. Replace it here, since the
-			// linker's -X does not work with constants.
-			//
-			//     const TheVersion = `devel ...`
-			//
-			// Don't touch the source in any other way.
-			// TODO: remove once we only support Go 1.17 and later,
-			// as from that point we can just rely on linking -X flags.
-			if name != "zversion.go" {
-				break
-			}
-			spec := file.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec)
-			if len(spec.Names) != 1 || spec.Names[0].Name != "TheVersion" {
-				break
-			}
-			lit := spec.Values[0].(*ast.BasicLit)
-			lit.Value = "`unknown`"
 		}
 		if strings.HasPrefix(name, "_cgo_") {
 			// Don't obfuscate cgo code, since it's generated and it gets messy.
@@ -848,7 +776,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 // Once we support go:linkname well and once we can obfuscate the runtime
 // package, this entire map can likely go away.
 //
-// The list was obtained via scripts/runtime-related.sh on Go 1.16.
+// The list was obtained via scripts/runtime-related.sh on Go 1.17.
 var runtimeRelated = map[string]bool{
 	"bufio":                                  true,
 	"bytes":                                  true,
@@ -861,9 +789,12 @@ var runtimeRelated = map[string]bool{
 	"fmt":                                    true,
 	"hash":                                   true,
 	"hash/crc32":                             true,
+	"internal/abi":                           true,
 	"internal/bytealg":                       true,
 	"internal/cpu":                           true,
 	"internal/fmtsort":                       true,
+	"internal/goexperiment":                  true,
+	"internal/itoa":                          true,
 	"internal/nettrace":                      true,
 	"internal/oserror":                       true,
 	"internal/poll":                          true,
@@ -910,11 +841,6 @@ var runtimeRelated = map[string]bool{
 	"unsafe":                                 true,
 	"vendor/golang.org/x/net/dns/dnsmessage": true,
 	"vendor/golang.org/x/net/route":          true,
-
-	// Manual additions for Go 1.17 as of June 2021.
-	"internal/abi":          true,
-	"internal/itoa":         true,
-	"internal/goexperiment": true,
 }
 
 // isPrivate checks if a package import path should be considered private,
@@ -1791,7 +1717,7 @@ func alterTrimpath(flags []string) []string {
 	return flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 }
 
-// buildFlags is obtained from 'go help build' as of Go 1.16.
+// buildFlags is obtained from 'go help build' as of Go 1.17.
 var buildFlags = map[string]bool{
 	"-a":             true,
 	"-n":             true,
@@ -1819,7 +1745,7 @@ var buildFlags = map[string]bool{
 	"-overlay":       true,
 }
 
-// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.16.
+// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.17.
 var booleanFlags = map[string]bool{
 	// Shared build flags.
 	"-a":          true,

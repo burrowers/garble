@@ -1,4 +1,4 @@
-rsc.io/sampler@v1.99.99
+module rsc.io/sampler@v1.99.99
 
 -- .mod --
 module "rsc.io/sampler"
