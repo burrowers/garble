@@ -63,9 +63,9 @@ package main
 
 import "test/main/imported"
 
-type strucTest struct {
+type structTest struct {
 	field        string
-	anotherfield string
+	anotherField string
 }
 
 const (
@@ -115,9 +115,9 @@ func main() {
 	println(reassign)
 	println(empty)
 
-	x := strucTest{
+	x := structTest{
 		field:        "to obfuscate",
-		anotherfield: "also obfuscate",
+		anotherField: "also obfuscate",
 	}
 
 	lambda := func() string {
@@ -125,7 +125,7 @@ func main() {
 	}()
 	println(lambda)
 
-	println(x.field, x.anotherfield)
+	println(x.field, x.anotherField)
 
 	testMap := map[string]string{"map key": "map value"}
 	testMap["map key"] = "new value"
