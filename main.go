@@ -622,13 +622,8 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	if curPkg.ImportPath == "runtime" && opts.Tiny {
-		// When using -tiny, we call stripRuntime below.
-		// We don't want -literals and -debugdir to apply, though.
+	if runtimeAndDeps[curPkg.ImportPath] {
 		opts.GarbleLiterals = false
-		opts.DebugDir = ""
-	} else if !curPkg.Private {
-		return append(flags, paths...), nil
 	}
 
 	// Literal obfuscation uses math/rand, so seed it deterministically.
@@ -707,9 +702,6 @@ func transformCompile(args []string) ([]string, error) {
 // Right now, this means recording what local names are used with go:linkname,
 // and rewriting those directives to use obfuscated name from other packages.
 func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
-	if !curPkg.Private {
-		return
-	}
 	for _, group := range comments {
 		for _, comment := range group.List {
 			if !strings.HasPrefix(comment.Text, "//go:linkname ") {
@@ -722,8 +714,10 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			}
 			// This directive has two arguments: "go:linkname localName newName"
 
-			// obfuscate the local name.
-			fields[1] = hashWith(curPkg.GarbleActionID, fields[1])
+			// obfuscate the local name, if the current package is obfuscated
+			if curPkg.Private {
+				fields[1] = hashWith(curPkg.GarbleActionID, fields[1])
+			}
 
 			// If the new name is of the form "pkgpath.Name", and
 			// we've obfuscated "Name" in that package, rewrite the
@@ -770,84 +764,56 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 	}
 }
 
-// runtimeRelated is a snapshot of all the packages runtime depends on, or
+// cannotObfuscate is a list of some packages the runtime depends on, or
 // packages which the runtime points to via go:linkname.
 //
 // Once we support go:linkname well and once we can obfuscate the runtime
 // package, this entire map can likely go away.
 //
-// The list was obtained via scripts/runtime-related.sh on Go 1.17.
-var runtimeRelated = map[string]bool{
-	"bufio":                                  true,
-	"bytes":                                  true,
-	"compress/flate":                         true,
-	"compress/gzip":                          true,
-	"context":                                true,
-	"crypto/x509/internal/macos":             true,
-	"encoding/binary":                        true,
-	"errors":                                 true,
-	"fmt":                                    true,
-	"hash":                                   true,
-	"hash/crc32":                             true,
-	"internal/abi":                           true,
-	"internal/bytealg":                       true,
-	"internal/cpu":                           true,
-	"internal/fmtsort":                       true,
-	"internal/goexperiment":                  true,
-	"internal/itoa":                          true,
-	"internal/nettrace":                      true,
-	"internal/oserror":                       true,
-	"internal/poll":                          true,
-	"internal/race":                          true,
-	"internal/reflectlite":                   true,
-	"internal/singleflight":                  true,
-	"internal/syscall/execenv":               true,
-	"internal/syscall/unix":                  true,
-	"internal/syscall/windows":               true,
-	"internal/syscall/windows/registry":      true,
-	"internal/syscall/windows/sysdll":        true,
-	"internal/testlog":                       true,
-	"internal/unsafeheader":                  true,
-	"io":                                     true,
-	"io/fs":                                  true,
-	"math":                                   true,
-	"math/bits":                              true,
-	"net":                                    true,
-	"os":                                     true,
-	"os/signal":                              true,
-	"path":                                   true,
-	"plugin":                                 true,
-	"reflect":                                true,
-	"runtime":                                true,
-	"runtime/cgo":                            true,
-	"runtime/debug":                          true,
-	"runtime/internal/atomic":                true,
-	"runtime/internal/math":                  true,
-	"runtime/internal/sys":                   true,
-	"runtime/metrics":                        true,
-	"runtime/pprof":                          true,
-	"runtime/trace":                          true,
-	"sort":                                   true,
-	"strconv":                                true,
-	"strings":                                true,
-	"sync":                                   true,
-	"sync/atomic":                            true,
-	"syscall":                                true,
-	"text/tabwriter":                         true,
-	"time":                                   true,
-	"unicode":                                true,
-	"unicode/utf16":                          true,
-	"unicode/utf8":                           true,
-	"unsafe":                                 true,
-	"vendor/golang.org/x/net/dns/dnsmessage": true,
-	"vendor/golang.org/x/net/route":          true,
+// TODO: investigate and resolve each one of these
+var cannotObfuscate = map[string]bool{
+	// not a "real" package
+	"unsafe": true,
+
+	// some linkname failure
+	"time":          true,
+	"runtime/pprof": true,
+
+	// all kinds of stuff breaks when obfuscating the runtime
+	"syscall":      true,
+	"internal/abi": true,
+
+	// rebuilds don't work
+	"os/signal": true,
+
+	// cgo breaks otherwise
+	"runtime/cgo": true,
+
+	// garble reverse breaks otherwise
+	"runtime/debug": true,
+
+	// cgo heavy net doesn't like to be obfuscated
+	"net": true,
+
+	// some linkname failure
+	"crypto/x509/internal/macos": true,
+}
+
+// We can't obfuscate literals in the runtime and its dependencies,
+// because obfuscated literals sometimes escape to heap,
+// and that's not allowed in the runtime itself.
+var runtimeAndDeps = map[string]bool{
+	"runtime":                 true,
+	"runtime/internal/sys":    true,
+	"internal/cpu":            true,
+	"runtime/internal/atomic": true,
 }
 
 // isPrivate checks if a package import path should be considered private,
 // meaning that it should be obfuscated.
 func isPrivate(path string) bool {
 	// We don't support obfuscating these yet.
-	if runtimeRelated[path] {
+	if cannotObfuscate[path] || runtimeAndDeps[path] {
 		return false
 	}
 	// These are main packages, so we must always obfuscate them.
