@@ -249,17 +249,6 @@ func setListedPackages(patterns []string) error {
 	if !anyPrivate {
 		return fmt.Errorf("GOPRIVATE=%q does not match any packages to be built", os.Getenv("GOPRIVATE"))
 	}
-	for path, pkg := range cache.ListedPackages {
-		if pkg.Private {
-			continue
-		}
-		for _, depPath := range pkg.Deps {
-			if cache.ListedPackages[depPath].Private {
-				return fmt.Errorf("public package %q can't depend on obfuscated package %q (matched via GOPRIVATE=%q)",
-					path, depPath, os.Getenv("GOPRIVATE"))
-			}
-		}
-	}
 
 	return nil
 }
