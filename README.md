@@ -79,11 +79,11 @@ in this mode.
 
 `garble build` should take about twice as long as `go build`, as it needs to
 complete two builds. The original build, to be able to load and type-check the
-input code, and finally the obfuscated build.
+input code, and then the obfuscated build.
 
-Go's build cache is fully supported; if a first `garble build` run is slow, a
-second run should be significantly faster. This should offset the cost of the
-double builds, as incremental builds in Go are fast.
+Garble obfuscates one package at a time, mirroring how Go compiles one package
+at a time. This allows Garble to fully support Go's build cache; incremental
+`garble build` calls should only re-build and re-obfuscate modified code.
 
 ### Determinism and seeds
 
@@ -107,11 +107,23 @@ Most of these can improve with time and effort. The purpose of this section is
 to document the current shortcomings of this tool.
 
 * Exported methods are never obfuscated at the moment, since they could
-  be required by interfaces and reflection. This area is a work in progress; see
+  be required by interfaces. This area is a work in progress; see
   [#3](https://github.com/burrowers/garble/issues/3).
 
-* If your program breaks due to an issue with reflection please [open an issue](https://github.com/burrowers/garble/issues/new),
-  we'll try to resolve new edge cases.
+* Garble aims to automatically detect which Go types are used with reflection,
+  as obfuscating those types might break your program.
+  Note that Garble obfuscates [one package at a time](#speed),
+  so if your reflection code inspects a type from an imported package,
+  and your program broke, you may need to add a "hint" in the imported package:
+   ```go
+   type Message struct {
+       Command string
+       Args    string
+   }
+
+   // Never obfuscate the Message type.
+   var _ = reflect.TypeOf(Message{})
+   ```
 
 * Go declarations exported for cgo via `//export` are not obfuscated.
 
