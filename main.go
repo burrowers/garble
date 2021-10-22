@@ -731,15 +731,8 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 
 			// If the package path has multiple dots, split on the
 			// last one.
-			var pkgPath, name string
-			if dotCnt == 1 {
-				target := strings.Split(newName, ".")
-				pkgPath, name = target[0], target[1]
-			} else {
-				lastDotIdx := strings.LastIndex(newName, ".")
-				target := strings.Split(newName[lastDotIdx-1:], ".")
-				pkgPath, name = target[0], target[1]
-			}
+			lastDotIdx := strings.LastIndex(newName, ".")
+			pkgPath, name := newName[:lastDotIdx], newName[lastDotIdx+1:]
 
 			lpkg, err := listPackage(pkgPath)
 			if err != nil {
