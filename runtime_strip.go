@@ -128,7 +128,8 @@ func stripRuntime(filename string, file *ast.File) {
 			switch filename {
 			case "print.go":
 				// was used in hexdumpWords
-				x.Specs = removeImport(`"runtime/internal/sys"`, x.Specs)
+				x.Specs = removeImport(`"runtime/internal/sys"`, x.Specs) // Before Go 1.18.
+				x.Specs = removeImport(`"internal/goarch"`, x.Specs)      // Go 1.18.
 			case "traceback.go":
 				// was used in traceback1
 				x.Specs = removeImport(`"runtime/internal/atomic"`, x.Specs)
