@@ -26,6 +26,7 @@ jobs:
         go test ./...
 
   test-gotip:
+    if: ${{ false }} # TODO: support Go 1.18, see https://github.com/burrowers/garble/issues/385
     runs-on: ubuntu-latest
     continue-on-error: true # master breaks sometimes
     steps:
