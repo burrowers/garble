@@ -24,7 +24,9 @@ cp stderr build-error.stderr
 
 stdin build-error.stderr
 garble reverse ./build-error
-cmp stdout build-error-reverse.stdout
+# Go 1.18 changed the error format slightly.
+[!go1.18] cmp stdout build-error-reverse.stdout-go1.17
+[go1.18] cmp stdout build-error-reverse.stdout-go1.18
 
 [short] stop # no need to verify this with -short
 
@@ -151,8 +153,13 @@ main.main(...)
 	test/main/main.go:11 +0x??
 
 main filename: test/main/main.go
--- build-error-reverse.stdout --
+-- build-error-reverse.stdout-go1.17 --
 # test/main/build-error
 test/main/build-error/error.go:18: cannot convert UnobfuscatedStruct{} (type UnobfuscatedStruct) to type struct { SomeField int }
+exit status 2
+exit status 2
+-- build-error-reverse.stdout-go1.18 --
+# test/main/build-error
+test/main/build-error/error.go:18: cannot convert UnobfuscatedStruct{} (value of type UnobfuscatedStruct) to struct{SomeField int}
 exit status 2
 exit status 2
