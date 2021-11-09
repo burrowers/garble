@@ -16,7 +16,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/rogpeppe/go-internal/goproxytest"
@@ -101,31 +100,6 @@ func TestScripts(t *testing.T) {
 	testscript.Run(t, p)
 }
 
-type binaryCache struct {
-	name    string
-	modtime time.Time
-	content string
-}
-
-var cachedBinary binaryCache
-
-func readFile(ts *testscript.TestScript, file string) string {
-	file = ts.MkAbs(file)
-	info, err := os.Stat(file)
-	if err != nil {
-		ts.Fatalf("%v", err)
-	}
-
-	if cachedBinary.modtime == info.ModTime() && cachedBinary.name == file {
-		return cachedBinary.content
-	}
-
-	cachedBinary.name = file
-	cachedBinary.modtime = info.ModTime()
-	cachedBinary.content = ts.ReadFile(file)
-	return cachedBinary.content
-}
-
 func createFile(ts *testscript.TestScript, path string) *os.File {
 	file, err := os.Create(ts.MkAbs(path))
 	if err != nil {
@@ -138,7 +112,7 @@ func binsubstr(ts *testscript.TestScript, neg bool, args []string) {
 	if len(args) < 2 {
 		ts.Fatalf("usage: binsubstr file substr...")
 	}
-	data := readFile(ts, args[0])
+	data := ts.ReadFile(args[0])
 	var failed []string
 	for _, substr := range args[1:] {
 		match := strings.Contains(data, substr)
