@@ -146,7 +146,10 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 			ts.Logf("diffoscope is not installing; skipping binary diff")
 		} else {
 			// We'll error below; ignore the exec error here.
-			ts.Exec("diffoscope", ts.MkAbs(args[0]), ts.MkAbs(args[1]))
+			ts.Exec("diffoscope",
+				"--diff-context", "2", // down from 7 by default
+				"--max-text-report-size", "4096", // no limit (in bytes) by default; avoid huge output
+				ts.MkAbs(args[0]), ts.MkAbs(args[1]))
 		}
 		sizeDiff := len(data2) - len(data1)
 		ts.Fatalf("%s and %s differ; diffoscope above, size diff: %+d",
