@@ -11,8 +11,8 @@ jobs:
     strategy:
       matrix:
         go-version: [1.17.x]
-        platform: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.platform }}
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
     - name: Install Go
       uses: actions/setup-go@v2
@@ -24,6 +24,12 @@ jobs:
       run: |
         go version
         go test ./...
+    - name: Test with -race
+      # macos and windows tend to be a bit slower,
+      # and it's rare that a race in garble would be OS-specific.
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        go test -race ./...
 
   test-gotip:
     if: ${{ false }} # TODO: support Go 1.18, see https://github.com/burrowers/garble/issues/385
