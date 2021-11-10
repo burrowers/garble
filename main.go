@@ -46,15 +46,15 @@ var (
 )
 
 var (
-	flagGarbleLiterals bool
-	flagGarbleTiny     bool
-	flagDebugDir       string
-	flagSeed           string
+	flagObfuscateLiterals bool
+	flagGarbleTiny        bool
+	flagDebugDir          string
+	flagSeed              string
 )
 
 func init() {
 	flagSet.Usage = usage
-	flagSet.BoolVar(&flagGarbleLiterals, "literals", false, "Obfuscate literals such as strings")
+	flagSet.BoolVar(&flagObfuscateLiterals, "literals", false, "Obfuscate literals such as strings")
 	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
 	flagSet.StringVar(&flagSeed, "seed", "", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
@@ -622,8 +622,11 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
+	// We can't obfuscate literals in the runtime and its dependencies,
+	// because obfuscated literals sometimes escape to heap,
+	// and that's not allowed in the runtime itself.
 	if runtimeAndDeps[curPkg.ImportPath] {
-		opts.GarbleLiterals = false
+		opts.ObfuscateLiterals = false
 	}
 
 	// Literal obfuscation uses math/rand, so seed it deterministically.
@@ -792,14 +795,20 @@ var cannotObfuscate = map[string]bool{
 	"crypto/x509/internal/macos": true,
 }
 
-// We can't obfuscate literals in the runtime and its dependencies,
-// because obfuscated literals sometimes escape to heap,
-// and that's not allowed in the runtime itself.
+// Obtained from "go list -deps runtime" on Go master (1.18) as of Nov 2021.
+// Note that the same command on Go 1.17 results in a subset of this list.
 var runtimeAndDeps = map[string]bool{
-	"runtime":                 true,
-	"runtime/internal/sys":    true,
+	"internal/goarch":         true,
+	"unsafe":                  true,
+	"internal/abi":            true,
 	"internal/cpu":            true,
+	"internal/bytealg":        true,
+	"internal/goexperiment":   true,
+	"internal/goos":           true,
 	"runtime/internal/atomic": true,
+	"runtime/internal/math":   true,
+	"runtime/internal/sys":    true,
+	"runtime":                 true,
 }
 
 // isPrivate checks if a package import path should be considered private,
@@ -1080,7 +1089,7 @@ func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
 	tf.ignoreObjects = make(map[types.Object]bool)
 
 	visit := func(node ast.Node) bool {
-		if opts.GarbleLiterals {
+		if opts.ObfuscateLiterals {
 			literals.RecordUsedAsConstants(node, tf.info, tf.ignoreObjects)
 		}
 
@@ -1242,7 +1251,7 @@ func (tf *transformer) recordType(t types.Type) {
 
 // transformGo obfuscates the provided Go syntax file.
 func (tf *transformer) transformGo(file *ast.File) *ast.File {
-	if opts.GarbleLiterals {
+	if opts.ObfuscateLiterals {
 		file = literals.Obfuscate(file, tf.info, fset, tf.ignoreObjects)
 	}
 

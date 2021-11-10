@@ -95,7 +95,7 @@ func addGarbleToHash(inputHash []byte) []byte {
 	if cache.GoEnv.GOPRIVATE != "" {
 		fmt.Fprintf(h, " GOPRIVATE=%s", cache.GoEnv.GOPRIVATE)
 	}
-	if opts.GarbleLiterals {
+	if opts.ObfuscateLiterals {
 		fmt.Fprintf(h, " -literals")
 	}
 	if opts.Tiny {
