@@ -1,16 +1,31 @@
 env GOPRIVATE=test/main
 
-garble build
-exec ./main
-cmp stderr main.stderr
-! binsubstr main$exe '(devel)'
+[exec:git] exec git init -q
+[exec:git] exec git config user.name "name"
+[exec:git] exec git config user.email "name@email.local"
+[exec:git] exec git add go.mod main.go
+[exec:git] exec git commit -q -m 'very unique commit message'
+[exec:git] exec git rev-parse HEAD
+[exec:git] setenvfile HEAD_COMMIT_SHA stdout
+
+garble build -tags veryuniquebuildtag
+! binsubstr main$exe '(devel)' 'veryuniquebuildtag' ${HEAD_COMMIT_SHA}
+
+go version -m main$exe
+stdout 'main(\.exe)?: unknown'
+stdout -count=1 '^.+$' # expect just one line
 
 [short] stop # no need to verify this with -short
 
-go build
-exec ./main
-cmp stderr main.stderr-orig
-binsubstr main$exe '(devel)'
+go build -tags veryuniquebuildtag
+[!go1.18] binsubstr main$exe '(devel)'
+[go1.18] binsubstr main$exe '(devel)' 'veryuniquebuildtag' ${HEAD_COMMIT_SHA}
+
+go version -m main$exe
+stdout 'path\s*test/main'
+stdout 'mod\s*test/main\s*\(devel\)'
+[go1.18] stdout 'build\s*tags.*veryuniquebuildtag'
+[go1.18] stdout 'build\s*gitrevision.*'${HEAD_COMMIT_SHA}
 
 -- go.mod --
 module test/main
@@ -19,16 +34,4 @@ go 1.17
 -- main.go --
 package main
 
-import "runtime/debug"
-
-func main() {
-	if info, ok := debug.ReadBuildInfo(); ok {
-		println("version", info.Main.Version)
-	} else {
-		println("no version")
-	}
-}
--- main.stderr-orig --
-version (devel)
--- main.stderr --
-no version
+func main() { println("hello world") }
