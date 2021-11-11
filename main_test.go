@@ -91,6 +91,7 @@ func TestScripts(t *testing.T) {
 			"binsubstr":         binsubstr,
 			"bincmp":            bincmp,
 			"generate-literals": generateLiterals,
+			"setenvfile":        setenvfile,
 		},
 		UpdateScripts: *update,
 	}
@@ -214,6 +215,17 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 	if err := printer.Fprint(codeFile, token.NewFileSet(), file); err != nil {
 		ts.Fatalf("%v", err)
 	}
+}
+
+func setenvfile(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("unsupported: ! setenvfile")
+	}
+	if len(args) != 2 {
+		ts.Fatalf("usage: setenvfile name file")
+	}
+
+	ts.Setenv(args[0], ts.ReadFile(args[1]))
 }
 
 func TestSplitFlagsFromArgs(t *testing.T) {
