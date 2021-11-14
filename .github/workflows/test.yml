@@ -32,6 +32,7 @@ jobs:
         go test -race ./...
 
   test-gotip:
+    if: ${{ false }} # this fails on tip: go clean -cache && go test -run Script/goprivate
     runs-on: ubuntu-latest
     continue-on-error: true # master may not be as stable
     steps:

@@ -51,7 +51,7 @@ One can reverse a captured panic stack trace as follows:
 	// We don't actually run a main Go command with all flags,
 	// so if the user gave a non-build flag,
 	// we need this check to not silently ignore it.
-	if _, firstUnknown := filterBuildFlags(flags); firstUnknown != "" {
+	if _, firstUnknown := filterForwardBuildFlags(flags); firstUnknown != "" {
 		// A bit of a hack to get a normal flag.Parse error.
 		// Longer term, "reverse" might have its own FlagSet.
 		return flag.NewFlagSet("", flag.ContinueOnError).Parse([]string{firstUnknown})
