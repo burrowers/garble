@@ -160,6 +160,6 @@ exit status 2
 exit status 2
 -- build-error-reverse.stdout-go1.18 --
 # test/main/build-error
-test/main/build-error/error.go:18: cannot convert UnobfuscatedStruct{} (value of type UnobfuscatedStruct) to struct{SomeField int}
+test/main/build-error/error.go:18: cannot convert UnobfuscatedStruct{} (value of type UnobfuscatedStruct) to type struct{SomeField int}
 exit status 2
 exit status 2
