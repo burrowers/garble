@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -17,6 +18,7 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	mathrand "math/rand"
@@ -170,7 +172,7 @@ func obfuscatedTypesPackage(path string) *types.Package {
 			"-trimpath",
 			"-toolexec=" + cache.ExecPath,
 		}
-		goArgs = append(goArgs, cache.BuildFlags...)
+		goArgs = append(goArgs, cache.ForwardBuildFlags...)
 		goArgs = append(goArgs, path)
 
 		cmd := exec.Command("go", goArgs...)
@@ -398,9 +400,9 @@ This command wraps "go %s". Below is its help:
 
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.
-	cache.BuildFlags, _ = filterBuildFlags(flags)
+	cache.ForwardBuildFlags, _ = filterForwardBuildFlags(flags)
 	if command == "test" {
-		cache.BuildFlags = append(cache.BuildFlags, "-test")
+		cache.ForwardBuildFlags = append(cache.ForwardBuildFlags, "-test")
 	}
 
 	if err := fetchGoEnv(); err != nil {
@@ -472,6 +474,28 @@ func transformAsm(args []string) ([]string, error) {
 
 	flags = alterTrimpath(flags)
 
+	// If the assembler is running just for -gensymabis,
+	// don't obfuscate the source, as we are not assembling yet.
+	// The assembler will run again later; obfuscating twice is just wasteful.
+	symabis := false
+	for _, arg := range args {
+		if arg == "-gensymabis" {
+			symabis = true
+			break
+		}
+	}
+	newPaths := make([]string, 0, len(paths))
+	if !symabis {
+		var newPaths []string
+		for _, path := range paths {
+			name := filepath.Base(path)
+			pkgDir := filepath.Join(sharedTempDir, filepath.FromSlash(curPkg.ImportPath))
+			newPath := filepath.Join(pkgDir, name)
+			newPaths = append(newPaths, newPath)
+		}
+		return append(flags, newPaths...), nil
+	}
+
 	// We need to replace all function references with their obfuscated name
 	// counterparts.
 	// Luckily, all func names in Go assembly files are immediately followed
@@ -481,7 +505,6 @@ func transformAsm(args []string) ([]string, error) {
 	const middleDot = '·'
 	middleDotLen := utf8.RuneLen(middleDot)
 
-	newPaths := make([]string, 0, len(paths))
 	for _, path := range paths {
 
 		// Read the entire file into memory.
@@ -572,7 +595,7 @@ func writeTemp(name string, content []byte) (string, error) {
 		return "", err
 	}
 	dstPath := filepath.Join(pkgDir, name)
-	if err := os.WriteFile(dstPath, content, 0o666); err != nil {
+	if err := writeFileExclusive(dstPath, content); err != nil {
 		return "", err
 	}
 	return dstPath, nil
@@ -614,11 +637,17 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
+	// Note that if the file already exists in the cache from another build,
+	// we don't need to write to it again thanks to the hash.
+	// TODO: as an optimization, just load that one gob file.
 	if err := loadKnownReflectAPIs(); err != nil {
 		return nil, err
 	}
 	tf.findReflectFunctions(files)
-	if err := saveKnownReflectAPIs(); err != nil {
+	if err := writeGobExclusive(
+		garbleExportFile(curPkg),
+		knownReflectAPIs,
+	); err != nil && !errors.Is(err, fs.ErrExist) {
 		return nil, err
 	}
 
@@ -988,20 +1017,6 @@ func loadKnownReflectAPIs() error {
 	}
 
 	return nil
-}
-
-func saveKnownReflectAPIs() error {
-	filename := garbleExportFile(curPkg)
-	f, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if err := gob.NewEncoder(f).Encode(knownReflectAPIs); err != nil {
-		return fmt.Errorf("gob encode: %w", err)
-	}
-	return f.Close()
 }
 
 func (tf *transformer) findReflectFunctions(files []*ast.File) {
@@ -1685,16 +1700,22 @@ func alterTrimpath(flags []string) []string {
 	return flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 }
 
-// buildFlags is obtained from 'go help build' as of Go 1.17.
-var buildFlags = map[string]bool{
-	"-a":             true,
-	"-n":             true,
+// forwardBuildFlags is obtained from 'go help build' as of Go 1.17.
+var forwardBuildFlags = map[string]bool{
+	// These shouldn't be used in nested cmd/go calls.
+	"-a": false,
+	"-n": false,
+	"-x": false,
+	"-v": false,
+
+	// These are always set by garble.
+	"-trimpath": false,
+	"-toolexec": false,
+
 	"-p":             true,
 	"-race":          true,
 	"-msan":          true,
-	"-v":             true,
 	"-work":          true,
-	"-x":             true,
 	"-asmflags":      true,
 	"-buildmode":     true,
 	"-compiler":      true,
@@ -1708,8 +1729,6 @@ var buildFlags = map[string]bool{
 	"-modfile":       true,
 	"-pkgdir":        true,
 	"-tags":          true,
-	"-trimpath":      true,
-	"-toolexec":      true,
 	"-overlay":       true,
 }
 
@@ -1736,7 +1755,7 @@ var booleanFlags = map[string]bool{
 	"-benchmem": true,
 }
 
-func filterBuildFlags(flags []string) (filtered []string, firstUnknown string) {
+func filterForwardBuildFlags(flags []string) (filtered []string, firstUnknown string) {
 	for i := 0; i < len(flags); i++ {
 		arg := flags[i]
 		name := arg
@@ -1744,7 +1763,7 @@ func filterBuildFlags(flags []string) (filtered []string, firstUnknown string) {
 			name = arg[:i]
 		}
 
-		buildFlag := buildFlags[name]
+		buildFlag := forwardBuildFlags[name]
 		if buildFlag {
 			filtered = append(filtered, arg)
 		} else {

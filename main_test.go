@@ -276,7 +276,7 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 	}
 }
 
-func TestFilterBuildFlags(t *testing.T) {
+func TestFilterForwardBuildFlags(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name  string
@@ -304,10 +304,10 @@ func TestFilterBuildFlags(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			got, _ := filterBuildFlags(test.flags)
+			got, _ := filterForwardBuildFlags(test.flags)
 
 			if diff := cmp.Diff(test.want, got); diff != "" {
-				t.Fatalf("filterBuildFlags(%q) mismatch (-want +got):\n%s", test.flags, diff)
+				t.Fatalf("filterForwardBuildFlags(%q) mismatch (-want +got):\n%s", test.flags, diff)
 			}
 		})
 	}

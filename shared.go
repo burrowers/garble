@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,8 +22,8 @@ import (
 // store it into a temporary file via gob encoding, and then reuse that file
 // in each of the garble toolexec sub-processes.
 type sharedCache struct {
-	ExecPath   string   // absolute path to the garble binary being used
-	BuildFlags []string // build flags fed to the original "garble ..." command
+	ExecPath          string   // absolute path to the garble binary being used
+	ForwardBuildFlags []string // build flags fed to the original "garble ..." command
 
 	Options flagOptions // garble options being used, i.e. our own flags
 
@@ -76,16 +78,43 @@ func saveSharedCache() (string, error) {
 	}
 
 	sharedCache := filepath.Join(dir, "main-cache.gob")
-	f, err := os.Create(sharedCache)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	if err := gob.NewEncoder(f).Encode(&cache); err != nil {
+	if err := writeGobExclusive(sharedCache, &cache); err != nil {
 		return "", err
 	}
 	return dir, nil
+}
+
+func createExclusive(name string) (*os.File, error) {
+	return os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
+}
+
+// TODO(mvdan): consider using proper atomic file writes.
+// Or possibly even "lockedfile", mimicking cmd/go.
+
+func writeFileExclusive(name string, data []byte) error {
+	f, err := createExclusive(name)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err2 := f.Close(); err == nil {
+		err = err2
+	}
+	return err
+}
+
+func writeGobExclusive(name string, val interface{}) error {
+	f, err := createExclusive(name)
+	if err != nil {
+		return err
+	}
+	if err := gob.NewEncoder(f).Encode(val); err != nil {
+		return err
+	}
+	if err2 := f.Close(); err == nil {
+		err = err2
+	}
+	return err
 }
 
 // flagOptions are derived from the flags
@@ -140,7 +169,7 @@ func setFlagOptions() error {
 			flagDebugDir = filepath.Join(wd, flagDebugDir)
 		}
 
-		if err := os.RemoveAll(flagDebugDir); err == nil || os.IsNotExist(err) {
+		if err := os.RemoveAll(flagDebugDir); err == nil || errors.Is(err, fs.ErrExist) {
 			err := os.MkdirAll(flagDebugDir, 0o755)
 			if err != nil {
 				return err
@@ -193,7 +222,7 @@ func (p *listedPackage) obfuscatedImportPath() string {
 // and all of its dependencies
 func setListedPackages(patterns []string) error {
 	args := []string{"list", "-json", "-deps", "-export", "-trimpath"}
-	args = append(args, cache.BuildFlags...)
+	args = append(args, cache.ForwardBuildFlags...)
 	args = append(args, patterns...)
 	cmd := exec.Command("go", args...)
 
