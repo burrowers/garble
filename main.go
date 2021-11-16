@@ -1283,11 +1283,28 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		}
 		obj := tf.info.ObjectOf(node)
 		if obj == nil {
-			return true
+			_, isImplicit := tf.info.Defs[node]
+			_, parentIsFile := cursor.Parent().(*ast.File)
+			if isImplicit && !parentIsFile {
+				// In a type switch like "switch foo := bar.(type) {",
+				// "foo" is being declared as a symbolic variable,
+				// as it is only actually declared in each "case SomeType:".
+				//
+				// As such, the symbolic "foo" in the syntax tree has no object,
+				// but it is still recorded under Defs with a nil value.
+				// We still want to obfuscate that syntax tree identifier,
+				// so if we detect the case, create a dummy types.Var for it.
+				//
+				// Note that "package mypkg" also denotes a nil object in Defs,
+				// and we don't want to treat that "mypkg" as a variable,
+				// so avoid that case by checking the type of cursor.Parent.
+				obj = types.NewVar(node.Pos(), tf.pkg, node.Name, nil)
+			} else {
+				return true
+			}
 		}
 		pkg := obj.Pkg()
 		if vr, ok := obj.(*types.Var); ok && vr.Embedded() {
-
 			// The docs for ObjectOf say:
 			//
 			//     If id is an embedded struct field, ObjectOf returns the
@@ -1364,16 +1381,10 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		hashToUse := lpkg.GarbleActionID
 
 		// log.Printf("%s: %#v %T", fset.Position(node.Pos()), node, obj)
-		parentScope := obj.Parent()
 		switch obj := obj.(type) {
 		case *types.Var:
-			if parentScope != nil && parentScope != pkg.Scope() {
-				// Identifiers of non-global variables never show up in the binary.
-				return true
-			}
-
 			if !obj.IsField() {
-				// Identifiers of global variables are always obfuscated.
+				// Identifiers denoting variables are always obfuscated.
 				break
 			}
 			// From this point on, we deal with struct fields.
@@ -1423,11 +1434,6 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				}
 			}
 		case *types.TypeName:
-			if parentScope != pkg.Scope() {
-				// Identifiers of non-global types never show up in the binary.
-				return true
-			}
-
 			// If the type was not obfuscated in the package were it was defined,
 			// do not obfuscate it here.
 			if path != curPkg.ImportPath {
