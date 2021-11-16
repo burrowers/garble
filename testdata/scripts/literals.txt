@@ -5,7 +5,7 @@ exec ./main$exe
 cmp stderr main.stderr
 
 binsubstr main$exe 'Skip this block' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
-! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' '1: literal in' 'an array' '2: literal in' 'a slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
+! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'obfuscated with shadowed builtins' '1: literal in' 'an array' '2: literal in' 'a slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -136,6 +136,7 @@ func main() {
 	typedTest()
 	constantTest()
 	byteTest()
+	shadowTest()
 
 	strArray := [2]string{"1: literal in", "an array"}
 	println(strArray[0], strArray[1])
@@ -266,11 +267,31 @@ func stringTypeFunc(s stringType) stringType {
 	return "stringType return" // skip
 }
 
+
 // obfuscating this broke before
 const (
 	iota0 uint8 = iota
 	iota1
 )
+
+// Our inserted code used to break due to the shadowed builtins.
+// The name "fnc" is used as a func var name in garble's inserted code.
+func shadowTest() {
+	{
+		var append, bool, string, fnc int
+		_, _, _, _ = append, bool, string, fnc
+
+		println("obfuscated with shadowed builtins (vars)")
+	}
+	{
+		type append int
+		type bool int
+		type string int
+		type fnc int
+
+		println("obfuscated with shadowed builtins (types)")
+	}
+}
 -- imported/imported.go --
 package imported
 
@@ -352,5 +373,7 @@ foo
 12,13,
 12,13,0,0,
 Complex
+obfuscated with shadowed builtins (vars)
+obfuscated with shadowed builtins (types)
 1: literal in an array
 2: literal in a slice
