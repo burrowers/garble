@@ -5,6 +5,12 @@ stderr '^GOPRIVATE="match-absolutely/nothing" does not match any packages to be 
 env GOPRIVATE=test/main/imported
 garble build ./importer
 
+# Obfuscated packages which import non-obfuscated std packages.
+# Some of the imported std packages use "import maps" due to vendoring,
+# and a past bug made this case fail for "garble build".
+env GOPRIVATE=test/main
+garble build -o=out ./stdimporter
+
 [short] stop # rebuilding std is slow
 
 env GOPRIVATE='*'
