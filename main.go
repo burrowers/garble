@@ -194,7 +194,7 @@ func obfuscatedTypesPackage(path string) *types.Package {
 		entry = &importCfgEntry{
 			packagefile: pkg.Export,
 		}
-		// Adding it to buildInfo.imports allows us to reuse the
+		// Adding it to importCfgEntries allows us to reuse the
 		// "if" branch below. Plus, if this edge case triggers
 		// multiple times in a single package compile, we can
 		// call "go list" once and cache its result.
@@ -351,6 +351,7 @@ func mainErr(args []string) error {
 			return err
 		}
 	}
+	// log.Println(tool, transformed)
 	cmd := exec.Command(args[0], transformed...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -867,6 +868,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 		return "", err
 	}
 
+	// TODO: use slices rather than maps to generate a deterministic importcfg.
 	importCfgEntries = make(map[string]*importCfgEntry)
 	importMap := make(map[string]string)
 
@@ -888,7 +890,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 				continue
 			}
 			beforePath, afterPath := args[:j], args[j+1:]
-			importMap[afterPath] = beforePath
+			importMap[beforePath] = afterPath
 		case "packagefile":
 			args := strings.TrimSpace(line[i+1:])
 			j := strings.Index(args, "=")
@@ -899,10 +901,6 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 
 			impPkg := &importCfgEntry{packagefile: objectPath}
 			importCfgEntries[importPath] = impPkg
-
-			if otherPath, ok := importMap[importPath]; ok {
-				importCfgEntries[otherPath] = impPkg
-			}
 		}
 	}
 	// log.Printf("%#v", buildInfo)
