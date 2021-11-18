@@ -115,12 +115,12 @@ var (
 	// Basic information about the package being currently compiled or linked.
 	curPkg *listedPackage
 
-	// These are pulled from -importcfg in the current obfuscated build.
-	// As such, they contain export data for the dependencies which might be
-	// themselves obfuscated, depending on GOPRIVATE.
-	importCfgEntries map[string]*importCfgEntry
-	garbledImporter  = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
-		return os.Open(importCfgEntries[path].packagefile)
+	garbledImporter = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+		pkgfile := cachedOutput.KnownObjectFiles[path]
+		if pkgfile == "" {
+			panic(fmt.Sprintf("missing in cachedOutput.KnownObjectFiles: %q", path))
+		}
+		return os.Open(pkgfile)
 	}).(types.ImporterFrom)
 
 	opts *flagOptions
@@ -143,79 +143,18 @@ func obfuscatedTypesPackage(path string) *types.Package {
 	if path == curPkg.ImportPath {
 		panic("called obfuscatedTypesPackage on the current package?")
 	}
-	entry, ok := importCfgEntries[path]
-	if !ok {
-		// Handle the case where the name is defined in an indirectly
-		// imported package. Since only direct imports show up in our
-		// importcfg, importCfgEntries will not initially contain the
-		// package path we want.
-		//
-		// This edge case can happen, for example, if package A imports
-		// package B and calls its API, and B's API returns C's struct.
-		// Suddenly, A can use struct field names defined in C, even
-		// though A never directly imports C.
-		//
-		// Another edge case is if A uses C's named type via a type
-		// alias in B.
-		//
-		// For this rare case, for now, do an extra "go list -toolexec"
-		// call to retrieve its export path.
-		//
-		// TODO: Think about ways to avoid this extra exec call. Perhaps
-		// avoid relying on importcfg to know whether an imported name
-		// was obfuscated. Or perhaps record indirect importcfg entries
-		// somehow.
-		goArgs := []string{
-			"list",
-			"-json",
-			"-export",
-			"-trimpath",
-			"-toolexec=" + cache.ExecPath,
-		}
-		goArgs = append(goArgs, cache.ForwardBuildFlags...)
-		goArgs = append(goArgs, path)
-
-		cmd := exec.Command("go", goArgs...)
-		cmd.Dir = opts.GarbleDir
-		out, err := cmd.Output()
-		if err != nil {
-			if err := err.(*exec.ExitError); err != nil {
-				panic(fmt.Sprintf("%v: %s", err, err.Stderr))
-			}
-			panic(err)
-		}
-		var pkg listedPackage
-		if err := json.Unmarshal(out, &pkg); err != nil {
-			panic(err) // shouldn't happen
-		}
-		if pkg.ImportPath != path {
-			panic(fmt.Sprintf("unexpected path: %q vs %q", pkg.ImportPath, path))
-		}
-		entry = &importCfgEntry{
-			packagefile: pkg.Export,
-		}
-		// Adding it to importCfgEntries allows us to reuse the
-		// "if" branch below. Plus, if this edge case triggers
-		// multiple times in a single package compile, we can
-		// call "go list" once and cache its result.
-		importCfgEntries[path] = entry
-	}
-	if entry.cachedPkg != nil {
-		return entry.cachedPkg
+	if pkg := cachedTypesPackages[path]; pkg != nil {
+		return pkg
 	}
 	pkg, err := garbledImporter.ImportFrom(path, opts.GarbleDir, 0)
 	if err != nil {
-		return nil
+		panic(err)
 	}
-	entry.cachedPkg = pkg // cache for later use
+	cachedTypesPackages[path] = pkg // cache for later use
 	return pkg
 }
 
-type importCfgEntry struct {
-	packagefile string
-
-	cachedPkg *types.Package
-}
+var cachedTypesPackages = make(map[string]*types.Package)
 
 func main1() int {
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
@@ -633,21 +572,22 @@ func transformCompile(args []string) ([]string, error) {
 
 	flags = alterTrimpath(flags)
 
+	// Note that if the file already exists in the cache from another build,
+	// we don't need to write to it again thanks to the hash.
+	// TODO: as an optimization, just load that one gob file.
+	if err := loadCachedOutputs(); err != nil {
+		return nil, err
+	}
+
+	tf.findReflectFunctions(files)
 	newImportCfg, err := processImportCfg(flags)
 	if err != nil {
 		return nil, err
 	}
 
-	// Note that if the file already exists in the cache from another build,
-	// we don't need to write to it again thanks to the hash.
-	// TODO: as an optimization, just load that one gob file.
-	if err := loadKnownReflectAPIs(); err != nil {
-		return nil, err
-	}
-	tf.findReflectFunctions(files)
 	if err := writeGobExclusive(
 		garbleExportFile(curPkg),
-		knownReflectAPIs,
+		cachedOutput,
 	); err != nil && !errors.Is(err, fs.ErrExist) {
 		return nil, err
 	}
@@ -855,9 +795,9 @@ func isPrivate(path string) bool {
 	return module.MatchPrefixPatterns(cache.GoEnv.GOPRIVATE, path)
 }
 
-// processImportCfg initializes importCfgEntries via the supplied flags, and
-// constructs a new importcfg with the obfuscated import paths changed as
-// necessary.
+// processImportCfg parses the importcfg file passed to a compile or link step,
+// adding missing entries to KnownObjectFiles to be stored in the build cache.
+// It also builds a new importcfg file to account for obfuscated import paths.
 func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	importCfg := flagValue(flags, "-importcfg")
 	if importCfg == "" {
@@ -868,9 +808,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 		return "", err
 	}
 
-	// TODO: use slices rather than maps to generate a deterministic importcfg.
-	importCfgEntries = make(map[string]*importCfgEntry)
-	importMap := make(map[string]string)
+	var packagefiles, importmaps [][2]string
 
 	for _, line := range strings.SplitAfter(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -890,7 +828,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 				continue
 			}
 			beforePath, afterPath := args[:j], args[j+1:]
-			importMap[beforePath] = afterPath
+			importmaps = append(importmaps, [2]string{beforePath, afterPath})
 		case "packagefile":
 			args := strings.TrimSpace(line[i+1:])
 			j := strings.Index(args, "=")
@@ -899,8 +837,21 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			}
 			importPath, objectPath := args[:j], args[j+1:]
 
-			impPkg := &importCfgEntry{packagefile: objectPath}
-			importCfgEntries[importPath] = impPkg
+			packagefiles = append(packagefiles, [2]string{importPath, objectPath})
+
+			if prev := cachedOutput.KnownObjectFiles[importPath]; prev != "" {
+				// Nothing to do; recorded by one of our dependencies.
+			} else if strings.HasSuffix(objectPath, "_pkg_.a") {
+				// The path is inside a temporary directory, to be deleted soon.
+				// Record the final location within the build cache instead.
+				finalObjectPath, err := gocachePathForFile(objectPath)
+				if err != nil {
+					return "", err
+				}
+				cachedOutput.KnownObjectFiles[importPath] = finalObjectPath
+			} else {
+				cachedOutput.KnownObjectFiles[importPath] = objectPath
+			}
 		}
 	}
 	// log.Printf("%#v", buildInfo)
@@ -913,7 +864,8 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	if err != nil {
 		return "", err
 	}
-	for beforePath, afterPath := range importMap {
+	for _, pair := range importmaps {
+		beforePath, afterPath := pair[0], pair[1]
 		if isPrivate(afterPath) {
 			lpkg, err := listPackage(beforePath)
 			if err != nil {
@@ -930,7 +882,8 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 		}
 		fmt.Fprintf(newCfg, "importmap %s=%s\n", beforePath, afterPath)
 	}
-	for impPath, pkg := range importCfgEntries {
+	for _, pair := range packagefiles {
+		impPath, pkgfile := pair[0], pair[1]
 		if isPrivate(impPath) {
 			lpkg, err := listPackage(impPath)
 			if err != nil {
@@ -938,7 +891,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			}
 			impPath = lpkg.obfuscatedImportPath()
 		}
-		fmt.Fprintf(newCfg, "packagefile %s=%s\n", impPath, pkg.packagefile)
+		fmt.Fprintf(newCfg, "packagefile %s=%s\n", impPath, pkgfile)
 	}
 
 	// Uncomment to debug the transformed importcfg. Do not delete.
@@ -956,14 +909,29 @@ type (
 	reflectParameterPosition = int
 )
 
-// knownReflectAPIs is a static record of what std APIs use reflection on their
-// parameters, so we can avoid obfuscating types used with them.
-//
-// TODO: we're not including fmt.Printf, as it would have many false positives,
-// unless we were smart enough to detect which arguments get used as %#v or %T.
-var knownReflectAPIs = map[funcFullName][]reflectParameterPosition{
-	"reflect.TypeOf":  {0},
-	"reflect.ValueOf": {0},
+// cachedOutput contains information that will be stored as per garbleExportFile.
+var cachedOutput = struct {
+	// KnownObjectFiles is filled from -importcfg in the current obfuscated build.
+	// As such, it records export data for the dependencies which might be
+	// themselves obfuscated, depending on GOPRIVATE.
+	//
+	// TODO: We rely on obfuscated type information to know what names we didn't
+	// obfuscate. Instead, directly record what names we chose not to obfuscate,
+	// which should then avoid having to go through go/types.
+	KnownObjectFiles map[string]string
+
+	// KnownReflectAPIs is a static record of what std APIs use reflection on their
+	// parameters, so we can avoid obfuscating types used with them.
+	//
+	// TODO: we're not including fmt.Printf, as it would have many false positives,
+	// unless we were smart enough to detect which arguments get used as %#v or %T.
+	KnownReflectAPIs map[funcFullName][]reflectParameterPosition
+}{
+	KnownObjectFiles: map[string]string{},
+	KnownReflectAPIs: map[funcFullName][]reflectParameterPosition{
+		"reflect.TypeOf":  {0},
+		"reflect.ValueOf": {0},
+	},
 }
 
 // garbleExportFile returns an absolute path to a build cache entry
@@ -985,11 +953,11 @@ func garbleExportFile(pkg *listedPackage) string {
 	return trimmed + "-garble-" + hashToString(pkg.GarbleActionID) + "-d"
 }
 
-func loadKnownReflectAPIs() error {
+func loadCachedOutputs() error {
 	for _, path := range curPkg.Deps {
 		pkg, err := listPackage(path)
 		if err != nil {
-			return err
+			panic(err) // shouldn't happen
 		}
 		if pkg.Export == "" {
 			continue // nothing to load
@@ -1003,8 +971,8 @@ func loadKnownReflectAPIs() error {
 			}
 			defer f.Close()
 
-			// Decode appends new entries to the existing map
-			if err := gob.NewDecoder(f).Decode(&knownReflectAPIs); err != nil {
+			// Decode appends new entries to the existing maps
+			if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
 				return fmt.Errorf("gob decode: %w", err)
 			}
 			return nil
@@ -1049,7 +1017,7 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 
 			fullName := fnType.FullName()
 			var identifiers []string
-			for _, argPos := range knownReflectAPIs[fullName] {
+			for _, argPos := range cachedOutput.KnownReflectAPIs[fullName] {
 				arg := call.Args[argPos]
 
 				ident, ok := arg.(*ast.Ident)
@@ -1075,13 +1043,13 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 					}
 				}
 			}
-			knownReflectAPIs[funcObj.FullName()] = argumentPosReflect
+			cachedOutput.KnownReflectAPIs[funcObj.FullName()] = argumentPosReflect
 
 			return true
 		})
 	}
 
-	lenPrevKnownReflectAPIs := len(knownReflectAPIs)
+	lenPrevKnownReflectAPIs := len(cachedOutput.KnownReflectAPIs)
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			visitReflect(decl)
@@ -1089,7 +1057,7 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 	}
 
 	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
-	if len(knownReflectAPIs) > lenPrevKnownReflectAPIs {
+	if len(cachedOutput.KnownReflectAPIs) > lenPrevKnownReflectAPIs {
 		tf.findReflectFunctions(files)
 	}
 }
@@ -1128,7 +1096,7 @@ func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
 
 		fullName := fnType.FullName()
 		// log.Printf("%s: %s", fset.Position(node.Pos()), fullName)
-		for _, argPos := range knownReflectAPIs[fullName] {
+		for _, argPos := range cachedOutput.KnownReflectAPIs[fullName] {
 			arg := call.Args[argPos]
 			argType := tf.info.TypeOf(arg)
 			tf.recordIgnore(argType, tf.pkg.Path())
@@ -1851,7 +1819,7 @@ func flagSetValue(flags []string, name, value string) []string {
 
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
-		"GOPRIVATE", "GOMOD", "GOVERSION",
+		"GOPRIVATE", "GOMOD", "GOVERSION", "GOCACHE",
 	).CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, `Can't find Go toolchain: %v

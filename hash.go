@@ -7,10 +7,13 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"go/token"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -226,4 +229,31 @@ func hashWith(salt []byte, name string) string {
 		}
 	}
 	return string(sum)
+}
+
+// gocachePathForFile works out the path an object file will take in GOCACHE.
+// At the moment, such an entry is based on the hex-encoded sha256 of the file.
+// We need this code because, in the importcfg files given to us during a build,
+// some of the object files are in temporary "[...]/_pkg_.a" files.
+// To be able to use the files again later, we need their final cache location.
+func gocachePathForFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+	entry := filepath.Join(cache.GoEnv.GOCACHE, sum[:2], sum+"-d")
+
+	// Ensure the file actually exists in the build cache.
+	// If it doesn't, fail immediately, as that's likely a bug in our code.
+	if _, err := os.Stat(entry); err != nil {
+		return "", err
+	}
+	return entry, nil
 }
