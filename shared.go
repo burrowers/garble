@@ -45,6 +45,7 @@ type sharedCache struct {
 		GOPRIVATE string // Set to the module path as a fallback.
 		GOMOD     string
 		GOVERSION string
+		GOCACHE   string
 	}
 }
 
