@@ -1070,10 +1070,6 @@ func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
 	tf.ignoreObjects = make(map[types.Object]bool)
 
 	visit := func(node ast.Node) bool {
-		if opts.ObfuscateLiterals {
-			literals.RecordUsedAsConstants(node, tf.info, tf.ignoreObjects)
-		}
-
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true

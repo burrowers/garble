@@ -4,8 +4,8 @@ garble -literals build
 exec ./main$exe
 cmp stderr main.stderr
 
-binsubstr main$exe 'Skip this block' 'also skip this' 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap1 key' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
-! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'obfuscated with shadowed builtins' '1: literal in' 'an array' '2: literal in' 'a slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String'
+binsubstr main$exe 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const'
+! binsubstr main$exe 'garbleDecrypt' 'Lorem' 'dolor' 'first assign' 'second assign' 'First Line' 'Second Line' 'map value' 'obfuscated with shadowed builtins' '1: literal in' 'an array' '2: literal in' 'a slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -78,14 +78,14 @@ const (
 	i       = 1
 	boolean = true
 
-	skip1 = "Skip this block"
+	mixedBlock = "Obfuscate this block"
 )
 
 const (
 	foo = iota
 	bar
 
-	skip2 = "also skip this"
+	iotaBlock = "also obfuscate this"
 )
 
 // We used to conver this to a var in an attempt of obfuscating the literal.
@@ -131,7 +131,7 @@ func main() {
 	testMap["map key"] = "new value"
 	println(testMap["map key"])
 	println("another literal")
-	println(skip1, skip2)
+	println(mixedBlock, iotaBlock)
 	println(i, foo, bar)
 	typedTest()
 	constantTest()
@@ -267,7 +267,6 @@ func stringTypeFunc(s stringType) stringType {
 	return "stringType return" // skip
 }
 
-
 // obfuscating this broke before
 const (
 	iota0 uint8 = iota
@@ -357,7 +356,7 @@ second assign
 to obfuscate also obfuscate
 new value
 another literal
-Skip this block also skip this
+Obfuscate this block also obfuscate this
 1 0 1
 skip untyped const
 skip typed const skip typed var skip typed var assign

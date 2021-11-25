@@ -6,6 +6,7 @@ package literals
 import (
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	mathrand "math/rand"
@@ -38,49 +39,45 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj 
 	pre := func(cursor *astutil.Cursor) bool {
 		switch x := cursor.Node().(type) {
 		case *ast.GenDecl:
-			if x.Tok != token.CONST {
-				return true
+			// constants are obfuscated by replacing all references with the obfuscated value
+			if x.Tok == token.CONST {
+				return false
 			}
-			for _, spec := range x.Specs {
-				spec := spec.(*ast.ValueSpec) // guaranteed for Tok==CONST
-				if len(spec.Values) == 0 {
-					// skip constants with inferred values
-					return false
-				}
-
-				for _, name := range spec.Names {
-					obj := info.ObjectOf(name)
-
-					// We only obfuscate const declarations with typed string values.
-					if obj.Type() != types.Typ[types.String] {
-						return false
-					}
-
-					// The object cannot be obfuscated, e.g. a value that needs to be constant
-					if ignoreObj[obj] {
-						return false
-					}
-				}
-			}
-
-			x.Tok = token.VAR
-			// constants are not possible if we want to obfuscate literals, therefore
-			// move all constant blocks which only contain strings to variables
 		}
 		return true
 	}
 
 	post := func(cursor *astutil.Cursor) bool {
-		switch x := cursor.Node().(type) {
-		case *ast.CompositeLit:
-			byteType := types.Universe.Lookup("byte").Type()
+		node, ok := cursor.Node().(ast.Expr)
+		if !ok {
+			return true
+		}
 
-			if len(x.Elts) == 0 || len(x.Elts) > maxSizeBytes {
+		typeAndValue := info.Types[node]
+		if !typeAndValue.IsValue() {
+			return true
+		}
+
+		if typeAndValue.Type == types.Typ[types.String] && typeAndValue.Value != nil {
+			value := constant.StringVal(typeAndValue.Value)
+			if len(value) == 0 || len(value) > maxSizeBytes {
 				return true
 			}
 
+			cursor.Replace(withPos(obfuscateString(value), node.Pos()))
+
+			return true
+		}
+
+		if node, ok := node.(*ast.CompositeLit); ok {
+			if len(node.Elts) == 0 || len(node.Elts) > maxSizeBytes {
+				return true
+			}
+
+			byteType := types.Universe.Lookup("byte").Type()
+
 			var arrayLen int64
-			switch y := info.TypeOf(x.Type).(type) {
+			switch y := info.TypeOf(node.Type).(type) {
 			case *types.Array:
 				if y.Elem() != byteType {
 					return true
@@ -97,74 +94,73 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj 
 				return true
 			}
 
-			data := make([]byte, 0, len(x.Elts))
+			data := make([]byte, 0, len(node.Elts))
 
-			for _, el := range x.Elts {
-				lit, ok := el.(*ast.BasicLit)
-				if !ok {
+			for _, el := range node.Elts {
+				elType := info.Types[el]
+
+				if elType.Value == nil || elType.Value.Kind() != constant.Int {
 					return true
 				}
-				var value byte
-				if lit.Kind == token.CHAR {
-					val, err := strconv.Unquote(lit.Value)
-					if err != nil {
-						panic(fmt.Sprintf("cannot unquote character: %v", err))
-					}
 
-					value = byte(val[0])
-				} else {
-					val, err := strconv.ParseUint(lit.Value, 0, 8)
-					if err != nil {
-						panic(fmt.Sprintf("cannot parse integer: %v", err))
-					}
-
-					value = byte(val)
+				value, ok := constant.Uint64Val(elType.Value)
+				if !ok {
+					panic(fmt.Sprintf("cannot parse byte value: %v", elType.Value))
 				}
 
-				data = append(data, value)
+				data = append(data, byte(value))
 			}
 
 			if arrayLen > 0 {
-				cursor.Replace(withPos(obfuscateByteArray(data, arrayLen), x.Pos()))
+				cursor.Replace(withPos(obfuscateByteArray(data, arrayLen), node.Pos()))
 			} else {
-				cursor.Replace(withPos(obfuscateByteSlice(data), x.Pos()))
+				cursor.Replace(withPos(obfuscateByteSlice(data), node.Pos()))
 			}
-
-			return true
-
-		case *ast.BasicLit:
-			switch cursor.Name() {
-			case "Values", "Rhs", "Value", "Args", "X", "Y", "Results", "Elts":
-			default:
-				return true // we don't want to obfuscate imports etc.
-			}
-
-			if x.Kind != token.STRING {
-				return true
-			}
-			if len(x.Value) > maxSizeBytes {
-				return true
-			}
-			typeInfo := info.TypeOf(x)
-			if typeInfo != types.Typ[types.String] && typeInfo != types.Typ[types.UntypedString] {
-				return true
-			}
-			value, err := strconv.Unquote(x.Value)
-			if err != nil {
-				panic(fmt.Sprintf("cannot unquote string: %v", err))
-			}
-
-			if len(value) == 0 {
-				return true
-			}
-
-			cursor.Replace(withPos(obfuscateString(value), x.Pos()))
 		}
 
 		return true
 	}
 
-	return astutil.Apply(file, pre, post).(*ast.File)
+	// Imports which are used might be marked as unused by only looking at the ast,
+	// because packages can declare a name different from the last element of their import path.
+	//
+	// 	package main
+	//
+	// 	import "github.com/user/somepackage"
+	//
+	//	func main(){
+	//		// this line uses github.com/user/somepackage
+	//		anotherpackage.Foo()
+	//	}
+	//
+	// TODO: remove this check and detect used imports with go/types somehow
+	prevUsedImports := make(map[string]bool)
+	for _, imp := range file.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			panic(err)
+		}
+		prevUsedImports[path] = astutil.UsesImport(file, path)
+	}
+
+	file = astutil.Apply(file, pre, post).(*ast.File)
+
+	// some imported constants might not be needed anymore, remove unnessecary imports
+	for _, imp := range file.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			panic(err)
+		}
+		if !prevUsedImports[path] || astutil.UsesImport(file, path) {
+			continue
+		}
+
+		if !astutil.DeleteImport(fset, file, path) {
+			panic(fmt.Sprintf("cannot delete unused import: %v", path))
+		}
+	}
+
+	return file
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.
@@ -265,54 +261,4 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 	block.List = append(block.List, sliceToArray...)
 
 	return ah.LambdaCall(arrayType, block)
-}
-
-// RecordUsedAsConstants records identifiers used in constant expressions.
-func RecordUsedAsConstants(node ast.Node, info *types.Info, ignoreObj map[types.Object]bool) {
-	visit := func(node ast.Node) bool {
-		ident, ok := node.(*ast.Ident)
-		if !ok {
-			return true
-		}
-
-		// Only record *types.Const objects.
-		// Other objects, such as builtins or type names,
-		// must not be recorded as they would be false positives.
-		obj := info.ObjectOf(ident)
-		if _, ok := obj.(*types.Const); ok {
-			ignoreObj[obj] = true
-		}
-
-		return true
-	}
-
-	switch x := node.(type) {
-	// in a slice or array composite literal all explicit keys must be constant representable
-	case *ast.CompositeLit:
-		if _, ok := x.Type.(*ast.ArrayType); !ok {
-			break
-		}
-		for _, elt := range x.Elts {
-			if kv, ok := elt.(*ast.KeyValueExpr); ok {
-				ast.Inspect(kv.Key, visit)
-			}
-		}
-	// in an array type the length must be a constant representable
-	case *ast.ArrayType:
-		if x.Len != nil {
-			ast.Inspect(x.Len, visit)
-		}
-	// in a const declaration all values must be constant representable
-	case *ast.GenDecl:
-		if x.Tok != token.CONST {
-			break
-		}
-		for _, spec := range x.Specs {
-			spec := spec.(*ast.ValueSpec)
-
-			for _, val := range spec.Values {
-				ast.Inspect(val, visit)
-			}
-		}
-	}
 }
