@@ -8,7 +8,6 @@ import (
 	"go/ast"
 	"go/token"
 	mathrand "math/rand"
-	"os"
 )
 
 // obfuscator takes a byte slice and converts it to a ast.BlockStmt
@@ -25,7 +24,6 @@ var (
 		shuffle{},
 		seed{},
 	}
-	envGarbleSeed = os.Getenv("GARBLE_SEED")
 )
 
 // If math/rand.Seed() is not called, the generator behaves as if seeded by rand.Seed(1),
