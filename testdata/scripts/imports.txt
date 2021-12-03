@@ -1,5 +1,5 @@
 # Note that this is the only test with a module where we rely on the detection
-# of GOPRIVATE.
+# of GOGARBLE.
 # Also note that, since this is the only test using "real" external modules
 # fetched via GOPROXY, go.mod and go.sum should declare the dependencies.
 

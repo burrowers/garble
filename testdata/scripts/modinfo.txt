@@ -1,4 +1,4 @@
-env GOPRIVATE=test/main
+env GOGARBLE=test/main
 
 [exec:git] exec git init -q
 [exec:git] exec git config user.name "name"

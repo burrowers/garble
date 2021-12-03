@@ -65,7 +65,7 @@ One can reverse a captured panic stack trace as follows:
 	var replaces []string
 
 	for _, lpkg := range cache.ListedPackages {
-		if !lpkg.Private {
+		if !lpkg.ToObfuscate {
 			continue
 		}
 		curPkg = lpkg

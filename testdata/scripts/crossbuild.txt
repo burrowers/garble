@@ -8,7 +8,7 @@
 [!arm] env GOARCH=arm
 [arm] env GOARCH=arm64
 
-env GOPRIVATE='*'
+env GOGARBLE='*'
 
 # Link a binary importing net/http, which will catch whether or not we
 # support ImportMap when linking.

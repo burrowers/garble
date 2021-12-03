@@ -1,4 +1,4 @@
-env GOPRIVATE=test/main
+env GOGARBLE=test/main
 
 # Tiny mode
 garble -tiny build

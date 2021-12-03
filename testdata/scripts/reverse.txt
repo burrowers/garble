@@ -1,4 +1,4 @@
-env GOPRIVATE=test/main
+env GOGARBLE=test/main
 
 # Unknown build flags should result in errors.
 ! garble reverse -badflag=foo .

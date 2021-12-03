@@ -1,4 +1,4 @@
-env GOPRIVATE=test/main
+env GOGARBLE=test/main
 
 env SEED1=OQg9kACEECQ
 env SEED2=NruiDmVz6/s
