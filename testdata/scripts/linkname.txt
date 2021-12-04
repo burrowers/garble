@@ -1,4 +1,4 @@
-env GOPRIVATE=test/main,big.chungus/meme
+env GOGARBLE=test/main,big.chungus/meme
 
 garble build
 exec ./main

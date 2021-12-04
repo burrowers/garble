@@ -1,4 +1,4 @@
-env GOPRIVATE=test/main
+env GOGARBLE=test/main
 
 garble build
 exec ./main
@@ -7,12 +7,12 @@ binsubstr main$exe 'privateAdd'
 
 [short] stop # no need to verify this with -short
 
-env GOPRIVATE=*
+env GOGARBLE=*
 garble build
 exec ./main
 cmp stdout main.stdout
 binsubstr main$exe 'privateAdd'
-env GOPRIVATE=test/main
+env GOGARBLE=test/main
 
 garble -tiny build
 exec ./main

@@ -40,9 +40,11 @@ type sharedCache struct {
 	// we can likely just use that.
 	BinaryContentID []byte
 
+	GOGARBLE string
+
 	// From "go env", primarily.
 	GoEnv struct {
-		GOPRIVATE string // Set to the module path as a fallback.
+		GOPRIVATE string
 		GOMOD     string
 		GOVERSION string
 		GOCACHE   string
@@ -207,11 +209,11 @@ type listedPackage struct {
 
 	GarbleActionID []byte
 
-	Private bool
+	ToObfuscate bool
 }
 
 func (p *listedPackage) obfuscatedImportPath() string {
-	if p.Name == "main" || p.ImportPath == "embed" || !p.Private {
+	if p.Name == "main" || p.ImportPath == "embed" || !p.ToObfuscate {
 		return p.ImportPath
 	}
 	newPath := hashWith(p.GarbleActionID, p.ImportPath)
@@ -263,21 +265,22 @@ func setListedPackages(patterns []string) error {
 		return fmt.Errorf("go list error: %v: %s", err, stderr.Bytes())
 	}
 
-	anyPrivate := false
+	anyToObfuscate := false
 	for path, pkg := range cache.ListedPackages {
-		// If "GOPRIVATE=foo/bar", "foo/bar_test" is also private.
+		// If "GOGARBLE=foo/bar", "foo/bar_test" should also match.
 		if pkg.ForTest != "" {
 			path = pkg.ForTest
 		}
-		// Test main packages like "foo/bar.test" are always private.
-		if (pkg.Name == "main" && strings.HasSuffix(path, ".test")) || isPrivate(path) {
-			pkg.Private = true
-			anyPrivate = true
+		// Test main packages like "foo/bar.test" are always obfuscated,
+		// just like main packages.
+		if (pkg.Name == "main" && strings.HasSuffix(path, ".test")) || toObfuscate(path) {
+			pkg.ToObfuscate = true
+			anyToObfuscate = true
 		}
 	}
 
-	if !anyPrivate {
-		return fmt.Errorf("GOPRIVATE=%q does not match any packages to be built", os.Getenv("GOPRIVATE"))
+	if !anyToObfuscate {
+		return fmt.Errorf("GOGARBLE=%q does not match any packages to be built", cache.GOGARBLE)
 	}
 
 	return nil

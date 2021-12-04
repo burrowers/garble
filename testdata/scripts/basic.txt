@@ -1,4 +1,4 @@
-# Check that the simplest use of garble works. Note the lack of a module or GOPRIVATE.
+# Check that the simplest use of garble works. Note the lack of a module or GOGARBLE.
 garble build -o=main$exe garble_main.go
 exec ./main
 cmp stderr main.stderr

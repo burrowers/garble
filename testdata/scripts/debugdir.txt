@@ -1,4 +1,4 @@
-env GOPRIVATE=test/main
+env GOGARBLE=test/main
 
 garble -debugdir ./debug1 build
 exists 'debug1/test/main/imported/imported.go' 'debug1/test/main/main.go'

@@ -399,16 +399,15 @@ var transformFuncs = map[string]func([]string) (args []string, _ error){
 }
 
 func transformAsm(args []string) ([]string, error) {
-	// If the current package isn't private, we have nothing to do.
-	if !curPkg.Private {
-		return args, nil
+	if !curPkg.ToObfuscate {
+		return args, nil // we're not obfuscating this package
 	}
 
 	flags, paths := splitFlagsFromFiles(args, ".s")
 
 	// When assembling, the import path can make its way into the output
 	// object file.
-	if curPkg.Name != "main" && curPkg.Private {
+	if curPkg.Name != "main" && curPkg.ToObfuscate {
 		flags = flagSetValue(flags, "-p", curPkg.obfuscatedImportPath())
 	}
 
@@ -509,7 +508,7 @@ func transformAsm(args []string) ([]string, error) {
 		}
 
 		// Uncomment for some quick debugging. Do not delete.
-		// if curPkg.Private {
+		// if curPkg.ToObfuscate {
 		// 	fmt.Fprintf(os.Stderr, "\n-- %s --\n%s", path, buf.Bytes())
 		// }
 
@@ -613,7 +612,7 @@ func transformCompile(args []string) ([]string, error) {
 	// If this is a package to obfuscate, swap the -p flag with the new
 	// package path.
 	newPkgPath := ""
-	if curPkg.Name != "main" && curPkg.Private {
+	if curPkg.Name != "main" && curPkg.ToObfuscate {
 		newPkgPath = curPkg.obfuscatedImportPath()
 		flags = flagSetValue(flags, "-p", newPkgPath)
 	}
@@ -642,7 +641,7 @@ func transformCompile(args []string) ([]string, error) {
 		}
 
 		// Uncomment for some quick debugging. Do not delete.
-		// if curPkg.Private {
+		// if curPkg.ToObfuscate {
 		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, name, src)
 		// }
 
@@ -688,7 +687,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			// This directive has two arguments: "go:linkname localName newName"
 
 			// obfuscate the local name, if the current package is obfuscated
-			if curPkg.Private {
+			if curPkg.ToObfuscate {
 				fields[1] = hashWith(curPkg.GarbleActionID, fields[1])
 			}
 
@@ -714,7 +713,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 				comment.Text = strings.Join(fields, " ")
 				continue
 			}
-			if lpkg.Private {
+			if lpkg.ToObfuscate {
 				// The name exists and was obfuscated; obfuscate
 				// the new name.
 				newName := hashWith(lpkg.GarbleActionID, name)
@@ -781,9 +780,9 @@ var runtimeAndDeps = map[string]bool{
 	"runtime":                 true,
 }
 
-// isPrivate checks if a package import path should be considered private,
-// meaning that it should be obfuscated.
-func isPrivate(path string) bool {
+// toObfuscate checks if a package should be obfuscated given its import path.
+// If you are holding a listedPackage, reuse its ToObfuscate field instead.
+func toObfuscate(path string) bool {
 	// We don't support obfuscating these yet.
 	if cannotObfuscate[path] || runtimeAndDeps[path] {
 		return false
@@ -792,7 +791,7 @@ func isPrivate(path string) bool {
 	if path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
 		return true
 	}
-	return module.MatchPrefixPatterns(cache.GoEnv.GOPRIVATE, path)
+	return module.MatchPrefixPatterns(cache.GOGARBLE, path)
 }
 
 // processImportCfg parses the importcfg file passed to a compile or link step,
@@ -866,7 +865,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	}
 	for _, pair := range importmaps {
 		beforePath, afterPath := pair[0], pair[1]
-		if isPrivate(afterPath) {
+		if toObfuscate(afterPath) {
 			lpkg, err := listPackage(beforePath)
 			if err != nil {
 				panic(err) // shouldn't happen
@@ -884,7 +883,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	}
 	for _, pair := range packagefiles {
 		impPath, pkgfile := pair[0], pair[1]
-		if isPrivate(impPath) {
+		if toObfuscate(impPath) {
 			lpkg, err := listPackage(impPath)
 			if err != nil {
 				panic(err) // shouldn't happen
@@ -913,7 +912,7 @@ type (
 var cachedOutput = struct {
 	// KnownObjectFiles is filled from -importcfg in the current obfuscated build.
 	// As such, it records export data for the dependencies which might be
-	// themselves obfuscated, depending on GOPRIVATE.
+	// themselves obfuscated, depending on GOGARBLE.
 	//
 	// TODO: We rely on obfuscated type information to know what names we didn't
 	// obfuscate. Instead, directly record what names we chose not to obfuscate,
@@ -1337,8 +1336,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		if err != nil {
 			panic(err) // shouldn't happen
 		}
-		if !lpkg.Private {
-			return true // only private packages are transformed
+		if !lpkg.ToObfuscate {
+			return true // we're not obfuscating this package
 		}
 		hashToUse := lpkg.GarbleActionID
 
@@ -1449,7 +1448,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		if err != nil {
 			panic(err) // should never happen
 		}
-		if !lpkg.Private {
+		if !lpkg.ToObfuscate {
 			return true
 		}
 		newPath := lpkg.obfuscatedImportPath()
@@ -1829,15 +1828,22 @@ How to install Go: https://golang.org/doc/install
 	if err := json.Unmarshal(out, &cache.GoEnv); err != nil {
 		return err
 	}
-	// If GOPRIVATE isn't set and we're in a module, use its module
-	// path as a GOPRIVATE default. Include a _test variant too.
-	// TODO(mvdan): we shouldn't need the _test variant here,
-	// as the import path should not include it; only the package name.
-	if cache.GoEnv.GOPRIVATE == "" {
+	cache.GOGARBLE = os.Getenv("GOGARBLE")
+	if cache.GOGARBLE != "" {
+		// GOGARBLE is non-empty; nothing to do.
+	} else if cache.GoEnv.GOPRIVATE != "" {
+		// GOGARBLE is empty and GOPRIVATE is non-empty.
+		// Set GOGARBLE to GOPRIVATE's value.
+		cache.GOGARBLE = cache.GoEnv.GOPRIVATE
+	} else {
+		// If GOPRIVATE isn't set and we're in a module, use its module
+		// path as a GOPRIVATE default. Include a _test variant too.
+		// TODO(mvdan): we shouldn't need the _test variant here,
+		// as the import path should not include it; only the package name.
 		if mod, err := ioutil.ReadFile(cache.GoEnv.GOMOD); err == nil {
 			modpath := modfile.ModulePath(mod)
 			if modpath != "" {
-				cache.GoEnv.GOPRIVATE = modpath + "," + modpath + "_test"
+				cache.GOGARBLE = modpath + "," + modpath + "_test"
 			}
 		}
 	}

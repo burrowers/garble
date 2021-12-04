@@ -1,19 +1,25 @@
+# Ensure that "does not match any packages" works with GOPRIVATE and GOGARBLE.
+env GOGARBLE=match-absolutely/nothing
+! garble build -o=out ./standalone
+stderr '^GOGARBLE="match-absolutely/nothing" does not match any packages to be built$'
+
+env GOGARBLE=
 env GOPRIVATE=match-absolutely/nothing
 ! garble build -o=out ./standalone
-stderr '^GOPRIVATE="match-absolutely/nothing" does not match any packages to be built$'
+stderr '^GOGARBLE="match-absolutely/nothing" does not match any packages to be built$'
 
-env GOPRIVATE=test/main/imported
+env GOGARBLE=test/main/imported
 garble build ./importer
 
 # Obfuscated packages which import non-obfuscated std packages.
 # Some of the imported std packages use "import maps" due to vendoring,
 # and a past bug made this case fail for "garble build".
-env GOPRIVATE=test/main
+env GOGARBLE=test/main
 garble build -o=out ./stdimporter
 
 [short] stop # rebuilding std is slow
 
-env GOPRIVATE='*'
+env GOGARBLE='*'
 
 # Try garbling all of std, given some std packages.
 # No need for a main package here; building the std packages directly works the
