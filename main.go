@@ -1227,7 +1227,9 @@ func (tf *transformer) recordType(t types.Type) {
 
 // transformGo obfuscates the provided Go syntax file.
 func (tf *transformer) transformGo(file *ast.File) *ast.File {
-	if opts.ObfuscateLiterals {
+	// Only obfuscate the literals here if the flag is on
+	// and if the package in question is to be obfuscated.
+	if opts.ObfuscateLiterals && curPkg.ToObfuscate {
 		file = literals.Obfuscate(file, tf.info, fset, tf.ignoreObjects)
 	}
 

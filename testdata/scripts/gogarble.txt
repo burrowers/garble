@@ -8,8 +8,12 @@ env GOPRIVATE=match-absolutely/nothing
 ! garble build -o=out ./standalone
 stderr '^GOGARBLE="match-absolutely/nothing" does not match any packages to be built$'
 
+# A build where just some packages are obfuscated.
 env GOGARBLE=test/main/imported
-garble build ./importer
+garble -literals build -o=out ./importer
+
+! binsubstr out 'some long string to obfuscate'
+binsubstr out 'some long string to not obfuscate'
 
 # Obfuscated packages which import non-obfuscated std packages.
 # Some of the imported std packages use "import maps" due to vendoring,
@@ -49,15 +53,18 @@ package main
 
 func main() {}
 -- importer/importer.go --
-package importer
+package main
 
 import "test/main/imported"
 
-var _ = imported.Name
+func main() {
+	println(imported.LongString)
+	println("some long string to not obfuscate")
+}
 -- imported/imported.go --
 package imported
 
-var Name = "value"
+var LongString = "some long string to obfuscate"
 -- stdimporter/main.go --
 package main
 
