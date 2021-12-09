@@ -98,17 +98,27 @@ func addGarbleToHash(inputHash []byte) []byte {
 	if cache.GOGARBLE != "" {
 		fmt.Fprintf(h, " GOGARBLE=%s", cache.GOGARBLE)
 	}
-	if opts.ObfuscateLiterals {
-		fmt.Fprintf(h, " -literals")
-	}
-	if opts.Tiny {
-		fmt.Fprintf(h, " -tiny")
-	}
-	if len(opts.Seed) > 0 {
-		fmt.Fprintf(h, " -seed=%x", opts.Seed)
-	}
-
+	appendFlags(h)
 	return h.Sum(nil)[:buildIDComponentLength]
+}
+
+// appendFlags writes garble's own flags to w in string form.
+// Errors are ignored, as w is always a buffer or hasher.
+func appendFlags(w io.Writer) {
+	if flagLiterals {
+		io.WriteString(w, " -literals")
+	}
+	if flagTiny {
+		io.WriteString(w, " -tiny")
+	}
+	if flagDebugDir != "" {
+		io.WriteString(w, " -debugdir=")
+		io.WriteString(w, flagDebugDir)
+	}
+	if len(flagSeed.bytes) > 0 {
+		io.WriteString(w, " -seed=")
+		io.WriteString(w, flagSeed.String())
+	}
 }
 
 // buildIDComponentLength is the number of bytes each build ID component takes,
@@ -196,7 +206,7 @@ func hashWith(salt []byte, name string) string {
 
 	d := sha256.New()
 	d.Write(salt)
-	d.Write(opts.Seed)
+	d.Write(flagSeed.bytes)
 	io.WriteString(d, name)
 	sum := make([]byte, nameBase64.EncodedLen(d.Size()))
 	nameBase64.Encode(sum, d.Sum(nil))
