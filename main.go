@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
@@ -19,7 +20,6 @@ import (
 	"go/types"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	mathrand "math/rand"
 	"os"
@@ -48,18 +48,50 @@ var (
 )
 
 var (
-	flagObfuscateLiterals bool
-	flagGarbleTiny        bool
-	flagDebugDir          string
-	flagSeed              string
+	flagLiterals bool
+	flagTiny     bool
+	flagDebugDir string
+	flagSeed     seedFlag
 )
 
 func init() {
 	flagSet.Usage = usage
-	flagSet.BoolVar(&flagObfuscateLiterals, "literals", false, "Obfuscate literals such as strings")
-	flagSet.BoolVar(&flagGarbleTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
+	flagSet.BoolVar(&flagLiterals, "literals", false, "Obfuscate literals such as strings")
+	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
-	flagSet.StringVar(&flagSeed, "seed", "", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
+	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
+}
+
+type seedFlag struct {
+	random bool
+	bytes  []byte
+}
+
+func (f seedFlag) String() string {
+	return base64.RawStdEncoding.EncodeToString(f.bytes)
+}
+
+func (f *seedFlag) Set(s string) error {
+	if s == "random" {
+		f.bytes = make([]byte, 16) // random 128 bit seed
+		if _, err := rand.Read(f.bytes); err != nil {
+			return fmt.Errorf("error generating random seed: %v", err)
+		}
+	} else {
+		// We expect unpadded base64, but to be nice, accept padded
+		// strings too.
+		s = strings.TrimRight(s, "=")
+		seed, err := base64.RawStdEncoding.DecodeString(s)
+		if err != nil {
+			return fmt.Errorf("error decoding seed: %v", err)
+		}
+
+		if len(seed) < 8 {
+			return fmt.Errorf("-seed needs at least 8 bytes, have %d", len(seed))
+		}
+		f.bytes = seed
+	}
+	return nil
 }
 
 func usage() {
@@ -100,6 +132,7 @@ func main() { os.Exit(main1()) }
 var (
 	fset          = token.NewFileSet()
 	sharedTempDir = os.Getenv("GARBLE_SHARED")
+	parentWorkDir = os.Getenv("GARBLE_PARENT_WORK")
 
 	// origImporter is a go/types importer which uses the original versions
 	// of packages, without any obfuscation. This is helpful to make
@@ -122,8 +155,6 @@ var (
 		}
 		return os.Open(pkgfile)
 	}).(types.ImporterFrom)
-
-	opts *flagOptions
 )
 
 type importerWithMap func(path, dir string, mode types.ImportMode) (*types.Package, error)
@@ -146,7 +177,7 @@ func obfuscatedTypesPackage(path string) *types.Package {
 	if pkg := cachedTypesPackages[path]; pkg != nil {
 		return pkg
 	}
-	pkg, err := garbledImporter.ImportFrom(path, opts.GarbleDir, 0)
+	pkg, err := garbledImporter.ImportFrom(path, parentWorkDir, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -175,8 +206,8 @@ func main1() int {
 		// If the build failed and a random seed was used,
 		// the failure might not reproduce with a different seed.
 		// Print it before we exit.
-		if flagSeed == "random" {
-			fmt.Fprintf(os.Stderr, "random seed: %s\n", base64.RawStdEncoding.EncodeToString(opts.Seed))
+		if flagSeed.random {
+			fmt.Fprintf(os.Stderr, "random seed: %s\n", base64.RawStdEncoding.EncodeToString(flagSeed.bytes))
 		}
 		return 1
 	}
@@ -264,7 +295,6 @@ func mainErr(args []string) error {
 	if err := loadSharedCache(); err != nil {
 		return err
 	}
-	opts = &cache.Options
 
 	_, tool := filepath.Split(args[0])
 	if runtime.GOOS == "windows" {
@@ -330,13 +360,9 @@ This command wraps "go %s". Below is its help:
 		return nil, errJustExit(2)
 	}
 
-	if err := setFlagOptions(); err != nil {
-		return nil, err
-	}
-
 	// Here is the only place we initialize the cache.
 	// The sub-processes will parse it from a shared gob file.
-	cache = &sharedCache{Options: *opts}
+	cache = &sharedCache{}
 
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.
@@ -369,11 +395,38 @@ This command wraps "go %s". Below is its help:
 	}
 	os.Setenv("GARBLE_SHARED", sharedTempDir)
 	defer os.Remove(sharedTempDir)
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	os.Setenv("GARBLE_PARENT_WORK", wd)
+
+	if flagDebugDir != "" {
+		if !filepath.IsAbs(flagDebugDir) {
+			flagDebugDir = filepath.Join(wd, flagDebugDir)
+		}
+
+		if err := os.RemoveAll(flagDebugDir); err == nil || errors.Is(err, fs.ErrExist) {
+			err := os.MkdirAll(flagDebugDir, 0o755)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("debugdir error: %v", err)
+		}
+	}
+
+	// Pass the garble flags down to each toolexec invocation.
+	// This way, all garble processes see the same flag values.
+	var toolexecFlag strings.Builder
+	toolexecFlag.WriteString("-toolexec=")
+	toolexecFlag.WriteString(cache.ExecPath)
+	appendFlags(&toolexecFlag)
 
 	goArgs := []string{
 		command,
 		"-trimpath",
-		"-toolexec=" + cache.ExecPath,
+		toolexecFlag.String(),
 	}
 	if flagDebugDir != "" {
 		// In case the user deletes the debug directory,
@@ -595,11 +648,11 @@ func transformCompile(args []string) ([]string, error) {
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
 	if runtimeAndDeps[curPkg.ImportPath] {
-		opts.ObfuscateLiterals = false
+		flagLiterals = false
 	}
 
 	// Literal obfuscation uses math/rand, so seed it deterministically.
-	randSeed := opts.Seed
+	randSeed := flagSeed.bytes
 	if len(randSeed) == 0 {
 		randSeed = curPkg.GarbleActionID
 	}
@@ -621,7 +674,7 @@ func transformCompile(args []string) ([]string, error) {
 
 	for i, file := range files {
 		name := filepath.Base(paths[i])
-		if curPkg.ImportPath == "runtime" && opts.Tiny {
+		if curPkg.ImportPath == "runtime" && flagTiny {
 			// strip unneeded runtime code
 			stripRuntime(name, file)
 		}
@@ -650,9 +703,9 @@ func transformCompile(args []string) ([]string, error) {
 		} else {
 			newPaths = append(newPaths, path)
 		}
-		if opts.DebugDir != "" {
+		if flagDebugDir != "" {
 			osPkgPath := filepath.FromSlash(curPkg.ImportPath)
-			pkgDebugDir := filepath.Join(opts.DebugDir, osPkgPath)
+			pkgDebugDir := filepath.Join(flagDebugDir, osPkgPath)
 			if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
 				return nil, err
 			}
@@ -1229,7 +1282,7 @@ func (tf *transformer) recordType(t types.Type) {
 func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	// Only obfuscate the literals here if the flag is on
 	// and if the package in question is to be obfuscated.
-	if opts.ObfuscateLiterals && curPkg.ToObfuscate {
+	if flagLiterals && curPkg.ToObfuscate {
 		file = literals.Obfuscate(file, tf.info, fset, tf.ignoreObjects)
 	}
 
@@ -1473,7 +1526,7 @@ func locateForeignAlias(dependentImportPath, aliasName string) *types.TypeName {
 		panic(err) // shouldn't happen
 	}
 	for _, importedPath := range lpkg.Imports {
-		pkg2, err := origImporter.ImportFrom(importedPath, opts.GarbleDir, 0)
+		pkg2, err := origImporter.ImportFrom(importedPath, parentWorkDir, 0)
 		if err != nil {
 			panic(err)
 		}
@@ -1842,7 +1895,7 @@ How to install Go: https://golang.org/doc/install
 		// path as a GOPRIVATE default. Include a _test variant too.
 		// TODO(mvdan): we shouldn't need the _test variant here,
 		// as the import path should not include it; only the package name.
-		if mod, err := ioutil.ReadFile(cache.GoEnv.GOMOD); err == nil {
+		if mod, err := os.ReadFile(cache.GoEnv.GOMOD); err == nil {
 			modpath := modfile.ModulePath(mod)
 			if modpath != "" {
 				cache.GOGARBLE = modpath + "," + modpath + "_test"
