@@ -111,6 +111,9 @@ func appendFlags(w io.Writer) {
 	if flagTiny {
 		io.WriteString(w, " -tiny")
 	}
+	if flagDebug {
+		io.WriteString(w, " -debug")
+	}
 	if flagDebugDir != "" {
 		io.WriteString(w, " -debugdir=")
 		io.WriteString(w, flagDebugDir)

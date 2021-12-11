@@ -30,6 +30,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -50,6 +51,7 @@ var (
 var (
 	flagLiterals bool
 	flagTiny     bool
+	flagDebug    bool
 	flagDebugDir string
 	flagSeed     seedFlag
 )
@@ -58,6 +60,7 @@ func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagLiterals, "literals", false, "Obfuscate literals such as strings")
 	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
+	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
 	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
@@ -187,11 +190,59 @@ func obfuscatedTypesPackage(path string) *types.Package {
 
 var cachedTypesPackages = make(map[string]*types.Package)
 
+// uniqueLineWriter sits underneath log.SetOutput to deduplicate log lines.
+// We log bits of useful information for debugging,
+// and logging the same detail twice is not going to help the user.
+// Duplicates are relatively normal, given names tend to repeat.
+type uniqueLineWriter struct {
+	out  io.Writer
+	seen map[string]bool
+}
+
+func (w *uniqueLineWriter) Write(p []byte) (n int, err error) {
+	if !flagDebug {
+		panic("unexpected use of uniqueLineWriter with -debug unset")
+	}
+	if bytes.Count(p, []byte("\n")) != 1 {
+		panic(fmt.Sprintf("log write wasn't just one line: %q", p))
+	}
+	if w.seen[string(p)] {
+		return len(p), nil
+	}
+	if w.seen == nil {
+		w.seen = make(map[string]bool)
+	}
+	w.seen[string(p)] = true
+	return w.out.Write(p)
+}
+
+// debugf is like log.Printf, but it is a no-op by default.
+// TODO(mvdan): remove once we use 1.18: https://github.com/golang/go/issues/47164
+func debugf(format string, args ...interface{}) {
+	if !flagDebug {
+		return
+	}
+	log.Printf(format, args...)
+}
+
+// debugSince is like time.Since but resulting in shorter output.
+// A build process takes at least hundreds of milliseconds,
+// so extra decimal points in the order of microseconds aren't meaningful.
+func debugSince(start time.Time) time.Duration {
+	return time.Since(start).Truncate(10 * time.Microsecond)
+}
+
 func main1() int {
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
 		return 2
 	}
 	log.SetPrefix("[garble] ")
+	log.SetFlags(0) // no timestamps, as they aren't very useful
+	if flagDebug {
+		log.SetOutput(&uniqueLineWriter{out: os.Stderr})
+	} else {
+		log.SetOutput(io.Discard)
+	}
 	args := flagSet.Args()
 	if len(args) < 1 {
 		usage()
@@ -280,6 +331,7 @@ func mainErr(args []string) error {
 		}
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		debugf("calling via toolexec: %s", cmd)
 		return cmd.Run()
 	}
 
@@ -313,14 +365,17 @@ func mainErr(args []string) error {
 
 	transform := transformFuncs[tool]
 	transformed := args[1:]
-	// log.Println(tool, transformed)
 	if transform != nil {
+		startTime := time.Now()
+		debugf("transforming %s with args: %s", tool, strings.Join(transformed, " "))
 		var err error
 		if transformed, err = transform(transformed); err != nil {
 			return err
 		}
+		debugf("transformed args for %s in %s: %s", tool, debugSince(startTime), strings.Join(transformed, " "))
+	} else {
+		debugf("skipping transform on %s with args: %s", tool, strings.Join(transformed, " "))
 	}
-	// log.Println(tool, transformed)
 	cmd := exec.Command(args[0], transformed...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -556,7 +611,7 @@ func transformAsm(args []string) ([]string, error) {
 			}
 
 			newName := hashWith(curPkg.GarbleActionID, name)
-			// log.Printf("%q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+			debugf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
 			buf.WriteString(newName)
 		}
 
@@ -656,11 +711,10 @@ func transformCompile(args []string) ([]string, error) {
 	if len(randSeed) == 0 {
 		randSeed = curPkg.GarbleActionID
 	}
-	// log.Printf("seeding math/rand with %x\n", randSeed)
+	// debugf("seeding math/rand with %x\n", randSeed)
 	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
 
 	tf.prefillIgnoreObjects(files)
-	// log.Println(flags)
 
 	// If this is a package to obfuscate, swap the -p flag with the new
 	// package path.
@@ -906,7 +960,6 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			}
 		}
 	}
-	// log.Printf("%#v", buildInfo)
 
 	// Produce the modified importcfg file.
 	// This is mainly replacing the obfuscated paths.
@@ -1006,6 +1059,8 @@ func garbleExportFile(pkg *listedPackage) string {
 }
 
 func loadCachedOutputs() error {
+	startTime := time.Now()
+	loaded := 0
 	for _, path := range curPkg.Deps {
 		pkg, err := listPackage(path)
 		if err != nil {
@@ -1032,8 +1087,9 @@ func loadCachedOutputs() error {
 		if err != nil {
 			return err
 		}
+		loaded++
 	}
-
+	debugf("%d cached output files loaded in %s", loaded, debugSince(startTime))
 	return nil
 }
 
@@ -1143,7 +1199,6 @@ func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
 		}
 
 		fullName := fnType.FullName()
-		// log.Printf("%s: %s", fset.Position(node.Pos()), fullName)
 		for _, argPos := range cachedOutput.KnownReflectAPIs[fullName] {
 			arg := call.Args[argPos]
 			argType := tf.info.TypeOf(arg)
@@ -1395,14 +1450,16 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			return true // we're not obfuscating this package
 		}
 		hashToUse := lpkg.GarbleActionID
+		debugName := "variable"
 
-		// log.Printf("%s: %#v %T", fset.Position(node.Pos()), node, obj)
+		// debugf("%s: %#v %T", fset.Position(node.Pos()), node, obj)
 		switch obj := obj.(type) {
 		case *types.Var:
 			if !obj.IsField() {
 				// Identifiers denoting variables are always obfuscated.
 				break
 			}
+			debugName = "field"
 			// From this point on, we deal with struct fields.
 
 			// Fields don't get hashed with the package's action ID.
@@ -1450,6 +1507,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				}
 			}
 		case *types.TypeName:
+			debugName = "type"
 			// If the type was not obfuscated in the package were it was defined,
 			// do not obfuscate it here.
 			if path != curPkg.ImportPath {
@@ -1465,6 +1523,11 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			}
 		case *types.Func:
 			sign := obj.Type().(*types.Signature)
+			if sign.Recv() == nil {
+				debugName = "func"
+			} else {
+				debugName = "method"
+			}
 			if obj.Exported() && sign.Recv() != nil {
 				return true // might implement an interface
 			}
@@ -1483,7 +1546,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		_ = origName // used for debug prints below
 
 		node.Name = hashWith(hashToUse, node.Name)
-		// log.Printf("%q (%T) hashed with %x to %q", origName, obj, hashToUse, node.Name)
+		debugf("%s %q hashed with %x… to %q", debugName, origName, hashToUse[:4], node.Name)
 		return true
 	}
 	post := func(cursor *astutil.Cursor) bool {
