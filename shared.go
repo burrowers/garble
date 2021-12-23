@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // sharedCache is shared as a read-only cache between the many garble toolexec
@@ -52,10 +53,14 @@ func loadSharedCache() error {
 	if cache != nil {
 		panic("shared cache loaded twice?")
 	}
+	startTime := time.Now()
 	f, err := os.Open(filepath.Join(sharedTempDir, "main-cache.gob"))
 	if err != nil {
 		return fmt.Errorf(`cannot open shared file, this is most likely due to not running "garble [command]"`)
 	}
+	defer func() {
+		debugf("shared cache loaded in %s from %s", debugSince(startTime), f.Name())
+	}()
 	defer f.Close()
 	if err := gob.NewDecoder(f).Decode(&cache); err != nil {
 		return err
@@ -144,17 +149,22 @@ func (p *listedPackage) obfuscatedImportPath() string {
 		return p.ImportPath
 	}
 	newPath := hashWith(p.GarbleActionID, p.ImportPath)
-	// log.Printf("%q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
+	debugf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
 	return newPath
 }
 
 // setListedPackages gets information about the current package
 // and all of its dependencies
 func setListedPackages(patterns []string) error {
+	startTime := time.Now()
 	args := []string{"list", "-json", "-deps", "-export", "-trimpath"}
 	args = append(args, cache.ForwardBuildFlags...)
 	args = append(args, patterns...)
 	cmd := exec.Command("go", args...)
+
+	defer func() {
+		debugf("original build finished in %s via: go %s", debugSince(startTime), strings.Join(args, " "))
+	}()
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
