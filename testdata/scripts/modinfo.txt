@@ -24,8 +24,8 @@ go build -tags veryuniquebuildtag
 go version -m main$exe
 stdout 'path\s*test/main'
 stdout 'mod\s*test/main\s*\(devel\)'
-[go1.18] stdout 'build\s*tags.*veryuniquebuildtag'
-[go1.18] stdout 'build\s*gitrevision.*'${HEAD_COMMIT_SHA}
+[go1.18] stdout 'build\s*-tags=veryuniquebuildtag'
+[go1.18] stdout 'build\s*vcs.revision='${HEAD_COMMIT_SHA}
 
 -- go.mod --
 module test/main
