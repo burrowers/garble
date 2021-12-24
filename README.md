@@ -28,7 +28,7 @@ order to:
 
 * Replace as many useful identifiers as possible with short base64 hashes
 * Replace package paths with short base64 hashes
-* Remove all [build](https://golang.org/pkg/runtime/#Version) and [module](https://golang.org/pkg/runtime/debug/#ReadBuildInfo) information
+* Remove all [build](https://go.dev/pkg/runtime/#Version) and [module](https://go.dev/pkg/runtime/debug/#ReadBuildInfo) information
 * Strip filenames and shuffle position information
 * Strip debugging information and symbol tables via `-ldflags="-w -s"`
 * [Obfuscate literals](#literal-obfuscation), if the `-literals` flag is given
@@ -42,7 +42,7 @@ module path, to obfuscate all packages under the current module.
 
 Note that commands like `garble build` will use the `go` version found in your
 `$PATH`. To use different versions of Go, you can
-[install them](https://golang.org/doc/manage-install#installing-multiple)
+[install them](https://go.dev/doc/manage-install#installing-multiple)
 and set up `$PATH` with them. For example, for Go 1.17.1:
 
 ```sh

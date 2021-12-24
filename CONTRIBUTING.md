@@ -14,7 +14,7 @@ When contributing for the first time, you should also add yourself to the
 ### Testing
 
 Just the usual `go test ./...`; many of the tests are in
-[testscript](https://godoc.org/github.com/rogpeppe/go-internal/testscript) under
+[testscript](https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript) under
 `testdata/script/`, which allows laying out files and shell-like steps to run as
 part of the test.
 
