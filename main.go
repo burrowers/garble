@@ -1939,7 +1939,7 @@ func fetchGoEnv() error {
 
 This is likely due to go not being installed/setup correctly.
 
-How to install Go: https://golang.org/doc/install
+How to install Go: https://go.dev/doc/install
 `, err)
 		return errJustExit(1)
 	}
