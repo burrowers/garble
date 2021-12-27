@@ -440,7 +440,13 @@ This command wraps "go %s". Below is its help:
 		return nil, err
 	}
 
-	if err := setListedPackages(args); err != nil {
+	binaryBuildID, err := buildidOf(cache.ExecPath)
+	if err != nil {
+		return nil, err
+	}
+	cache.BinaryContentID = decodeHash(splitContentID(binaryBuildID))
+
+	if err := appendListedPackages(args...); err != nil {
 		return nil, err
 	}
 
@@ -805,6 +811,12 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			dotCnt := strings.Count(newName, ".")
 			if dotCnt < 1 {
 				// probably a malformed linkname directive
+				continue
+			}
+			switch newName {
+			case "main.main", "main..inittask", "runtime..inittask":
+				// The runtime uses some special symbols with "..".
+				// We aren't touching those at the moment.
 				continue
 			}
 
