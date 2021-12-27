@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/mod/module"
 )
 
 // sharedCache is shared as a read-only cache between the many garble toolexec
@@ -153,9 +155,9 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	return newPath
 }
 
-// setListedPackages gets information about the current package
+// appendListedPackages gets information about the current package
 // and all of its dependencies
-func setListedPackages(patterns []string) error {
+func appendListedPackages(patterns ...string) error {
 	startTime := time.Now()
 	args := []string{"list", "-json", "-deps", "-export", "-trimpath"}
 	args = append(args, cache.ForwardBuildFlags...)
@@ -163,7 +165,7 @@ func setListedPackages(patterns []string) error {
 	cmd := exec.Command("go", args...)
 
 	defer func() {
-		debugf("original build finished in %s via: go %s", debugSince(startTime), strings.Join(args, " "))
+		debugf("original build info obtained in %s via: go %s", debugSince(startTime), strings.Join(args, " "))
 	}()
 
 	stdout, err := cmd.StdoutPipe()
@@ -178,14 +180,10 @@ func setListedPackages(patterns []string) error {
 		return fmt.Errorf("go list error: %v", err)
 	}
 
-	binaryBuildID, err := buildidOf(cache.ExecPath)
-	if err != nil {
-		return err
-	}
-	cache.BinaryContentID = decodeHash(splitContentID(binaryBuildID))
-
 	dec := json.NewDecoder(stdout)
-	cache.ListedPackages = make(map[string]*listedPackage)
+	if cache.ListedPackages == nil {
+		cache.ListedPackages = make(map[string]*listedPackage)
+	}
 	for dec.More() {
 		var pkg listedPackage
 		if err := dec.Decode(&pkg); err != nil {
@@ -216,7 +214,8 @@ func setListedPackages(patterns []string) error {
 		}
 	}
 
-	if !anyToObfuscate {
+	// Don't error if the user ran: GOGARBLE='*' garble build runtime
+	if !anyToObfuscate && !module.MatchPrefixPatterns(cache.GOGARBLE, "runtime") {
 		return fmt.Errorf("GOGARBLE=%q does not match any packages to be built", cache.GOGARBLE)
 	}
 
@@ -225,6 +224,10 @@ func setListedPackages(patterns []string) error {
 
 // listPackage gets the listedPackage information for a certain package
 func listPackage(path string) (*listedPackage, error) {
+	if path == curPkg.ImportPath {
+		return curPkg, nil
+	}
+
 	// If the path is listed in the top-level ImportMap, use its mapping instead.
 	// This is a common scenario when dealing with vendored packages in GOROOT.
 	// The map is flat, so we don't need to recurse.
@@ -233,8 +236,33 @@ func listPackage(path string) (*listedPackage, error) {
 	}
 
 	pkg, ok := cache.ListedPackages[path]
+
+	// The runtime may list any package in std, even those it doesn't depend on.
+	// This is due to how it linkname-implements std packages,
+	// such as sync/atomic or reflect, without importing them in any way.
+	// If ListedPackages lacks such a package we fill it with "std".
+	if curPkg.ImportPath == "runtime" {
+		if ok {
+			return pkg, nil
+		}
+		if err := appendListedPackages("std"); err != nil {
+			panic(err) // should never happen
+		}
+		pkg, ok := cache.ListedPackages[path]
+		if !ok {
+			panic(fmt.Sprintf("runtime listed a std package we can't find: %s", path))
+		}
+		return pkg, nil
+	}
+	// Packages other than runtime can list any package,
+	// as long as they depend on it directly or indirectly.
 	if !ok {
 		return nil, fmt.Errorf("path not found in listed packages: %s", path)
 	}
-	return pkg, nil
+	for _, dep := range curPkg.Deps {
+		if dep == pkg.ImportPath {
+			return pkg, nil
+		}
+	}
+	return nil, fmt.Errorf("refusing to list non-dependency package: %s", path)
 }
