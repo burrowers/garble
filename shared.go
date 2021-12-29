@@ -159,6 +159,9 @@ func (p *listedPackage) obfuscatedImportPath() string {
 // and all of its dependencies
 func appendListedPackages(patterns ...string) error {
 	startTime := time.Now()
+	// TODO: perhaps include all top-level build flags set by garble,
+	// including -buildinfo=false and -buildvcs=false.
+	// They shouldn't affect "go list" here, but might as well be consistent.
 	args := []string{"list", "-json", "-deps", "-export", "-trimpath"}
 	args = append(args, cache.ForwardBuildFlags...)
 	args = append(args, patterns...)
