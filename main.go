@@ -269,6 +269,8 @@ type errJustExit int
 
 func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
+var goVersionSemver string
+
 func goVersionOK() bool {
 	const (
 		minGoVersionSemver = "v1.17.0"
@@ -285,8 +287,8 @@ func goVersionOK() bool {
 		return false
 	}
 
-	versionSemver := "v" + strings.TrimPrefix(version, "go")
-	if semver.Compare(versionSemver, minGoVersionSemver) < 0 {
+	goVersionSemver = "v" + strings.TrimPrefix(version, "go")
+	if semver.Compare(goVersionSemver, minGoVersionSemver) < 0 {
 		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", version, suggestedGoVersion)
 		return false
 	}
@@ -487,8 +489,15 @@ This command wraps "go %s". Below is its help:
 	goArgs := []string{
 		command,
 		"-trimpath",
-		toolexecFlag.String(),
 	}
+	if semver.Compare(goVersionSemver, "v1.18.0") >= 0 {
+		// TODO: remove the conditional once we drop support for 1.17
+		goArgs = append(goArgs,
+			"-buildinfo=false",
+			"-buildvcs=false",
+		)
+	}
+	goArgs = append(goArgs, toolexecFlag.String())
 	if flagDebugDir != "" {
 		// In case the user deletes the debug directory,
 		// and a previous build is cached,
@@ -883,7 +892,7 @@ var cannotObfuscate = map[string]bool{
 	"crypto/x509/internal/macos": true,
 }
 
-// Obtained from "go list -deps runtime" on Go master (1.18) as of Nov 2021.
+// Obtained from "go list -deps runtime" on Go 1.18beta1.
 // Note that the same command on Go 1.17 results in a subset of this list.
 var runtimeAndDeps = map[string]bool{
 	"internal/goarch":         true,
@@ -1797,7 +1806,7 @@ func alterTrimpath(flags []string) []string {
 	return flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 }
 
-// forwardBuildFlags is obtained from 'go help build' as of Go 1.17.
+// forwardBuildFlags is obtained from 'go help build' as of Go 1.18beta1.
 var forwardBuildFlags = map[string]bool{
 	// These shouldn't be used in nested cmd/go calls.
 	"-a": false,
@@ -1806,12 +1815,15 @@ var forwardBuildFlags = map[string]bool{
 	"-v": false,
 
 	// These are always set by garble.
-	"-trimpath": false,
-	"-toolexec": false,
+	"-trimpath":  false,
+	"-toolexec":  false,
+	"-buildinfo": false,
+	"-buildvcs":  false,
 
 	"-p":             true,
 	"-race":          true,
 	"-msan":          true,
+	"-asan":          true,
 	"-work":          true,
 	"-asmflags":      true,
 	"-buildmode":     true,
@@ -1826,10 +1838,11 @@ var forwardBuildFlags = map[string]bool{
 	"-modfile":       true,
 	"-pkgdir":        true,
 	"-tags":          true,
+	"-workfile":      true,
 	"-overlay":       true,
 }
 
-// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.17.
+// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.18beta1.
 var booleanFlags = map[string]bool{
 	// Shared build flags.
 	"-a":          true,
@@ -1839,9 +1852,12 @@ var booleanFlags = map[string]bool{
 	"-x":          true,
 	"-race":       true,
 	"-msan":       true,
+	"-asan":       true,
 	"-linkshared": true,
 	"-modcacherw": true,
 	"-trimpath":   true,
+	"-buildinfo":  true,
+	"-buildvcs":   true,
 
 	// Test flags (TODO: support its special -args flag)
 	"-c":        true,
