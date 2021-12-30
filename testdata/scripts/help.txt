@@ -61,6 +61,18 @@ stderr 'unknown command'
 stderr 'usage: go build' # TODO: is this confusing?
 ! stdout .
 
+! garble build -tiny
+stderr 'must precede command, like: garble -tiny build \./pkg'
+! stdout .
+
+! garble build -literals
+stderr 'must precede command, like: garble -literals build \./pkg'
+! stdout .
+
+! garble build -seed=random
+stderr 'must precede command, like: garble -seed=random build \./pkg'
+! stdout .
+
 [!windows] ! garble /does/not/exist/compile
 [windows] ! garble C:\does\not\exist\compile
 stderr 'not running "garble \[command\]"'

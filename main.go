@@ -65,6 +65,8 @@ func init() {
 	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
 
+var rxGarbleFlag = regexp.MustCompile(`-(literals|tiny|debug|debugdir|seed)($|=)`)
+
 type seedFlag struct {
 	random bool
 	bytes  []byte
@@ -415,6 +417,11 @@ This command wraps "go %s". Below is its help:
 
 %s`[1:], command, command, out)
 		return nil, errJustExit(2)
+	}
+	for _, flag := range flags {
+		if rxGarbleFlag.MatchString(flag) {
+			return nil, fmt.Errorf("garble flags must precede command, like: garble %s build ./pkg", flag)
+		}
 	}
 
 	// Here is the only place we initialize the cache.
