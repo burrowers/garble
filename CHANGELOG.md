@@ -1,5 +1,25 @@
 # Changelog
 
+## WIP: [0.5.0] - 2021-12-??
+
+This release of Garble adds initial support for the upcoming Go 1.18,
+continues support for Go 1.17.x, and drops support for Go 1.16.x.
+Note that building generic code isn't supported just yet.
+
+Two breaking changes are introduced:
+
+* Deprecate the use of `GOPRIVATE` in favor of `GOGARBLE` (see https://github.com/burrowers/garble/issues/276)
+* `garble reverse` now requires a main package argument
+
+Noteworthy changes include:
+
+* Improve detection of `reflect` usage even further
+* Support obfuscating some more standard library packages
+* Improve literal obfuscation by using constant folding
+* Add the `-debug` flag to log details of the obfuscated build
+* Ensure the `runtime` package is built in a reproducible way
+* Obfuscate local variable names to prevent shadowing bugs
+
 ## [0.4.0] - 2021-08-26
 
 This release of Garble adds support for Go 1.17.x while maintaining support for
@@ -68,6 +88,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[0.5.0]: https://github.com/burrowers/garble/releases/tag/v0.5.0
 [0.4.0]: https://github.com/burrowers/garble/releases/tag/v0.4.0
 [0.3.0]: https://github.com/burrowers/garble/releases/tag/v0.3.0
 [0.2.0]: https://github.com/burrowers/garble/releases/tag/v0.2.0
