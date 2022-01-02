@@ -87,6 +87,24 @@ func TestScripts(t *testing.T) {
 			}
 			return nil
 		},
+		// TODO: this condition should probably be supported by gotooltest
+		Condition: func(cond string) (bool, error) {
+			switch cond {
+			case "cgo":
+				out, err := exec.Command("go", "env", "CGO_ENABLED").CombinedOutput()
+				if err != nil {
+					return false, err
+				}
+				result := strings.TrimSpace(string(out))
+				switch result {
+				case "0", "1":
+					return result == "1", nil
+				default:
+					return false, fmt.Errorf("unknown CGO_ENABLED: %q", result)
+				}
+			}
+			return false, fmt.Errorf("unknown condition")
+		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
 			"binsubstr":         binsubstr,
 			"bincmp":            bincmp,

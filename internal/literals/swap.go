@@ -17,7 +17,7 @@ type swap struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = swap{}
 
-func getIndexType(dataLen int) string {
+func getIndexType(dataLen int64) string {
 	switch {
 	case dataLen <= math.MaxUint8:
 		return "byte"
@@ -34,7 +34,7 @@ func positionsToSlice(data []int) *ast.CompositeLit {
 	arr := &ast.CompositeLit{
 		Type: &ast.ArrayType{
 			Len: &ast.Ellipsis{}, // Performance optimization
-			Elt: ast.NewIdent(getIndexType(len(data))),
+			Elt: ast.NewIdent(getIndexType(int64(len(data)))),
 		},
 		Elts: []ast.Expr{},
 	}

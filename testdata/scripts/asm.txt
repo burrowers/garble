@@ -1,3 +1,6 @@
+# TODO: support arm64, at least
+[!386] [!amd64] skip 'the assembly is only written for 386 and amd64'
+
 env GOGARBLE=test/main
 
 garble build
@@ -28,29 +31,33 @@ import (
 	"test/main/imported"
 )
 
-func privateAdd(x, y int64) int64
+func privateAdd(x, y int32) int32
 
 func main() {
 	println(privateAdd(1, 2))
 	println(imported.PublicAdd(3, 4))
 }
--- main.s --
-TEXT ·privateAdd(SB),$0-24
-	MOVQ x+0(FP), BX
-	MOVQ y+8(FP), BP
-	ADDQ BP, BX
-	MOVQ BX, ret+16(FP)
+-- main_x86.s --
+//go:build 386 || amd64
+
+TEXT ·privateAdd(SB),$0-16
+	MOVL x+0(FP), BX
+	MOVL y+4(FP), BP
+	ADDL BP, BX
+	MOVL BX, ret+8(FP)
 	RET
 -- imported/imported.go --
 package imported
 
-func PublicAdd(x, y int64) int64
--- imported/imported.s --
-TEXT ·PublicAdd(SB),$0-24
-	MOVQ x+0(FP), BX
-	MOVQ y+8(FP), BP
-	ADDQ BP, BX
-	MOVQ BX, ret+16(FP)
+func PublicAdd(x, y int32) int32
+-- imported/imported_x86.s --
+//go:build 386 || amd64
+
+TEXT ·PublicAdd(SB),$0-16
+	MOVL x+0(FP), BX
+	MOVL y+4(FP), BP
+	ADDL BP, BX
+	MOVL BX, ret+8(FP)
 	RET
 -- main.stderr --
 3
