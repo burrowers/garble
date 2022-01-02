@@ -1,3 +1,5 @@
+[!cgo] skip 'this test requires cgo to be enabled'
+
 env GOGARBLE=test/main
 
 garble build
