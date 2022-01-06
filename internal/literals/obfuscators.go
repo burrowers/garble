@@ -15,16 +15,14 @@ type obfuscator interface {
 	obfuscate(data []byte) *ast.BlockStmt
 }
 
-var (
-	// obfuscators contains all types which implement the obfuscator Interface
-	obfuscators = []obfuscator{
-		simple{},
-		swap{},
-		split{},
-		shuffle{},
-		seed{},
-	}
-)
+// obfuscators contains all types which implement the obfuscator Interface
+var obfuscators = []obfuscator{
+	simple{},
+	swap{},
+	split{},
+	shuffle{},
+	seed{},
+}
 
 // If math/rand.Seed() is not called, the generator behaves as if seeded by rand.Seed(1),
 // so the generator is deterministic.

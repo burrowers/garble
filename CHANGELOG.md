@@ -1,6 +1,6 @@
 # Changelog
 
-## WIP: [0.5.0] - 2021-12-??
+## [0.5.0] - 2022-01-06
 
 This release of Garble adds initial support for the upcoming Go 1.18,
 continues support for Go 1.17.x, and drops support for Go 1.16.x.
@@ -19,6 +19,7 @@ Noteworthy changes include:
 * Add the `-debug` flag to log details of the obfuscated build
 * Ensure the `runtime` package is built in a reproducible way
 * Obfuscate local variable names to prevent shadowing bugs
+* Fix and test support for using garble on 32-bit hosts
 
 ## [0.4.0] - 2021-08-26
 

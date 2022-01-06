@@ -5,6 +5,11 @@ on:
   pull_request:
     branches:
       - master
+
+# Note that a full "go test" is quite heavy,
+# as it runs many builds under the hood.
+# The default -timeout=10m can be hit by the hosted runners.
+
 name: Test
 jobs:
   test:
@@ -23,11 +28,10 @@ jobs:
     - name: Test
       run: |
         go env
-        go test ./...
+        go test -timeout=15m ./...
     - name: Test with -race
       # macos and windows tend to be a bit slower,
       # and it's rare that a race in garble would be OS-specific.
-      # also note that this can take 5-10m, so use a larger timeout.
       if: matrix.os == 'ubuntu-latest'
       run: |
         go test -race -timeout=20m ./...
@@ -50,7 +54,7 @@ jobs:
     - name: Test
       run: |
         go env
-        go test ./...
+        go test -timeout=15m ./...
 
   test-gotip:
     runs-on: ubuntu-latest
@@ -77,7 +81,7 @@ jobs:
     - name: Test
       run: |
         go env
-        go test ./...
+        go test -timeout=15m ./...
 
   code-checks:
     runs-on: ubuntu-latest
