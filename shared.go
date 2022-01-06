@@ -248,6 +248,8 @@ func listPackage(path string) (*listedPackage, error) {
 		if ok {
 			return pkg, nil
 		}
+		// TODO: List fewer packages here. std is 200+ packages,
+		// but in reality we should only miss 20-30 packages at most.
 		if err := appendListedPackages("std"); err != nil {
 			panic(err) // should never happen
 		}
