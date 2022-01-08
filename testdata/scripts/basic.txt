@@ -23,7 +23,7 @@ stdout 'unknown'
 ! stdout $gofullversion
 
 # The binary can't contain the version string either.
-! binsubstr main$exe ${WORK@R} 'garble_main.go' 'globalVar' 'globalFunc' 'garble' $gofullversion
+! binsubstr main$exe ${WORK} 'garble_main.go' 'globalVar' 'globalFunc' 'garble' $gofullversion
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -53,7 +53,7 @@ cmp stderr main.stderr
 # The default build includes full non-trimmed paths, as well as our names.
 # Only check $WORK on non-windows, because it's difficult to do it there.
 binsubstr main$exe 'garble_main.go' 'globalVar' 'globalFunc' $gofullversion
-[!windows] binsubstr main$exe ${WORK@R}
+[!windows] binsubstr main$exe ${WORK}
 
 -- go.mod --
 module test/mainfoo
