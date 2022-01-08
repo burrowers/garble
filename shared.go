@@ -39,8 +39,11 @@ type sharedCache struct {
 
 	GOGARBLE string
 
-	// From "go env", primarily.
+	// Filled directly from "go env".
+	// Remember to update the exec call when adding or removing names.
 	GoEnv struct {
+		GOOS string // i.e. the GOOS build target
+
 		GOPRIVATE string
 		GOMOD     string
 		GOVERSION string
@@ -225,6 +228,8 @@ func appendListedPackages(patterns ...string) error {
 	return nil
 }
 
+var listedRuntimeLinknamed = false
+
 // listPackage gets the listedPackage information for a certain package
 func listPackage(path string) (*listedPackage, error) {
 	if path == curPkg.ImportPath {
@@ -248,15 +253,44 @@ func listPackage(path string) (*listedPackage, error) {
 		if ok {
 			return pkg, nil
 		}
-		// TODO: List fewer packages here. std is 200+ packages,
-		// but in reality we should only miss 20-30 packages at most.
-		if err := appendListedPackages("std"); err != nil {
+		if listedRuntimeLinknamed {
+			panic(fmt.Sprintf("package %q still missing after go list call", path))
+		}
+		startTime := time.Now()
+		// Obtained via scripts/runtime-linknamed-nodeps.sh as of Go 1.18beta1.
+		runtimeLinknamed := []string{
+			"crypto/x509/internal/macos",
+			"net",
+			"os/signal",
+			"plugin",
+			"runtime/debug",
+			"runtime/metrics",
+			"runtime/pprof",
+			"runtime/trace",
+			"syscall/js",
+		}
+		var missing []string
+		for _, linknamed := range runtimeLinknamed {
+			switch {
+			case cache.ListedPackages[linknamed] != nil:
+				// We already have it; skip.
+			case cache.GoEnv.GOOS != "js" && linknamed == "syscall/js":
+				// GOOS-specific package.
+			case cache.GoEnv.GOOS != "darwin" && linknamed == "crypto/x509/internal/macos":
+				// GOOS-specific package.
+			default:
+				missing = append(missing, linknamed)
+			}
+		}
+		if err := appendListedPackages(missing...); err != nil {
 			panic(err) // should never happen
 		}
 		pkg, ok := cache.ListedPackages[path]
 		if !ok {
 			panic(fmt.Sprintf("runtime listed a std package we can't find: %s", path))
 		}
+		listedRuntimeLinknamed = true
+		debugf("listed %d missing runtime-linknamed packages in %s", len(missing), debugSince(startTime))
 		return pkg, nil
 	}
 	// Packages other than runtime can list any package,
