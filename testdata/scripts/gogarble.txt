@@ -71,8 +71,14 @@ var LongString = "some long string to obfuscate"
 -- stdimporter/main.go --
 package main
 
-import "net/http"
+import (
+	"net/http"
+	"runtime/debug"
+)
 
 func main() {
 	http.ListenAndServe("", nil)
+	// debug.WriteHeapDump is particularly interesting,
+	// as it is implemented by runtime via a linkname.
+	debug.WriteHeapDump(1)
 }

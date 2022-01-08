@@ -1967,7 +1967,7 @@ func flagSetValue(flags []string, name, value string) []string {
 
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
-		"GOPRIVATE", "GOMOD", "GOVERSION", "GOCACHE",
+		"GOOS", "GOPRIVATE", "GOMOD", "GOVERSION", "GOCACHE",
 	).CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, `Can't find Go toolchain: %v
