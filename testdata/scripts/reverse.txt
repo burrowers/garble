@@ -90,7 +90,9 @@ import (
 	"runtime/debug"
 )
 
-type ExportedLibType struct{}
+type ExportedLibType struct{
+	ExportedLibField int
+}
 
 func (*ExportedLibType) ExportedLibMethod(w io.Writer) error {
 	_, filename, _, _ := runtime.Caller(0)
@@ -142,9 +144,9 @@ goroutine 1 [running]:
 runtime/debug.Stack(...)
 	runtime/debug/stack.go:24 +0x??
 test/main/lib.printStackTrace(...)
-	test/main/lib/lib.go:30 +0x??
+	test/main/lib/lib.go:32 +0x??
 test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
-	test/main/lib/lib.go:17 +0x??
+	test/main/lib/lib.go:19 +0x??
 main.unexportedMainFunc.func1(...)
 	test/main/main.go:21
 main.unexportedMainFunc(...)
