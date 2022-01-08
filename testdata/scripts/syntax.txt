@@ -41,6 +41,7 @@ package main
 
 import (
 	"go/ast"
+	"runtime"
 
 	"private.source/extra"
 	"test/main/sub"
@@ -75,9 +76,36 @@ type EmbeddingUniverseScope struct {
 
 // TODO: test that go:noinline still works without using debugdir
 
+func ensureInlined(wantInlined bool) {
+	pc := make([]uintptr, 1)
+	// We skip two caller frames; runtime.Callers, and ensureInlined.
+	// This way, the frame we get is our caller, like neverInlined.
+	n := runtime.Callers(2, pc)
+	if n == 0 {
+		panic("got zero callers?")
+	}
+	pc = pc[:n]
+
+	frames := runtime.CallersFrames(pc)
+
+	frame, _ := frames.Next()
+	gotInlined := frame.Func == nil
+	if wantInlined && !gotInlined {
+		panic("caller should be inlined but wasn't")
+	} else if !wantInlined && gotInlined {
+		panic("caller shouldn't be inlined but was")
+	}
+}
+
 //go:noinline
 func neverInlined() {
+	ensureInlined(false)
 	println("This func is never inlined.")
+}
+
+func alwaysInlined() {
+	ensureInlined(true)
+	println("This func is always inlined.")
 }
 
 type EmbeddingOuter struct {
@@ -100,6 +128,7 @@ func main() {
 	println(extra.Func())
 	sub.Test()
 	neverInlined()
+	alwaysInlined()
 
 	_ = sub.EmbeddingExternalForeignAlias{
 		ExternalForeignAlias: nil,
@@ -228,3 +257,4 @@ nil case
 1 4 5 1 input
 This is a separate module to obfuscate.
 This func is never inlined.
+This func is always inlined.
