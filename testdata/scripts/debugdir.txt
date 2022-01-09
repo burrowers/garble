@@ -1,7 +1,10 @@
-env GOGARBLE=test/main
+env GOGARBLE=*
 
+# ! garble -debug -debugdir ./debug1 build
+# cp stderr /tmp/log
+# exit
 garble -debugdir ./debug1 build
-exists 'debug1/test/main/imported/imported.go' 'debug1/test/main/main.go'
+exists 'debug1/test/main/imported/imported.go' 'debug1/test/main/main.go' 'debug1/reflect/type.go'
 ! grep ImportedFunc $WORK/debug1/test/main/imported/imported.go
 ! grep ImportedFunc $WORK/debug1/test/main/main.go
 ! grep 'some comment' $WORK/debug1/test/main/main.go
@@ -22,7 +25,11 @@ go 1.17
 -- main.go --
 package main
 
-import "test/main/imported" // some comment
+import (
+	"reflect"
+
+	"test/main/imported" // some comment
+)
 
 type someType int // some comment
 var someVar = 0
@@ -33,6 +40,7 @@ type someStruct struct {
 
 func main() {
 	imported.ImportedFunc()
+	reflect.TypeOf(123)
 }
 
 -- imported/imported.go --
