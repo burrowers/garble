@@ -491,7 +491,7 @@ This command wraps "go %s". Below is its help:
 	var toolexecFlag strings.Builder
 	toolexecFlag.WriteString("-toolexec=")
 	toolexecFlag.WriteString(cache.ExecPath)
-	appendFlags(&toolexecFlag)
+	appendFlags(&toolexecFlag, false)
 
 	goArgs := []string{
 		command,

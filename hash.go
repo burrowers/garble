@@ -98,13 +98,14 @@ func addGarbleToHash(inputHash []byte) []byte {
 	if cache.GOGARBLE != "" {
 		fmt.Fprintf(h, " GOGARBLE=%s", cache.GOGARBLE)
 	}
-	appendFlags(h)
+	appendFlags(h, true)
 	return h.Sum(nil)[:buildIDComponentLength]
 }
 
 // appendFlags writes garble's own flags to w in string form.
 // Errors are ignored, as w is always a buffer or hasher.
-func appendFlags(w io.Writer) {
+// If forBuildHash is set, only the flags affecting a build are written.
+func appendFlags(w io.Writer, forBuildHash bool) {
 	if flagLiterals {
 		io.WriteString(w, " -literals")
 	}
@@ -114,7 +115,19 @@ func appendFlags(w io.Writer) {
 	if flagDebug {
 		io.WriteString(w, " -debug")
 	}
-	if flagDebugDir != "" {
+	if flagDebugDir != "" && !forBuildHash {
+		// -debugdir is a bit special.
+		//
+		// When passing down flags via -toolexec,
+		// we do want the actual flag value to be kept.
+		//
+		// For build hashes, we can skip the flag entirely,
+		// as it doesn't affect obfuscation at all.
+		//
+		// TODO: in the future, we could avoid using the -a build flag
+		// by using "-debugdir=yes" here, and caching the obfuscated source.
+		// Incremental builds would recover the cached source
+		// to repopulate the output directory if it was removed.
 		io.WriteString(w, " -debugdir=")
 		io.WriteString(w, flagDebugDir)
 	}
