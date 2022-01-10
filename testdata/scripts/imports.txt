@@ -36,8 +36,9 @@ go build -tags buildtag
 exec ./main
 cmp stdout main.stdout
 
-# Also check that -literals doesn't break anything
-garble -literals build -tags buildtag
+# Check that -literals doesn't break anything.
+# Also check that a different form of -tags still works.
+garble -literals build --tags=buildtag
 exec ./main
 cmp stdout main.stdout
 
