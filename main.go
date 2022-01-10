@@ -1880,7 +1880,10 @@ func filterForwardBuildFlags(flags []string) (filtered []string, firstUnknown st
 		arg := flags[i]
 		name := arg
 		if i := strings.IndexByte(arg, '='); i > 0 {
-			name = arg[:i]
+			name = arg[:i] // "-name=value" to "-name"
+		}
+		if strings.HasPrefix(name, "--") {
+			name = name[1:] // "--name" to "-name"
 		}
 
 		buildFlag := forwardBuildFlags[name]
