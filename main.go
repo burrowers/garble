@@ -1270,7 +1270,6 @@ type transformer struct {
 	// So far, it records:
 	//
 	//  * Types which are used for reflection.
-	//  * Identifiers used in constant expressions.
 	//  * Declarations exported via "//export".
 	//  * Types or variables from external packages which were not obfuscated.
 	ignoreObjects map[types.Object]bool
@@ -1366,7 +1365,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	// Only obfuscate the literals here if the flag is on
 	// and if the package in question is to be obfuscated.
 	if flagLiterals && curPkg.ToObfuscate {
-		file = literals.Obfuscate(file, tf.info, fset, tf.ignoreObjects)
+		file = literals.Obfuscate(file, tf.info, fset)
 	}
 
 	pre := func(cursor *astutil.Cursor) bool {

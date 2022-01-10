@@ -35,7 +35,7 @@ func randObfuscator() obfuscator {
 }
 
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, ignoreObj map[types.Object]bool) *ast.File {
+func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet) *ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
 		switch x := cursor.Node().(type) {
 		case *ast.GenDecl:
