@@ -13,7 +13,9 @@ cp stderr main.stderr
 # so we can't use a static golden file.
 grep 'goroutine 1 \[running\]' main.stderr
 # Note that ExportedLibMethod isn't obfuscated.
-! grep 'ExportedLib(Type|Field)|unexportedMainFunc|test/main|main\.go|lib\.go' main.stderr
+# Note that we use long names like "long_lib.go",
+# because an obfuscated filename could realistically end with "lib".
+! grep 'ExportedLib(Type|Field)|unexportedMainFunc|test/main|long_main\.go|long_lib\.go' main.stderr
 
 stdin main.stderr
 garble reverse .
@@ -53,7 +55,7 @@ cmp stdout main-literals.stderr
 module test/main
 
 go 1.17
--- main.go --
+-- long_main.go --
 package main
 
 import (
@@ -80,7 +82,7 @@ func unexportedMainFunc() {
 	}
 	anonFunc()
 }
--- lib/lib.go --
+-- lib/long_lib.go --
 package lib
 
 import (
@@ -138,23 +140,23 @@ var _ = reflect.TypeOf(UnobfuscatedStruct{})
 
 var _ = struct{SomeField int}(UnobfuscatedStruct{})
 -- reverse.stdout --
-lib filename: test/main/lib/lib.go
+lib filename: test/main/lib/long_lib.go
 
 goroutine 1 [running]:
 runtime/debug.Stack(...)
 	runtime/debug/stack.go:24 +0x??
 test/main/lib.printStackTrace(...)
-	test/main/lib/lib.go:32 +0x??
+	test/main/lib/long_lib.go:32 +0x??
 test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
-	test/main/lib/lib.go:19 +0x??
+	test/main/lib/long_lib.go:19 +0x??
 main.unexportedMainFunc.func1(...)
-	test/main/main.go:21
+	test/main/long_main.go:21
 main.unexportedMainFunc(...)
-	test/main/main.go:25 +0x??
+	test/main/long_main.go:25 +0x??
 main.main(...)
-	test/main/main.go:11 +0x??
+	test/main/long_main.go:11 +0x??
 
-main filename: test/main/main.go
+main filename: test/main/long_main.go
 -- build-error-reverse.stdout-go1.17 --
 # test/main/build-error
 test/main/build-error/error.go:18: cannot convert UnobfuscatedStruct{} (type UnobfuscatedStruct) to type struct { SomeField int }
