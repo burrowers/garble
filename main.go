@@ -499,10 +499,7 @@ This command wraps "go %s". Below is its help:
 	}
 	if semver.Compare(goVersionSemver, "v1.18.0") >= 0 {
 		// TODO: remove the conditional once we drop support for 1.17
-		goArgs = append(goArgs,
-			"-buildinfo=false",
-			"-buildvcs=false",
-		)
+		goArgs = append(goArgs, "-buildvcs=false")
 	}
 	goArgs = append(goArgs, toolexecFlag.String())
 	if flagDebugDir != "" {
@@ -1821,10 +1818,9 @@ var forwardBuildFlags = map[string]bool{
 	"-v": false,
 
 	// These are always set by garble.
-	"-trimpath":  false,
-	"-toolexec":  false,
-	"-buildinfo": false,
-	"-buildvcs":  false,
+	"-trimpath": false,
+	"-toolexec": false,
+	"-buildvcs": false,
 
 	"-p":             true,
 	"-race":          true,
@@ -1862,7 +1858,6 @@ var booleanFlags = map[string]bool{
 	"-linkshared": true,
 	"-modcacherw": true,
 	"-trimpath":   true,
-	"-buildinfo":  true,
 	"-buildvcs":   true,
 
 	// Test flags (TODO: support its special -args flag)
