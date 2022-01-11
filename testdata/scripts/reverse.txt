@@ -110,13 +110,13 @@ func printStackTrace(w io.Writer) error {
 	// The format also changes depending on the ABI.
 	// Strip them out here, to have portable static stdout files.
 	rxCallArgs := regexp.MustCompile(`\(({|0x)[^)]+\)|\(\)`)
-	rxPointer := regexp.MustCompile(`0x[0-9a-f]+`)
+	rxPointer := regexp.MustCompile(`\+0x[0-9a-f]+`)
 
 	// Keep this comment here, because comments affect line numbers.
 
 	stack := debug.Stack()
 	stack = rxCallArgs.ReplaceAll(stack, []byte("(...)"))
-	stack = rxPointer.ReplaceAll(stack, []byte("0x??"))
+	stack = rxPointer.ReplaceAll(stack, []byte("+0x??"))
 	_, err := w.Write(stack)
 	return err
 }
