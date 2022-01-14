@@ -718,13 +718,6 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	// We can't obfuscate literals in the runtime and its dependencies,
-	// because obfuscated literals sometimes escape to heap,
-	// and that's not allowed in the runtime itself.
-	if runtimeAndDeps[curPkg.ImportPath] {
-		flagLiterals = false
-	}
-
 	// Literal obfuscation uses math/rand, so seed it deterministically.
 	randSeed := flagSeed.bytes
 	if len(randSeed) == 0 {
@@ -1361,6 +1354,10 @@ func (tf *transformer) recordType(t types.Type) {
 func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	// Only obfuscate the literals here if the flag is on
 	// and if the package in question is to be obfuscated.
+	//
+	// We can't obfuscate literals in the runtime and its dependencies,
+	// because obfuscated literals sometimes escape to heap,
+	// and that's not allowed in the runtime itself.
 	if flagLiterals && curPkg.ToObfuscate {
 		file = literals.Obfuscate(file, tf.info, fset)
 	}

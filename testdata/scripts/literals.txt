@@ -1,4 +1,4 @@
-env GOGARBLE=test/main
+env GOGARBLE=*
 
 garble -literals build
 exec ./main$exe
@@ -61,7 +61,11 @@ go 1.17
 -- main.go --
 package main
 
-import "test/main/imported"
+import (
+	_ "runtime/debug"
+
+	"test/main/imported"
+)
 
 type structTest struct {
 	field        string
