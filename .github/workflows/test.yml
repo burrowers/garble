@@ -58,11 +58,10 @@ jobs:
 
   test-gotip:
     runs-on: ubuntu-latest
-    continue-on-error: true # master may not be as stable
     steps:
     - name: Install Go
       env:
-        GO_COMMIT: b357b05b70d2b8c4988ac2a27f2af176e7a09e1b # 2021-12-21
+        GO_COMMIT: 3b5eec937018be98549dea7067964018f0e5824c # 2022-01-14
       run: |
         cd $HOME
         mkdir $HOME/gotip
@@ -73,7 +72,8 @@ jobs:
         echo "devel go1.18-${GO_COMMIT}" >VERSION
 
         cd src
-        ./make.bash
+        # GOGC=off helps Go build about 20% faster, if we can spare memory.
+        GOGC=off ./make.bash
         echo "GOROOT=$HOME/gotip" >>$GITHUB_ENV
         echo "$HOME/gotip/bin" >>$GITHUB_PATH
     - name: Checkout code
