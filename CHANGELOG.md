@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1] - 2022-01-??
+
+This bugfix release features:
+
+* Fix build errors when using `-literals` with `GOGARBLE=*`
+* Avoid breaking `-ldflags=-X` when `-literals` is used
+* Avoid link errors when using `-debugdir`
+* Speed up obfuscating the `runtime` package
+
 ## [0.5.0] - 2022-01-06
 
 This release of Garble adds initial support for the upcoming Go 1.18,
@@ -89,6 +98,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[0.5.1]: https://github.com/burrowers/garble/releases/tag/v0.5.1
 [0.5.0]: https://github.com/burrowers/garble/releases/tag/v0.5.0
 [0.4.0]: https://github.com/burrowers/garble/releases/tag/v0.4.0
 [0.3.0]: https://github.com/burrowers/garble/releases/tag/v0.3.0
