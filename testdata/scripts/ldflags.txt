@@ -1,24 +1,26 @@
-# Note the proper domain, since the dot adds an edge case.
-env GOGARBLE=domain.test/main
+env GOGARBLE=*
 
-env LDFLAGS='-X=main.unexportedVersion=v1.0.0 -X=domain.test/main/imported.ExportedVar=replaced -X=domain.test/missing/path.missingVar=value'
+# Note the proper domain, since the dot adds an edge case.
+env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/missing/path.missingVar=value'
 
 garble build -ldflags=${LDFLAGS}
 exec ./main
-cmp stderr main.stderr
-! binsubstr main$exe 'unexportedVersion'
+cmp stdout main.stdout
+! binsubstr main$exe 'unexportedVersion' 'ExportedUnset'
 
 [short] stop # no need to verify this with -short
 
-garble -tiny build -ldflags=${LDFLAGS}
+garble -tiny -literals -seed=0002deadbeef build -ldflags=${LDFLAGS}
 exec ./main
-cmp stderr main.stderr
-! binsubstr main$exe 'unexportedVersion'
+cmp stdout main.stdout
+! binsubstr main$exe 'unexportedVersion' 'ExportedUnset'
+binsubstr main$exe 'v1.22.33' 'garble_replaced' # TODO: obfuscate injected strings too
+binsubstr main$exe 'kept_before' 'kept_after' # TODO: obfuscate strings near ldflags vars
 
 go build -ldflags=${LDFLAGS}
 exec ./main
-cmp stderr main.stderr
-binsubstr main$exe 'unexportedVersion'
+cmp stdout main.stdout
+binsubstr main$exe 'unexportedVersion' 'ExportedUnset' 'v1.22.33' 'garble_replaced'
 
 -- go.mod --
 module domain.test/main
@@ -28,19 +30,31 @@ go 1.17
 package main
 
 import (
+	"fmt"
+
 	"domain.test/main/imported"
 )
 
 var unexportedVersion = "unknown"
 
+var notReplacedBefore, replacedWithEmpty, notReplacedAfter = "kept_before", "original", "kept_after"
+
 func main() {
-	println("version:", unexportedVersion)
-	println("var:", imported.ExportedVar)
+	fmt.Printf("version: %q\n", unexportedVersion)
+	fmt.Printf("becomes empty: %q\n", replacedWithEmpty)
+	fmt.Printf("should be kept: %q, %q\n", notReplacedBefore, notReplacedAfter)
+	fmt.Printf("no longer unset: %q\n", imported.ExportedUnset)
 }
 -- imported/imported.go --
 package imported
 
-var ExportedVar = "original"
--- main.stderr --
-version: v1.0.0
-var: replaced
+var (
+	ExportedUnset, AnotherUnset string
+
+	otherVar int
+)
+-- main.stdout --
+version: "v1.22.33"
+becomes empty: ""
+should be kept: "kept_before", "kept_after"
+no longer unset: "garble_replaced"
