@@ -726,7 +726,7 @@ func transformCompile(args []string) ([]string, error) {
 	// debugf("seeding math/rand with %x\n", randSeed)
 	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
 
-	tf.prefillIgnoreObjects(files)
+	tf.prefillObjectMaps(files)
 
 	// If this is a package to obfuscate, swap the -p flag with the new
 	// package path.
@@ -939,7 +939,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		i := strings.Index(line, " ")
+		i := strings.IndexByte(line, ' ')
 		if i < 0 {
 			continue
 		}
@@ -947,7 +947,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 		switch verb {
 		case "importmap":
 			args := strings.TrimSpace(line[i+1:])
-			j := strings.Index(args, "=")
+			j := strings.IndexByte(args, '=')
 			if j < 0 {
 				continue
 			}
@@ -955,7 +955,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			importmaps = append(importmaps, [2]string{beforePath, afterPath})
 		case "packagefile":
 			args := strings.TrimSpace(line[i+1:])
-			j := strings.Index(args, "=")
+			j := strings.IndexByte(args, '=')
 			if j < 0 {
 				continue
 			}
@@ -1188,12 +1188,38 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 	}
 }
 
-// prefillIgnoreObjects collects objects which should not be obfuscated,
+// prefillObjectMaps collects objects which should not be obfuscated,
 // such as those used as arguments to reflect.TypeOf or reflect.ValueOf.
 // Since we obfuscate one package at a time, we only detect those if the type
 // definition and the reflect usage are both in the same package.
-func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
-	tf.ignoreObjects = make(map[types.Object]bool)
+func (tf *transformer) prefillObjectMaps(files []*ast.File) {
+	tf.cannotObfuscateNames = make(map[types.Object]bool)
+	tf.linkerVariableStrings = make(map[types.Object]string)
+
+	ldflags := flagValue(cache.ForwardBuildFlags, "-ldflags")
+	flagValueIter(strings.Split(ldflags, " "), "-X", func(val string) {
+		// val is in the form of "importpath.name=value".
+		i := strings.IndexByte(val, '=')
+		if i < 0 {
+			return // invalid
+		}
+		stringValue := val[i+1:]
+
+		val = val[:i] // "importpath.name"
+		i = strings.LastIndexByte(val, '.')
+		path, name := val[:i], val[i+1:]
+
+		// -X represents the main package as "main", not its import path.
+		if path != curPkg.ImportPath && !(path == "main" && curPkg.Name == "main") {
+			return // not the current package
+		}
+
+		obj := tf.pkg.Scope().Lookup(name)
+		if obj == nil {
+			return // not found; skip
+		}
+		tf.linkerVariableStrings[obj] = stringValue
+	})
 
 	visit := func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
@@ -1237,7 +1263,7 @@ func (tf *transformer) prefillIgnoreObjects(files []*ast.File) {
 				if obj == nil {
 					continue // not found; skip
 				}
-				tf.ignoreObjects[obj] = true
+				tf.cannotObfuscateNames[obj] = true
 			}
 		}
 		ast.Inspect(file, visit)
@@ -1251,10 +1277,10 @@ type transformer struct {
 	pkg  *types.Package
 	info *types.Info
 
-	// ignoreObjects records all the objects we cannot obfuscate. An object
-	// is any named entity, such as a declared variable or type.
+	// cannotObfuscateNames records all the objects whose names we cannot obfuscate.
+	// An object is any named entity, such as a declared variable or type.
 	//
-	// This map is initialized by prefillIgnoreObjects at the start,
+	// This map is initialized by prefillObjectMaps at the start,
 	// and extra entries from dependencies are added by transformGo,
 	// for the sake of caching type lookups.
 	// So far, it records:
@@ -1262,7 +1288,12 @@ type transformer struct {
 	//  * Types which are used for reflection.
 	//  * Declarations exported via "//export".
 	//  * Types or variables from external packages which were not obfuscated.
-	ignoreObjects map[types.Object]bool
+	cannotObfuscateNames map[types.Object]bool
+
+	// linkerVariableStrings is also initialized by prefillObjectMaps.
+	// It records objects for variables used in -ldflags=-X flags,
+	// as well as the strings the user wants to inject them with.
+	linkerVariableStrings map[types.Object]string
 
 	// recordTypeDone helps avoid cycles in recordType.
 	recordTypeDone map[types.Type]bool
@@ -1359,7 +1390,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && curPkg.ToObfuscate {
-		file = literals.Obfuscate(file, tf.info, fset)
+		file = literals.Obfuscate(file, tf.info, fset, tf.linkerVariableStrings)
 	}
 
 	pre := func(cursor *astutil.Cursor) bool {
@@ -1457,8 +1488,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			return true
 		}
 
-		// We don't want to obfuscate this object.
-		if tf.ignoreObjects[obj] {
+		// We don't want to obfuscate this object name.
+		if tf.cannotObfuscateNames[obj] {
 			return true
 		}
 
@@ -1640,7 +1671,7 @@ func locateForeignAlias(dependentImportPath, aliasName string) *types.TypeName {
 }
 
 // recordIgnore adds any named types (including fields) under typ to
-// ignoreObjects.
+// cannotObfuscateNames.
 //
 // Only the names declared in package pkgPath are recorded. This is to ensure
 // that reflection detection only happens within the package declaring a type.
@@ -1652,10 +1683,10 @@ func (tf *transformer) recordIgnore(t types.Type, pkgPath string) {
 		if obj.Pkg() == nil || obj.Pkg().Path() != pkgPath {
 			return // not from the specified package
 		}
-		if tf.ignoreObjects[obj] {
+		if tf.cannotObfuscateNames[obj] {
 			return // prevent endless recursion
 		}
-		tf.ignoreObjects[obj] = true
+		tf.cannotObfuscateNames[obj] = true
 
 		// Record the underlying type, too.
 		tf.recordIgnore(t.Underlying(), pkgPath)
@@ -1672,7 +1703,7 @@ func (tf *transformer) recordIgnore(t types.Type, pkgPath string) {
 			}
 
 			// Record the field itself, too.
-			tf.ignoreObjects[field] = true
+			tf.cannotObfuscateNames[field] = true
 
 			tf.recordIgnore(field.Type(), pkgPath)
 		}
@@ -1724,6 +1755,9 @@ func transformLink(args []string) ([]string, error) {
 		return nil, err
 	}
 
+	// TODO: unify this logic with the -X handling when using -literals.
+	// We should be able to handle both cases via the syntax tree.
+	//
 	// Make sure -X works with obfuscated identifiers.
 	// To cover both obfuscated and non-obfuscated names,
 	// duplicate each flag with a obfuscated version.
@@ -1869,12 +1903,13 @@ var booleanFlags = map[string]bool{
 func filterForwardBuildFlags(flags []string) (filtered []string, firstUnknown string) {
 	for i := 0; i < len(flags); i++ {
 		arg := flags[i]
+		if strings.HasPrefix(arg, "--") {
+			arg = arg[1:] // "--name" to "-name"; keep the short form
+		}
+
 		name := arg
 		if i := strings.IndexByte(arg, '='); i > 0 {
 			name = arg[:i] // "-name=value" to "-name"
-		}
-		if strings.HasPrefix(name, "--") {
-			name = name[1:] // "--name" to "-name"
 		}
 
 		buildFlag := forwardBuildFlags[name]
