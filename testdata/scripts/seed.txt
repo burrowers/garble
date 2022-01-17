@@ -15,6 +15,12 @@ binsubstr main$exe 'teststring' 'imported var value'
 exec ./main$exe funcName
 cp stderr funcName-seed-static-1
 
+# Also check that the same name in different packages is
+# obfuscated differently when -seed is passed
+exec ./main$exe importedFuncName
+cp stderr importedFuncName-seed-static-1
+! bincmp funcName-seed-static-1 importedFuncName-seed-static-1
+
 # Also check that the binary is reproducible.
 # No packages should be rebuilt either, thanks to the build cache.
 cp main$exe main_old$exe
@@ -61,19 +67,16 @@ exec ./main$exe funcName
 cp stderr funcName-seed-random-2
 ! bincmp funcName-seed-random-2 funcName-seed-random-1
 
-# Using different flags which affect the build, such as -literals or -tiny,
-# should result in different obfuscation of names etc.
-# There's strictly no reason to have this rule,
-# but the flags result in different builds and binaries anyway,
-# so we might as well make them as different as possible.
+# Using different flags which affect the build, such as -literals or -tiny
+# should not result in different obfuscation of names if -seed is passed.
 
 garble -seed=${SEED1} -literals build
 exec ./main$exe funcName
-! bincmp stderr funcName-seed-static-1
+bincmp stderr funcName-seed-static-1
 
 garble -seed=${SEED1} -tiny build
 exec ./main$exe funcName
-! bincmp stderr funcName-seed-static-1
+bincmp stderr funcName-seed-static-1
 
 -- go.mod --
 module test/main
@@ -93,14 +96,16 @@ var teststringVar = "teststring"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "funcName" {
-		println(originalFuncName())
+		println(OriginalFuncName())
+	} else if len(os.Args) > 1 && os.Args[1] == "importedFuncName" {
+		println(imported.OriginalFuncName())
 	} else {
 		println(teststringVar)
 		println(imported.ImportedVar)
 	}
 }
 
-func originalFuncName() string {
+func OriginalFuncName() string {
 	pc, _, _, _ := runtime.Caller(0)
 	fn := runtime.FuncForPC(pc)
 	return fn.Name()
@@ -108,7 +113,15 @@ func originalFuncName() string {
 -- imported/imported.go --
 package imported
 
+import "runtime"
+
 var ImportedVar = "imported var value"
+
+func OriginalFuncName() string {
+	pc, _, _, _ := runtime.Caller(0)
+	fn := runtime.FuncForPC(pc)
+	return fn.Name()
+}
 
 -- main.stderr --
 teststring

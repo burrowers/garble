@@ -178,6 +178,19 @@ func isUpper(b byte) bool { return 'A' <= b && b <= 'Z' }
 func toLower(b byte) byte { return b + ('a' - 'A') }
 func toUpper(b byte) byte { return b - ('a' - 'A') }
 
+// getSalt returns a salt to be used when hashing a name. If -seed is not
+// passed, the package's Garble action ID is returned. If -seed is passed,
+// the package's import path is returned. This is to ensure that different
+// builds will hash names the same way if provided the same seed, and to ensure
+// the same name in different packages will be hashed differently.
+func getSalt(pkg *listedPackage) []byte {
+	if len(flagSeed.bytes) > 0 {
+		return []byte(pkg.ImportPath)
+	}
+
+	return pkg.GarbleActionID
+}
+
 // hashWith returns a hashed version of name, including the provided salt as well as
 // opts.Seed into the hash input.
 //

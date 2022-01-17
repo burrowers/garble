@@ -72,7 +72,7 @@ One can reverse a captured panic stack trace as follows:
 
 		addReplace := func(hash []byte, str string) {
 			if hash == nil {
-				hash = lpkg.GarbleActionID
+				hash = getSalt(lpkg)
 			}
 			replaces = append(replaces, hashWith(hash, str), str)
 		}
@@ -123,7 +123,7 @@ One can reverse a captured panic stack trace as follows:
 					// Reverse position information of call sites.
 					pos := fset.Position(node.Pos())
 					origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
-					newFilename := hashWith(lpkg.GarbleActionID, origPos) + ".go"
+					newFilename := hashWith(getSalt(lpkg), origPos) + ".go"
 
 					// Do "obfuscated.go:1", corresponding to the call site's line.
 					// Most common in stack traces.

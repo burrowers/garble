@@ -153,8 +153,11 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	if p.Name == "main" || p.ImportPath == "embed" || !p.ToObfuscate {
 		return p.ImportPath
 	}
-	newPath := hashWith(p.GarbleActionID, p.ImportPath)
-	debugf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
+	// TODO: the import path used twice here if -seed is passed,
+	// find a better salt to use
+	salt := getSalt(p)
+	newPath := hashWith(salt, p.ImportPath)
+	debugf("import path %q hashed with %x to %q", p.ImportPath, salt, newPath)
 	return newPath
 }
 

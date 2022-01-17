@@ -629,8 +629,9 @@ func transformAsm(args []string) ([]string, error) {
 				continue
 			}
 
-			newName := hashWith(curPkg.GarbleActionID, name)
-			debugf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+			salt := getSalt(curPkg)
+			newName := hashWith(salt, name)
+			debugf("asm name %q hashed with %x to %q", name, salt, newName)
 			buf.WriteString(newName)
 		}
 
@@ -721,7 +722,7 @@ func transformCompile(args []string) ([]string, error) {
 	// Literal obfuscation uses math/rand, so seed it deterministically.
 	randSeed := flagSeed.bytes
 	if len(randSeed) == 0 {
-		randSeed = curPkg.GarbleActionID
+		randSeed = getSalt(curPkg)
 	}
 	// debugf("seeding math/rand with %x\n", randSeed)
 	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
@@ -807,7 +808,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 
 			// obfuscate the local name, if the current package is obfuscated
 			if curPkg.ToObfuscate {
-				fields[1] = hashWith(curPkg.GarbleActionID, fields[1])
+				fields[1] = hashWith(getSalt(curPkg), fields[1])
 			}
 
 			// If the new name is of the form "pkgpath.Name", and
@@ -841,7 +842,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			if lpkg.ToObfuscate {
 				// The name exists and was obfuscated; obfuscate
 				// the new name.
-				newName := hashWith(lpkg.GarbleActionID, name)
+				newName := hashWith(getSalt(lpkg), name)
 				newPkgPath := pkgPath
 				if pkgPath != "main" {
 					newPkgPath = lpkg.obfuscatedImportPath()
@@ -999,7 +1000,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			// For beforePath="vendor/foo", afterPath and
 			// lpkg.ImportPath can be just "foo".
 			// Don't use obfuscatedImportPath here.
-			beforePath = hashWith(lpkg.GarbleActionID, beforePath)
+			beforePath = hashWith(getSalt(lpkg), beforePath)
 
 			afterPath = lpkg.obfuscatedImportPath()
 		}
@@ -1495,7 +1496,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		if !lpkg.ToObfuscate {
 			return true // we're not obfuscating this package
 		}
-		hashToUse := lpkg.GarbleActionID
+		hashToUse := getSalt(lpkg)
 		debugName := "variable"
 
 		// debugf("%s: %#v %T", fset.Position(node.Pos()), node, obj)
@@ -1788,7 +1789,7 @@ func transformLink(args []string) ([]string, error) {
 		if pkg != "main" {
 			newPkg = lpkg.obfuscatedImportPath()
 		}
-		newName := hashWith(lpkg.GarbleActionID, name)
+		newName := hashWith(getSalt(lpkg), name)
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPkg, newName, str))
 	})
 
