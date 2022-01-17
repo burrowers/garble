@@ -1474,12 +1474,6 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			return true // universe scope
 		}
 
-		if pkg.Name() == "main" && obj.Exported() && obj.Parent() == pkg.Scope() {
-			// TODO: only do this when -buildmode is plugin? what
-			// about other -buildmode options?
-			return true // could be a Go plugin API
-		}
-
 		if pkg.Path() == "embed" {
 			// The Go compiler needs to detect types such as embed.FS.
 			// That will fail if we change the import path or type name.
