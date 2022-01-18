@@ -1,9 +1,10 @@
 # Changelog
 
-## [0.5.1] - 2022-01-??
+## [0.5.1] - 2022-01-18
 
 This bugfix release features:
 
+* Obfuscate exported names in `main` packages
 * Fix build errors when using `-literals` with `GOGARBLE=*`
 * Avoid breaking `-ldflags=-X` when `-literals` is used
 * Avoid link errors when using `-debugdir`
