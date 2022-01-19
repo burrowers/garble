@@ -455,7 +455,7 @@ This command wraps "go %s". Below is its help:
 	}
 	cache.BinaryContentID = decodeHash(splitContentID(binaryBuildID))
 
-	if err := appendListedPackages(args...); err != nil {
+	if err := appendListedPackages(args, true); err != nil {
 		return nil, err
 	}
 
