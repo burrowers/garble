@@ -160,14 +160,17 @@ func (p *listedPackage) obfuscatedImportPath() string {
 
 // appendListedPackages gets information about the current package
 // and all of its dependencies
-func appendListedPackages(patterns ...string) error {
+func appendListedPackages(packages []string, withDeps bool) error {
 	startTime := time.Now()
 	// TODO: perhaps include all top-level build flags set by garble,
 	// including -buildvcs=false.
 	// They shouldn't affect "go list" here, but might as well be consistent.
-	args := []string{"list", "-json", "-deps", "-export", "-trimpath"}
+	args := []string{"list", "-json", "-export", "-trimpath"}
+	if withDeps {
+		args = append(args, "-deps")
+	}
 	args = append(args, cache.ForwardBuildFlags...)
-	args = append(args, patterns...)
+	args = append(args, packages...)
 	cmd := exec.Command("go", args...)
 
 	defer func() {
@@ -260,16 +263,24 @@ func listPackage(path string) (*listedPackage, error) {
 		// Obtained via scripts/runtime-linknamed-nodeps.sh as of Go 1.18beta1.
 		runtimeLinknamed := []string{
 			"crypto/x509/internal/macos",
+			"internal/poll",
+			"internal/reflectlite",
 			"net",
+			"os",
 			"os/signal",
 			"plugin",
+			"reflect",
 			"runtime/debug",
 			"runtime/metrics",
 			"runtime/pprof",
 			"runtime/trace",
+			"sync",
+			"sync/atomic",
+			"syscall",
 			"syscall/js",
+			"time",
 		}
-		var missing []string
+		missing := make([]string, 0, len(runtimeLinknamed))
 		for _, linknamed := range runtimeLinknamed {
 			switch {
 			case cache.ListedPackages[linknamed] != nil:
@@ -282,7 +293,8 @@ func listPackage(path string) (*listedPackage, error) {
 				missing = append(missing, linknamed)
 			}
 		}
-		if err := appendListedPackages(missing...); err != nil {
+		// We don't need any information about their dependencies, in this case.
+		if err := appendListedPackages(missing, false); err != nil {
 			panic(err) // should never happen
 		}
 		pkg, ok := cache.ListedPackages[path]
