@@ -3,6 +3,7 @@
 
 // A simple main package with some names to obfuscate.
 // With relatively heavy dependencies, as benchmark iterations use the build cache.
+// We also use a mix of funcs, methods, fields, literals, etc.
 
 package main
 
@@ -19,4 +20,6 @@ func main() {
 	fmt.Println(globalVar)
 	globalFunc()
 	http.ListenAndServe("", nil)
+	client := http.Client{Transport: nil}
+	client.Do(nil)
 }
