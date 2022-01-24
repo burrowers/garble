@@ -59,9 +59,7 @@ func BenchmarkBuild(b *testing.B) {
 	qt.Assert(b, err, qt.IsNil)
 
 	// We collect extra metrics.
-	var userTime, systemTime int64
-
-	var cachedTime int64
+	var cachedTime, userTime, systemTime int64
 
 	outputBin := filepath.Join(b.TempDir(), "output")
 	sourceDir := filepath.Join(b.TempDir(), "src")
@@ -109,9 +107,9 @@ func BenchmarkBuild(b *testing.B) {
 		qt.Assert(b, rxBuiltRuntime.Match(out), qt.IsFalse)
 		qt.Assert(b, rxBuiltMain.Match(out), qt.IsTrue)
 
+		cachedTime += time.Since(cachedStart).Nanoseconds()
 		userTime += int64(cmd.ProcessState.UserTime())
 		systemTime += int64(cmd.ProcessState.SystemTime())
-		cachedTime += time.Since(cachedStart).Nanoseconds()
 	}
 	b.ReportMetric(float64(cachedTime)/float64(b.N), "cached-ns/op")
 	b.ReportMetric(float64(userTime)/float64(b.N), "user-ns/op")
