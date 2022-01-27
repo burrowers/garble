@@ -152,14 +152,6 @@ var (
 
 	// Basic information about the package being currently compiled or linked.
 	curPkg *listedPackage
-
-	garbledImporter = importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
-		pkgfile := cachedOutput.KnownObjectFiles[path]
-		if pkgfile == "" {
-			panic(fmt.Sprintf("missing in cachedOutput.KnownObjectFiles: %q", path))
-		}
-		return os.Open(pkgfile)
-	}).(types.ImporterFrom)
 )
 
 type importerWithMap func(path, dir string, mode types.ImportMode) (*types.Package, error)
@@ -174,23 +166,6 @@ func (fn importerWithMap) ImportFrom(path, dir string, mode types.ImportMode) (*
 	}
 	return fn(path, dir, mode)
 }
-
-func obfuscatedTypesPackage(path string) *types.Package {
-	if path == curPkg.ImportPath {
-		panic("called obfuscatedTypesPackage on the current package?")
-	}
-	if pkg := cachedTypesPackages[path]; pkg != nil {
-		return pkg
-	}
-	pkg, err := garbledImporter.ImportFrom(path, parentWorkDir, 0)
-	if err != nil {
-		panic(err)
-	}
-	cachedTypesPackages[path] = pkg // cache for later use
-	return pkg
-}
-
-var cachedTypesPackages = make(map[string]*types.Package)
 
 // uniqueLineWriter sits underneath log.SetOutput to deduplicate log lines.
 // We log bits of useful information for debugging,
@@ -711,13 +686,6 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	if err := writeGobExclusive(
-		garbleExportFile(curPkg),
-		cachedOutput,
-	); err != nil && !errors.Is(err, fs.ErrExist) {
-		return nil, err
-	}
-
 	// Literal obfuscation uses math/rand, so seed it deterministically.
 	randSeed := flagSeed.bytes
 	if len(randSeed) == 0 {
@@ -739,17 +707,14 @@ func transformCompile(args []string) ([]string, error) {
 	newPaths := make([]string, 0, len(files))
 
 	for i, file := range files {
-		name := filepath.Base(paths[i])
+		filename := filepath.Base(paths[i])
+		debugf("obfuscating %s", filename)
 		if curPkg.ImportPath == "runtime" && flagTiny {
 			// strip unneeded runtime code
-			stripRuntime(name, file)
+			stripRuntime(filename, file)
 		}
-		if strings.HasPrefix(name, "_cgo_") {
-			// Don't obfuscate cgo code, since it's generated and it gets messy.
-		} else {
-			tf.handleDirectives(file.Comments)
-			file = tf.transformGo(file)
-		}
+		tf.handleDirectives(file.Comments)
+		file = tf.transformGo(filename, file)
 		if newPkgPath != "" {
 			file.Name.Name = newPkgPath
 		}
@@ -761,10 +726,10 @@ func transformCompile(args []string) ([]string, error) {
 
 		// Uncomment for some quick debugging. Do not delete.
 		// if curPkg.ToObfuscate {
-		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, name, src)
+		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, filename, src)
 		// }
 
-		if path, err := writeTemp(name, src); err != nil {
+		if path, err := writeTemp(filename, src); err != nil {
 			return nil, err
 		} else {
 			newPaths = append(newPaths, path)
@@ -776,13 +741,20 @@ func transformCompile(args []string) ([]string, error) {
 				return nil, err
 			}
 
-			debugFilePath := filepath.Join(pkgDebugDir, name)
+			debugFilePath := filepath.Join(pkgDebugDir, filename)
 			if err := os.WriteFile(debugFilePath, src, 0o666); err != nil {
 				return nil, err
 			}
 		}
 	}
 	flags = flagSetValue(flags, "-importcfg", newImportCfg)
+
+	if err := writeGobExclusive(
+		garbleExportFile(curPkg),
+		cachedOutput,
+	); err != nil && !errors.Is(err, fs.ErrExist) {
+		return nil, err
+	}
 
 	return append(flags, newPaths...), nil
 }
@@ -816,7 +788,10 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			newName := fields[2]
 			dotCnt := strings.Count(newName, ".")
 			if dotCnt < 1 {
-				// probably a malformed linkname directive
+				// cgo-generated code uses linknames to made up symbol names,
+				// which do not have a package path at all.
+				// Replace the comment in case the local name was obfuscated.
+				comment.Text = strings.Join(fields, " ")
 				continue
 			}
 			switch newName {
@@ -833,8 +808,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 
 			lpkg, err := listPackage(pkgPath)
 			if err != nil {
-				// probably a made up symbol name, replace the comment
-				// in case the local name was obfuscated.
+				// Probably a made up name like above, but with a dot.
 				comment.Text = strings.Join(fields, " ")
 				continue
 			}
@@ -919,8 +893,7 @@ func toObfuscate(path string) bool {
 	return module.MatchPrefixPatterns(cache.GOGARBLE, path)
 }
 
-// processImportCfg parses the importcfg file passed to a compile or link step,
-// adding missing entries to KnownObjectFiles to be stored in the build cache.
+// processImportCfg parses the importcfg file passed to a compile or link step.
 // It also builds a new importcfg file to account for obfuscated import paths.
 func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	importCfg := flagValue(flags, "-importcfg")
@@ -962,20 +935,6 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			importPath, objectPath := args[:j], args[j+1:]
 
 			packagefiles = append(packagefiles, [2]string{importPath, objectPath})
-
-			if prev := cachedOutput.KnownObjectFiles[importPath]; prev != "" {
-				// Nothing to do; recorded by one of our dependencies.
-			} else if strings.HasSuffix(objectPath, "_pkg_.a") {
-				// The path is inside a temporary directory, to be deleted soon.
-				// Record the final location within the build cache instead.
-				finalObjectPath, err := gocachePathForFile(objectPath)
-				if err != nil {
-					return "", err
-				}
-				cachedOutput.KnownObjectFiles[importPath] = finalObjectPath
-			} else {
-				cachedOutput.KnownObjectFiles[importPath] = objectPath
-			}
 		}
 	}
 
@@ -1034,27 +993,26 @@ type (
 
 // cachedOutput contains information that will be stored as per garbleExportFile.
 var cachedOutput = struct {
-	// KnownObjectFiles is filled from -importcfg in the current obfuscated build.
-	// As such, it records export data for the dependencies which might be
-	// themselves obfuscated, depending on GOGARBLE.
-	//
-	// TODO: We rely on obfuscated type information to know what names we didn't
-	// obfuscate. Instead, directly record what names we chose not to obfuscate,
-	// which should then avoid having to go through go/types.
-	KnownObjectFiles map[string]string
-
 	// KnownReflectAPIs is a static record of what std APIs use reflection on their
 	// parameters, so we can avoid obfuscating types used with them.
 	//
 	// TODO: we're not including fmt.Printf, as it would have many false positives,
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
 	KnownReflectAPIs map[funcFullName][]reflectParameterPosition
+
+	// KnownCannotObfuscate is filled with the fully qualified names from each
+	// package that we could not obfuscate as per cannotObfuscateNames.
+	// This record is necessary for knowing what names from imported packages
+	// weren't obfuscated, so we can obfuscate their local uses accordingly.
+	//
+	// TODO: merge cannotObfuscateNames into this directly
+	KnownCannotObfuscate map[string]struct{}
 }{
-	KnownObjectFiles: map[string]string{},
 	KnownReflectAPIs: map[funcFullName][]reflectParameterPosition{
 		"reflect.TypeOf":  {0},
 		"reflect.ValueOf": {0},
 	},
+	KnownCannotObfuscate: map[string]struct{}{},
 }
 
 // garbleExportFile returns an absolute path to a build cache entry
@@ -1381,8 +1339,76 @@ func (tf *transformer) recordType(t types.Type) {
 	}
 }
 
+func recordedObjectString(obj types.Object) string {
+	if !obj.Exported() {
+		// Unexported names will never be used by other packages,
+		// so we don't need to bother recording them.
+		return ""
+	}
+	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
+		// For exported fields, "pkgpath.Field" is not unique,
+		// because two exported top-level types could share "Field".
+		//
+		// Moreover, note that not all fields belong to named struct types;
+		// an API could be exposing:
+		//
+		//   var usedInReflection = struct{Field string}
+		//
+		// For now, a hack: assume that packages don't declare the same field
+		// more than once in the same line. This works in practice, but one
+		// could craft Go code to break this assumption.
+		// Also note that the compiler's object files include filenames and line
+		// numbers, but not column numbers nor byte offsets.
+		// TODO(mvdan): give this another think, and add tests involving anon types.
+		pos := fset.Position(obj.Pos())
+		return fmt.Sprintf("%s.%s - %s:%d", obj.Pkg().Path(), obj.Name(),
+			filepath.Base(pos.Filename), pos.Line)
+	}
+	// Names which are not at the top level cannot be imported,
+	// so we don't need to record them either.
+	// Note that this doesn't apply to fields, which are never top-level.
+	if obj.Pkg().Scope().Lookup(obj.Name()) != obj {
+		return ""
+	}
+	// For top-level exported names, "pkgpath.Name" is unique.
+	return fmt.Sprintf("%s.%s", obj.Pkg().Path(), obj.Name())
+}
+
+func recordAsNotObfuscated(obj types.Object) bool {
+	if obj.Pkg().Path() != curPkg.ImportPath {
+		panic("called recordedAsNotObfuscated with a foreign object")
+	}
+	if !obj.Exported() {
+		// Unexported names will never be used by other packages,
+		// so we don't need to bother recording them.
+		return true
+	}
+
+	if objStr := recordedObjectString(obj); objStr != "" {
+		cachedOutput.KnownCannotObfuscate[objStr] = struct{}{}
+	}
+	return true // to simplify early returns in astutil.ApplyFunc
+}
+
+func recordedAsNotObfuscated(obj types.Object) bool {
+	if obj.Pkg().Path() == curPkg.ImportPath {
+		// The current package knows what names it's not obfuscating.
+		return false
+	}
+	if !obj.Exported() {
+		// Not recorded, as per recordAsNotObfuscated.
+		return false
+	}
+	objStr := recordedObjectString(obj)
+	if objStr == "" {
+		return false
+	}
+	_, ok := cachedOutput.KnownCannotObfuscate[objStr]
+	return ok
+}
+
 // transformGo obfuscates the provided Go syntax file.
-func (tf *transformer) transformGo(file *ast.File) *ast.File {
+func (tf *transformer) transformGo(filename string, file *ast.File) *ast.File {
 	// Only obfuscate the literals here if the flag is on
 	// and if the package in question is to be obfuscated.
 	//
@@ -1398,11 +1424,9 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		if !ok {
 			return true
 		}
+		// TODO(mvdan): use "name := node.Name"
 		if node.Name == "_" {
 			return true // unnamed remains unnamed
-		}
-		if strings.HasPrefix(node.Name, "_C") || strings.Contains(node.Name, "_cgo") {
-			return true // don't mess with cgo-generated code
 		}
 		obj := tf.info.ObjectOf(node)
 		if obj == nil {
@@ -1484,6 +1508,16 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 
 		// We don't want to obfuscate this object name.
 		if tf.cannotObfuscateNames[obj] {
+			return recordAsNotObfuscated(obj)
+		}
+		// The imported package that declared this object did not obfuscate it.
+		if recordedAsNotObfuscated(obj) {
+			return true
+		}
+
+		// TODO(mvdan): investigate obfuscating these too.
+		filename := fset.Position(obj.Pos()).Filename
+		if strings.HasPrefix(filename, "_cgo_") || strings.Contains(filename, ".cgo1.") {
 			return true
 		}
 
@@ -1530,43 +1564,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			fieldsHash := []byte(strct.String())
 			hashToUse = addGarbleToHash(fieldsHash)
 
-			// If the struct of this field was not obfuscated, do not obfuscate
-			// any of that struct's fields.
-			parent, ok := cursor.Parent().(*ast.SelectorExpr)
-			if !ok {
-				break
-			}
-			named := namedType(tf.info.TypeOf(parent.X))
-			if named == nil {
-				break // TODO(mvdan): add a test
-			}
-			if name := named.Obj().Name(); strings.HasPrefix(name, "_Ctype") {
-				// A field accessor on a cgo type, such as a C struct.
-				// We're not obfuscating cgo names.
-				return true
-			}
-			if path != curPkg.ImportPath {
-				obfPkg := obfuscatedTypesPackage(path)
-				if obfPkg.Scope().Lookup(named.Obj().Name()) != nil {
-					tf.recordIgnore(named, path)
-					return true
-				}
-			}
 		case *types.TypeName:
 			debugName = "type"
-			// If the type was not obfuscated in the package were it was defined,
-			// do not obfuscate it here.
-			if path != curPkg.ImportPath {
-				named := namedType(obj.Type())
-				if named == nil {
-					break // TODO(mvdan): add a test
-				}
-				obfPkg := obfuscatedTypesPackage(path)
-				if obfPkg.Scope().Lookup(obj.Name()) != nil {
-					tf.recordIgnore(named, path)
-					return true
-				}
-			}
 		case *types.Func:
 			sign := obj.Type().(*types.Signature)
 			if sign.Recv() == nil {

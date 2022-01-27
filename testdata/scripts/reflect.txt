@@ -89,7 +89,9 @@ func main() {
 	// Using type aliases as both regular fields, and embedded fields.
 	var emb EmbeddingIndirect
 	emb.With.IndirectUnobfuscated = "indirect-with"
+	emb.With.DuplicateFieldName = 3
 	emb.Without.IndirectObfuscated = "indirect-without"
+	emb.Without.DuplicateFieldName = 4
 	fmt.Printf("%v\n", emb)
 	printfWithoutPackage("%#v\n", emb.With)
 
@@ -231,10 +233,14 @@ var _ = reflect.TypeOf(IndirectNamedWithReflect{})
 
 type IndirectNamedWithReflect struct {
 	IndirectUnobfuscated string
+
+	DuplicateFieldName int
 }
 
 type IndirectNamedWithoutReflect struct {
 	IndirectObfuscated string
+
+	DuplicateFieldName int
 }
 
 -- main.stdout --
@@ -249,7 +255,7 @@ Hello Dave.
 {"InnerField":3,"Anon":{"AnonField":0}}
 {downstream}
 {sibling}
-{{indirect-with} {indirect-without} {}}
-IndirectNamedWithReflect{IndirectUnobfuscated:"indirect-with"}
+{{indirect-with 3} {indirect-without 4} { 0}}
+IndirectNamedWithReflect{IndirectUnobfuscated:"indirect-with", DuplicateFieldName:3}
 ReflectionField
 {0}
