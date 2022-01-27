@@ -5,7 +5,7 @@ env GOGARBLE=test/main
 garble build
 exec ./main
 cmp stdout main.stdout
-binsubstr main$exe 'privateAdd'
+! binsubstr main$exe 'PortedField'
 
 [short] stop # no need to verify this with -short
 
@@ -13,17 +13,16 @@ env GOGARBLE=*
 garble build
 exec ./main
 cmp stdout main.stdout
-binsubstr main$exe 'privateAdd'
 env GOGARBLE=test/main
 
 garble -tiny build
 exec ./main
 cmp stdout main.stdout
-binsubstr main$exe 'privateAdd'
 
 go build
 exec ./main
 cmp stdout main.stdout
+binsubstr main$exe 'privateAdd'
 
 -- go.mod --
 module test/main
@@ -46,7 +45,7 @@ static void callGoCallback() {
 }
 
 struct portedStruct {
-	char*  PortedField;
+	char* PortedField;
 };
 */
 import "C"
@@ -56,7 +55,8 @@ func main() {
 	fmt.Println(C.privateAdd(C.int(1), C.int(2)))
 	_, _ = user.Current()
 
-	fmt.Printf("%#v\n", C.struct_portedStruct{})
+	st := C.struct_portedStruct{}
+	fmt.Println(st.PortedField == nil)
 
 	C.callGoCallback()
 }
@@ -67,5 +67,5 @@ func goCallback() {
 }
 -- main.stdout --
 3
-main._Ctype_struct_portedStruct{PortedField:(*main._Ctype_char)(nil)}
+true
 go callback
