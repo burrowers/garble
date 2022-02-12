@@ -18,17 +18,19 @@ func isDirective(text string) bool {
 	return strings.HasPrefix(text, "//go:") || strings.HasPrefix(text, "// +build")
 }
 
+var printBuf1, printBuf2 bytes.Buffer
+
 // printFile prints a Go file to a buffer, while also removing non-directive
 // comments and adding extra compiler directives to obfuscate position
 // information.
 func printFile(file1 *ast.File) ([]byte, error) {
 	printConfig := printer.Config{Mode: printer.RawFormat}
 
-	var buf1 bytes.Buffer
-	if err := printConfig.Fprint(&buf1, fset, file1); err != nil {
+	printBuf1.Reset()
+	if err := printConfig.Fprint(&printBuf1, fset, file1); err != nil {
 		return nil, err
 	}
-	src := buf1.Bytes()
+	src := printBuf1.Bytes()
 
 	if !curPkg.ToObfuscate {
 		// TODO(mvdan): make transformCompile handle untouched
@@ -59,16 +61,6 @@ func printFile(file1 *ast.File) ([]byte, error) {
 		return nil, fmt.Errorf("re-parse error: %w", err)
 	}
 
-	// Keep the compiler directives, and change position info.
-	type commentToAdd struct {
-		offset int
-		text   string
-	}
-	var toAdd []commentToAdd
-	addComment := func(offset int, text string) {
-		toAdd = append(toAdd, commentToAdd{offset, text})
-	}
-
 	// Remove any comments by making them whitespace.
 	// Keep directives, as they affect the build.
 	// This is superior to removing the comments before printing,
@@ -94,6 +86,12 @@ func printFile(file1 *ast.File) ([]byte, error) {
 		return true
 	})
 
+	// Keep the compiler directives, and change position info.
+	type commentToAdd struct {
+		offset int
+		text   string
+	}
+	var toAdd []commentToAdd
 	i := 0
 	ast.Inspect(file2, func(node ast.Node) bool {
 		node, ok := node.(*ast.CallExpr)
@@ -108,12 +106,14 @@ func printFile(file1 *ast.File) ([]byte, error) {
 			newName = hashWith(curPkg.GarbleActionID, origPos) + ".go"
 			// log.Printf("%q hashed with %x to %q", origPos, curPkg.GarbleActionID, newName)
 		}
-		newPos := fmt.Sprintf("%s:1", newName)
 		pos := fset.Position(node.Pos())
 
 		// We use the "/*text*/" form, since we can use multiple of them
 		// on a single line, and they don't require extra newlines.
-		addComment(pos.Offset, "/*line "+newPos+"*/")
+		toAdd = append(toAdd, commentToAdd{
+			offset: pos.Offset,
+			text:   fmt.Sprintf("/*line %s:1*/", newName),
+		})
 		return true
 	})
 
@@ -123,16 +123,16 @@ func printFile(file1 *ast.File) ([]byte, error) {
 	})
 
 	copied := 0
-	var buf2 bytes.Buffer
+	printBuf2.Reset()
 
 	// Make sure the entire file gets a zero filename by default,
 	// in case we miss any positions below.
 	// We use a //-style comment, because there might be build tags.
-	// addComment is for /*-style comments, so add it to buf2 directly.
-	buf2.WriteString("//line :1\n")
+	// toAdd is for /*-style comments, so add it to printBuf2 directly.
+	printBuf2.WriteString("//line :1\n")
 
 	for _, comment := range toAdd {
-		buf2.Write(src[copied:comment.offset])
+		printBuf2.Write(src[copied:comment.offset])
 		copied = comment.offset
 
 		// We assume that all comments are of the form "/*text*/".
@@ -140,10 +140,10 @@ func printFile(file1 *ast.File) ([]byte, error) {
 		// Otherwise, we could change the syntax of the program.
 		// Inserting "/*text*/" in "a/b" // must be "a/ /*text*/ b",
 		// as "a//*text*/b" is tokenized as a "//" comment.
-		buf2.WriteByte(' ')
-		buf2.WriteString(comment.text)
-		buf2.WriteByte(' ')
+		printBuf2.WriteByte(' ')
+		printBuf2.WriteString(comment.text)
+		printBuf2.WriteByte(' ')
 	}
-	buf2.Write(src[copied:])
-	return buf2.Bytes(), nil
+	printBuf2.Write(src[copied:])
+	return printBuf2.Bytes(), nil
 }
