@@ -154,7 +154,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 
 	file = astutil.Apply(file, pre, post).(*ast.File)
 
-	// some imported constants might not be needed anymore, remove unnessecary imports
+	// some imported constants might not be needed anymore, remove unnecessary imports
 	for _, imp := range file.Imports {
 		path, err := strconv.Unquote(imp.Path.Value)
 		if err != nil {
