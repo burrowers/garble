@@ -65,7 +65,7 @@ func ReturnStmt(results ...ast.Expr) *ast.ReturnStmt {
 	}
 }
 
-// BlockStmt a block of multiple statments e.g. a function body
+// BlockStmt a block of multiple statements e.g. a function body
 func BlockStmt(stmts ...ast.Stmt) *ast.BlockStmt {
 	return &ast.BlockStmt{List: stmts}
 }
