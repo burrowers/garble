@@ -76,8 +76,9 @@ func alterToolVersion(tool string, args []string) error {
 }
 
 var (
-	hasher    = sha256.New()
-	sumBuffer [sha256.Size]byte
+	hasher       = sha256.New()
+	sumBuffer    [sha256.Size]byte
+	b64SumBuffer [44]byte // base64's EncodedLen on sha256.Size (32) with no padding
 )
 
 // addGarbleToHash takes some arbitrary input bytes,
@@ -232,37 +233,36 @@ func hashWith(salt []byte, name string) string {
 	hasher.Write(salt)
 	hasher.Write(flagSeed.bytes)
 	io.WriteString(hasher, name)
-	sum := make([]byte, nameBase64.EncodedLen(hasher.Size()))
-	nameBase64.Encode(sum, hasher.Sum(sumBuffer[:0]))
-	sum = sum[:hashLength]
+	nameBase64.Encode(b64SumBuffer[:], hasher.Sum(sumBuffer[:0]))
+	b64Name := b64SumBuffer[:hashLength]
 
 	// Even if we are hashing a package path, we still want the result to be
 	// a valid identifier, since we'll use it as the package name too.
-	if isDigit(sum[0]) {
+	if isDigit(b64Name[0]) {
 		// Turn "3foo" into "Dfoo".
 		// Similar to toLower, since uppercase letters go after digits
 		// in the ASCII table.
-		sum[0] += 'A' - '0'
+		b64Name[0] += 'A' - '0'
 	}
 	// Keep the result equally exported or not, if it was an identifier.
 	if !token.IsIdentifier(name) {
-		return string(sum)
+		return string(b64Name)
 	}
 	if token.IsExported(name) {
-		if sum[0] == '_' {
+		if b64Name[0] == '_' {
 			// Turn "_foo" into "Zfoo".
-			sum[0] = 'Z'
-		} else if isLower(sum[0]) {
+			b64Name[0] = 'Z'
+		} else if isLower(b64Name[0]) {
 			// Turn "afoo" into "Afoo".
-			sum[0] = toUpper(sum[0])
+			b64Name[0] = toUpper(b64Name[0])
 		}
 	} else {
-		if isUpper(sum[0]) {
+		if isUpper(b64Name[0]) {
 			// Turn "Afoo" into "afoo".
-			sum[0] = toLower(sum[0])
+			b64Name[0] = toLower(b64Name[0])
 		}
 	}
-	return string(sum)
+	return string(b64Name)
 }
 
 // gocachePathForFile works out the path an object file will take in GOCACHE.
