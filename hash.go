@@ -75,6 +75,11 @@ func alterToolVersion(tool string, args []string) error {
 	return nil
 }
 
+var (
+	hasher    = sha256.New()
+	sumBuffer [sha256.Size]byte
+)
+
 // addGarbleToHash takes some arbitrary input bytes,
 // typically a hash such as an action ID or a content ID,
 // and returns a new hash which also contains garble's own deterministic inputs.
@@ -85,21 +90,24 @@ func addGarbleToHash(inputHash []byte) []byte {
 	// Join the two content IDs together into a single base64-encoded sha256
 	// sum. This includes the original tool's content ID, and garble's own
 	// content ID.
-	h := sha256.New()
-	h.Write(inputHash)
+	hasher.Reset()
+	hasher.Write(inputHash)
 	if len(cache.BinaryContentID) == 0 {
 		panic("missing binary content ID")
 	}
-	h.Write(cache.BinaryContentID)
+	hasher.Write(cache.BinaryContentID)
 
 	// We also need to add the selected options to the full version string,
 	// because all of them result in different output. We use spaces to
 	// separate the env vars and flags, to reduce the chances of collisions.
 	if cache.GOGARBLE != "" {
-		fmt.Fprintf(h, " GOGARBLE=%s", cache.GOGARBLE)
+		fmt.Fprintf(hasher, " GOGARBLE=%s", cache.GOGARBLE)
 	}
-	appendFlags(h, true)
-	return h.Sum(nil)[:buildIDComponentLength]
+	appendFlags(hasher, true)
+	// addGarbleToHash returns the sum buffer, so we need a new copy.
+	// Otherwise the next use of the global sumBuffer would conflict.
+	sumBuffer := make([]byte, 0, sha256.Size)
+	return hasher.Sum(sumBuffer)[:buildIDComponentLength]
 }
 
 // appendFlags writes garble's own flags to w in string form.
@@ -220,12 +228,12 @@ func hashWith(salt []byte, name string) string {
 	// thousands of obfuscated names.
 	const hashLength = 8
 
-	d := sha256.New()
-	d.Write(salt)
-	d.Write(flagSeed.bytes)
-	io.WriteString(d, name)
-	sum := make([]byte, nameBase64.EncodedLen(d.Size()))
-	nameBase64.Encode(sum, d.Sum(nil))
+	hasher.Reset()
+	hasher.Write(salt)
+	hasher.Write(flagSeed.bytes)
+	io.WriteString(hasher, name)
+	sum := make([]byte, nameBase64.EncodedLen(hasher.Size()))
+	nameBase64.Encode(sum, hasher.Sum(sumBuffer[:0]))
 	sum = sum[:hashLength]
 
 	// Even if we are hashing a package path, we still want the result to be
@@ -269,11 +277,11 @@ func gocachePathForFile(path string) (string, error) {
 	}
 	defer f.Close()
 
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	hasher.Reset()
+	if _, err := io.Copy(hasher, f); err != nil {
 		return "", err
 	}
-	sum := hex.EncodeToString(h.Sum(nil))
+	sum := hex.EncodeToString(hasher.Sum(sumBuffer[:0]))
 	entry := filepath.Join(cache.GoEnv.GOCACHE, sum[:2], sum+"-d")
 
 	// Ensure the file actually exists in the build cache.
