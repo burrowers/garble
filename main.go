@@ -210,6 +210,14 @@ func debugSince(start time.Time) time.Duration {
 }
 
 func main1() int {
+	defer func() {
+		if os.Getenv("GARBLE_WRITE_ALLOCS") != "true" {
+			return
+		}
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
+		fmt.Fprintf(os.Stderr, "garble allocs: %d\n", memStats.Mallocs)
+	}()
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
 		return 2
 	}

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func BenchmarkBuild(b *testing.B) {
 	qt.Assert(b, err, qt.IsNil)
 
 	// We collect extra metrics.
-	var cachedTime, userTime, systemTime int64
+	var memoryAllocs, cachedTime, systemTime int64
 
 	outputBin := filepath.Join(b.TempDir(), "output")
 	sourceDir := filepath.Join(b.TempDir(), "src")
@@ -73,46 +74,69 @@ func BenchmarkBuild(b *testing.B) {
 	writeSourceFile("go.mod", []byte("module test/main"))
 	writeSourceFile("main.go", benchSourceMain)
 
+	rxGarbleAllocs := regexp.MustCompile(`(?m)^garble allocs: ([0-9]+)`)
+
 	b.ResetTimer()
+	b.StopTimer()
 	for i := 0; i < b.N; i++ {
 		// First we do a fresh build, using a new GOCACHE.
 		// and the second does an incremental rebuild reusing the cache.
 		gocache, err := os.MkdirTemp(b.TempDir(), "gocache-*")
 		qt.Assert(b, err, qt.IsNil)
-		env := append(os.Environ(), "GOGARBLE=*", "GOCACHE="+gocache)
+		env := append(os.Environ(),
+			"GOGARBLE=*",
+			"GOCACHE="+gocache,
+			"GARBLE_WRITE_ALLOCS=true",
+		)
 		args := []string{"build", "-v", "-o=" + outputBin, sourceDir}
 
-		cmd := exec.Command(garbleBin, args...)
-		cmd.Env = env
-		cmd.Dir = sourceDir
+		for _, cached := range []bool{false, true} {
+			// The cached rebuild will reuse all dependencies,
+			// but rebuild the main package itself.
+			if cached {
+				writeSourceFile("rebuild.go", []byte(fmt.Sprintf("package main\nvar v%d int", i)))
+			}
 
-		out, err := cmd.CombinedOutput()
-		qt.Assert(b, err, qt.IsNil, qt.Commentf("output: %s", out))
-		// Ensure that we built all packages, as expected.
-		qt.Assert(b, rxBuiltRuntime.Match(out), qt.IsTrue)
-		qt.Assert(b, rxBuiltMain.Match(out), qt.IsTrue)
+			cmd := exec.Command(garbleBin, args...)
+			cmd.Env = env
+			cmd.Dir = sourceDir
 
-		// The cached rebuild will reuse all dependencies,
-		// but rebuild the main package itself.
-		cachedStart := time.Now()
-		writeSourceFile("rebuild.go", []byte(fmt.Sprintf("package main\nvar v%d int", i)))
+			cachedStart := time.Now()
+			b.StartTimer()
+			out, err := cmd.CombinedOutput()
+			b.StopTimer()
+			if cached {
+				cachedTime += time.Since(cachedStart).Nanoseconds()
+			}
 
-		cmd = exec.Command(garbleBin, args...)
-		cmd.Env = env
-		cmd.Dir = sourceDir
+			qt.Assert(b, err, qt.IsNil, qt.Commentf("output: %s", out))
+			if !cached {
+				// Ensure that we built all packages, as expected.
+				qt.Assert(b, rxBuiltRuntime.Match(out), qt.IsTrue)
+			} else {
+				// Ensure that we only rebuilt the main package, as expected.
+				qt.Assert(b, rxBuiltRuntime.Match(out), qt.IsFalse)
+			}
+			qt.Assert(b, rxBuiltMain.Match(out), qt.IsTrue)
 
-		out, err = cmd.CombinedOutput()
-		qt.Assert(b, err, qt.IsNil, qt.Commentf("output: %s", out))
-		// Ensure that we only rebuilt the main package, as expected.
-		qt.Assert(b, rxBuiltRuntime.Match(out), qt.IsFalse)
-		qt.Assert(b, rxBuiltMain.Match(out), qt.IsTrue)
+			matches := rxGarbleAllocs.FindAllSubmatch(out, -1)
+			if !cached {
+				// The non-cached version should have at least a handful of
+				// sub-processes; catch if our logic breaks.
+				qt.Assert(b, len(matches) > 5, qt.IsTrue)
+			}
+			for _, match := range matches {
+				allocs, err := strconv.ParseInt(string(match[1]), 10, 64)
+				qt.Assert(b, err, qt.IsNil)
+				memoryAllocs += allocs
+			}
 
-		cachedTime += time.Since(cachedStart).Nanoseconds()
-		userTime += int64(cmd.ProcessState.UserTime())
-		systemTime += int64(cmd.ProcessState.SystemTime())
+			systemTime += int64(cmd.ProcessState.SystemTime())
+		}
 	}
+	// We can't use "allocs/op" as it's reserved for ReportAllocs.
+	b.ReportMetric(float64(memoryAllocs)/float64(b.N), "mallocs/op")
 	b.ReportMetric(float64(cachedTime)/float64(b.N), "cached-ns/op")
-	b.ReportMetric(float64(userTime)/float64(b.N), "user-ns/op")
 	b.ReportMetric(float64(systemTime)/float64(b.N), "sys-ns/op")
 	info, err := os.Stat(outputBin)
 	if err != nil {
