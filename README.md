@@ -87,6 +87,10 @@ Garble obfuscates one package at a time, mirroring how Go compiles one package
 at a time. This allows Garble to fully support Go's build cache; incremental
 `garble build` calls should only re-build and re-obfuscate modified code.
 
+Note that the first call to `garble build` may be comparatively slow,
+as it has to obfuscate each package for the first time. This is akin to clearing
+`GOCACHE` with `go clean -cache` and running a `go build` from scratch.
+
 ### Determinism and seeds
 
 Just like Go, garble builds are deterministic and reproducible if the inputs
