@@ -1451,8 +1451,8 @@ func (tf *transformer) transformGo(filename string, file *ast.File) *ast.File {
 		if !ok {
 			return true
 		}
-		// TODO(mvdan): use "name := node.Name"
-		if node.Name == "_" {
+		name := node.Name
+		if name == "_" {
 			return true // unnamed remains unnamed
 		}
 		obj := tf.info.ObjectOf(node)
@@ -1472,7 +1472,7 @@ func (tf *transformer) transformGo(filename string, file *ast.File) *ast.File {
 				// Note that "package mypkg" also denotes a nil object in Defs,
 				// and we don't want to treat that "mypkg" as a variable,
 				// so avoid that case by checking the type of cursor.Parent.
-				obj = types.NewVar(node.Pos(), tf.pkg, node.Name, nil)
+				obj = types.NewVar(node.Pos(), tf.pkg, name, nil)
 			} else {
 				return true
 			}
@@ -1578,7 +1578,7 @@ func (tf *transformer) transformGo(filename string, file *ast.File) *ast.File {
 			// packages result in different obfuscated names.
 			strct := tf.fieldToStruct[obj]
 			if strct == nil {
-				panic("could not find for " + node.Name)
+				panic("could not find for " + name)
 			}
 			// TODO: We should probably strip field tags here.
 			// Do we need to do anything else to make a
@@ -1598,22 +1598,19 @@ func (tf *transformer) transformGo(filename string, file *ast.File) *ast.File {
 			if obj.Exported() && sign.Recv() != nil {
 				return true // might implement an interface
 			}
-			switch node.Name {
+			switch name {
 			case "main", "init", "TestMain":
 				return true // don't break them
 			}
-			if strings.HasPrefix(node.Name, "Test") && isTestSignature(sign) {
+			if strings.HasPrefix(name, "Test") && isTestSignature(sign) {
 				return true // don't break tests
 			}
 		default:
 			return true // we only want to rename the above
 		}
 
-		origName := node.Name
-		_ = origName // used for debug prints below
-
-		node.Name = hashWith(hashToUse, node.Name)
-		debugf("%s %q hashed with %x… to %q", debugName, origName, hashToUse[:4], node.Name)
+		node.Name = hashWith(hashToUse, name)
+		debugf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
 		return true
 	}
 	post := func(cursor *astutil.Cursor) bool {
@@ -1976,11 +1973,11 @@ func fetchGoEnv() error {
 		"GOOS", "GOPRIVATE", "GOMOD", "GOVERSION", "GOCACHE",
 	).CombinedOutput()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, `Can't find Go toolchain: %v
+		fmt.Fprintf(os.Stderr, `Can't find the Go toolchain: %v
 
-This is likely due to go not being installed/setup correctly.
+This is likely due to Go not being installed/setup correctly.
 
-How to install Go: https://go.dev/doc/install
+To install Go, see: https://go.dev/doc/install
 `, err)
 		return errJustExit(1)
 	}
