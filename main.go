@@ -722,7 +722,7 @@ func transformCompile(args []string) ([]string, error) {
 			stripRuntime(filename, file)
 		}
 		tf.handleDirectives(file.Comments)
-		file = tf.transformGo(filename, file)
+		file = tf.transformGo(file)
 		if newPkgPath != "" {
 			file.Name.Name = newPkgPath
 		}
@@ -1435,7 +1435,7 @@ func recordedAsNotObfuscated(obj types.Object) bool {
 }
 
 // transformGo obfuscates the provided Go syntax file.
-func (tf *transformer) transformGo(filename string, file *ast.File) *ast.File {
+func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	// Only obfuscate the literals here if the flag is on
 	// and if the package in question is to be obfuscated.
 	//

@@ -2,6 +2,7 @@ on:
   push:
     branches:
       - master
+      - ci-test
   pull_request:
     branches:
       - master
@@ -9,6 +10,12 @@ on:
 # Note that a full "go test" is quite heavy,
 # as it runs many builds under the hood.
 # The default -timeout=10m can be hit by the hosted runners.
+#
+# Also note that we don't use actions/cache for Go on purpose.
+# Caching GOMODCACHE wouldn't help much, as we have few deps.
+# Caching GOCACHE would do more harm than good,
+# as the tests redo most of their work if the garble version changes,
+# and the majority of commits or PRs will do so.
 
 name: Test
 jobs:
@@ -19,22 +26,29 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-    - name: Install Go
-      uses: actions/setup-go@v2
+    - uses: actions/setup-go@v3
       with:
         go-version: ${{ matrix.go-version }}
-    - name: Checkout code
-      uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Test
-      run: |
-        go env
-        go test -timeout=15m ./...
+      run: go test -timeout=15m ./...
     - name: Test with -race
       # macos and windows tend to be a bit slower,
       # and it's rare that a race in garble would be OS-specific.
       if: matrix.os == 'ubuntu-latest'
-      run: |
-        go test -race -timeout=20m ./...
+      run: go test -race -timeout=20m ./...
+
+    # Static checks from this point forward. Only run on one Go version and on
+    # Linux, since it's the fastest platform, and the tools behave the same.
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.17.x'
+      run: diff <(echo -n) <(gofmt -d .)
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.17.x'
+      run: go vet ./...
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.17.x'
+      uses: dominikh/staticcheck-action@v1.1.0
+      with:
+        version: "2021.1.2"
+        install-go: false
 
   # We don't care about GOARCH=386 particularly,
   # but it helps ensure we support 32-bit hosts and targets well.
@@ -45,16 +59,12 @@ jobs:
     env:
       GOARCH: 386
     steps:
-    - name: Install Go
-      uses: actions/setup-go@v2
+    - uses: actions/setup-go@v3
       with:
         go-version: 1.17.x
-    - name: Checkout code
-      uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Test
-      run: |
-        go env
-        go test -timeout=15m ./...
+      run: go test -timeout=15m ./...
 
   test-gotip:
     runs-on: ubuntu-latest
@@ -76,17 +86,12 @@ jobs:
         GOGC=off ./make.bash
         echo "GOROOT=$HOME/gotip" >>$GITHUB_ENV
         echo "$HOME/gotip/bin" >>$GITHUB_PATH
-    - name: Checkout code
-      uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Test
-      run: |
-        go env
-        go test -timeout=15m ./...
+      run: go test -timeout=15m ./...
 
-  code-checks:
+  script-checks:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-    - name: Test that only LF line endings are used
-      run: ./scripts/crlf-test.sh
+    - uses: actions/checkout@v3
+    - run: ./scripts/crlf-test.sh
