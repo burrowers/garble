@@ -995,8 +995,14 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 }
 
 type (
-	funcFullName             = string
+	funcFullName = string // as per go/types.Func.FullName
+	objectString = string // as per recordedObjectString
+
 	reflectParameterPosition = int
+
+	typeName struct {
+		PkgPath, Name string
+	}
 )
 
 // cachedOutput contains information that will be stored as per garbleExportFile.
@@ -1014,13 +1020,22 @@ var cachedOutput = struct {
 	// weren't obfuscated, so we can obfuscate their local uses accordingly.
 	//
 	// TODO: merge cannotObfuscateNames into this directly
-	KnownCannotObfuscate map[string]struct{}
+	KnownCannotObfuscate map[objectString]struct{}
+
+	// KnownEmbeddedAliasFields records which embedded fields use a type alias.
+	// They are the only instance where a type alias matters for obfuscation,
+	// because the embedded field name is derived from the type alias itself,
+	// and not the type that the alias points to.
+	// In that way, the type alias is obfuscated as a form of named type,
+	// bearing in mind that it may be owned by a different package.
+	KnownEmbeddedAliasFields map[objectString]typeName
 }{
 	KnownReflectAPIs: map[funcFullName][]reflectParameterPosition{
 		"reflect.TypeOf":  {0},
 		"reflect.ValueOf": {0},
 	},
-	KnownCannotObfuscate: map[string]struct{}{},
+	KnownCannotObfuscate:     map[string]struct{}{},
+	KnownEmbeddedAliasFields: map[string]typeName{},
 }
 
 // garbleExportFile returns an absolute path to a build cache entry
@@ -1267,10 +1282,6 @@ type transformer struct {
 	// fieldToStruct helps locate struct types from any of their field
 	// objects. Useful when obfuscating field names.
 	fieldToStruct map[*types.Var]*types.Struct
-
-	// fieldToAlias helps tell if an embedded struct field object is a type
-	// alias. Useful when obfuscating field names.
-	fieldToAlias map[*types.Var]*types.TypeName
 }
 
 // newTransformer helps initialize some maps.
@@ -1283,7 +1294,6 @@ func newTransformer() *transformer {
 		},
 		recordTypeDone: make(map[types.Type]bool),
 		fieldToStruct:  make(map[*types.Var]*types.Struct),
-		fieldToAlias:   make(map[*types.Var]*types.TypeName),
 	}
 }
 
@@ -1303,15 +1313,29 @@ func (tf *transformer) typecheck(files []*ast.File) error {
 		}
 	}
 	for name, obj := range tf.info.Uses {
-		if obj != nil {
-			if obj, ok := obj.(*types.TypeName); ok && obj.IsAlias() {
-				vr, _ := tf.info.Defs[name].(*types.Var)
-				if vr != nil {
-					tf.fieldToAlias[vr] = obj
-				}
-			}
-			tf.recordType(obj.Type())
+		if obj == nil {
+			continue
 		}
+		tf.recordType(obj.Type())
+
+		// Record into KnownEmbeddedAliasFields.
+		obj, ok := obj.(*types.TypeName)
+		if !ok || !obj.IsAlias() {
+			continue
+		}
+		vr, _ := tf.info.Defs[name].(*types.Var)
+		if vr == nil || !vr.Embedded() {
+			continue
+		}
+		vrStr := recordedObjectString(vr)
+		if vrStr == "" {
+			continue
+		}
+		aliasTypeName := typeName{
+			PkgPath: obj.Pkg().Path(),
+			Name:    obj.Name(),
+		}
+		cachedOutput.KnownEmbeddedAliasFields[vrStr] = aliasTypeName
 	}
 	for _, tv := range tf.info.Types {
 		tf.recordType(tv.Type)
@@ -1347,12 +1371,7 @@ func (tf *transformer) recordType(t types.Type) {
 	}
 }
 
-func recordedObjectString(obj types.Object) string {
-	if !obj.Exported() {
-		// Unexported names will never be used by other packages,
-		// so we don't need to bother recording them.
-		return ""
-	}
+func recordedObjectString(obj types.Object) objectString {
 	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
 		// For exported fields, "pkgpath.Field" is not unique,
 		// because two exported top-level types could share "Field".
@@ -1469,11 +1488,23 @@ func (tf *transformer) transformGo(filename string, file *ast.File) *ast.File {
 			// handle the alias's TypeName instead of treating it as
 			// the type the alias points to.
 			//
-			// Alternatively, if we don't have an alias, we want to
+			// Alternatively, if we don't have an alias, we still want to
 			// use the embedded type, not the field.
-			if tname := tf.fieldToAlias[vr]; tname != nil {
-				if !tname.IsAlias() {
-					panic("fieldToAlias recorded a non-alias TypeName?")
+			vrStr := recordedObjectString(vr)
+			aliasTypeName, ok := cachedOutput.KnownEmbeddedAliasFields[vrStr]
+			if ok {
+				pkg2 := tf.pkg
+				if aliasTypeName.PkgPath != pkg2.Path() {
+					// TODO(mvdan): pull this package from tf.pkg.Imports instead?
+					var err error
+					pkg2, err = origImporter.ImportFrom(aliasTypeName.PkgPath, parentWorkDir, 0)
+					if err != nil {
+						panic(err)
+					}
+				}
+				tname, ok := pkg2.Scope().Lookup(aliasTypeName.Name).(*types.TypeName)
+				if !ok || !tname.IsAlias() {
+					panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a non-alias", vrStr))
 				}
 				obj = tname
 			} else {
@@ -1481,24 +1512,7 @@ func (tf *transformer) transformGo(filename string, file *ast.File) *ast.File {
 				if named == nil {
 					return true // unnamed type (probably a basic type, e.g. int)
 				}
-				// If the field embeds an alias,
-				// and the field is declared in a dependency,
-				// fieldToAlias might not tell us about the alias.
-				// We lack the *ast.Ident for the field declaration,
-				// so we can't see it in types.Info.Uses.
-				//
-				// Instead, detect such a "foreign alias embed".
-				// If we embed a final named type,
-				// but the field name does not match its name,
-				// then it must have been done via an alias.
-				// We dig out the alias's TypeName via locateForeignAlias.
-				if named.Obj().Name() != node.Name {
-					tname := locateForeignAlias(vr.Pkg().Path(), node.Name)
-					tf.fieldToAlias[vr] = tname // to reuse it later
-					obj = tname
-				} else {
-					obj = named.Obj()
-				}
+				obj = named.Obj()
 			}
 			pkg = obj.Pkg()
 		}
@@ -1631,44 +1645,6 @@ func (tf *transformer) transformGo(filename string, file *ast.File) *ast.File {
 	}
 
 	return astutil.Apply(file, pre, post).(*ast.File)
-}
-
-// locateForeignAlias finds the TypeName for an alias by the name aliasName,
-// which must be declared in one of the dependencies of dependentImportPath.
-func locateForeignAlias(dependentImportPath, aliasName string) *types.TypeName {
-	var found *types.TypeName
-	lpkg, err := listPackage(dependentImportPath)
-	if err != nil {
-		panic(err) // shouldn't happen
-	}
-	for _, importedPath := range lpkg.Imports {
-		pkg2, err := origImporter.ImportFrom(importedPath, parentWorkDir, 0)
-		if err != nil {
-			panic(err)
-		}
-		tname, ok := pkg2.Scope().Lookup(aliasName).(*types.TypeName)
-		if ok && tname.IsAlias() {
-			if found != nil {
-				// We assume that the alias is declared exactly
-				// once in the set of direct imports.
-				// This might not be the case, e.g. if two
-				// imports declare the same alias name.
-				//
-				// TODO: Think how we could solve that
-				// efficiently, if it happens in practice.
-				panic(fmt.Sprintf("found multiple TypeNames for %s", aliasName))
-			}
-			found = tname
-		}
-	}
-	if found == nil {
-		// This should never happen.
-		// If package A embeds an alias declared in a dependency,
-		// it must show up in the form of "B.Alias",
-		// so A must import B and B must declare "Alias".
-		panic(fmt.Sprintf("could not find TypeName for %s", aliasName))
-	}
-	return found
 }
 
 // recordIgnore adds any named types (including fields) under typ to

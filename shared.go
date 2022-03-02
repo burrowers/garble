@@ -144,6 +144,8 @@ type listedPackage struct {
 	// between garble processes. Use "Garble" as a prefix to ensure no
 	// collisions with the JSON fields from 'go list'.
 
+	// TODO(mvdan): consider filling this iff ToObfuscate==true,
+	// which will help ensure we don't obfuscate any of their names otherwise.
 	GarbleActionID []byte
 
 	ToObfuscate bool

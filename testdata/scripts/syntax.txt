@@ -134,6 +134,12 @@ func main() {
 		ExternalForeignAlias: nil,
 		Reader:       nil,
 	}
+
+	var emb sub.EmbeddingAlias
+	_ = emb.EmbeddedAlias
+	_ = emb.Foo
+	_ = emb.EmbeddedAliasSameName
+	_ = emb.Bar
 }
 
 -- scopes.go --
@@ -198,13 +204,12 @@ func TestBar(*struct{}) {}
 // If we obfuscate the alias name, we must obfuscate its use here too.
 type EmbeddingAlias struct {
 	EmbeddedAlias
+	EmbeddedAliasSameName
 }
 
-type EmbeddedAlias = EmbeddedStruct
+type EmbeddedAlias = external.NamedExternal
 
-type EmbeddedStruct struct {
-	Foo int
-}
+type EmbeddedAliasSameName = external.EmbeddedAliasSameName
 
 // We obfuscate the name foreignAlias, but not the name Reader,
 // as it's not declared in a private package.
@@ -246,6 +251,14 @@ var _ = embeddingAliasSameName{
 package external
 
 import "io"
+
+type NamedExternal struct {
+	Foo int
+}
+
+type EmbeddedAliasSameName struct {
+	Bar int
+}
 
 type ExternalForeignAlias = io.Reader
 
