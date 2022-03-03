@@ -22,7 +22,7 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.17.x]
+        go-version: [1.17.x, 1.18.0-rc.1]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -71,7 +71,7 @@ jobs:
     steps:
     - name: Install Go
       env:
-        GO_COMMIT: e50f0f372b07149e9cf16b8fec80d2d72efe2a87 # 2022-02-11
+        GO_COMMIT: 86b5f6a7be707b9d84108df6f459c7e84bf9dbac # 2022-03-02
       run: |
         cd $HOME
         mkdir $HOME/gotip
@@ -79,7 +79,7 @@ jobs:
 
         wget -O gotip.tar.gz https://go.googlesource.com/go/+archive/${GO_COMMIT}.tar.gz
         tar -xf gotip.tar.gz
-        echo "devel go1.18-${GO_COMMIT}" >VERSION
+        echo "devel go1.19-${GO_COMMIT}" >VERSION
 
         cd src
         # GOGC=off helps Go build about 20% faster, if we can spare memory.
