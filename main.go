@@ -1494,17 +1494,23 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			aliasTypeName, ok := cachedOutput.KnownEmbeddedAliasFields[vrStr]
 			if ok {
 				pkg2 := tf.pkg
-				if aliasTypeName.PkgPath != pkg2.Path() {
-					// TODO(mvdan): pull this package from tf.pkg.Imports instead?
+				if path := aliasTypeName.PkgPath; pkg2.Path() != path {
+					// If the package is a dependency, import it.
+					// We can't grab the package via tf.pkg.Imports,
+					// because some of the packages under there are incomplete.
+					// ImportFrom will cache complete imports, anyway.
 					var err error
-					pkg2, err = origImporter.ImportFrom(aliasTypeName.PkgPath, parentWorkDir, 0)
+					pkg2, err = origImporter.ImportFrom(path, parentWorkDir, 0)
 					if err != nil {
 						panic(err)
 					}
 				}
 				tname, ok := pkg2.Scope().Lookup(aliasTypeName.Name).(*types.TypeName)
 				if !ok || !tname.IsAlias() {
-					panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a non-alias", vrStr))
+					if !ok {
+						panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
+					}
+					panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a non-alias type %q", vrStr, aliasTypeName))
 				}
 				obj = tname
 			} else {
