@@ -1005,6 +1005,13 @@ type (
 	}
 )
 
+// TODO: read-write globals like these should probably be inside transformer
+
+// knownCannotObfuscateUnexported is like KnownCannotObfuscate but for
+// unexported names. We don't need to store this in the build cache,
+// because these names cannot be referenced by downstream packages.
+var knownCannotObfuscateUnexported = map[types.Object]bool{}
+
 // cachedOutput contains information that will be stored as per garbleExportFile.
 var cachedOutput = struct {
 	// KnownReflectAPIs is a static record of what std APIs use reflection on their
@@ -1018,8 +1025,6 @@ var cachedOutput = struct {
 	// package that we could not obfuscate as per cannotObfuscateNames.
 	// This record is necessary for knowing what names from imported packages
 	// weren't obfuscated, so we can obfuscate their local uses accordingly.
-	//
-	// TODO: merge cannotObfuscateNames into this directly
 	KnownCannotObfuscate map[objectString]struct{}
 
 	// KnownEmbeddedAliasFields records which embedded fields use a type alias.
@@ -1174,7 +1179,6 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 // Since we obfuscate one package at a time, we only detect those if the type
 // definition and the reflect usage are both in the same package.
 func (tf *transformer) prefillObjectMaps(files []*ast.File) {
-	tf.cannotObfuscateNames = make(map[types.Object]bool)
 	tf.linkerVariableStrings = make(map[types.Object]string)
 
 	ldflags := flagValue(cache.ForwardBuildFlags, "-ldflags")
@@ -1227,7 +1231,7 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) {
 		for _, argPos := range cachedOutput.KnownReflectAPIs[fullName] {
 			arg := call.Args[argPos]
 			argType := tf.info.TypeOf(arg)
-			tf.recordIgnore(argType, tf.pkg.Path())
+			tf.recursivelyRecordAsNotObfuscated(argType)
 		}
 
 		return true
@@ -1244,7 +1248,8 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) {
 				if obj == nil {
 					continue // not found; skip
 				}
-				tf.cannotObfuscateNames[obj] = true
+				// TODO(mvdan): it seems like removing this doesn't break any tests.
+				recordAsNotObfuscated(obj)
 			}
 		}
 		ast.Inspect(file, visit)
@@ -1257,19 +1262,6 @@ type transformer struct {
 	// The type-checking results; the package itself, and the Info struct.
 	pkg  *types.Package
 	info *types.Info
-
-	// cannotObfuscateNames records all the objects whose names we cannot obfuscate.
-	// An object is any named entity, such as a declared variable or type.
-	//
-	// This map is initialized by prefillObjectMaps at the start,
-	// and extra entries from dependencies are added by transformGo,
-	// for the sake of caching type lookups.
-	// So far, it records:
-	//
-	//  * Types which are used for reflection.
-	//  * Declarations exported via "//export".
-	//  * Types or variables from external packages which were not obfuscated.
-	cannotObfuscateNames map[types.Object]bool
 
 	// linkerVariableStrings is also initialized by prefillObjectMaps.
 	// It records objects for variables used in -ldflags=-X flags,
@@ -1371,6 +1363,9 @@ func (tf *transformer) recordType(t types.Type) {
 	}
 }
 
+// TODO: consider caching recordedObjectString via a map,
+// if that shows an improvement in our benchmark
+
 func recordedObjectString(obj types.Object) objectString {
 	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
 		// For exported fields, "pkgpath.Field" is not unique,
@@ -1401,30 +1396,38 @@ func recordedObjectString(obj types.Object) objectString {
 	return fmt.Sprintf("%s.%s", obj.Pkg().Path(), obj.Name())
 }
 
-func recordAsNotObfuscated(obj types.Object) bool {
+// recordAsNotObfuscated records all the objects whose names we cannot obfuscate.
+// An object is any named entity, such as a declared variable or type.
+//
+// So far, it records:
+//
+//  * Types which are used for reflection.
+//  * Declarations exported via "//export".
+//  * Types or variables from external packages which were not obfuscated.
+func recordAsNotObfuscated(obj types.Object) {
 	if obj.Pkg().Path() != curPkg.ImportPath {
 		panic("called recordedAsNotObfuscated with a foreign object")
 	}
 	if !obj.Exported() {
 		// Unexported names will never be used by other packages,
-		// so we don't need to bother recording them.
-		return true
+		// so we don't need to bother recording them in cachedOutput.
+		knownCannotObfuscateUnexported[obj] = true
+		return
 	}
 
-	if objStr := recordedObjectString(obj); objStr != "" {
-		cachedOutput.KnownCannotObfuscate[objStr] = struct{}{}
+	objStr := recordedObjectString(obj)
+	if objStr == "" {
+		// If the object can't be described via a qualified string,
+		// then other packages can't use it.
+		// TODO: should we still record it in knownCannotObfuscateUnexported?
+		return
 	}
-	return true // to simplify early returns in astutil.ApplyFunc
+	cachedOutput.KnownCannotObfuscate[objStr] = struct{}{}
 }
 
 func recordedAsNotObfuscated(obj types.Object) bool {
-	if obj.Pkg().Path() == curPkg.ImportPath {
-		// The current package knows what names it's not obfuscating.
-		return false
-	}
-	if !obj.Exported() {
-		// Not recorded, as per recordAsNotObfuscated.
-		return false
+	if knownCannotObfuscateUnexported[obj] {
+		return true
 	}
 	objStr := recordedObjectString(obj)
 	if objStr == "" {
@@ -1528,11 +1531,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			return true
 		}
 
-		// We don't want to obfuscate this object name.
-		if tf.cannotObfuscateNames[obj] {
-			return recordAsNotObfuscated(obj)
-		}
-		// The imported package that declared this object did not obfuscate it.
+		// The package that declared this object did not obfuscate it.
 		if recordedAsNotObfuscated(obj) {
 			return true
 		}
@@ -1644,26 +1643,26 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	return astutil.Apply(file, pre, post).(*ast.File)
 }
 
-// recordIgnore adds any named types (including fields) under typ to
-// cannotObfuscateNames.
+// recursivelyRecordAsNotObfuscated calls recordAsNotObfuscated on any named
+// types and fields under typ.
 //
-// Only the names declared in package pkgPath are recorded. This is to ensure
+// Only the names declared in the current package are recorded. This is to ensure
 // that reflection detection only happens within the package declaring a type.
 // Detecting it in downstream packages could result in inconsistencies.
-func (tf *transformer) recordIgnore(t types.Type, pkgPath string) {
+func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
 	switch t := t.(type) {
 	case *types.Named:
 		obj := t.Obj()
-		if obj.Pkg() == nil || obj.Pkg().Path() != pkgPath {
+		if obj.Pkg() == nil || obj.Pkg() != tf.pkg {
 			return // not from the specified package
 		}
-		if tf.cannotObfuscateNames[obj] {
+		if recordedAsNotObfuscated(obj) {
 			return // prevent endless recursion
 		}
-		tf.cannotObfuscateNames[obj] = true
+		recordAsNotObfuscated(obj)
 
 		// Record the underlying type, too.
-		tf.recordIgnore(t.Underlying(), pkgPath)
+		tf.recursivelyRecordAsNotObfuscated(t.Underlying())
 
 	case *types.Struct:
 		for i := 0; i < t.NumFields(); i++ {
@@ -1672,19 +1671,19 @@ func (tf *transformer) recordIgnore(t types.Type, pkgPath string) {
 			// This check is similar to the one in *types.Named.
 			// It's necessary for unnamed struct types,
 			// as they aren't named but still have named fields.
-			if field.Pkg() == nil || field.Pkg().Path() != pkgPath {
+			if field.Pkg() == nil || field.Pkg() != tf.pkg {
 				return // not from the specified package
 			}
 
 			// Record the field itself, too.
-			tf.cannotObfuscateNames[field] = true
+			recordAsNotObfuscated(field)
 
-			tf.recordIgnore(field.Type(), pkgPath)
+			tf.recursivelyRecordAsNotObfuscated(field.Type())
 		}
 
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
-		tf.recordIgnore(t.Elem(), pkgPath)
+		tf.recursivelyRecordAsNotObfuscated(t.Elem())
 	}
 }
 
