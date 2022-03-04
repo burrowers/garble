@@ -35,7 +35,6 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/mod/modfile"
-	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 
@@ -515,9 +514,8 @@ func transformAsm(args []string) ([]string, error) {
 
 	flags, paths := splitFlagsFromFiles(args, ".s")
 
-	// When assembling, the import path can make its way into the output
-	// object file.
-	if curPkg.Name != "main" && curPkg.ToObfuscate {
+	// When assembling, the import path can make its way into the output object file.
+	if curPkg.Name != "main" {
 		flags = flagSetValue(flags, "-p", curPkg.obfuscatedImportPath())
 	}
 
@@ -704,8 +702,10 @@ func transformCompile(args []string) ([]string, error) {
 
 	tf.prefillObjectMaps(files)
 
-	// If this is a package to obfuscate, swap the -p flag with the new
-	// package path.
+	// If this is a package to obfuscate, swap the -p flag with the new package path.
+	// We don't if it's the main package, as that just uses "-p main".
+	// We only set newPkgPath if we're obfuscating the import path,
+	// to replace the original package name in the package clause below.
 	newPkgPath := ""
 	if curPkg.Name != "main" && curPkg.ToObfuscate {
 		newPkgPath = curPkg.obfuscatedImportPath()
@@ -836,71 +836,6 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 	}
 }
 
-// cannotObfuscate is a list of some packages the runtime depends on, or
-// packages which the runtime points to via go:linkname.
-//
-// Once we support go:linkname well and once we can obfuscate the runtime
-// package, this entire map can likely go away.
-//
-// TODO: investigate and resolve each one of these
-var cannotObfuscate = map[string]bool{
-	// not a "real" package
-	"unsafe": true,
-
-	// some linkname failure
-	"time":          true,
-	"runtime/pprof": true,
-
-	// all kinds of stuff breaks when obfuscating the runtime
-	"syscall":      true,
-	"internal/abi": true,
-
-	// rebuilds don't work
-	"os/signal": true,
-
-	// cgo breaks otherwise
-	"runtime/cgo": true,
-
-	// garble reverse breaks otherwise
-	"runtime/debug": true,
-
-	// cgo heavy net doesn't like to be obfuscated
-	"net": true,
-
-	// some linkname failure
-	"crypto/x509/internal/macos": true,
-}
-
-// Obtained from "go list -deps runtime" on Go 1.18beta1.
-// Note that the same command on Go 1.17 results in a subset of this list.
-var runtimeAndDeps = map[string]bool{
-	"internal/goarch":         true,
-	"unsafe":                  true,
-	"internal/abi":            true,
-	"internal/cpu":            true,
-	"internal/bytealg":        true,
-	"internal/goexperiment":   true,
-	"internal/goos":           true,
-	"runtime/internal/atomic": true,
-	"runtime/internal/math":   true,
-	"runtime/internal/sys":    true,
-	"runtime":                 true,
-}
-
-// toObfuscate checks if a package should be obfuscated given its import path.
-// If you are holding a listedPackage, reuse its ToObfuscate field instead.
-func toObfuscate(path string) bool {
-	// We don't support obfuscating these yet.
-	if cannotObfuscate[path] || runtimeAndDeps[path] {
-		return false
-	}
-	// These are main packages, so we must always obfuscate them.
-	if path == "command-line-arguments" || strings.HasPrefix(path, "plugin/unnamed") {
-		return true
-	}
-	return module.MatchPrefixPatterns(cache.GOGARBLE, path)
-}
-
 // processImportCfg parses the importcfg file passed to a compile or link step.
 // It also builds a new importcfg file to account for obfuscated import paths.
 func processImportCfg(flags []string) (newImportCfg string, _ error) {
@@ -956,12 +891,11 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	}
 	for _, pair := range importmaps {
 		beforePath, afterPath := pair[0], pair[1]
-		if toObfuscate(afterPath) {
-			lpkg, err := listPackage(beforePath)
-			if err != nil {
-				panic(err) // shouldn't happen
-			}
-
+		lpkg, err := listPackage(beforePath)
+		if err != nil {
+			panic(err) // shouldn't happen
+		}
+		if lpkg.ToObfuscate {
 			// Note that beforePath is not the canonical path.
 			// For beforePath="vendor/foo", afterPath and
 			// lpkg.ImportPath can be just "foo".
@@ -974,11 +908,11 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	}
 	for _, pair := range packagefiles {
 		impPath, pkgfile := pair[0], pair[1]
-		if toObfuscate(impPath) {
-			lpkg, err := listPackage(impPath)
-			if err != nil {
-				panic(err) // shouldn't happen
-			}
+		lpkg, err := listPackage(impPath)
+		if err != nil {
+			panic(err) // shouldn't happen
+		}
+		if lpkg.Name != "main" {
 			impPath = lpkg.obfuscatedImportPath()
 		}
 		fmt.Fprintf(newCfg, "packagefile %s=%s\n", impPath, pkgfile)
