@@ -1,7 +1,13 @@
 env GOGARBLE=*
 
 # Note the proper domain, since the dot adds an edge case.
-env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/missing/path.missingVar=value'
+#
+# Also note that there are three forms of -X allowed:
+#
+#   -X=name=value
+#   -X name=value
+#   -X "name=value" (or with single quotes, allows spaces in value)
+env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/missing/path.missingVar=value'
 
 garble build -ldflags=${LDFLAGS}
 exec ./main
@@ -39,9 +45,12 @@ var unexportedVersion = "unknown"
 
 var notReplacedBefore, replacedWithEmpty, notReplacedAfter = "kept_before", "original", "kept_after"
 
+var replacedWithSpaces = "original"
+
 func main() {
 	fmt.Printf("version: %q\n", unexportedVersion)
 	fmt.Printf("becomes empty: %q\n", replacedWithEmpty)
+	fmt.Printf("becomes string with spaces: %q\n", replacedWithSpaces)
 	fmt.Printf("should be kept: %q, %q\n", notReplacedBefore, notReplacedAfter)
 	fmt.Printf("no longer unset: %q\n", imported.ExportedUnset)
 }
@@ -56,5 +65,6 @@ var (
 -- main.stdout --
 version: "v1.22.33"
 becomes empty: ""
+becomes string with spaces: " foo bar "
 should be kept: "kept_before", "kept_after"
 no longer unset: "garble_replaced"

@@ -700,7 +700,9 @@ func transformCompile(args []string) ([]string, error) {
 	// debugf("seeding math/rand with %x\n", randSeed)
 	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
 
-	tf.prefillObjectMaps(files)
+	if err := tf.prefillObjectMaps(files); err != nil {
+		return nil, err
+	}
 
 	// If this is a package to obfuscate, swap the -p flag with the new package path.
 	// We don't if it's the main package, as that just uses "-p main".
@@ -1108,15 +1110,20 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 	}
 }
 
+//go:generate go run golang.org/x/tools/cmd/bundle@v0.1.9 -o cmdgo_quoted.go -prefix cmdgoQuoted cmd/internal/quoted
+
 // prefillObjectMaps collects objects which should not be obfuscated,
 // such as those used as arguments to reflect.TypeOf or reflect.ValueOf.
 // Since we obfuscate one package at a time, we only detect those if the type
 // definition and the reflect usage are both in the same package.
-func (tf *transformer) prefillObjectMaps(files []*ast.File) {
+func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 	tf.linkerVariableStrings = make(map[types.Object]string)
 
-	ldflags := flagValue(cache.ForwardBuildFlags, "-ldflags")
-	flagValueIter(strings.Split(ldflags, " "), "-X", func(val string) {
+	ldflags, err := cmdgoQuotedSplit(flagValue(cache.ForwardBuildFlags, "-ldflags"))
+	if err != nil {
+		return err
+	}
+	flagValueIter(ldflags, "-X", func(val string) {
 		// val is in the form of "importpath.name=value".
 		i := strings.IndexByte(val, '=')
 		if i < 0 {
@@ -1188,6 +1195,7 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) {
 		}
 		ast.Inspect(file, visit)
 	}
+	return nil
 }
 
 // transformer holds all the information and state necessary to obfuscate a
