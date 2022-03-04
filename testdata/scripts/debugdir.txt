@@ -1,8 +1,5 @@
 env GOGARBLE=*
 
-# ! garble -debug -debugdir ./debug1 build
-# cp stderr /tmp/log
-# exit
 garble -debugdir ./debug1 build
 exists 'debug1/test/main/imported/imported.go' 'debug1/test/main/main.go' 'debug1/reflect/type.go'
 ! grep ImportedFunc $WORK/debug1/test/main/imported/imported.go

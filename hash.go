@@ -118,7 +118,11 @@ func appendFlags(w io.Writer, forBuildHash bool) {
 	if flagTiny {
 		io.WriteString(w, " -tiny")
 	}
-	if flagDebug {
+	if flagDebug && !forBuildHash {
+		// -debug doesn't affect the build result at all,
+		// so don't give it separate entries in the build cache.
+		// If the user really wants to see debug info for already built deps,
+		// they can use "go clean cache" or the "-a" build flag to rebuild.
 		io.WriteString(w, " -debug")
 	}
 	if flagDebugDir != "" && !forBuildHash {
