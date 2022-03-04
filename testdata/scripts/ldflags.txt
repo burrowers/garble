@@ -6,7 +6,7 @@ env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X=do
 garble build -ldflags=${LDFLAGS}
 exec ./main
 cmp stdout main.stdout
-! binsubstr main$exe 'unexportedVersion' 'ExportedUnset'
+! binsubstr main$exe 'domain.test/main' 'unexportedVersion' 'ExportedUnset'
 
 [short] stop # no need to verify this with -short
 

@@ -151,11 +151,17 @@ type listedPackage struct {
 	// which will help ensure we don't obfuscate any of their names otherwise.
 	GarbleActionID []byte
 
+	// ToObfuscate records whether the package should be obfuscated.
 	ToObfuscate bool
 }
 
 func (p *listedPackage) obfuscatedImportPath() string {
-	if p.Name == "main" || p.ImportPath == "embed" || !p.ToObfuscate {
+	if p.Name == "main" {
+		panic("main packages should never need to obfuscate their import paths")
+	}
+	// We can't obfuscate the embed package's import path,
+	// as the toolchain expects to recognize the package by it.
+	if p.ImportPath == "embed" || !p.ToObfuscate {
 		return p.ImportPath
 	}
 	newPath := hashWith(p.GarbleActionID, p.ImportPath)
@@ -222,7 +228,15 @@ func appendListedPackages(packages []string, withDeps bool) error {
 		}
 		// Test main packages like "foo/bar.test" are always obfuscated,
 		// just like main packages.
-		if (pkg.Name == "main" && strings.HasSuffix(path, ".test")) || toObfuscate(path) {
+		switch {
+		case cannotObfuscate[path], runtimeAndDeps[path]:
+			// We don't support obfuscating these yet.
+
+		case pkg.Name == "main" && strings.HasSuffix(path, ".test"),
+			path == "command-line-arguments",
+			strings.HasPrefix(path, "plugin/unnamed"),
+			module.MatchPrefixPatterns(cache.GOGARBLE, path):
+
 			pkg.ToObfuscate = true
 			anyToObfuscate = true
 		}
@@ -234,6 +248,57 @@ func appendListedPackages(packages []string, withDeps bool) error {
 	}
 
 	return nil
+}
+
+// cannotObfuscate is a list of some packages the runtime depends on, or
+// packages which the runtime points to via go:linkname.
+//
+// Once we support go:linkname well and once we can obfuscate the runtime
+// package, this entire map can likely go away.
+//
+// TODO: investigate and resolve each one of these
+var cannotObfuscate = map[string]bool{
+	// not a "real" package
+	"unsafe": true,
+
+	// some linkname failure
+	"time":          true,
+	"runtime/pprof": true,
+
+	// all kinds of stuff breaks when obfuscating the runtime
+	"syscall":      true,
+	"internal/abi": true,
+
+	// rebuilds don't work
+	"os/signal": true,
+
+	// cgo breaks otherwise
+	"runtime/cgo": true,
+
+	// garble reverse breaks otherwise
+	"runtime/debug": true,
+
+	// cgo heavy net doesn't like to be obfuscated
+	"net": true,
+
+	// some linkname failure
+	"crypto/x509/internal/macos": true,
+}
+
+// Obtained from "go list -deps runtime" on Go 1.18beta1.
+// Note that the same command on Go 1.17 results in a subset of this list.
+var runtimeAndDeps = map[string]bool{
+	"internal/goarch":         true,
+	"unsafe":                  true,
+	"internal/abi":            true,
+	"internal/cpu":            true,
+	"internal/bytealg":        true,
+	"internal/goexperiment":   true,
+	"internal/goos":           true,
+	"runtime/internal/atomic": true,
+	"runtime/internal/math":   true,
+	"runtime/internal/sys":    true,
+	"runtime":                 true,
 }
 
 var listedRuntimeLinknamed = false
