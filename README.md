@@ -93,19 +93,27 @@ as it has to obfuscate each package for the first time. This is akin to clearing
 
 ### Determinism and seeds
 
-Just like Go, garble builds are deterministic and reproducible if the inputs
-remain the same: the version of Go, the version of Garble, and the input code.
-This has significant benefits, such as caching builds or being able to use
+Just like Go, garble builds are deterministic and reproducible in nature.
+This has significant benefits, such as caching builds and being able to use
 `garble reverse` to de-obfuscate stack traces.
 
-However, it also means that an input package will be obfuscated in exactly the
-same way if none of those inputs change. If you want two builds of your program
-to be entirely different, you can use `-seed` to provide a new seed for the
-entire build, which will cause a full rebuild.
+By default, garble will obfuscate each package in a unique way,
+which will change if its build input changes: the version of garble, the version
+of Go, the package's source code, or any build parameter such as GOOS or -tags.
+This is a reasonable default since guessing those inputs is very hard.
 
-If any open source packages are being obfuscated, providing a custom seed can
-also provide extra protection. It could be possible to guess the versions of Go
-and garble given how a public package was obfuscated without a seed.
+However, providing your own obfuscation seed via `-seed` brings some advantages.
+For example, builds sharing the same seed will produce the same obfuscation,
+even if any of the build parameters or versions vary.
+It can also make reverse-engineering harder, as an end user could guess what
+version of Go or garble you're using.
+
+Note that extra care should be taken when using custom seeds.
+If a seed used to build a binary gets lost, `garble reverse` will not work.
+Rotating the seeds can also help against reverse-engineering in the long run,
+as otherwise some bits of code may be obfuscated the same way over time.
+
+An alternative approach is `-seed=random`, where each build is entirely different.
 
 ### Caveats
 

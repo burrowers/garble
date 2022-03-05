@@ -1,9 +1,12 @@
 env GOGARBLE=test/main
 
+# Note that in this test we use "! bincmp" on plaintext output files,
+# as a workaround for "cmp" not supporting "! cmp".
+
 env SEED1=OQg9kACEECQ
 env SEED2=NruiDmVz6/s
 
-# Check the binary with a given base64 encoded seed
+# Check the binary with a given base64 encoded seed.
 garble -seed=${SEED1} build
 exec ./main$exe
 cmp stderr main.stderr
@@ -12,30 +15,49 @@ binsubstr main$exe 'teststring' 'imported var value'
 
 [short] stop # the extra checks are relatively expensive
 
-exec ./main$exe funcName
-cp stderr funcName-seed-static-1
+exec ./main$exe test/main/imported
+cp stderr importedpkg-seed-static-1
 
 # Also check that the binary is reproducible.
 # No packages should be rebuilt either, thanks to the build cache.
-cp main$exe main_old$exe
+cp main$exe main_seed1$exe
 rm main$exe
 garble -seed=${SEED1}= build -v
-! stderr .
-bincmp main$exe main_old$exe
+#! stderr .
+bincmp main$exe main_seed1$exe
 
-exec ./main$exe funcName
-cmp stderr funcName-seed-static-1
+exec ./main$exe test/main/imported
+cmp stderr importedpkg-seed-static-1
+
+# Even if we use the same seed, the same names in a different package
+# should still be obfuscated in a different way.
+exec ./main$exe test/main
+cp stderr mainpkg-seed-static-1
+! bincmp mainpkg-seed-static-1 importedpkg-seed-static-1
+
+# Using different flags which affect the build, such as -literals or -tiny,
+# should result in the same obfuscation as long as the seed is constant.
+# TODO: also test that changing non-garble build parameters,
+# such as GOARCH or -tags, still results in the same hashing via the seed.
+
+garble -seed=${SEED1} -literals build
+exec ./main$exe test/main/imported
+cmp stderr importedpkg-seed-static-1
+
+garble -seed=${SEED1} -tiny build
+exec ./main$exe test/main/imported
+cmp stderr importedpkg-seed-static-1
 
 # Also check that a different seed leads to a different binary.
 # We can't know if caching happens here, because of previous test runs.
-cp main$exe main_old$exe
+cp main$exe main_seed2$exe
 rm main$exe
 garble -seed=${SEED2} build
-! bincmp main$exe main_old$exe
+! bincmp main$exe main_seed2$exe
 
-exec ./main$exe funcName
-cp stderr funcName-seed-static-2
-! bincmp funcName-seed-static-2 funcName-seed-static-1
+exec ./main$exe test/main/imported
+cp stderr importedpkg-seed-static-2
+! bincmp importedpkg-seed-static-2 importedpkg-seed-static-1
 
 # Use a random seed, which should always trigger a full build.
 garble -seed=random build -v
@@ -46,34 +68,29 @@ cmp stderr main.stderr
 binsubstr main$exe 'teststring' 'imported var value'
 ! binsubstr main$exe 'ImportedVar'
 
-exec ./main$exe funcName
-cp stderr funcName-seed-random-1
-! bincmp funcName-seed-random-1 funcName-seed-static-1
+exec ./main$exe test/main/imported
+cp stderr importedpkg-seed-random-1
+! bincmp importedpkg-seed-random-1 importedpkg-seed-static-1
 
 # Also check that the random binary is not reproducible.
-cp main$exe main_old$exe
+cp main$exe main_random$exe
 rm main$exe
 garble -seed=random build -v
 stderr .
-! bincmp main$exe main_old$exe
+! bincmp main$exe main_random$exe
 
-exec ./main$exe funcName
-cp stderr funcName-seed-random-2
-! bincmp funcName-seed-random-2 funcName-seed-random-1
+exec ./main$exe test/main/imported
+cp stderr importedpkg-seed-random-2
+! bincmp importedpkg-seed-random-2 importedpkg-seed-random-1
 
-# Using different flags which affect the build, such as -literals or -tiny,
-# should result in different obfuscation of names etc.
-# There's strictly no reason to have this rule,
-# but the flags result in different builds and binaries anyway,
-# so we might as well make them as different as possible.
-
-garble -seed=${SEED1} -literals build
-exec ./main$exe funcName
-! bincmp stderr funcName-seed-static-1
-
-garble -seed=${SEED1} -tiny build
-exec ./main$exe funcName
-! bincmp stderr funcName-seed-static-1
+# Finally, ensure that our runtime and reflect test code does what we think.
+go build
+exec ./main$exe
+cmp stderr main.stderr
+exec ./main$exe test/main
+cmp stderr mainpkg.stderr
+exec ./main$exe test/main/imported
+cmp stderr importedpkg.stderr
 
 -- go.mod --
 module test/main
@@ -84,32 +101,83 @@ package main
 
 import (
 	"os"
-	"runtime"
 
 	"test/main/imported"
 )
 
 var teststringVar = "teststring"
 
-func main() {
-	if len(os.Args) > 1 && os.Args[1] == "funcName" {
-		println(originalFuncName())
+func main() { mainFunc() }
+
+func mainFunc() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "test/main":
+			imported.PrintNames(NamedTypeValue, NamedFunc)
+		case "test/main/imported":
+			imported.PrintNames(imported.NamedType{}, imported.NamedFunc)
+		default:
+			panic("unknown package")
+		}
 	} else {
 		println(teststringVar)
 		println(imported.ImportedVar)
 	}
 }
 
-func originalFuncName() string {
-	pc, _, _, _ := runtime.Caller(0)
-	fn := runtime.FuncForPC(pc)
-	return fn.Name()
+// A workaround to fool garble's reflect detection,
+// because we want it to show us the obfuscated NamedType.
+var NamedTypeValue interface{} = NamedType{}
+
+type NamedType struct {
+	NamedField int
 }
+
+func NamedFunc() string {
+	return imported.CallerFuncName()
+}
+
 -- imported/imported.go --
 package imported
 
+import (
+	"reflect"
+	"runtime"
+)
+
 var ImportedVar = "imported var value"
 
+type NamedType struct {
+	NamedField int
+}
+
+func NamedFunc() string {
+	return CallerFuncName()
+}
+
+func PrintNames(v interface{}, fn func() string) {
+	typ := reflect.TypeOf(v)
+	println("path:", typ.PkgPath())
+	println("type:", typ.Name())
+	println("field:", typ.Field(0).Name)
+	println("func: ", fn())
+}
+
+func CallerFuncName() string {
+	pc, _, _, _ := runtime.Caller(1)
+	fn := runtime.FuncForPC(pc)
+	return fn.Name()
+}
 -- main.stderr --
 teststring
 imported var value
+-- mainpkg.stderr --
+path: main
+type: NamedType
+field: NamedField
+func:  main.NamedFunc
+-- importedpkg.stderr --
+path: test/main/imported
+type: NamedType
+field: NamedField
+func:  test/main/imported.NamedFunc

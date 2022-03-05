@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"go/token"
+	"go/types"
 	"io"
 	"os/exec"
 	"strings"
@@ -141,7 +142,7 @@ func appendFlags(w io.Writer, forBuildHash bool) {
 		io.WriteString(w, " -debugdir=")
 		io.WriteString(w, flagDebugDir)
 	}
-	if len(flagSeed.bytes) > 0 {
+	if flagSeed.present() {
 		io.WriteString(w, " -seed=")
 		io.WriteString(w, flagSeed.String())
 	}
@@ -188,18 +189,39 @@ func isUpper(b byte) bool { return 'A' <= b && b <= 'Z' }
 func toLower(b byte) byte { return b + ('a' - 'A') }
 func toUpper(b byte) byte { return b - ('a' - 'A') }
 
-// hashWith returns a hashed version of name, including the provided salt as well as
-// opts.Seed into the hash input.
+func hashWithPackage(pkg *listedPackage, name string) string {
+	if !flagSeed.present() {
+		return hashWithCustomSalt(pkg.GarbleActionID, name)
+	}
+	// Use a separator at the end of ImportPath as a salt,
+	// to ensure that "pkgfoo.bar" and "pkg.foobar" don't both hash
+	// as the same string "pkgfoobar".
+	return hashWithCustomSalt([]byte(pkg.ImportPath+"|"), name)
+}
+
+func hashWithStruct(strct *types.Struct, fieldName string) string {
+	// TODO: We should probably strip field tags here.
+	// Do we need to do anything else to make a
+	// struct type "canonical"?
+	fieldsSalt := []byte(strct.String())
+	if !flagSeed.present() {
+		fieldsSalt = addGarbleToHash(fieldsSalt)
+	}
+	return hashWithCustomSalt(fieldsSalt, fieldName)
+}
+
+// hashWithCustomSalt returns a hashed version of name,
+// including the provided salt as well as opts.Seed into the hash input.
 //
 // The result is always four bytes long. If the input was a valid identifier,
 // the output remains equally exported or unexported. Note that this process is
 // reproducible, but not reversible.
-func hashWith(salt []byte, name string) string {
+func hashWithCustomSalt(salt []byte, name string) string {
 	if len(salt) == 0 {
-		panic("hashWith: empty salt")
+		panic("hashWithCustomSalt: empty salt")
 	}
 	if name == "" {
-		panic("hashWith: empty name")
+		panic("hashWithCustomSalt: empty name")
 	}
 	// hashLength is the number of base64 characters to use for the final
 	// hashed name.
