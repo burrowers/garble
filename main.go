@@ -1119,6 +1119,19 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 	tf.linkerVariableStrings = make(map[types.Object]string)
 
+	// TODO: this is a linker flag that affects how we obfuscate a package at
+	// compile time. Note that, if the user changes ldflags, then Go may only
+	// re-link the final binary, without re-compiling any packages at all.
+	// It's possible that this could result in:
+	//
+	//    garble -literals build -ldflags=-X=pkg.name=before # name="before"
+	//    garble -literals build -ldflags=-X=pkg.name=after  # name="before" as cached
+	//
+	// We haven't been able to reproduce this problem for now,
+	// but it's worth noting it and keeping an eye out for it in the future.
+	// If we do confirm this theoretical bug,
+	// the solution will be to either find a different solution for -literals,
+	// or to force including -ldflags into the build cache key.
 	ldflags, err := cmdgoQuotedSplit(flagValue(cache.ForwardBuildFlags, "-ldflags"))
 	if err != nil {
 		return err
