@@ -70,15 +70,12 @@ One can reverse a captured panic stack trace as follows:
 		}
 		curPkg = lpkg
 
-		addReplace := func(hash []byte, str string) {
-			if hash == nil {
-				hash = lpkg.GarbleActionID
-			}
-			replaces = append(replaces, hashWith(hash, str), str)
+		addHashedWithPackage := func(str string) {
+			replaces = append(replaces, hashWithPackage(lpkg, str), str)
 		}
 
 		// Package paths are obfuscated, too.
-		addReplace(nil, lpkg.ImportPath)
+		addHashedWithPackage(lpkg.ImportPath)
 
 		var files []*ast.File
 		for _, goFile := range lpkg.GoFiles {
@@ -101,9 +98,9 @@ One can reverse a captured panic stack trace as follows:
 				// Replace names.
 				// TODO: do var names ever show up in output?
 				case *ast.FuncDecl:
-					addReplace(nil, node.Name.Name)
+					addHashedWithPackage(node.Name.Name)
 				case *ast.TypeSpec:
-					addReplace(nil, node.Name.Name)
+					addHashedWithPackage(node.Name.Name)
 				case *ast.Field:
 					for _, name := range node.Names {
 						obj, _ := tf.info.ObjectOf(name).(*types.Var)
@@ -114,16 +111,14 @@ One can reverse a captured panic stack trace as follows:
 						if strct == nil {
 							panic("could not find for " + name.Name)
 						}
-						fieldsHash := []byte(strct.String())
-						hashToUse := addGarbleToHash(fieldsHash)
-						addReplace(hashToUse, name.Name)
+						replaces = append(replaces, hashWithStruct(strct, name.Name), name.Name)
 					}
 
 				case *ast.CallExpr:
 					// Reverse position information of call sites.
 					pos := fset.Position(node.Pos())
 					origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
-					newFilename := hashWith(lpkg.GarbleActionID, origPos) + ".go"
+					newFilename := hashWithPackage(lpkg, origPos) + ".go"
 
 					// Do "obfuscated.go:1", corresponding to the call site's line.
 					// Most common in stack traces.

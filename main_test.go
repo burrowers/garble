@@ -152,6 +152,14 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 	if len(args) != 2 {
 		ts.Fatalf("usage: bincmp file1 file2")
 	}
+	for _, arg := range args {
+		switch arg {
+		case "stdout", "stderr":
+			// Note that the diffoscope call below would not deal with
+			// stdout/stderr either.
+			ts.Fatalf("bincmp is for binary files. did you mean cmp?")
+		}
+	}
 	data1 := ts.ReadFile(args[0])
 	data2 := ts.ReadFile(args[1])
 	if neg {

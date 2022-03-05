@@ -71,6 +71,8 @@ type seedFlag struct {
 	bytes  []byte
 }
 
+func (f seedFlag) present() bool { return len(f.bytes) > 0 }
+
 func (f seedFlag) String() string {
 	return base64.RawStdEncoding.EncodeToString(f.bytes)
 }
@@ -610,7 +612,7 @@ func transformAsm(args []string) ([]string, error) {
 				continue
 			}
 
-			newName := hashWith(curPkg.GarbleActionID, name)
+			newName := hashWithPackage(curPkg, name)
 			debugf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
 			buf.WriteString(newName)
 		}
@@ -693,9 +695,9 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	// Literal obfuscation uses math/rand, so seed it deterministically.
-	randSeed := flagSeed.bytes
-	if len(randSeed) == 0 {
-		randSeed = curPkg.GarbleActionID
+	randSeed := curPkg.GarbleActionID
+	if flagSeed.present() {
+		randSeed = flagSeed.bytes
 	}
 	// debugf("seeding math/rand with %x\n", randSeed)
 	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
@@ -789,7 +791,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 
 			// obfuscate the local name, if the current package is obfuscated
 			if curPkg.ToObfuscate {
-				fields[1] = hashWith(curPkg.GarbleActionID, fields[1])
+				fields[1] = hashWithPackage(curPkg, fields[1])
 			}
 
 			// If the new name is of the form "pkgpath.Name", and
@@ -825,7 +827,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			if lpkg.ToObfuscate {
 				// The name exists and was obfuscated; obfuscate
 				// the new name.
-				newName := hashWith(lpkg.GarbleActionID, name)
+				newName := hashWithPackage(lpkg, name)
 				newPkgPath := pkgPath
 				if pkgPath != "main" {
 					newPkgPath = lpkg.obfuscatedImportPath()
@@ -902,7 +904,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			// For beforePath="vendor/foo", afterPath and
 			// lpkg.ImportPath can be just "foo".
 			// Don't use obfuscatedImportPath here.
-			beforePath = hashWith(lpkg.GarbleActionID, beforePath)
+			beforePath = hashWithPackage(lpkg, beforePath)
 
 			afterPath = lpkg.obfuscatedImportPath()
 		}
@@ -1540,11 +1542,9 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			if strct == nil {
 				panic("could not find for " + name)
 			}
-			// TODO: We should probably strip field tags here.
-			// Do we need to do anything else to make a
-			// struct type "canonical"?
-			fieldsHash := []byte(strct.String())
-			hashToUse = addGarbleToHash(fieldsHash)
+			node.Name = hashWithStruct(strct, name)
+			debugf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
+			return true
 
 		case *types.TypeName:
 			debugName = "type"
@@ -1569,7 +1569,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			return true // we only want to rename the above
 		}
 
-		node.Name = hashWith(hashToUse, name)
+		node.Name = hashWithPackage(lpkg, name)
+		// TODO: probably move the debugf lines inside the hash funcs
 		debugf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
 		return true
 	}
@@ -1728,7 +1729,7 @@ func transformLink(args []string) ([]string, error) {
 		if pkg != "main" {
 			newPkg = lpkg.obfuscatedImportPath()
 		}
-		newName := hashWith(lpkg.GarbleActionID, name)
+		newName := hashWithPackage(lpkg, name)
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPkg, newName, str))
 	})
 

@@ -103,7 +103,7 @@ func printFile(file1 *ast.File) ([]byte, error) {
 		newName := ""
 		if !flagTiny {
 			origPos := fmt.Sprintf("%s:%d", filename, fset.Position(origNode.Pos()).Offset)
-			newName = hashWith(curPkg.GarbleActionID, origPos) + ".go"
+			newName = hashWithPackage(curPkg, origPos) + ".go"
 			// log.Printf("%q hashed with %x to %q", origPos, curPkg.GarbleActionID, newName)
 		}
 		pos := fset.Position(node.Pos())

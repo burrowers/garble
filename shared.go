@@ -164,7 +164,7 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	if p.ImportPath == "embed" || !p.ToObfuscate {
 		return p.ImportPath
 	}
-	newPath := hashWith(p.GarbleActionID, p.ImportPath)
+	newPath := hashWithPackage(p, p.ImportPath)
 	debugf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
 	return newPath
 }
