@@ -458,7 +458,7 @@ This command wraps "go %s". Below is its help:
 			flagDebugDir = filepath.Join(wd, flagDebugDir)
 		}
 
-		if err := os.RemoveAll(flagDebugDir); err == nil || errors.Is(err, fs.ErrExist) {
+		if err := os.RemoveAll(flagDebugDir); err == nil {
 			err := os.MkdirAll(flagDebugDir, 0o755)
 			if err != nil {
 				return nil, err
