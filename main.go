@@ -735,6 +735,26 @@ func transformCompile(args []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+		// It is possible to end up in an edge case where two instances of the
+		// same package have different Action IDs, but their obfuscation and
+		// builds produce exactly the same results.
+		// In such an edge case, Go's build cache is smart enough for the second
+		// instance to reuse the first's build artifact.
+		// However, garble's caching via garbleExportFile is not as smart,
+		// as we base the location of these files purely based on Action IDs.
+		// Thus, the incremental build can fail to find garble's cached file.
+		// To sidestep this bug entirely, ensure that different action IDs never
+		// produce the same cached output when building with garble.
+		// Note that this edge case tends to happen when a -seed is provided,
+		// as then a package's Action ID is not used as an obfuscation seed.
+		// TODO(mvdan): replace this workaround with an actual fix if we can.
+		// This workaround is presumably worse on the build cache,
+		// as we end up with extra near-duplicate cached artifacts.
+		if i == 0 {
+			src = append(src, fmt.Sprintf(
+				"\nvar garbleActionID = %q\n", hashToString(curPkg.GarbleActionID),
+			)...)
+		}
 
 		// Uncomment for some quick debugging. Do not delete.
 		// if curPkg.ToObfuscate {
@@ -1027,7 +1047,7 @@ func loadCachedOutputs() error {
 			return nil
 		}()
 		if err != nil {
-			return err
+			return fmt.Errorf("cannot load garble export file for %s: %w", path, err)
 		}
 		loaded++
 	}

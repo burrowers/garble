@@ -200,3 +200,7 @@ func (t *text) find(prefs []language.Tag) string {
 	}
 	return s
 }
+-- unchanged/unchanged.go --
+package unchanged
+
+const Foo = 4

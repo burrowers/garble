@@ -60,11 +60,11 @@ require (
 -- go.sum --
 golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c h1:pvCbr/wm8HzDD3fVywevekufpn6tCGPY3spdHeZJEsw=
 golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
-gopkg.in/garbletest.v2 v2.999.0 h1:wiZfOKGiXX7DoYVgbNvnTaCjqElrpZQSvKg0HYouw/o=
-gopkg.in/garbletest.v2 v2.999.0/go.mod h1:MF1BPTBjmDdc9x86+9UMLL9pAH2eMFPHvltohOvlGEw=
+gopkg.in/garbletest.v2 v2.999.0 h1:XHlBQi3MAcJL2fjNiEPAPAilkzc7hAv4vyyjY5w+IUY=
+gopkg.in/garbletest.v2 v2.999.0/go.mod h1:MI9QqKJD8i8oL8mW/bR0qq19/VuezEdJbVvl2B8Pa40=
 rsc.io/quote v1.5.2 h1:3fEykkD9k7lYzXqCYrwGAf7iNhbk4yCjHmKBN9td4L0=
 rsc.io/quote v1.5.2/go.mod h1:LzX7hefJvL54yjefDEDHNONDjII0t9xZLPXsUe+TKr0=
-rsc.io/sampler v1.3.0 h1:HLGR/BgEtI3r0uymSP/nl2uPLsUnNJX8toRyhfpBTII=
+rsc.io/sampler v1.3.0 h1:+lXbM7nYGGOYhnMEiMtjCwcUfjn4sajeMm15HMT6SnU=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
 rsc.io/testonly v1.0.0 h1:K/VWHdO+Jv7woUXG0GzVNx1czBXUt3Ib1deaMn+xk64=
 rsc.io/testonly v1.0.0/go.mod h1:OqmGbIFOcF+XrFReLOGZ6BhMM7uMBiQwZsyNmh74SzY=
