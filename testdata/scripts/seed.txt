@@ -2,7 +2,11 @@ env GOGARBLE=test/main
 
 # Note that in this test we use "! bincmp" on plaintext output files,
 # as a workaround for "cmp" not supporting "! cmp".
+# TODO: now that obfuscation with -seed is deterministic,
+# can we just rely on the regular "cmp" with fixed output files?
 
+# TODO: consider setting these seeds globally,
+# so we can reuse them across tests and make better use of the shared build cache.
 env SEED1=OQg9kACEECQ
 env SEED2=NruiDmVz6/s
 
@@ -11,7 +15,7 @@ garble -seed=${SEED1} build
 exec ./main$exe
 cmp stderr main.stderr
 binsubstr main$exe 'teststring' 'imported var value'
-! binsubstr main$exe 'ImportedVar'
+! binsubstr main$exe 'ImportedVar' ${SEED1}
 
 [short] stop # the extra checks are relatively expensive
 
@@ -23,7 +27,7 @@ cp stderr importedpkg-seed-static-1
 cp main$exe main_seed1$exe
 rm main$exe
 garble -seed=${SEED1}= build -v
-#! stderr .
+! stderr .
 bincmp main$exe main_seed1$exe
 
 exec ./main$exe test/main/imported

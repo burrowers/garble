@@ -1,0 +1,74 @@
+# Regression test for a build cache edge case.
+# Both mod1 and mod2 build the same version of gopkg.in/garbletest.v2,
+# but with different versions of one of its deps, rsc.io/quote.
+# However, the change in quote's version does not actually change the build.
+# This results in mod2's build never recompiling garbletest.v2,
+# even though its cached build from mod1 has a different Action ID hash.
+# In the past, this threw off garble's extra cached gob files.
+
+env SEED1=OQg9kACEECQ
+env GOGARBLE=*
+
+# First, ensure that mod1's garbletest.v2 is in the cache.
+cd mod1
+garble -seed=${SEED1} build gopkg.in/garbletest.v2
+
+# We collect the Action IDs to ensure they're different.
+# This is one of the factors that confused garble.
+go list -trimpath -export -f '{{.BuildID}}' gopkg.in/garbletest.v2
+cp stdout ../buildid-mod1
+
+# Then, do the mod2 build, using the different-but-equal garbletest.v2.
+# Ensure that our workaround's inserted garbleActionID does not end up in the binary.
+cd ../mod2
+garble -seed=${SEED1} build
+! binsubstr mod2$exe 'garbleActionID'
+
+go list -trimpath -export -f '{{.BuildID}}' gopkg.in/garbletest.v2
+cp stdout ../buildid-mod2
+
+cd ..
+
+! bincmp buildid-mod1 buildid-mod2
+
+-- mod1/go.mod --
+module test/main/mod1
+
+go 1.17
+
+require gopkg.in/garbletest.v2 v2.999.0
+
+require rsc.io/sampler v1.3.0 // indirect
+-- mod1/go.sum --
+golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
+gopkg.in/garbletest.v2 v2.999.0 h1:XHlBQi3MAcJL2fjNiEPAPAilkzc7hAv4vyyjY5w+IUY=
+gopkg.in/garbletest.v2 v2.999.0/go.mod h1:MI9QqKJD8i8oL8mW/bR0qq19/VuezEdJbVvl2B8Pa40=
+rsc.io/sampler v1.3.0 h1:+lXbM7nYGGOYhnMEiMtjCwcUfjn4sajeMm15HMT6SnU=
+rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
+-- mod1/pkg.go --
+package main
+
+import garbletest "gopkg.in/garbletest.v2"
+
+func main() { garbletest.Test() }
+-- mod2/go.mod --
+module test/main/mod2
+
+go 1.17
+
+require gopkg.in/garbletest.v2 v2.999.0
+
+require rsc.io/sampler v1.99.99 // indirect
+-- mod2/go.sum --
+golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
+gopkg.in/garbletest.v2 v2.999.0 h1:XHlBQi3MAcJL2fjNiEPAPAilkzc7hAv4vyyjY5w+IUY=
+gopkg.in/garbletest.v2 v2.999.0/go.mod h1:MI9QqKJD8i8oL8mW/bR0qq19/VuezEdJbVvl2B8Pa40=
+rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
+rsc.io/sampler v1.99.99 h1:fz0uBgsEGkv94x3b3GDw3Tvhj6yint6lYdsQOnFXNuw=
+rsc.io/sampler v1.99.99/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
+-- mod2/pkg.go --
+package main
+
+import garbletest "gopkg.in/garbletest.v2"
+
+func main() { garbletest.Test() }

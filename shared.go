@@ -209,7 +209,10 @@ func appendListedPackages(packages []string, withDeps bool) error {
 		if err := dec.Decode(&pkg); err != nil {
 			return err
 		}
-		if pkg.Export != "" {
+		if cache.ListedPackages[pkg.ImportPath] != nil {
+			return fmt.Errorf("duplicate package: %q", pkg.ImportPath)
+		}
+		if pkg.BuildID != "" {
 			actionID := decodeHash(splitActionID(pkg.BuildID))
 			pkg.GarbleActionID = addGarbleToHash(actionID)
 		}
