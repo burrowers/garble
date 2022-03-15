@@ -22,7 +22,7 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.17.x, 1.18.0-rc.1]
+        go-version: [1.17.x, 1.18.x]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -71,7 +71,7 @@ jobs:
     steps:
     - name: Install Go
       env:
-        GO_COMMIT: 86b5f6a7be707b9d84108df6f459c7e84bf9dbac # 2022-03-02
+        GO_COMMIT: e475cf2e705d4eda8647426e060898ab3f643610 # 2022-03-14
       run: |
         cd $HOME
         mkdir $HOME/gotip
