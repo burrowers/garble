@@ -171,7 +171,7 @@ func (fn importerWithMap) ImportFrom(path, dir string, mode types.ImportMode) (*
 // uniqueLineWriter sits underneath log.SetOutput to deduplicate log lines.
 // We log bits of useful information for debugging,
 // and logging the same detail twice is not going to help the user.
-// Duplicates are relatively normal, given names tend to repeat.
+// Duplicates are relatively normal, given that names tend to repeat.
 type uniqueLineWriter struct {
 	out  io.Writer
 	seen map[string]bool
@@ -225,6 +225,7 @@ func main1() int {
 	log.SetPrefix("[garble] ")
 	log.SetFlags(0) // no timestamps, as they aren't very useful
 	if flagDebug {
+		// TODO: cover this in the tests.
 		log.SetOutput(&uniqueLineWriter{out: os.Stderr})
 	} else {
 		log.SetOutput(io.Discard)
@@ -269,12 +270,14 @@ func goVersionOK() bool {
 		// Go 1.15.x and older do not have GOVERSION yet.
 		// We could go the extra mile and fetch it via 'go version',
 		// but we'd have to error anyway.
+		// TODO: cover this in the tests.
 		fmt.Fprintf(os.Stderr, "Go version is too old; please upgrade to Go %s or a newer devel version\n", suggestedGoVersion)
 		return false
 	}
 
 	goVersionSemver = "v" + strings.TrimPrefix(version, "go")
 	if semver.Compare(goVersionSemver, minGoVersionSemver) < 0 {
+		// TODO: cover this in the tests.
 		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", version, suggestedGoVersion)
 		return false
 	}
@@ -286,6 +289,7 @@ func mainErr(args []string) error {
 	// If we recognize an argument, we're not running within -toolexec.
 	switch command, args := args[0], args[1:]; command {
 	case "help":
+		// TODO: cover this in the tests.
 		if hasHelpFlag(args) || len(args) > 1 {
 			fmt.Fprintf(os.Stderr, "usage: garble help [command]\n")
 			return errJustExit(2)
@@ -297,6 +301,7 @@ func mainErr(args []string) error {
 		return errJustExit(2)
 	case "version":
 		if hasHelpFlag(args) || len(args) > 0 {
+			// TODO: cover this in the tests.
 			fmt.Fprintf(os.Stderr, "usage: garble version\n")
 			return errJustExit(2)
 		}
@@ -393,6 +398,7 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 	// to run 'go list' on the same set of packages.
 	flags, args := splitFlagsFromArgs(args)
 	if hasHelpFlag(flags) {
+		// TODO: cover this in the tests.
 		out, _ := exec.Command("go", command, "-h").CombinedOutput()
 		fmt.Fprintf(os.Stderr, `
 usage: garble [garble flags] %s [arguments]
@@ -661,6 +667,7 @@ func transformCompile(args []string) ([]string, error) {
 	for i, path := range paths {
 		if filepath.Base(path) == "_gomod_.go" {
 			// never include module info
+			// TODO: this seems to no longer trigger for our tests?
 			paths = append(paths[:i], paths[i+1:]...)
 			break
 		}
@@ -1954,6 +1961,7 @@ func fetchGoEnv() error {
 		"GOOS", "GOPRIVATE", "GOMOD", "GOVERSION", "GOCACHE",
 	).CombinedOutput()
 	if err != nil {
+		// TODO: cover this in the tests.
 		fmt.Fprintf(os.Stderr, `Can't find the Go toolchain: %v
 
 This is likely due to Go not being installed/setup correctly.
