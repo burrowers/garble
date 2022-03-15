@@ -460,22 +460,13 @@ This command wraps "go %s". Below is its help:
 			flagDebugDir = filepath.Join(wd, flagDebugDir)
 		}
 
-		if err := os.RemoveAll(flagDebugDir); err == nil {
-			err := os.MkdirAll(flagDebugDir, 0o755)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, fmt.Errorf("debugdir error: %v", err)
+		if err := os.RemoveAll(flagDebugDir); err != nil {
+			return nil, fmt.Errorf("could not empty debugdir: %v", err)
+		}
+		if err := os.MkdirAll(flagDebugDir, 0o755); err != nil {
+			return nil, err
 		}
 	}
-
-	// Pass the garble flags down to each toolexec invocation.
-	// This way, all garble processes see the same flag values.
-	var toolexecFlag strings.Builder
-	toolexecFlag.WriteString("-toolexec=")
-	toolexecFlag.WriteString(cache.ExecPath)
-	appendFlags(&toolexecFlag, false)
 
 	goArgs := []string{
 		command,
@@ -485,7 +476,15 @@ This command wraps "go %s". Below is its help:
 		// TODO: remove the conditional once we drop support for 1.17
 		goArgs = append(goArgs, "-buildvcs=false")
 	}
+
+	// Pass the garble flags down to each toolexec invocation.
+	// This way, all garble processes see the same flag values.
+	var toolexecFlag strings.Builder
+	toolexecFlag.WriteString("-toolexec=")
+	toolexecFlag.WriteString(cache.ExecPath)
+	appendFlags(&toolexecFlag, false)
 	goArgs = append(goArgs, toolexecFlag.String())
+
 	if flagDebugDir != "" {
 		// In case the user deletes the debug directory,
 		// and a previous build is cached,
@@ -503,7 +502,7 @@ This command wraps "go %s". Below is its help:
 	return exec.Command("go", goArgs...), nil
 }
 
-var transformFuncs = map[string]func([]string) (args []string, _ error){
+var transformFuncs = map[string]func([]string) ([]string, error){
 	"asm":     transformAsm,
 	"compile": transformCompile,
 	"link":    transformLink,
@@ -997,8 +996,8 @@ var cachedOutput = struct {
 		"reflect.TypeOf":  {0},
 		"reflect.ValueOf": {0},
 	},
-	KnownCannotObfuscate:     map[string]struct{}{},
-	KnownEmbeddedAliasFields: map[string]typeName{},
+	KnownCannotObfuscate:     map[objectString]struct{}{},
+	KnownEmbeddedAliasFields: map[objectString]typeName{},
 }
 
 // garbleExportFile returns an absolute path to a build cache entry
@@ -1032,7 +1031,7 @@ func loadCachedOutputs() error {
 			continue // nothing to load
 		}
 		// this function literal is used for the deferred close
-		err = func() error {
+		if err := func() error {
 			filename := garbleExportFile(pkg)
 			f, err := os.Open(filename)
 			if err != nil {
@@ -1045,8 +1044,7 @@ func loadCachedOutputs() error {
 				return fmt.Errorf("gob decode: %w", err)
 			}
 			return nil
-		}()
-		if err != nil {
+		}(); err != nil {
 			return fmt.Errorf("cannot load garble export file for %s: %w", path, err)
 		}
 		loaded++
@@ -1439,23 +1437,23 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		if obj == nil {
 			_, isImplicit := tf.info.Defs[node]
 			_, parentIsFile := cursor.Parent().(*ast.File)
-			if isImplicit && !parentIsFile {
-				// In a type switch like "switch foo := bar.(type) {",
-				// "foo" is being declared as a symbolic variable,
-				// as it is only actually declared in each "case SomeType:".
-				//
-				// As such, the symbolic "foo" in the syntax tree has no object,
-				// but it is still recorded under Defs with a nil value.
-				// We still want to obfuscate that syntax tree identifier,
-				// so if we detect the case, create a dummy types.Var for it.
-				//
-				// Note that "package mypkg" also denotes a nil object in Defs,
-				// and we don't want to treat that "mypkg" as a variable,
-				// so avoid that case by checking the type of cursor.Parent.
-				obj = types.NewVar(node.Pos(), tf.pkg, name, nil)
-			} else {
+			if !isImplicit || parentIsFile {
+				// We only care about nil objects in the switch scenario below.
 				return true
 			}
+			// In a type switch like "switch foo := bar.(type) {",
+			// "foo" is being declared as a symbolic variable,
+			// as it is only actually declared in each "case SomeType:".
+			//
+			// As such, the symbolic "foo" in the syntax tree has no object,
+			// but it is still recorded under Defs with a nil value.
+			// We still want to obfuscate that syntax tree identifier,
+			// so if we detect the case, create a dummy types.Var for it.
+			//
+			// Note that "package mypkg" also denotes a nil object in Defs,
+			// and we don't want to treat that "mypkg" as a variable,
+			// so avoid that case by checking the type of cursor.Parent.
+			obj = types.NewVar(node.Pos(), tf.pkg, name, nil)
 		}
 		pkg := obj.Pkg()
 		if vr, ok := obj.(*types.Var); ok && vr.Embedded() {
