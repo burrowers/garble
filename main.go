@@ -42,11 +42,7 @@ import (
 	"mvdan.cc/garble/internal/literals"
 )
 
-var (
-	flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
-
-	version = "(devel)" // to match the default from runtime/debug
-)
+var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
 
 var (
 	flagLiterals bool
@@ -328,15 +324,47 @@ func mainErr(args []string) error {
 			fmt.Fprintf(os.Stderr, "usage: garble version\n")
 			return errJustExit(2)
 		}
-		// don't overwrite the version if it was set by -ldflags=-X
-		if info, ok := debug.ReadBuildInfo(); ok && version == "(devel)" {
-			mod := &info.Main
-			if mod.Replace != nil {
-				mod = mod.Replace
-			}
-			version = mod.Version
+		info, ok := debug.ReadBuildInfo()
+		if !ok {
+			// The build binary was stripped of build info?
+			// Could be the case if garble built itself.
+			fmt.Println("unknown")
+			return nil
 		}
-		fmt.Println(version)
+		mod := &info.Main
+		if mod.Replace != nil {
+			mod = mod.Replace
+		}
+
+		// For the tests.
+		if v := os.Getenv("GARBLE_TEST_VERSION"); v != "" {
+			mod.Version = v
+		}
+		if v := os.Getenv("GARBLE_TEST_SUM"); v != "" {
+			mod.Sum = v
+		}
+		if v := os.Getenv("GARBLE_TEST_SETTINGS"); v != "" {
+			var extra []debug.BuildSetting
+			if err := json.Unmarshal([]byte(v), &extra); err != nil {
+				return err
+			}
+			info.Settings = append(info.Settings, extra...)
+		}
+
+		fmt.Printf("%s %s %s\n\n", mod.Path, mod.Version, mod.Sum)
+		fmt.Printf("Build settings:\n")
+		for _, setting := range info.Settings {
+			if setting.Value == "" {
+				continue // do empty build settings even matter?
+			}
+			// The padding helps keep readability by aligning:
+			//
+			//   veryverylong.key value
+			//          short.key some-other-value
+			//
+			// Empirically, 16 is enough; the longest key seen is "vcs.revision".
+			fmt.Printf("%16s %s\n", setting.Key, setting.Value)
+		}
 		return nil
 	case "reverse":
 		return commandReverse(args)
