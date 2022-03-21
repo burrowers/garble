@@ -5,39 +5,75 @@ go build -o .bin/go$exe ./fakego
 env PATH=${WORK}/.bin${:}${PATH}
 
 # An empty go version.
-env GOVERSION=''
+env TOOLCHAIN_GOVERSION=''
 ! garble build
-stderr 'Go version is too old; please upgrade to Go 1.17.x or a newer devel version'
+stderr 'Go version is too old; please upgrade to Go 1\.17\.x or a newer devel version'
 
 # We should error on a devel version that's too old.
 # Note that they lacked the "goN.M-" prefix.
-env GOVERSION='devel +afb5fca Sun Aug 07 00:00:00 2020 +0000'
+env TOOLCHAIN_GOVERSION='devel +afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! garble build
-stderr 'Go version is too old; please upgrade to Go 1.17.x or a newer devel version'
+stderr 'Go version is too old; please upgrade to Go 1\.17\.x or a newer devel version'
 
 # Another form of old version; with an old "goN.M-" prefix.
-env GOVERSION='devel go1.15-afb5fca Sun Aug 07 00:00:00 2020 +0000'
+env TOOLCHAIN_GOVERSION='devel go1.15-afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! garble build
-stderr 'Go version "go1.15" is too old; please upgrade to Go 1.17.x'
+stderr 'Go version "devel go1\.15-.*2020.*" is too old; please upgrade to Go 1\.17\.x'
 
-# A current devel version should be fine
-env GOVERSION='devel go1.18-ad97d204f0 Sun Sep 12 16:46:58 2021 +0000'
+# A current devel version should be fine.
+# Note that we don't look at devel version timestamps.
+env GARBLE_TEST_GOVERSION='go1.18'
+env TOOLCHAIN_GOVERSION='devel go1.18-ad97d204f0 Sun Sep 12 16:46:58 2021 +0000'
 ! garble build
 stderr 'mocking the real build'
 
 # We should error on a stable version that's too old.
-env GOVERSION='go1.14'
+env TOOLCHAIN_GOVERSION='go1.14'
 ! garble build
-stderr 'Go version "go1.14" is too old; please upgrade to Go 1.17.x'
+stderr 'Go version "go1\.14" is too old; please upgrade to Go 1\.17\.x'
 ! stderr 'or a newer devel version'
 
 # We should accept a future stable version.
-env GOVERSION='go1.18.2'
+# Note that we need to bump the version of Go that supposedly built it, too.
+env GARBLE_TEST_GOVERSION='go1.28.2'
+env TOOLCHAIN_GOVERSION='go1.28.2'
 ! garble build
 stderr 'mocking the real build'
 
 # We should accept custom devel strings.
-env GOVERSION='devel go1.18-somecustomversion'
+env TOOLCHAIN_GOVERSION='devel go1.18-somecustomversion'
+! garble build
+stderr 'mocking the real build'
+
+# The current toolchain may be older than the one that built garble.
+env GARBLE_TEST_GOVERSION='go1.18'
+env TOOLCHAIN_GOVERSION='go1.17.3'
+! garble build
+stderr 'mocking the real build'
+
+# The current toolchain may be equal to the one that built garble.
+env GARBLE_TEST_GOVERSION='devel go1.19-6673d5d701 Sun Mar 20 16:05:03 2022 +0000'
+env TOOLCHAIN_GOVERSION='devel go1.19-6673d5d701 Sun Mar 20 16:05:03 2022 +0000'
+! garble build
+stderr 'mocking the real build'
+
+# The current toolchain must not be newer than the one that built garble.
+env GARBLE_TEST_GOVERSION='go1.17'
+env TOOLCHAIN_GOVERSION='go1.18.1'
+! garble build
+stderr 'garble was built with "go1\.17" and is being used with "go1\.18\.1"; please rebuild garble with the newer version'
+
+# We'll error even if the difference is a minor (bugfix) level.
+# In practice it probably wouldn't matter, but in theory it could still lead to tricky bugs.
+env GARBLE_TEST_GOVERSION='go1.18.11'
+env TOOLCHAIN_GOVERSION='go1.18.14'
+! garble build
+stderr 'garble was built with "go1\.18\.11" and is being used with "go1\.18\.14"; please rebuild garble with the newer version'
+
+# If garble builds itself and is then used, it won't know what version built it.
+# As a fallback, we drop the comparison against the toolchain's version.
+env GARBLE_TEST_GOVERSION='bogus version'
+env TOOLCHAIN_GOVERSION='go1.17.3'
 ! garble build
 stderr 'mocking the real build'
 
@@ -64,7 +100,7 @@ func main() {
 		enc, _ := json.Marshal(struct{
 			GOVERSION string
 		} {
-			GOVERSION: os.Getenv("GOVERSION"),
+			GOVERSION: os.Getenv("TOOLCHAIN_GOVERSION"),
 		})
 		fmt.Printf("%s\n", enc)
 		return
