@@ -256,7 +256,10 @@ type errJustExit int
 
 func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
-var goVersionSemver string
+// toolchainVersionSemver is a semver-compatible version of the Go toolchain currently
+// being used, as reported by "go env GOVERSION".
+// Note that the version of Go that built the garble binary might be newer.
+var toolchainVersionSemver string
 
 func goVersionOK() bool {
 	const (
@@ -264,19 +267,41 @@ func goVersionOK() bool {
 		suggestedGoVersion = "1.17.x"
 	)
 
-	rxVersion := regexp.MustCompile(`go\d+\.\d+(\.\d)?`)
-	version := rxVersion.FindString(cache.GoEnv.GOVERSION)
-	if version == "" {
+	// rxVersion looks for a version like "go1.2" or "go1.2.3"
+	rxVersion := regexp.MustCompile(`go\d+\.\d+(\.\d+)?`)
+
+	toolchainVersionFull := cache.GoEnv.GOVERSION
+	toolchainVersion := rxVersion.FindString(cache.GoEnv.GOVERSION)
+	if toolchainVersion == "" {
 		// Go 1.15.x and older do not have GOVERSION yet.
-		// We could go the extra mile and fetch it via 'go version',
+		// We could go the extra mile and fetch it via 'go toolchainVersion',
 		// but we'd have to error anyway.
 		fmt.Fprintf(os.Stderr, "Go version is too old; please upgrade to Go %s or a newer devel version\n", suggestedGoVersion)
 		return false
 	}
 
-	goVersionSemver = "v" + strings.TrimPrefix(version, "go")
-	if semver.Compare(goVersionSemver, minGoVersionSemver) < 0 {
-		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", version, suggestedGoVersion)
+	toolchainVersionSemver = "v" + strings.TrimPrefix(toolchainVersion, "go")
+	if semver.Compare(toolchainVersionSemver, minGoVersionSemver) < 0 {
+		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", toolchainVersionFull, suggestedGoVersion)
+		return false
+	}
+
+	// Ensure that the version of Go that built the garble binary is equal or
+	// newer than toolchainVersionSemver.
+	builtVersionFull := os.Getenv("GARBLE_TEST_GOVERSION")
+	if builtVersionFull == "" {
+		builtVersionFull = runtime.Version()
+	}
+	builtVersion := rxVersion.FindString(builtVersionFull)
+	if builtVersion == "" {
+		// If garble built itself, we don't know what Go version was used.
+		// Fall back to not performing the check against the toolchain version.
+		return true
+	}
+	builtVersionSemver := "v" + strings.TrimPrefix(builtVersion, "go")
+	if semver.Compare(builtVersionSemver, toolchainVersionSemver) < 0 {
+		fmt.Fprintf(os.Stderr, "garble was built with %q and is being used with %q; please rebuild garble with the newer version\n",
+			builtVersionFull, toolchainVersionFull)
 		return false
 	}
 
@@ -473,7 +498,7 @@ This command wraps "go %s". Below is its help:
 		command,
 		"-trimpath",
 	}
-	if semver.Compare(goVersionSemver, "v1.18.0") >= 0 {
+	if semver.Compare(toolchainVersionSemver, "v1.18.0") >= 0 {
 		// TODO: remove the conditional once we drop support for 1.17
 		goArgs = append(goArgs, "-buildvcs=false")
 	}
