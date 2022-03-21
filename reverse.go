@@ -20,7 +20,6 @@ import (
 func commandReverse(args []string) error {
 	flags, args := splitFlagsFromArgs(args)
 	if hasHelpFlag(flags) || len(args) == 0 {
-		// TODO: cover this in the tests.
 		fmt.Fprintf(os.Stderr, `
 usage: garble [garble flags] reverse [build flags] package [files]
 

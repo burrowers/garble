@@ -83,6 +83,8 @@ func TestScripts(t *testing.T) {
 				// Don't reuse the build cache if we want to collect
 				// code coverage. Otherwise, many toolexec calls would
 				// be avoided and the coverage would be incomplete.
+				// TODO: to not make "go test" insanely slow, we could still use
+				// an empty GOCACHE, but share it between all the test scripts.
 				env.Vars = append(env.Vars, "GOCACHE="+filepath.Join(env.WorkDir, "go-cache-tmp"))
 			}
 			return nil
