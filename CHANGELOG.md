@@ -1,6 +1,19 @@
 # Changelog
 
-## [0.5.1] - 2022-01-18
+## [v0.6.0] - 2022-03-21
+
+This release adds support for Go 1.18 while continuing support for Go 1.17.x.
+Note that building generic code isn't supported just yet.
+
+Noteworthy changes include:
+
+* Obfuscation is now fully deterministic with a fixed `-seed` - [#449]
+* Improve support for type aliases to fix some build failures - [#466]
+* Add support for quotes in `-ldflags` as per `go help build` - [#492]
+* Fail if the current Go version is newer than what build garble - [#269]
+* Various optimizations resulting in builds being up to 5% faster - [#456]
+
+## [v0.5.1] - 2022-01-18
 
 This bugfix release features:
 
@@ -10,7 +23,7 @@ This bugfix release features:
 * Avoid link errors when using `-debugdir`
 * Speed up obfuscating the `runtime` package
 
-## [0.5.0] - 2022-01-06
+## [v0.5.0] - 2022-01-06
 
 This release of Garble adds initial support for the upcoming Go 1.18,
 continues support for Go 1.17.x, and drops support for Go 1.16.x.
@@ -31,7 +44,7 @@ Noteworthy changes include:
 * Obfuscate local variable names to prevent shadowing bugs
 * Fix and test support for using garble on 32-bit hosts
 
-## [0.4.0] - 2021-08-26
+## [v0.4.0] - 2021-08-26
 
 This release of Garble adds support for Go 1.17.x while maintaining support for
 Go 1.16.x. A few other noteworthy changes are included:
@@ -45,7 +58,7 @@ Known bugs:
 
 * obfuscating the entire standard library with `GOPRIVATE=*` is not well supported yet
 
-## [0.3.0] - 2021-05-31
+## [v0.3.0] - 2021-05-31
 
 This release of Garble fixes a number of bugs and improves existing features,
 while maintaining support for Go 1.16.x. Notably:
@@ -62,7 +75,7 @@ Known bugs:
 
 * obfuscating the entire standard library with `GOPRIVATE=*` is not well supported yet
 
-## [0.2.0] - 2021-04-08
+## [v0.2.0] - 2021-04-08
 
 This release of Garble drops support for Go 1.15.x, which is necessary for some
 of the enhancements below:
@@ -80,7 +93,7 @@ Known bugs:
 
 * obfuscating the entire standard library with `GOPRIVATE=*` is not well supported yet
 
-## [0.1.0] - 2021-03-05
+## [v0.1.0] - 2021-03-05
 
 This is the first release of Garble. It supports Go 1.15.x and 1.16.x.
 
@@ -99,9 +112,16 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
-[0.5.1]: https://github.com/burrowers/garble/releases/tag/v0.5.1
-[0.5.0]: https://github.com/burrowers/garble/releases/tag/v0.5.0
-[0.4.0]: https://github.com/burrowers/garble/releases/tag/v0.4.0
-[0.3.0]: https://github.com/burrowers/garble/releases/tag/v0.3.0
-[0.2.0]: https://github.com/burrowers/garble/releases/tag/v0.2.0
-[0.1.0]: https://github.com/burrowers/garble/releases/tag/v0.1.0
+[v0.6.0]: https://github.com/burrowers/garble/releases/tag/v0.6.0
+[#449]: https://github.com/burrowers/garble/issues/449
+[#466]: https://github.com/burrowers/garble/issues/466
+[#492]: https://github.com/burrowers/garble/issues/492
+[#269]: https://github.com/burrowers/garble/issues/269
+[#456]: https://github.com/burrowers/garble/issues/456
+
+[v0.5.1]: https://github.com/burrowers/garble/releases/tag/v0.5.1
+[v0.5.0]: https://github.com/burrowers/garble/releases/tag/v0.5.0
+[v0.4.0]: https://github.com/burrowers/garble/releases/tag/v0.4.0
+[v0.3.0]: https://github.com/burrowers/garble/releases/tag/v0.3.0
+[v0.2.0]: https://github.com/burrowers/garble/releases/tag/v0.2.0
+[v0.1.0]: https://github.com/burrowers/garble/releases/tag/v0.1.0
