@@ -237,7 +237,7 @@ func main1() int {
 	}
 	if err := mainErr(args); err != nil {
 		if code, ok := err.(errJustExit); ok {
-			os.Exit(int(code))
+			return int(code)
 		}
 		fmt.Fprintln(os.Stderr, err)
 
@@ -270,14 +270,12 @@ func goVersionOK() bool {
 		// Go 1.15.x and older do not have GOVERSION yet.
 		// We could go the extra mile and fetch it via 'go version',
 		// but we'd have to error anyway.
-		// TODO: cover this in the tests.
 		fmt.Fprintf(os.Stderr, "Go version is too old; please upgrade to Go %s or a newer devel version\n", suggestedGoVersion)
 		return false
 	}
 
 	goVersionSemver = "v" + strings.TrimPrefix(version, "go")
 	if semver.Compare(goVersionSemver, minGoVersionSemver) < 0 {
-		// TODO: cover this in the tests.
 		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", version, suggestedGoVersion)
 		return false
 	}
@@ -289,7 +287,6 @@ func mainErr(args []string) error {
 	// If we recognize an argument, we're not running within -toolexec.
 	switch command, args := args[0], args[1:]; command {
 	case "help":
-		// TODO: cover this in the tests.
 		if hasHelpFlag(args) || len(args) > 1 {
 			fmt.Fprintf(os.Stderr, "usage: garble help [command]\n")
 			return errJustExit(2)
@@ -301,7 +298,6 @@ func mainErr(args []string) error {
 		return errJustExit(2)
 	case "version":
 		if hasHelpFlag(args) || len(args) > 0 {
-			// TODO: cover this in the tests.
 			fmt.Fprintf(os.Stderr, "usage: garble version\n")
 			return errJustExit(2)
 		}
@@ -398,7 +394,6 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 	// to run 'go list' on the same set of packages.
 	flags, args := splitFlagsFromArgs(args)
 	if hasHelpFlag(flags) {
-		// TODO: cover this in the tests.
 		out, _ := exec.Command("go", command, "-h").CombinedOutput()
 		fmt.Fprintf(os.Stderr, `
 usage: garble [garble flags] %s [arguments]
