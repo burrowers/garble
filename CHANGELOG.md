@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.6.0] - 2022-03-21
+## [v0.6.0] - 2022-03-22
 
 This release adds support for Go 1.18 while continuing support for Go 1.17.x.
 Note that building generic code isn't supported just yet.
