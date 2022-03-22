@@ -10,7 +10,7 @@ Noteworthy changes include:
 * Obfuscation is now fully deterministic with a fixed `-seed` - [#449]
 * Improve support for type aliases to fix some build failures - [#466]
 * Add support for quotes in `-ldflags` as per `go help build` - [#492]
-* Fail if the current Go version is newer than what build garble - [#269]
+* Fail if the current Go version is newer than what built garble - [#269]
 * Various optimizations resulting in builds being up to 5% faster - [#456]
 
 ## [v0.5.1] - 2022-01-18
