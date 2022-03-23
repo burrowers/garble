@@ -15,16 +15,70 @@ When contributing for the first time, you should also add yourself to the
 
 Just the usual `go test ./...`; many of the tests are in
 [testscript](https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript) under
-`testdata/script/`, which allows laying out files and shell-like steps to run as
+`testdata/scripts/`, which allows laying out files and shell-like steps to run as
 part of the test.
 
 Note that the tests do real builds, so they are quite slow; on an average
 laptop, `go test` can take over thirty seconds. Here are some tips:
 
-* Use `go test -short` to skip some extra and slow sanity checks
+* Use `go test -short` to skip the more expensive or thorough tests
 * Use `go test -run Script/foo` to just run `testdata/scripts/foo.txt`
 
+### Integrating into Go builds
+
+When you run `go build`, it first loads all needed packages.
+It then figures out how to build them in distinct steps,
+such as the calls to `asm`, `compile`, or `link` you can see in `go build -x`.
+Note how each of these toolchain tools is executed in separate processes.
+For example, a small `go build` might look like the following process tree:
+
+	go build ./main
+		↳ …/compile -p project.com/library library.go
+		↳ …/compile -p main main.go
+		↳ …/link -o main.exe
+
+`garble build` boils down to calling `go build -toolexec=garble`,
+which is a flag that lets us wrap the calls to each tool mentioned above.
+For example, where a regular build might run `…/compile foo.go`,
+`-toolexec=garble` instead runs `garble …/compile foo.go`,
+which lets us obfuscate the Go source code before being compiled.
+
+Because of the above, `garble` gets run as multiple processes:
+one top-level process that implements the CLI and the initial setup,
+and one process for each compilation step tool that we transform.
+For example, here's a `garble build` version of the earlier process tree:
+
+	garble build ./main
+		↳ go build -toolexec=garble ./main
+			↳ garble …/compile -p project.com/library library.go
+				↳ …/compile -p project.com/library library.go
+			↳ garble …/compile -p main main.go
+				↳ …/compile -p main main.go
+			↳ garble …/link -o main.exe
+				↳ …/link -o main.exe
+
+Go builds happen one package at a time, and so does garble's obfuscation.
+This is necessary to support build caching and incremental builds.
+For further build speed, packages are built in parallel whenever possible,
+with each package only building once all of its dependencies are finished.
+
+To deduplicate work, the top-level garble process loads all packages to build,
+and stores their information in a file consumed by the garble sub-processes.
+Each garble sub-process also produces extra cached output of its own,
+with information such as which declared names could not be obfuscated.
+garble sub-processes will load the cached output files for their dependencies.
+
 ### Development tips
+
+To see how garble is obfuscating a build, you can use `garble -debug build`.
+You can also use `-debugdir` to get a copy of the obfuscated source code.
+To get finer-grained information, adding temporary debug prints is helpful.
+
+When investigating an issue, such as a build failure or subpar obfuscation,
+it's best to reproduce the problem with the smallest build input possible.
+That will help write a test case, and also make `garble -debug` more useful.
+For example, if you suspect what piece of code might be causing the issue,
+try moving the code to one or two new packages with very few dependencies.
 
 To inject code into the syntax tree, don't write `go/ast` nodes by hand; you can
 generate them by typing Go source into tools such as
