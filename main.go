@@ -1449,6 +1449,50 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && curPkg.ToObfuscate {
 		file = literals.Obfuscate(file, tf.info, fset, tf.linkerVariableStrings)
+
+		// some imported constants might not be needed anymore, remove unnecessary imports
+		usedImports := make(map[string]bool)
+		ast.Inspect(file, func(n ast.Node) bool {
+			node, ok := n.(*ast.Ident)
+			if !ok {
+				return true
+			}
+
+			uses, ok := tf.info.Uses[node].(*types.PkgName)
+			if !ok {
+				return true
+			}
+
+			usedImports[uses.Imported().Path()] = true
+
+			return true
+		})
+
+		log.Printf("used imports, %+v", usedImports)
+
+		for _, imp := range file.Imports {
+			if imp.Name != nil && (imp.Name.Name == "_" || imp.Name.Name == ".") {
+				continue
+			}
+
+			path, err := strconv.Unquote(imp.Path.Value)
+			if err != nil {
+				panic(err)
+			}
+
+			lPkg, err := listPackage(path)
+			if err != nil {
+				panic(err)
+			}
+
+			if usedImports[lPkg.ImportPath] {
+				continue
+			}
+
+			if !astutil.DeleteImport(fset, file, path) {
+				panic(fmt.Sprintf("cannot delete unused import: %q", path))
+			}
+		}
 	}
 
 	pre := func(cursor *astutil.Cursor) bool {
