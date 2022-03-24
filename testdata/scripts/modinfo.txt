@@ -18,19 +18,18 @@ stdout -count=1 '^.+$' # expect just one line
 [short] stop # no need to verify this with -short
 
 go build -tags veryuniquebuildtag
-[!go1.18] binsubstr main$exe '(devel)'
-[go1.18] binsubstr main$exe '(devel)' 'veryuniquebuildtag' ${HEAD_COMMIT_SHA}
+binsubstr main$exe '(devel)' 'veryuniquebuildtag' ${HEAD_COMMIT_SHA}
 
 go version -m main$exe
 stdout 'path\s*test/main'
 stdout 'mod\s*test/main\s*\(devel\)'
-[go1.18] stdout 'build\s*-tags=veryuniquebuildtag'
-[go1.18] stdout 'build\s*vcs.revision='${HEAD_COMMIT_SHA}
+stdout 'build\s*-tags=veryuniquebuildtag'
+stdout 'build\s*vcs.revision='${HEAD_COMMIT_SHA}
 
 -- go.mod --
 module test/main
 
-go 1.17
+go 1.18
 -- main.go --
 package main
 

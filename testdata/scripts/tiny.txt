@@ -26,14 +26,14 @@ stderr 'panic: oh noes'
 -- go.mod --
 module test/main
 
-go 1.17
+go 1.18
 -- garble_main.go --
 package main
 
 import "runtime"
 
 func main() {
-	var v interface{} = "tada"
+	var v any = "tada"
 	println(v)
 
 	defer func() {

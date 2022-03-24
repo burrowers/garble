@@ -50,7 +50,7 @@ bincmp out_rebuild out
 -- go.mod --
 module test/main
 
-go 1.17
+go 1.18
 -- standalone/main.go --
 package main
 

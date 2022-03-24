@@ -23,7 +23,7 @@ binsubstr main$exe 'privateAdd' 'PublicAdd'
 -- go.mod --
 module test/main
 
-go 1.17
+go 1.18
 -- main.go --
 package main
 

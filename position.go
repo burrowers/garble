@@ -15,6 +15,8 @@ import (
 )
 
 func isDirective(text string) bool {
+	// TODO: can we remove the check for "// +build" now that we require Go 1.18
+	// or later? we should update the tests too.
 	return strings.HasPrefix(text, "//go:") || strings.HasPrefix(text, "// +build")
 }
 

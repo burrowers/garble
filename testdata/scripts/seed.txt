@@ -99,7 +99,7 @@ cmp stderr importedpkg.stderr
 -- go.mod --
 module test/main
 
-go 1.17
+go 1.18
 -- main.go --
 package main
 
@@ -131,7 +131,7 @@ func mainFunc() {
 
 // A workaround to fool garble's reflect detection,
 // because we want it to show us the obfuscated NamedType.
-var NamedTypeValue interface{} = NamedType{}
+var NamedTypeValue any = NamedType{}
 
 type NamedType struct {
 	NamedField int
@@ -159,7 +159,7 @@ func NamedFunc() string {
 	return CallerFuncName()
 }
 
-func PrintNames(v interface{}, fn func() string) {
+func PrintNames(v any, fn func() string) {
 	typ := reflect.TypeOf(v)
 	println("path:", typ.PkgPath())
 	println("type:", typ.Name())
