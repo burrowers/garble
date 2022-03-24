@@ -1485,6 +1485,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				panic(err)
 			}
 
+			//test
+
 			if usedImports[lPkg.ImportPath] {
 				continue
 			}
