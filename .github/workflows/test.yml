@@ -22,7 +22,7 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.17.x, 1.18.x]
+        go-version: [1.18.x]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -44,8 +44,8 @@ jobs:
       run: diff <(echo -n) <(gofmt -d .)
     - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
       run: go vet ./...
-    # TODO: bump to Go 1.18 once staticcheck supports it
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.17.x'
+    # TODO: reenable once staticcheck supports Go 1.18
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x' && false
       uses: dominikh/staticcheck-action@v1
       with:
         version: "2021.1.2"

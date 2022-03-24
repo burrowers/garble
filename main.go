@@ -195,8 +195,9 @@ func (w *uniqueLineWriter) Write(p []byte) (n int, err error) {
 }
 
 // debugf is like log.Printf, but it is a no-op by default.
-// TODO(mvdan): remove once we use 1.18: https://github.com/golang/go/issues/47164
-func debugf(format string, args ...interface{}) {
+// TODO(mvdan): use our own debug logger instead of hijacking the global one,
+// and drop the "flagDebug" no-op check now that we require Go 1.18 or later.
+func debugf(format string, args ...any) {
 	if !flagDebug {
 		return
 	}
@@ -263,8 +264,8 @@ var toolchainVersionSemver string
 
 func goVersionOK() bool {
 	const (
-		minGoVersionSemver = "v1.17.0"
-		suggestedGoVersion = "1.17.x"
+		minGoVersionSemver = "v1.18.0"
+		suggestedGoVersion = "1.18.x"
 	)
 
 	// rxVersion looks for a version like "go1.2" or "go1.2.3"
@@ -497,10 +498,7 @@ This command wraps "go %s". Below is its help:
 	goArgs := []string{
 		command,
 		"-trimpath",
-	}
-	if semver.Compare(toolchainVersionSemver, "v1.18.0") >= 0 {
-		// TODO: remove the conditional once we drop support for 1.17
-		goArgs = append(goArgs, "-buildvcs=false")
+		"-buildvcs=false",
 	}
 
 	// Pass the garble flags down to each toolexec invocation.

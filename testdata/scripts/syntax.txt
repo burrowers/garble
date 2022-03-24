@@ -19,7 +19,7 @@ binsubstr main$exe 'globalVar' # 'globalType' matches on some, but not all, plat
 -- extra/go.mod --
 module private.source/extra
 
-go 1.17
+go 1.18
 -- extra/extra.go --
 package extra
 
@@ -29,7 +29,7 @@ func Func() string {
 -- go.mod --
 module test/main
 
-go 1.17
+go 1.18
 
 // We include an extra module to obfuscate, included in the same original source
 // code via a replace directive.
@@ -48,7 +48,7 @@ import (
 )
 
 // This comment contains valuable information. Ensure it's not in the final binary.
-var V interface{}
+var V any
 
 type T struct {
 	ast.Node
@@ -193,7 +193,7 @@ func Test() {
 	}
 }
 
-func noop(...interface{}) {}
+func noop(...any) {}
 
 // Funcs that almost look like test funcs used to make garble panic.
 

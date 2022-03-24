@@ -113,7 +113,7 @@ func writeFileExclusive(name string, data []byte) error {
 	return err
 }
 
-func writeGobExclusive(name string, val interface{}) error {
+func writeGobExclusive(name string, val any) error {
 	f, err := createExclusive(name)
 	if err != nil {
 		return err
