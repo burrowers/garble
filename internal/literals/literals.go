@@ -10,7 +10,6 @@ import (
 	"go/token"
 	"go/types"
 	mathrand "math/rand"
-	"strconv"
 
 	"golang.org/x/tools/go/ast/astutil"
 	ah "mvdan.cc/garble/internal/asthelper"
@@ -130,46 +129,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 		return true
 	}
 
-	// Imports which are used might be marked as unused by only looking at the ast,
-	// because packages can declare a name different from the last element of their import path.
-	//
-	// 	package main
-	//
-	// 	import "github.com/user/somepackage"
-	//
-	//	func main(){
-	//		// this line uses github.com/user/somepackage
-	//		anotherpackage.Foo()
-	//	}
-	//
-	// TODO: remove this check and detect used imports with go/types somehow
-	prevUsedImports := make(map[string]bool)
-	for _, imp := range file.Imports {
-		path, err := strconv.Unquote(imp.Path.Value)
-		if err != nil {
-			panic(err)
-		}
-		prevUsedImports[path] = astutil.UsesImport(file, path)
-	}
-
-	file = astutil.Apply(file, pre, post).(*ast.File)
-
-	// some imported constants might not be needed anymore, remove unnecessary imports
-	for _, imp := range file.Imports {
-		path, err := strconv.Unquote(imp.Path.Value)
-		if err != nil {
-			panic(err)
-		}
-		if !prevUsedImports[path] || astutil.UsesImport(file, path) {
-			continue
-		}
-
-		if !astutil.DeleteImport(fset, file, path) {
-			panic(fmt.Sprintf("cannot delete unused import: %v", path))
-		}
-	}
-
-	return file
+	return astutil.Apply(file, pre, post).(*ast.File)
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.

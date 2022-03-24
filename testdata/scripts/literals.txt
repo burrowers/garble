@@ -64,7 +64,7 @@ package main
 import (
 	_ "runtime/debug"
 
-	"test/main/imported"
+	"test/main/imp"
 )
 
 type structTest struct {
@@ -295,7 +295,7 @@ func shadowTest() {
 		println("obfuscated with shadowed builtins (types)")
 	}
 }
--- imported/imported.go --
+-- imp/imported.go --
 package imported
 
 type ImportedType int
