@@ -113,8 +113,8 @@ type EmbeddingIndirect struct {
 
 func printfWithoutPackage(format string, v any) {
 	s := fmt.Sprintf(format, v)
-	if i := strings.IndexByte(s, '.'); i > 0 {
-		s = s[i+1:]
+	if _, without, found := strings.Cut(s, "."); found {
+		s = without
 	}
 	fmt.Print(s)
 }
