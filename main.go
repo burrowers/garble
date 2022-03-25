@@ -34,6 +34,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/exp/slices"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
@@ -549,16 +550,8 @@ func transformAsm(args []string) ([]string, error) {
 	// If the assembler is running just for -gensymabis,
 	// don't obfuscate the source, as we are not assembling yet.
 	// The assembler will run again later; obfuscating twice is just wasteful.
-	symabis := false
-	for _, arg := range args {
-		if arg == "-gensymabis" {
-			symabis = true
-			break
-		}
-	}
 	newPaths := make([]string, 0, len(paths))
-	if !symabis {
-		var newPaths []string
+	if !slices.Contains(args, "-gensymabis") {
 		for _, path := range paths {
 			name := filepath.Base(path)
 			pkgDir := filepath.Join(sharedTempDir, filepath.FromSlash(curPkg.ImportPath))
@@ -578,7 +571,6 @@ func transformAsm(args []string) ([]string, error) {
 	middleDotLen := utf8.RuneLen(middleDot)
 
 	for _, path := range paths {
-
 		// Read the entire file into memory.
 		// If we find issues with large files, we can use bufio.
 		content, err := os.ReadFile(path)
@@ -899,33 +891,26 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 
 	var packagefiles, importmaps [][2]string
 
-	for _, line := range strings.SplitAfter(string(data), "\n") {
-		line = strings.TrimSpace(line)
+	for _, line := range strings.Split(string(data), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		i := strings.IndexByte(line, ' ')
-		if i < 0 {
+		verb, args, found := strings.Cut(line, " ")
+		if !found {
 			continue
 		}
-		verb := line[:i]
 		switch verb {
 		case "importmap":
-			args := strings.TrimSpace(line[i+1:])
-			j := strings.IndexByte(args, '=')
-			if j < 0 {
+			beforePath, afterPath, found := strings.Cut(args, "=")
+			if !found {
 				continue
 			}
-			beforePath, afterPath := args[:j], args[j+1:]
 			importmaps = append(importmaps, [2]string{beforePath, afterPath})
 		case "packagefile":
-			args := strings.TrimSpace(line[i+1:])
-			j := strings.IndexByte(args, '=')
-			if j < 0 {
+			importPath, objectPath, found := strings.Cut(args, "=")
+			if !found {
 				continue
 			}
-			importPath, objectPath := args[:j], args[j+1:]
-
 			packagefiles = append(packagefiles, [2]string{importPath, objectPath})
 		}
 	}
@@ -1187,16 +1172,15 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 		return err
 	}
 	flagValueIter(ldflags, "-X", func(val string) {
-		// val is in the form of "importpath.name=value".
-		i := strings.IndexByte(val, '=')
-		if i < 0 {
+		// val is in the form of "foo.com/bar.name=value".
+		fullName, stringValue, found := strings.Cut(val, "=")
+		if !found {
 			return // invalid
 		}
-		stringValue := val[i+1:]
 
-		val = val[:i] // "importpath.name"
-		i = strings.LastIndexByte(val, '.')
-		path, name := val[:i], val[i+1:]
+		// fullName is "foo.com/bar.name"
+		i := strings.LastIndexByte(fullName, '.')
+		path, name := fullName[:i], fullName[i+1:]
 
 		// -X represents the main package as "main", not its import path.
 		if path != curPkg.ImportPath && !(path == "main" && curPkg.Name == "main") {
@@ -1793,26 +1777,22 @@ func transformLink(args []string) ([]string, error) {
 	// To cover both obfuscated and non-obfuscated names,
 	// duplicate each flag with a obfuscated version.
 	flagValueIter(flags, "-X", func(val string) {
-		// val is in the form of "pkg.name=str"
-		i := strings.IndexByte(val, '=')
-		if i <= 0 {
-			return
+		// val is in the form of "foo.com/bar.name=value".
+		fullName, stringValue, found := strings.Cut(val, "=")
+		if !found {
+			return // invalid
 		}
-		name := val[:i]
-		str := val[i+1:]
-		j := strings.LastIndexByte(name, '.')
-		if j <= 0 {
-			return
-		}
-		pkg := name[:j]
-		name = name[j+1:]
+
+		// fullName is "foo.com/bar.name"
+		i := strings.LastIndexByte(fullName, '.')
+		path, name := fullName[:i], fullName[i+1:]
 
 		// If the package path is "main", it's the current top-level
 		// package we are linking.
 		// Otherwise, find it in the cache.
 		lpkg := curPkg
-		if pkg != "main" {
-			lpkg = cache.ListedPackages[pkg]
+		if path != "main" {
+			lpkg = cache.ListedPackages[path]
 		}
 		if lpkg == nil {
 			// We couldn't find the package.
@@ -1821,12 +1801,12 @@ func transformLink(args []string) ([]string, error) {
 			return
 		}
 		// As before, the main package must remain as "main".
-		newPkg := pkg
-		if pkg != "main" {
-			newPkg = lpkg.obfuscatedImportPath()
+		newPath := path
+		if path != "main" {
+			newPath = lpkg.obfuscatedImportPath()
 		}
 		newName := hashWithPackage(lpkg, name)
-		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPkg, newName, str))
+		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPath, newName, stringValue))
 	})
 
 	// Starting in Go 1.17, Go's version is implicitly injected by the linker.
@@ -1938,10 +1918,7 @@ func filterForwardBuildFlags(flags []string) (filtered []string, firstUnknown st
 			arg = arg[1:] // "--name" to "-name"; keep the short form
 		}
 
-		name := arg
-		if i := strings.IndexByte(arg, '='); i > 0 {
-			name = arg[:i] // "-name=value" to "-name"
-		}
+		name, _, _ := strings.Cut(arg, "=") // "-name=value" to "-name"
 
 		buildFlag := forwardBuildFlags[name]
 		if buildFlag {

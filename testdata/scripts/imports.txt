@@ -73,7 +73,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"test/main/importedpkg"
 
@@ -91,10 +90,6 @@ func main() {
 
 	fmt.Println(quote.Go())
 	garbletest.Test()
-}
-
-func printfWithoutPackage(format string, v any) {
-	fmt.Print(strings.Split(fmt.Sprintf(format, v), ".")[1])
 }
 -- notag_fail.go --
 // +build !buildtag
