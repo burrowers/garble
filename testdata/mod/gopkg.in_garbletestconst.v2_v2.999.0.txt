@@ -1,0 +1,32 @@
+module gopkg.in/garbletestconst.v2@v2.999.0
+
+-- .mod --
+module gopkg.in/garbletestconst.v2
+
+go 1.17
+
+-- .info --
+{"Version":"v2.999.0","Time":"2020-11-17T15:46:20Z"}
+-- go.mod --
+module gopkg.in/garbletestconst.v2
+
+go 1.17
+-- consts.go --
+package garbletestconst
+
+import (
+	"database/sql"
+	"database/sql/driver"
+)
+
+const StrConst = "42"
+
+func init() {
+	sql.Register("dummy", dummy{})
+}
+
+type dummy struct{}
+
+func (dummy) Open(string) (driver.Conn, error) {
+	panic("not implemented")
+}

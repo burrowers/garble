@@ -1493,9 +1493,7 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 			continue
 		}
 
-		if !astutil.DeleteImport(fset, file, path) {
-			panic(fmt.Sprintf("cannot delete unused import: %q", path))
-		}
+		imp.Name = ast.NewIdent("_")
 	}
 }
 
