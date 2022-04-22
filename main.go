@@ -1418,9 +1418,9 @@ func recordedObjectString(obj types.Object) objectString {
 //
 // So far, it records:
 //
-//  * Types which are used for reflection.
-//  * Declarations exported via "//export".
-//  * Types or variables from external packages which were not obfuscated.
+//   - Types which are used for reflection.
+//   - Declarations exported via "//export".
+//   - Types or variables from external packages which were not obfuscated.
 func recordAsNotObfuscated(obj types.Object) {
 	if obj.Pkg().Path() != curPkg.ImportPath {
 		panic("called recordedAsNotObfuscated with a foreign object")
@@ -2043,7 +2043,7 @@ To install Go, see: https://go.dev/doc/install
 		return errJustExit(1)
 	}
 	if err := json.Unmarshal(out, &cache.GoEnv); err != nil {
-		return err
+		return fmt.Errorf(`cannot unmarshal from "go env -json": %w`, err)
 	}
 	cache.GOGARBLE = os.Getenv("GOGARBLE")
 	if cache.GOGARBLE != "" {

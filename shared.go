@@ -64,14 +64,14 @@ func loadSharedCache() error {
 	startTime := time.Now()
 	f, err := os.Open(filepath.Join(sharedTempDir, "main-cache.gob"))
 	if err != nil {
-		return fmt.Errorf(`cannot open shared file, this is most likely due to not running "garble [command]"`)
+		return fmt.Errorf(`cannot open shared file: %v; did you run "garble [command]"?`, err)
 	}
 	defer func() {
 		debugf("shared cache loaded in %s from %s", debugSince(startTime), f.Name())
 	}()
 	defer f.Close()
 	if err := gob.NewDecoder(f).Decode(&cache); err != nil {
-		return err
+		return fmt.Errorf("cannot decode shared file: %v", err)
 	}
 	return nil
 }
