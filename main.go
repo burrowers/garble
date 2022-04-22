@@ -2058,7 +2058,7 @@ To install Go, see: https://go.dev/doc/install
 		return errJustExit(1)
 	}
 	if err := json.Unmarshal(out, &cache.GoEnv); err != nil {
-		return err
+		return fmt.Errorf(`cannot unmarshal from "go env -json": %w`, err)
 	}
 	cache.GOGARBLE = os.Getenv("GOGARBLE")
 	if cache.GOGARBLE != "" {
