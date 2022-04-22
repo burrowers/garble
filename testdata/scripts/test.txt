@@ -14,9 +14,18 @@ stdout 'package bar_test, func name:'
 
 [short] stop # no need to verify this with -short
 
-# also check that many packages test fine, including a main package and multiple
-# test packages
-garble test -v . ./somemain ./sometest
+# Also check that many packages test fine, including a main package and multiple
+# test packages.
+#
+# Exporttest is special, as it:
+#
+#  * uses an external test package
+#  * exports unexported APIs via export_test.go
+#  * is imported by another package, also tested via "./..."
+#
+# The combination of those used to result in "refusing to list non-dependency
+# package" errors, which we've currently worked around.
+garble test -v ./...
 stdout 'ok\s+test/bar\s'
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
@@ -26,6 +35,7 @@ stdout 'package bar_test, func name:'
 ! stdout 'OriginalFuncName'
 stdout '\?\s+test/bar/somemain\s'
 stdout 'ok\s+test/bar/sometest\s'
+stdout 'ok\s+test/bar/exporttest\s'
 
 # verify that non-build flags are kept
 garble test -withflag -v
@@ -46,6 +56,8 @@ go 1.18
 package bar
 
 import "runtime"
+
+import _ "test/bar/exporttest"
 
 func LocalFoo() string { return "Foo" }
 
@@ -111,6 +123,20 @@ package main
 func main() {}
 -- sometest/foo_test.go --
 package sometest
+
+import "testing"
+
+func TestFoo(t *testing.T) {}
+-- exporttest/foo.go --
+package exporttest
+
+type foo int
+-- exporttest/export_test.go --
+package exporttest
+
+type Foo = foo
+-- exporttest/foo_test.go --
+package exporttest_test
 
 import "testing"
 

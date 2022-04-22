@@ -972,6 +972,14 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 		impPath, pkgfile := pair[0], pair[1]
 		lpkg, err := listPackage(impPath)
 		if err != nil {
+			// TODO: it's unclear why an importcfg can include an import path
+			// that's not a dependency in an edge case with "go test ./...".
+			// See exporttest/*.go in testdata/scripts/test.txt.
+			// For now, spot the pattern and avoid the unnecessary error;
+			// the dependency is unused, so the packagefile line is redundant.
+			if strings.HasSuffix(curPkg.ImportPath, ".test]") && strings.HasPrefix(curPkg.ImportPath, impPath) {
+				continue
+			}
 			panic(err) // shouldn't happen
 		}
 		if lpkg.Name != "main" {
