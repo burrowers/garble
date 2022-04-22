@@ -994,7 +994,10 @@ type (
 	funcFullName = string // as per go/types.Func.FullName
 	objectString = string // as per recordedObjectString
 
-	reflectParameterPosition = int
+	reflectParameter struct {
+		Position int  // 0-indexed
+		Variadic bool // ...int
+	}
 
 	typeName struct {
 		PkgPath, Name string
@@ -1015,7 +1018,7 @@ var cachedOutput = struct {
 	//
 	// TODO: we're not including fmt.Printf, as it would have many false positives,
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
-	KnownReflectAPIs map[funcFullName][]reflectParameterPosition
+	KnownReflectAPIs map[funcFullName][]reflectParameter
 
 	// KnownCannotObfuscate is filled with the fully qualified names from each
 	// package that we could not obfuscate as per cannotObfuscateNames.
@@ -1031,9 +1034,9 @@ var cachedOutput = struct {
 	// bearing in mind that it may be owned by a different package.
 	KnownEmbeddedAliasFields map[objectString]typeName
 }{
-	KnownReflectAPIs: map[funcFullName][]reflectParameterPosition{
-		"reflect.TypeOf":  {0},
-		"reflect.ValueOf": {0},
+	KnownReflectAPIs: map[funcFullName][]reflectParameter{
+		"reflect.TypeOf":  {{Position: 0, Variadic: false}},
+		"reflect.ValueOf": {{Position: 0, Variadic: false}},
 	},
 	KnownCannotObfuscate:     map[objectString]struct{}{},
 	KnownEmbeddedAliasFields: map[objectString]typeName{},
@@ -1093,19 +1096,14 @@ func loadCachedOutputs() error {
 }
 
 func (tf *transformer) findReflectFunctions(files []*ast.File) {
-	visitReflect := func(node ast.Node) {
-		funcDecl, ok := node.(*ast.FuncDecl)
-		if !ok {
-			return
-		}
-
+	visitFuncDecl := func(funcDecl *ast.FuncDecl) {
 		funcObj := tf.info.ObjectOf(funcDecl.Name).(*types.Func)
+		funcType := funcObj.Type().(*types.Signature)
+		funcParams := funcType.Params()
 
-		var paramNames []string
-		for _, param := range funcDecl.Type.Params.List {
-			for _, name := range param.Names {
-				paramNames = append(paramNames, name.Name)
-			}
+		seenReflectParams := make(map[*types.Var]bool)
+		for i := 0; i < funcParams.Len(); i++ {
+			seenReflectParams[funcParams.At(i)] = false
 		}
 
 		ast.Inspect(funcDecl, func(node ast.Node) bool {
@@ -1117,40 +1115,49 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 			if !ok {
 				return true
 			}
-			fnType, _ := tf.info.ObjectOf(sel.Sel).(*types.Func)
-			if fnType == nil || fnType.Pkg() == nil {
+			calledFunc, _ := tf.info.ObjectOf(sel.Sel).(*types.Func)
+			if calledFunc == nil || calledFunc.Pkg() == nil {
 				return true
 			}
 
-			fullName := fnType.FullName()
-			var identifiers []string
-			for _, argPos := range cachedOutput.KnownReflectAPIs[fullName] {
-				arg := call.Args[argPos]
-
-				ident, ok := arg.(*ast.Ident)
-				if !ok {
-					continue
+			fullName := calledFunc.FullName()
+			for _, reflectParam := range cachedOutput.KnownReflectAPIs[fullName] {
+				// We need a range to handle any number of variadic arguments,
+				// which could be 0 or multiple.
+				// The non-variadic case is always one argument,
+				// but we still use the range to deduplicate code.
+				argStart := reflectParam.Position
+				argEnd := argStart + 1
+				if reflectParam.Variadic {
+					argEnd = len(call.Args)
 				}
-
-				obj := tf.info.ObjectOf(ident)
-				if obj.Parent() == funcObj.Scope() {
-					identifiers = append(identifiers, ident.Name)
-				}
-			}
-
-			if identifiers == nil {
-				return true
-			}
-
-			var argumentPosReflect []int
-			for _, ident := range identifiers {
-				for paramPos, paramName := range paramNames {
-					if ident == paramName {
-						argumentPosReflect = append(argumentPosReflect, paramPos)
+				for _, arg := range call.Args[argStart:argEnd] {
+					ident, ok := arg.(*ast.Ident)
+					if !ok {
+						continue
+					}
+					obj, _ := tf.info.ObjectOf(ident).(*types.Var)
+					if obj == nil {
+						continue
+					}
+					if _, ok := seenReflectParams[obj]; ok {
+						seenReflectParams[obj] = true
 					}
 				}
 			}
-			cachedOutput.KnownReflectAPIs[funcObj.FullName()] = argumentPosReflect
+
+			var reflectParams []reflectParameter
+			for i := 0; i < funcParams.Len(); i++ {
+				if seenReflectParams[funcParams.At(i)] {
+					reflectParams = append(reflectParams, reflectParameter{
+						Position: i,
+						Variadic: funcType.Variadic() && i == funcParams.Len()-1,
+					})
+				}
+			}
+			if len(reflectParams) > 0 {
+				cachedOutput.KnownReflectAPIs[funcObj.FullName()] = reflectParams
+			}
 
 			return true
 		})
@@ -1159,7 +1166,9 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 	lenPrevKnownReflectAPIs := len(cachedOutput.KnownReflectAPIs)
 	for _, file := range files {
 		for _, decl := range file.Decls {
-			visitReflect(decl)
+			if decl, ok := decl.(*ast.FuncDecl); ok {
+				visitFuncDecl(decl)
+			}
 		}
 	}
 
@@ -1244,10 +1253,16 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 		}
 
 		fullName := fnType.FullName()
-		for _, argPos := range cachedOutput.KnownReflectAPIs[fullName] {
-			arg := call.Args[argPos]
-			argType := tf.info.TypeOf(arg)
-			tf.recursivelyRecordAsNotObfuscated(argType)
+		for _, reflectParam := range cachedOutput.KnownReflectAPIs[fullName] {
+			argStart := reflectParam.Position
+			argEnd := argStart + 1
+			if reflectParam.Variadic {
+				argEnd = len(call.Args)
+			}
+			for _, arg := range call.Args[argStart:argEnd] {
+				argType := tf.info.TypeOf(arg)
+				tf.recursivelyRecordAsNotObfuscated(argType)
+			}
 		}
 
 		return true
@@ -1418,9 +1433,9 @@ func recordedObjectString(obj types.Object) objectString {
 //
 // So far, it records:
 //
-//  * Types which are used for reflection.
-//  * Declarations exported via "//export".
-//  * Types or variables from external packages which were not obfuscated.
+//   - Types which are used for reflection.
+//   - Declarations exported via "//export".
+//   - Types or variables from external packages which were not obfuscated.
 func recordAsNotObfuscated(obj types.Object) {
 	if obj.Pkg().Path() != curPkg.ImportPath {
 		panic("called recordedAsNotObfuscated with a foreign object")

@@ -100,6 +100,14 @@ func main() {
 
 	indirectReflection(IndirectReflection{})
 	fmt.Println(FmtType{})
+
+	// Variadic functions are a bit tricky as the number of parameters is variable.
+	// We want to notice indirect uses of reflection via all variadic arguments.
+	_ = importedpkg.VariadicReflect(0, 1, 2, 3)
+	_ = importedpkg.VariadicReflect(0)
+	variadic := VariadicReflection{ReflectionField: "variadic"}
+	_ = importedpkg.VariadicReflect("foo", 1, variadic, false)
+	printfWithoutPackage("%#v\n", variadic)
 }
 
 type EmbeddingIndirect struct {
@@ -137,6 +145,10 @@ type IndirectReflection struct {
 
 func indirectReflection(v any) {
 	fmt.Println(reflect.TypeOf(v).Field(0).Name)
+}
+
+type VariadicReflection struct {
+	ReflectionField string
 }
 
 type FmtType struct {
@@ -217,6 +229,18 @@ type ReflectEmbeddedAlias = ReflectEmbeddingNamed
 
 type ReflectEmbeddingNamed struct{}
 
+func VariadicReflect(x interface{}, ys ...interface{}) int {
+	_ = reflect.TypeOf(x)
+	_ = reflect.TypeOf(ys)
+
+	// TODO: we likely do not notice indirect calls via a range like this.
+	for _, y := range ys {
+		_ = reflect.TypeOf(y)
+	}
+
+	return len(ys)
+}
+
 -- importedpkg2/imported2.go --
 package importedpkg2
 
@@ -259,3 +283,4 @@ Hello Dave.
 IndirectNamedWithReflect{IndirectUnobfuscated:"indirect-with", DuplicateFieldName:3}
 ReflectionField
 {0}
+VariadicReflection{ReflectionField:"variadic"}
