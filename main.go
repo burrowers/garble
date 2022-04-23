@@ -61,7 +61,7 @@ func init() {
 	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
 
-var rxGarbleFlag = regexp.MustCompile(`-(literals|tiny|debug|debugdir|seed)($|=)`)
+var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed)(?:$|=)`)
 
 type seedFlag struct {
 	random bool
@@ -266,7 +266,7 @@ func goVersionOK() bool {
 	)
 
 	// rxVersion looks for a version like "go1.2" or "go1.2.3"
-	rxVersion := regexp.MustCompile(`go\d+\.\d+(\.\d+)?`)
+	rxVersion := regexp.MustCompile(`go\d+\.\d+(?:\.\d+)?`)
 
 	toolchainVersionFull := cache.GoEnv.GOVERSION
 	toolchainVersion := rxVersion.FindString(cache.GoEnv.GOVERSION)
