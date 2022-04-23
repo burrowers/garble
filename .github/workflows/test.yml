@@ -44,11 +44,10 @@ jobs:
       run: diff <(echo -n) <(gofmt -d .)
     - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
       run: go vet ./...
-    # TODO: reenable once staticcheck supports Go 1.18
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x' && false
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
       uses: dominikh/staticcheck-action@v1
       with:
-        version: "2021.1.2"
+        version: "2022.1.1"
         install-go: false
 
   # We don't care about GOARCH=386 particularly,
@@ -72,7 +71,8 @@ jobs:
     steps:
     - name: Install Go
       env:
-        GO_COMMIT: 80a7504a13a5dccb60757d1fc66d71bcba359799 # 2022-03-25
+        # Note that newer tip versions from May break due to the boringtls merge.
+        GO_COMMIT: e6dfdbd11d5dcc9f918150552f50ca6cd524b89b # 2022-04-23
       run: |
         cd $HOME
         mkdir $HOME/gotip
