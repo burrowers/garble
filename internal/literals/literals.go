@@ -77,59 +77,82 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 			return true
 		}
 
-		if node, ok := node.(*ast.CompositeLit); ok {
-			if len(node.Elts) == 0 || len(node.Elts) > maxSizeBytes {
+		switch node := node.(type) {
+		case *ast.UnaryExpr:
+			if node.Op != token.AND {
 				return true
 			}
 
-			byteType := types.Universe.Lookup("byte").Type()
-
-			var arrayLen int64
-			switch y := info.TypeOf(node.Type).(type) {
-			case *types.Array:
-				if y.Elem() != byteType {
-					return true
-				}
-
-				arrayLen = y.Len()
-
-			case *types.Slice:
-				if y.Elem() != byteType {
-					return true
-				}
-
-			default:
+			if child, ok := node.X.(*ast.CompositeLit); ok {
+				cursor.Replace(handleCompositeLiteral(true, child, info))
+			}
+		case *ast.CompositeLit:
+			parent, ok := cursor.Parent().(*ast.UnaryExpr)
+			if ok && parent.Op == token.AND {
 				return true
 			}
 
-			data := make([]byte, 0, len(node.Elts))
-
-			for _, el := range node.Elts {
-				elType := info.Types[el]
-
-				if elType.Value == nil || elType.Value.Kind() != constant.Int {
-					return true
-				}
-
-				value, ok := constant.Uint64Val(elType.Value)
-				if !ok {
-					panic(fmt.Sprintf("cannot parse byte value: %v", elType.Value))
-				}
-
-				data = append(data, byte(value))
-			}
-
-			if arrayLen > 0 {
-				cursor.Replace(withPos(obfuscateByteArray(data, arrayLen), node.Pos()))
-			} else {
-				cursor.Replace(withPos(obfuscateByteSlice(data), node.Pos()))
-			}
+			cursor.Replace(handleCompositeLiteral(false, node, info))
 		}
 
 		return true
 	}
 
 	return astutil.Apply(file, pre, post).(*ast.File)
+}
+
+// handleCompositeLiteral checks if the input node is []byte or [...]byte and
+// calls the appropriate obfuscation method, returning a new node that should
+// be used to replace it.
+//
+// If the input is not a byte slice or array, the node is returned as-is.
+func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) ast.Node {
+	if len(node.Elts) == 0 || len(node.Elts) > maxSizeBytes {
+		return node
+	}
+
+	byteType := types.Universe.Lookup("byte").Type()
+
+	var arrayLen int64
+	switch y := info.TypeOf(node.Type).(type) {
+	case *types.Array:
+		if y.Elem() != byteType {
+			return node
+		}
+
+		arrayLen = y.Len()
+
+	case *types.Slice:
+		if y.Elem() != byteType {
+			return node
+		}
+
+	default:
+		return node
+	}
+
+	data := make([]byte, 0, len(node.Elts))
+
+	for _, el := range node.Elts {
+		elType := info.Types[el]
+
+		if elType.Value == nil || elType.Value.Kind() != constant.Int {
+			return node
+		}
+
+		value, ok := constant.Uint64Val(elType.Value)
+		if !ok {
+			panic(fmt.Sprintf("cannot parse byte value: %v", elType.Value))
+		}
+
+		data = append(data, byte(value))
+	}
+
+	if arrayLen > 0 {
+		return withPos(obfuscateByteArray(ref, data, arrayLen), node.Pos())
+	}
+
+	return withPos(obfuscateByteSlice(ref, data), node.Pos())
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.
@@ -186,14 +209,22 @@ func obfuscateString(data string) *ast.CallExpr {
 	return ah.LambdaCall(ast.NewIdent("string"), block)
 }
 
-func obfuscateByteSlice(data []byte) *ast.CallExpr {
+func obfuscateByteSlice(ref bool, data []byte) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate(data)
+
+	if ref {
+		block.List = append(block.List, ah.ReturnStmt(ast.NewIdent("&data")))
+		return ah.LambdaCall(&ast.StarExpr{
+			X: &ast.ArrayType{Elt: ast.NewIdent("byte")},
+		}, block)
+	}
+
 	block.List = append(block.List, ah.ReturnStmt(ast.NewIdent("data")))
 	return ah.LambdaCall(&ast.ArrayType{Elt: ast.NewIdent("byte")}, block)
 }
 
-func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
+func obfuscateByteArray(ref bool, data []byte, length int64) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate(data)
 
@@ -224,10 +255,19 @@ func obfuscateByteArray(data []byte, length int64) *ast.CallExpr {
 				},
 			}},
 		},
-		ah.ReturnStmt(ast.NewIdent("newdata")),
 	}
 
+	retname := "newdata"
+	if ref {
+		retname = "&newdata"
+	}
+
+	sliceToArray = append(sliceToArray, ah.ReturnStmt(ast.NewIdent(retname)))
 	block.List = append(block.List, sliceToArray...)
+
+	if ref {
+		return ah.LambdaCall(&ast.StarExpr{X: arrayType}, block)
+	}
 
 	return ah.LambdaCall(arrayType, block)
 }
