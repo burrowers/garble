@@ -79,12 +79,19 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 
 		switch node := node.(type) {
 		case *ast.UnaryExpr:
+			// Account for the possibility of an ampersand prefix when
+			// passing []byte or [...]byte as an argument to a function.
+			//
+			// See issue #520.
+
 			if node.Op != token.AND {
 				return true
 			}
 
 			if child, ok := node.X.(*ast.CompositeLit); ok {
-				cursor.Replace(handleCompositeLiteral(true, child, info))
+				if newnode, ok := handleCompositeLiteral(true, child, info); ok {
+					cursor.Replace(newnode)
+				}
 			}
 		case *ast.CompositeLit:
 			parent, ok := cursor.Parent().(*ast.UnaryExpr)
@@ -92,7 +99,9 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 				return true
 			}
 
-			cursor.Replace(handleCompositeLiteral(false, node, info))
+			if newnode, ok := handleCompositeLiteral(false, node, info); ok {
+				cursor.Replace(newnode)
+			}
 		}
 
 		return true
@@ -105,10 +114,11 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 // calls the appropriate obfuscation method, returning a new node that should
 // be used to replace it.
 //
-// If the input is not a byte slice or array, the node is returned as-is.
-func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) ast.Node {
+// If the input is not a byte slice or array, the node is returned as-is and
+// the second return value will be false.
+func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) (ast.Node, bool) {
 	if len(node.Elts) == 0 || len(node.Elts) > maxSizeBytes {
-		return node
+		return node, false
 	}
 
 	byteType := types.Universe.Lookup("byte").Type()
@@ -117,18 +127,18 @@ func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) 
 	switch y := info.TypeOf(node.Type).(type) {
 	case *types.Array:
 		if y.Elem() != byteType {
-			return node
+			return node, false
 		}
 
 		arrayLen = y.Len()
 
 	case *types.Slice:
 		if y.Elem() != byteType {
-			return node
+			return node, false
 		}
 
 	default:
-		return node
+		return node, false
 	}
 
 	data := make([]byte, 0, len(node.Elts))
@@ -137,7 +147,7 @@ func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) 
 		elType := info.Types[el]
 
 		if elType.Value == nil || elType.Value.Kind() != constant.Int {
-			return node
+			return node, false
 		}
 
 		value, ok := constant.Uint64Val(elType.Value)
@@ -149,10 +159,10 @@ func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) 
 	}
 
 	if arrayLen > 0 {
-		return withPos(obfuscateByteArray(ref, data, arrayLen), node.Pos())
+		return withPos(obfuscateByteArray(ref, data, arrayLen), node.Pos()), true
 	}
 
-	return withPos(obfuscateByteSlice(ref, data), node.Pos())
+	return withPos(obfuscateByteSlice(ref, data), node.Pos()), true
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.
