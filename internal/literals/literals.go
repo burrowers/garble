@@ -95,13 +95,13 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 				}
 			}
 
-		// We replaced the &[]byte{...} case above. Below we account for the
-		// standard []byte{...} or [4]byte{...} value form.
-		//
-		// We need two separate calls to cursor.Replace, as it only supports
-		// replacing the node we're currently visiting, and the pointer variant
-		// requires us to move the ampersand operator.
 		case *ast.CompositeLit:
+			// We replaced the &[]byte{...} case above. Here we account for the
+			// standard []byte{...} or [4]byte{...} value form.
+			//
+			// We need two separate calls to cursor.Replace, as it only supports
+			// replacing the node we're currently visiting, and the pointer variant
+			// requires us to move the ampersand operator.
 			parent, ok := cursor.Parent().(*ast.UnaryExpr)
 			if ok && parent.Op == token.AND {
 				return true
