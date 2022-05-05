@@ -102,6 +102,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 			// We need two separate calls to cursor.Replace, as it only supports
 			// replacing the node we're currently visiting, and the pointer variant
 			// requires us to move the ampersand operator.
+
 			parent, ok := cursor.Parent().(*ast.UnaryExpr)
 			if ok && parent.Op == token.AND {
 				return true
