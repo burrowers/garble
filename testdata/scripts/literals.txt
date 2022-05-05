@@ -264,6 +264,31 @@ func byteTest() {
 
 	e := []byte{0x43, 11_1, 0b01101101, 'p', 'l', 'e', 'x'}
 	println(string(e))
+
+	// Testing for issue #520.
+	func(s []byte) {
+		print(string(s))
+	}([]byte("chungus"))
+	println()
+
+	func(s *[]byte) {
+		print(string(*s))
+	}(&[]byte{99, 104, 117, 110, 103, 117, 115})
+	println()
+
+	func(s [7]byte) {
+		for _, elm := range s {
+			print(elm, ",")
+		}
+	}([7]byte{99, 104, 117, 110, 103, 117, 115})
+	println()
+
+	func(s *[7]byte) {
+		for _, elm := range s {
+			print(elm, ",")
+		}
+	}(&[7]byte{99, 104, 117, 110, 103, 117, 115})
+	println()
 }
 
 func stringTypeFunc(s stringType) stringType {
@@ -376,6 +401,10 @@ foo
 12,13,
 12,13,0,0,
 Complex
+chungus
+chungus
+99,104,117,110,103,117,115,
+99,104,117,110,103,117,115,
 obfuscated with shadowed builtins (vars)
 obfuscated with shadowed builtins (types)
 1: literal in an array
