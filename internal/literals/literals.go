@@ -79,8 +79,8 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 
 		switch node := node.(type) {
 		case *ast.UnaryExpr:
-			// Account for the possibility of an ampersand prefix when
-			// passing []byte or [...]byte as an argument to a function.
+			// Account for the possibility of address operators like
+			// &[]byte used inline with function arguments.
 			//
 			// See issue #520.
 
@@ -89,17 +89,26 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 			}
 
 			if child, ok := node.X.(*ast.CompositeLit); ok {
-				if newnode, ok := handleCompositeLiteral(true, child, info); ok {
+				newnode := handleCompositeLiteral(true, child, info)
+				if newnode != nil {
 					cursor.Replace(newnode)
 				}
 			}
+
+		// We replaced the &[]byte{...} case above. Below we account for the
+		// standard []byte{...} or [4]byte{...} value form.
+		//
+		// We need two separate calls to cursor.Replace, as it only supports
+		// replacing the node we're currently visiting, and the pointer variant
+		// requires us to move the ampersand operator.
 		case *ast.CompositeLit:
 			parent, ok := cursor.Parent().(*ast.UnaryExpr)
 			if ok && parent.Op == token.AND {
 				return true
 			}
 
-			if newnode, ok := handleCompositeLiteral(false, node, info); ok {
+			newnode := handleCompositeLiteral(false, node, info)
+			if newnode != nil {
 				cursor.Replace(newnode)
 			}
 		}
@@ -116,9 +125,9 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 //
 // If the input is not a byte slice or array, the node is returned as-is and
 // the second return value will be false.
-func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) (ast.Node, bool) {
+func handleCompositeLiteral(isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
 	if len(node.Elts) == 0 || len(node.Elts) > maxSizeBytes {
-		return node, false
+		return nil
 	}
 
 	byteType := types.Universe.Lookup("byte").Type()
@@ -127,18 +136,18 @@ func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) 
 	switch y := info.TypeOf(node.Type).(type) {
 	case *types.Array:
 		if y.Elem() != byteType {
-			return node, false
+			return nil
 		}
 
 		arrayLen = y.Len()
 
 	case *types.Slice:
 		if y.Elem() != byteType {
-			return node, false
+			return nil
 		}
 
 	default:
-		return node, false
+		return nil
 	}
 
 	data := make([]byte, 0, len(node.Elts))
@@ -147,7 +156,7 @@ func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) 
 		elType := info.Types[el]
 
 		if elType.Value == nil || elType.Value.Kind() != constant.Int {
-			return node, false
+			return nil
 		}
 
 		value, ok := constant.Uint64Val(elType.Value)
@@ -159,10 +168,10 @@ func handleCompositeLiteral(ref bool, node *ast.CompositeLit, info *types.Info) 
 	}
 
 	if arrayLen > 0 {
-		return withPos(obfuscateByteArray(ref, data, arrayLen), node.Pos()), true
+		return withPos(obfuscateByteArray(isPointer, data, arrayLen), node.Pos())
 	}
 
-	return withPos(obfuscateByteSlice(ref, data), node.Pos()), true
+	return withPos(obfuscateByteSlice(isPointer, data), node.Pos())
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.
@@ -219,12 +228,15 @@ func obfuscateString(data string) *ast.CallExpr {
 	return ah.LambdaCall(ast.NewIdent("string"), block)
 }
 
-func obfuscateByteSlice(ref bool, data []byte) *ast.CallExpr {
+func obfuscateByteSlice(isPointer bool, data []byte) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate(data)
 
-	if ref {
-		block.List = append(block.List, ah.ReturnStmt(ast.NewIdent("&data")))
+	if isPointer {
+		block.List = append(block.List, ah.ReturnStmt(&ast.UnaryExpr{
+			Op: token.AND,
+			X:  ast.NewIdent("data"),
+		}))
 		return ah.LambdaCall(&ast.StarExpr{
 			X: &ast.ArrayType{Elt: ast.NewIdent("byte")},
 		}, block)
@@ -234,7 +246,7 @@ func obfuscateByteSlice(ref bool, data []byte) *ast.CallExpr {
 	return ah.LambdaCall(&ast.ArrayType{Elt: ast.NewIdent("byte")}, block)
 }
 
-func obfuscateByteArray(ref bool, data []byte, length int64) *ast.CallExpr {
+func obfuscateByteArray(isPointer bool, data []byte, length int64) *ast.CallExpr {
 	obfuscator := randObfuscator()
 	block := obfuscator.obfuscate(data)
 
@@ -267,15 +279,15 @@ func obfuscateByteArray(ref bool, data []byte, length int64) *ast.CallExpr {
 		},
 	}
 
-	retname := "newdata"
-	if ref {
-		retname = "&newdata"
+	var retexpr ast.Expr = ast.NewIdent("newdata")
+	if isPointer {
+		retexpr = &ast.UnaryExpr{X: retexpr, Op: token.AND}
 	}
 
-	sliceToArray = append(sliceToArray, ah.ReturnStmt(ast.NewIdent(retname)))
+	sliceToArray = append(sliceToArray, ah.ReturnStmt(retexpr))
 	block.List = append(block.List, sliceToArray...)
 
-	if ref {
+	if isPointer {
 		return ah.LambdaCall(&ast.StarExpr{X: arrayType}, block)
 	}
 
