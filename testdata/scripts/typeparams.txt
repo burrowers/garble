@@ -1,0 +1,38 @@
+env GOGARBLE=*
+
+garble build
+! binsubstr main$exe ${WORK} 'garble_main.go' 'GenericFunc' 'GenericVector' 'PredeclaredSignedInteger' 'StringableSignedInteger' 'CombineEmbeds' 'GenericParam'
+
+-- go.mod --
+module test/main
+
+go 1.18
+
+-- garble_main.go --
+package main
+
+func main() {
+	//var _ GenericVector[int]
+	GenericFunc[int, int](1, 2)
+}
+
+func GenericFunc[GenericParamA, B any](x GenericParamA, y B) {}
+
+type GenericVector[GenericParamT any] []GenericParamT
+
+type PredeclaredSignedInteger interface {
+	int | int8 | int16 | int32 | int64
+}
+
+type StringableSignedInteger interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64
+
+	String() string
+}
+
+type CombineEmbeds interface {
+	string | int
+
+	interface { EmbeddedMethod() }
+	RegularMethod()
+}
