@@ -12,13 +12,21 @@ go 1.18
 package main
 
 func main() {
-	//var _ GenericVector[int]
 	GenericFunc[int, int](1, 2)
+	var _ GenericVector[int]
+
+	g := GenericGraph[string]{Content: "Foo"}
+	g.Edges = make([]GenericGraph[string], 1)
 }
 
 func GenericFunc[GenericParamA, B any](x GenericParamA, y B) {}
 
 type GenericVector[GenericParamT any] []GenericParamT
+
+type GenericGraph[T any] struct {
+	Content T
+	Edges []GenericGraph[T]
+}
 
 type PredeclaredSignedInteger interface {
 	int | int8 | int16 | int32 | int64
