@@ -21,7 +21,7 @@ var obfuscators = []obfuscator{
 	swap{},
 	split{},
 	shuffle{},
-	seed{},
+	// seed{}, TODO: re-enable once https://github.com/golang/go/issues/47631 is fixed
 }
 
 // If math/rand.Seed() is not called, the generator behaves as if seeded by rand.Seed(1),
