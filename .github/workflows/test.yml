@@ -41,6 +41,12 @@ jobs:
     # Static checks from this point forward. Only run on one Go version and on
     # Linux, since it's the fastest platform, and the tools behave the same.
     - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
+      run: |
+        go install
+        ./scripts/check-third-party.sh
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
+      run: ./scripts/crlf-test.sh
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
       run: diff <(echo -n) <(gofmt -d .)
     - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
       run: go vet ./...
@@ -90,9 +96,3 @@ jobs:
     - uses: actions/checkout@v3
     - name: Test
       run: go test -timeout=15m ./...
-
-  script-checks:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - run: ./scripts/crlf-test.sh
