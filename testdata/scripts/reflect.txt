@@ -229,7 +229,7 @@ type ReflectEmbeddedAlias = ReflectEmbeddingNamed
 
 type ReflectEmbeddingNamed struct{}
 
-func VariadicReflect(x interface{}, ys ...interface{}) int {
+func VariadicReflect(x any, ys ...any) int {
 	_ = reflect.TypeOf(x)
 	_ = reflect.TypeOf(ys)
 

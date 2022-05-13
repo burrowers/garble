@@ -139,9 +139,10 @@ type listedPackage struct {
 	ImportMap  map[string]string
 	Standard   bool
 
-	Dir     string
-	GoFiles []string
-	Imports []string
+	Dir        string
+	GoFiles    []string
+	Imports    []string
+	Incomplete bool
 
 	// The fields below are not part of 'go list', but are still reused
 	// between garble processes. Use "Garble" as a prefix to ensure no
@@ -149,10 +150,10 @@ type listedPackage struct {
 
 	// TODO(mvdan): consider filling this iff ToObfuscate==true,
 	// which will help ensure we don't obfuscate any of their names otherwise.
-	GarbleActionID []byte
+	GarbleActionID []byte `json:"-"`
 
 	// ToObfuscate records whether the package should be obfuscated.
-	ToObfuscate bool
+	ToObfuscate bool `json:"-"`
 }
 
 func (p *listedPackage) obfuscatedImportPath() string {
@@ -176,7 +177,7 @@ func appendListedPackages(packages []string, withDeps bool) error {
 	// TODO: perhaps include all top-level build flags set by garble,
 	// including -buildvcs=false.
 	// They shouldn't affect "go list" here, but might as well be consistent.
-	args := []string{"list", "-json", "-export", "-trimpath"}
+	args := []string{"list", "-json", "-export", "-trimpath", "-e"}
 	if withDeps {
 		args = append(args, "-deps")
 	}
@@ -209,6 +210,13 @@ func appendListedPackages(packages []string, withDeps bool) error {
 		if err := dec.Decode(&pkg); err != nil {
 			return err
 		}
+
+		// Note that we use the `-e` flag above with `go list`.
+		// If a package fails to load, the Incomplete and Error fields will be set.
+		// We still record failed packages in the ListedPackages map,
+		// because some like crypto/internal/boring/fipstls simply fall under
+		// "build constraints exclude all Go files" and can be ignored.
+		// Real build errors will still be surfaced by `go build -toolexec` later.
 		if cache.ListedPackages[pkg.ImportPath] != nil {
 			return fmt.Errorf("duplicate package: %q", pkg.ImportPath)
 		}
@@ -234,6 +242,9 @@ func appendListedPackages(packages []string, withDeps bool) error {
 		switch {
 		case cannotObfuscate[path], runtimeAndDeps[path]:
 			// We don't support obfuscating these yet.
+
+		case pkg.Incomplete:
+			// We can't obfuscate packages which weren't loaded.
 
 		case pkg.Name == "main" && strings.HasSuffix(path, ".test"),
 			path == "command-line-arguments",
@@ -335,6 +346,8 @@ func listPackage(path string) (*listedPackage, error) {
 		startTime := time.Now()
 		// Obtained via scripts/runtime-linknamed-nodeps.sh as of Go 1.18beta1.
 		runtimeLinknamed := []string{
+			"crypto/internal/boring",
+			"crypto/internal/boring/fipstls",
 			"crypto/x509/internal/macos",
 			"internal/poll",
 			"internal/reflectlite",
