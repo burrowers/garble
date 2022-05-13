@@ -1,3 +1,5 @@
+env GOGARBLE=*
+
 ! garble
 stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
@@ -76,6 +78,14 @@ stderr 'must precede command, like: garble -seed=random build \./pkg'
 [!windows] ! garble /does/not/exist/compile
 [windows] ! garble C:\does\not\exist\compile
 stderr 'run "garble \[command\]"'
+
+! garble build badpackage
+stderr 'package badpackage is not in GOROOT'
+! stdout .
+
+! garble build ./badpackage
+stderr 'directory not found'
+! stdout .
 
 # Test the version command. Note that test binaries exclude VCS build info,
 # and we reuse the test binary for garble itself, so that's missing.

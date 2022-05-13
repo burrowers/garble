@@ -71,8 +71,7 @@ jobs:
     steps:
     - name: Install Go
       env:
-        # Note that newer tip versions from May break due to the boringtls merge.
-        GO_COMMIT: e6dfdbd11d5dcc9f918150552f50ca6cd524b89b # 2022-04-23
+        GO_COMMIT: 016d7552138077741a9c3fdadc73c0179f5d3ff7 # 2022-05-12
       run: |
         cd $HOME
         mkdir $HOME/gotip
