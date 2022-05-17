@@ -115,9 +115,13 @@ func init() { fmt.Println("buildtag init func") }
 -- differentpkg_unnamed.go --
 package main
 
-import "test/main/different-pkg-name"
+import (
+	"test/main/different-pkg-name"
+	"test/main/goextension.go"
+)
 
 var _ = actualpkgname.Noop
+var _ = goextension.Noop
 -- differentpkg_named.go --
 package main
 
@@ -159,6 +163,10 @@ package actualpkgname
 
 var Noop int
 
+-- goextension.go/ext.go --
+package goextension
+
+var Noop int
 -- main.stdout --
 buildtag init func
 imported var value

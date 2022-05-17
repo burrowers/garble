@@ -2023,13 +2023,23 @@ func filterForwardBuildFlags(flags []string) (filtered []string, firstUnknown st
 //
 // This function only makes sense for lower-level tool commands, such as
 // "compile" or "link", since their arguments are predictable.
+//
+// We iterate from the end rather than from the start, to better protect
+// oursrelves from flag arguments that may look like paths, such as:
+//
+//	compile [flags...] -p pkg/path.go [more flags...] file1.go file2.go
+//
+// For now, since those confusing flags are always followed by more flags,
+// iterating in reverse order works around them entirely.
 func splitFlagsFromFiles(all []string, ext string) (flags, paths []string) {
-	for i, arg := range all {
-		if !strings.HasPrefix(arg, "-") && strings.HasSuffix(arg, ext) {
-			return all[:i:i], all[i:]
+	for i := len(all) - 1; i >= 0; i-- {
+		arg := all[i]
+		if strings.HasPrefix(arg, "-") || !strings.HasSuffix(arg, ext) {
+			cutoff := i + 1 // arg is a flag, not a path
+			return all[:cutoff:cutoff], all[cutoff:]
 		}
 	}
-	return all, nil
+	return nil, all
 }
 
 // flagValue retrieves the value of a flag such as "-foo", from strings in the
