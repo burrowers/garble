@@ -8,6 +8,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,7 +68,7 @@ func loadSharedCache() error {
 		return fmt.Errorf(`cannot open shared file: %v; did you run "garble [command]"?`, err)
 	}
 	defer func() {
-		debugf("shared cache loaded in %s from %s", debugSince(startTime), f.Name())
+		log.Printf("shared cache loaded in %s from %s", debugSince(startTime), f.Name())
 	}()
 	defer f.Close()
 	if err := gob.NewDecoder(f).Decode(&cache); err != nil {
@@ -148,8 +149,10 @@ type listedPackage struct {
 	// between garble processes. Use "Garble" as a prefix to ensure no
 	// collisions with the JSON fields from 'go list'.
 
-	// TODO(mvdan): consider filling this iff ToObfuscate==true,
-	// which will help ensure we don't obfuscate any of their names otherwise.
+	// GarbleActionID is a hash combining the Action ID from BuildID,
+	// with Garble's own inputs as per addGarbleToHash.
+	// It is set even when ToObfuscate is false, as it is also used for random
+	// seeds and build cache paths, and not just to obfuscate names.
 	GarbleActionID []byte `json:"-"`
 
 	// ToObfuscate records whether the package should be obfuscated.
@@ -166,7 +169,7 @@ func (p *listedPackage) obfuscatedImportPath() string {
 		return p.ImportPath
 	}
 	newPath := hashWithPackage(p, p.ImportPath)
-	debugf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
+	log.Printf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
 	return newPath
 }
 
@@ -186,7 +189,7 @@ func appendListedPackages(packages []string, withDeps bool) error {
 	cmd := exec.Command("go", args...)
 
 	defer func() {
-		debugf("original build info obtained in %s via: go %s", debugSince(startTime), strings.Join(args, " "))
+		log.Printf("original build info obtained in %s via: go %s", debugSince(startTime), strings.Join(args, " "))
 	}()
 
 	stdout, err := cmd.StdoutPipe()
@@ -388,7 +391,7 @@ func listPackage(path string) (*listedPackage, error) {
 			panic(fmt.Sprintf("runtime listed a std package we can't find: %s", path))
 		}
 		listedRuntimeLinknamed = true
-		debugf("listed %d missing runtime-linknamed packages in %s", len(missing), debugSince(startTime))
+		log.Printf("listed %d missing runtime-linknamed packages in %s", len(missing), debugSince(startTime))
 		return pkg, nil
 	}
 	// Packages other than runtime can list any package,
