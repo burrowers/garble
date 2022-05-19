@@ -264,27 +264,17 @@ func appendListedPackages(packages []string, withDeps bool) error {
 	return nil
 }
 
-// cannotObfuscate is a list of some packages the runtime depends on, or
-// packages which the runtime points to via go:linkname.
-//
-// Once we support go:linkname well and once we can obfuscate the runtime
-// package, this entire map can likely go away.
+// cannotObfuscate is a list of some standard library packages we currently
+// cannot obfuscate. Note that this list currently sits on top of
+// runtimeAndDeps, which are currently not obfuscated either.
 //
 // TODO: investigate and resolve each one of these
 var cannotObfuscate = map[string]bool{
-	// not a "real" package
-	"unsafe": true,
-
-	// some linkname failure
-	"time":          true,
-	"runtime/pprof": true,
+	// some relocation failure
+	"time": true,
 
 	// all kinds of stuff breaks when obfuscating the runtime
-	"syscall":      true,
-	"internal/abi": true,
-
-	// rebuilds don't work
-	"os/signal": true,
+	"syscall": true,
 
 	// cgo breaks otherwise
 	"runtime/cgo": true,
@@ -294,9 +284,6 @@ var cannotObfuscate = map[string]bool{
 
 	// cgo heavy net doesn't like to be obfuscated
 	"net": true,
-
-	// some linkname failure
-	"crypto/x509/internal/macos": true,
 }
 
 // Obtained from "go list -deps runtime" on Go 1.18beta1.
