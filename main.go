@@ -192,16 +192,6 @@ func (w *uniqueLineWriter) Write(p []byte) (n int, err error) {
 	return w.out.Write(p)
 }
 
-// debugf is like log.Printf, but it is a no-op by default.
-// TODO(mvdan): use our own debug logger instead of hijacking the global one,
-// and drop the "flagDebug" no-op check now that we require Go 1.18 or later.
-func debugf(format string, args ...any) {
-	if !flagDebug {
-		return
-	}
-	log.Printf(format, args...)
-}
-
 // debugSince is like time.Since but resulting in shorter output.
 // A build process takes at least hundreds of milliseconds,
 // so extra decimal points in the order of microseconds aren't meaningful.
@@ -393,7 +383,7 @@ func mainErr(args []string) error {
 		}
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		debugf("calling via toolexec: %s", cmd)
+		log.Printf("calling via toolexec: %s", cmd)
 		return cmd.Run()
 	}
 
@@ -429,14 +419,14 @@ func mainErr(args []string) error {
 	transformed := args[1:]
 	if transform != nil {
 		startTime := time.Now()
-		debugf("transforming %s with args: %s", tool, strings.Join(transformed, " "))
+		log.Printf("transforming %s with args: %s", tool, strings.Join(transformed, " "))
 		var err error
 		if transformed, err = transform(transformed); err != nil {
 			return err
 		}
-		debugf("transformed args for %s in %s: %s", tool, debugSince(startTime), strings.Join(transformed, " "))
+		log.Printf("transformed args for %s in %s: %s", tool, debugSince(startTime), strings.Join(transformed, " "))
 	} else {
-		debugf("skipping transform on %s with args: %s", tool, strings.Join(transformed, " "))
+		log.Printf("skipping transform on %s with args: %s", tool, strings.Join(transformed, " "))
 	}
 	cmd := exec.Command(args[0], transformed...)
 	cmd.Stdout = os.Stdout
@@ -674,7 +664,7 @@ func transformAsm(args []string) ([]string, error) {
 			}
 
 			newName := hashWithPackage(curPkg, name)
-			debugf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+			log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
 			buf.WriteString(newName)
 		}
 
@@ -761,7 +751,7 @@ func transformCompile(args []string) ([]string, error) {
 	if flagSeed.present() {
 		randSeed = flagSeed.bytes
 	}
-	// debugf("seeding math/rand with %x\n", randSeed)
+	// log.Printf("seeding math/rand with %x\n", randSeed)
 	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
 
 	if err := tf.prefillObjectMaps(files); err != nil {
@@ -782,7 +772,7 @@ func transformCompile(args []string) ([]string, error) {
 
 	for i, file := range files {
 		filename := filepath.Base(paths[i])
-		debugf("obfuscating %s", filename)
+		log.Printf("obfuscating %s", filename)
 		if curPkg.ImportPath == "runtime" && flagTiny {
 			// strip unneeded runtime code
 			stripRuntime(filename, file)
@@ -1117,7 +1107,7 @@ func loadCachedOutputs() error {
 		}
 		loaded++
 	}
-	debugf("%d cached output files loaded in %s", loaded, debugSince(startTime))
+	log.Printf("%d cached output files loaded in %s", loaded, debugSince(startTime))
 	return nil
 }
 
@@ -1674,7 +1664,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		hashToUse := lpkg.GarbleActionID
 		debugName := "variable"
 
-		// debugf("%s: %#v %T", fset.Position(node.Pos()), node, obj)
+		// log.Printf("%s: %#v %T", fset.Position(node.Pos()), node, obj)
 		switch obj := obj.(type) {
 		case *types.Var:
 			if !obj.IsField() {
@@ -1701,7 +1691,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				panic("could not find for " + name)
 			}
 			node.Name = hashWithStruct(strct, name)
-			debugf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
+			log.Printf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
 			return true
 
 		case *types.TypeName:
@@ -1729,7 +1719,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 
 		node.Name = hashWithPackage(lpkg, name)
 		// TODO: probably move the debugf lines inside the hash funcs
-		debugf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
+		log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
 		return true
 	}
 	post := func(cursor *astutil.Cursor) bool {
