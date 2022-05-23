@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.7.0] - 2022-06-??
+
+This release drops support for Go 1.17 and continues support for Go 1.18.x.
+
+Noteworthy changes include:
+
+* Initial support for obfuscating generic code - [#414]
+* Remove unused imports in `-literals` more reliably - [#481]
+* Support obfuscating package paths ending with `.go` - [#539]
+* Avoid a panic when obfuscating variadic functions - [#524]
+* Avoid a "refusing to list package" panic in `garble test` - [#522]
+* Some module builds are now used as regression tests - [#240]
+
 ## [v0.6.0] - 2022-03-22
 
 This release adds support for Go 1.18 while continuing support for Go 1.17.x.
@@ -111,6 +124,14 @@ Known bugs:
 
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
+
+[v0.7.0]: https://github.com/burrowers/garble/releases/tag/v0.7.0
+[#240]: https://github.com/burrowers/garble/issues/240
+[#414]: https://github.com/burrowers/garble/issues/414
+[#481]: https://github.com/burrowers/garble/issues/481
+[#522]: https://github.com/burrowers/garble/issues/522
+[#524]: https://github.com/burrowers/garble/issues/524
+[#539]: https://github.com/burrowers/garble/issues/539
 
 [v0.6.0]: https://github.com/burrowers/garble/releases/tag/v0.6.0
 [#449]: https://github.com/burrowers/garble/issues/449
