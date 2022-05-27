@@ -1,0 +1,32 @@
+# We need to properly quote the path to garble for toolexec.
+# If we don't, characters like spaces or quotes will result in errors.
+# EXEC_PATH is the test binary's os.Executable.
+# Copying it to a path with basename "garble" makes testscript run our main func.
+# Note that double quotes are not allowed in Windows filenames.
+env NAME='with spaces'
+mkdir $NAME
+cp $EXEC_PATH $NAME/garble$exe
+exec $NAME/garble$exe build main.go
+
+[!windows] env NAME='with"double"quotes'
+[!windows] mkdir $NAME
+[!windows] cp $EXEC_PATH $NAME/garble$exe
+[!windows] exec $NAME/garble$exe build main.go
+
+env NAME='with''single''quotes'
+mkdir $NAME
+cp $EXEC_PATH $NAME/garble$exe
+exec $NAME/garble$exe build main.go
+
+[!windows] env NAME='with"both''quotes'
+[!windows] mkdir $NAME
+[!windows] cp $EXEC_PATH $NAME/garble$exe
+[!windows] ! exec $NAME/garble$exe build main.go
+[!windows] stderr 'cannot be quoted'
+
+-- main.go --
+package main
+
+func main() {
+	println("hello world")
+}

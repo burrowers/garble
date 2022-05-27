@@ -53,6 +53,11 @@ var update = flag.Bool("u", false, "update testscript output files")
 func TestScripts(t *testing.T) {
 	t.Parallel()
 
+	execPath, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	p := testscript.Params{
 		Dir: filepath.Join("testdata", "scripts"),
 		Setup: func(env *testscript.Env) error {
@@ -77,6 +82,7 @@ func TestScripts(t *testing.T) {
 				"GOGC=off",
 
 				"gofullversion="+runtime.Version(),
+				"EXEC_PATH="+execPath,
 			)
 
 			if os.Getenv("TESTSCRIPT_COVER_DIR") != "" {

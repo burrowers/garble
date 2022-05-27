@@ -9,6 +9,7 @@ Noteworthy changes include:
 * Initial support for obfuscating generic code - [#414]
 * Remove unused imports in `-literals` more reliably - [#481]
 * Support obfuscating package paths ending with `.go` - [#539]
+* Support installing garble in paths containing spaces - [#544]
 * Avoid a panic when obfuscating variadic functions - [#524]
 * Avoid a "refusing to list package" panic in `garble test` - [#522]
 * Some module builds are now used as regression tests - [#240]
@@ -132,6 +133,7 @@ Known bugs:
 [#522]: https://github.com/burrowers/garble/issues/522
 [#524]: https://github.com/burrowers/garble/issues/524
 [#539]: https://github.com/burrowers/garble/issues/539
+[#544]: https://github.com/burrowers/garble/issues/544
 
 [v0.6.0]: https://github.com/burrowers/garble/releases/tag/v0.6.0
 [#449]: https://github.com/burrowers/garble/issues/449
