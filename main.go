@@ -542,7 +542,13 @@ This command wraps "go %s". Below is its help:
 	// This way, all garble processes see the same flag values.
 	var toolexecFlag strings.Builder
 	toolexecFlag.WriteString("-toolexec=")
-	toolexecFlag.WriteString(cache.ExecPath)
+	quotedExecPath, err := cmdgoQuotedJoin([]string{cache.ExecPath})
+	if err != nil {
+		// Can only happen if the absolute path to the garble binary contains
+		// both single and double quotes. Seems extremely unlikely.
+		return nil, err
+	}
+	toolexecFlag.WriteString(quotedExecPath)
 	appendFlags(&toolexecFlag, false)
 	goArgs = append(goArgs, toolexecFlag.String())
 
