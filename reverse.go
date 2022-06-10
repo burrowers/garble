@@ -80,7 +80,7 @@ One can reverse a captured panic stack trace as follows:
 		var files []*ast.File
 		for _, goFile := range lpkg.GoFiles {
 			fullGoFile := filepath.Join(lpkg.Dir, goFile)
-			file, err := parser.ParseFile(fset, fullGoFile, nil, 0)
+			file, err := parser.ParseFile(fset, fullGoFile, nil, parser.SkipObjectResolution)
 			if err != nil {
 				return err
 			}

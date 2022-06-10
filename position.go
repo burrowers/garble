@@ -59,7 +59,7 @@ func printFile(file1 *ast.File) ([]byte, error) {
 	// Syntax errors should be rare, and when they do happen,
 	// we don't want to point to the original source file on disk.
 	// That would be confusing, as we've changed the source in memory.
-	file2, err := parser.ParseFile(fset, "", src, parser.ParseComments)
+	file2, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution|parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("re-parse error: %w", err)
 	}
