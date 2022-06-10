@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.7.0] - 2022-06-??
+## [v0.7.0] - 2022-06-10
 
 This release drops support for Go 1.17, continues support for Go 1.18,
 and adds initial support for the upcoming Go 1.19.
