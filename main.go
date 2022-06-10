@@ -726,7 +726,7 @@ func transformCompile(args []string) ([]string, error) {
 
 	var files []*ast.File
 	for _, path := range paths {
-		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution|parser.ParseComments)
 		if err != nil {
 			return nil, err
 		}
