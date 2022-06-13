@@ -1960,13 +1960,14 @@ var forwardBuildFlags = map[string]bool{
 	"-overlay":       true,
 }
 
-// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.18beta1.
+// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.19beta1.
 var booleanFlags = map[string]bool{
 	// Shared build flags.
 	"-a":          true,
 	"-i":          true,
 	"-n":          true,
 	"-v":          true,
+	"-work":       true,
 	"-x":          true,
 	"-race":       true,
 	"-msan":       true,

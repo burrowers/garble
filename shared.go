@@ -273,36 +273,31 @@ func appendListedPackages(packages []string, withDeps bool) error {
 //
 // TODO: investigate and resolve each one of these
 var cannotObfuscate = map[string]bool{
-	// some relocation failure
+	// "undefined reference" errors at link time
 	"time": true,
 
 	// all kinds of stuff breaks when obfuscating the runtime
 	"syscall": true,
 
-	// cgo breaks otherwise
+	// "unknown pc" crashes on windows in the cgo test otherwise
 	"runtime/cgo": true,
-
-	// garble reverse breaks otherwise
-	"runtime/debug": true,
-
-	// cgo heavy net doesn't like to be obfuscated
-	"net": true,
 }
 
-// Obtained from "go list -deps runtime" on Go 1.18beta1.
-// Note that the same command on Go 1.17 results in a subset of this list.
+// Obtained from "go list -deps runtime" on Go 1.19beta1.
+// Note that the same command on Go 1.18 results in the same list.
 var runtimeAndDeps = map[string]bool{
-	"internal/goarch":         true,
-	"unsafe":                  true,
-	"internal/abi":            true,
-	"internal/cpu":            true,
-	"internal/bytealg":        true,
-	"internal/goexperiment":   true,
-	"internal/goos":           true,
-	"runtime/internal/atomic": true,
-	"runtime/internal/math":   true,
-	"runtime/internal/sys":    true,
-	"runtime":                 true,
+	"internal/goarch":          true,
+	"unsafe":                   true,
+	"internal/abi":             true,
+	"internal/cpu":             true,
+	"internal/bytealg":         true,
+	"internal/goexperiment":    true,
+	"internal/goos":            true,
+	"runtime/internal/atomic":  true,
+	"runtime/internal/math":    true,
+	"runtime/internal/sys":     true,
+	"runtime/internal/syscall": true,
+	"runtime":                  true,
 }
 
 var listedRuntimeLinknamed = false
@@ -334,7 +329,7 @@ func listPackage(path string) (*listedPackage, error) {
 			panic(fmt.Sprintf("package %q still missing after go list call", path))
 		}
 		startTime := time.Now()
-		// Obtained via scripts/runtime-linknamed-nodeps.sh as of Go 1.18beta1.
+		// Obtained via scripts/runtime-linknamed-nodeps.sh as of Go 1.19beta1.
 		runtimeLinknamed := []string{
 			"crypto/internal/boring",
 			"crypto/internal/boring/fipstls",
