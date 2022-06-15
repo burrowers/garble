@@ -715,15 +715,6 @@ func transformCompile(args []string) ([]string, error) {
 	// generating it.
 	flags = append(flags, "-dwarf=false")
 
-	for i, path := range paths {
-		if filepath.Base(path) == "_gomod_.go" {
-			// never include module info
-			// TODO: this seems to no longer trigger for our tests?
-			paths = append(paths[:i], paths[i+1:]...)
-			break
-		}
-	}
-
 	var files []*ast.File
 	for _, path := range paths {
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution|parser.ParseComments)
@@ -991,6 +982,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			// See exporttest/*.go in testdata/scripts/test.txt.
 			// For now, spot the pattern and avoid the unnecessary error;
 			// the dependency is unused, so the packagefile line is redundant.
+			// This still triggers as of go1.19beta1.
 			if strings.HasSuffix(curPkg.ImportPath, ".test]") && strings.HasPrefix(curPkg.ImportPath, impPath) {
 				continue
 			}
@@ -1290,21 +1282,6 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 		return true
 	}
 	for _, file := range files {
-		for _, group := range file.Comments {
-			for _, comment := range group.List {
-				name := strings.TrimPrefix(comment.Text, "//export ")
-				if name == comment.Text {
-					continue
-				}
-				name = strings.TrimSpace(name)
-				obj := tf.pkg.Scope().Lookup(name)
-				if obj == nil {
-					continue // not found; skip
-				}
-				// TODO(mvdan): it seems like removing this doesn't break any tests.
-				recordAsNotObfuscated(obj)
-			}
-		}
 		ast.Inspect(file, visit)
 	}
 	return nil
@@ -1464,11 +1441,10 @@ func recordedObjectString(obj types.Object) objectString {
 // recordAsNotObfuscated records all the objects whose names we cannot obfuscate.
 // An object is any named entity, such as a declared variable or type.
 //
-// So far, it records:
-//
-//   - Types which are used for reflection.
-//   - Declarations exported via "//export".
-//   - Types or variables from external packages which were not obfuscated.
+// As of June 2022, this only records types which are used in reflection.
+// TODO(mvdan): If this is still the case in a year's time,
+// we should probably rename "not obfuscated" and "cannot obfuscate" to be
+// directly about reflection, e.g. "used in reflection".
 func recordAsNotObfuscated(obj types.Object) {
 	if obj.Pkg().Path() != curPkg.ImportPath {
 		panic("called recordedAsNotObfuscated with a foreign object")
