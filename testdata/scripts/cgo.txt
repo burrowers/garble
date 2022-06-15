@@ -3,6 +3,7 @@
 env GOGARBLE=test/main
 
 garble build
+! stderr 'warning' # check that the C toolchain is happy
 exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'PortedField'
@@ -20,6 +21,7 @@ exec ./main
 cmp stdout main.stdout
 
 go build
+! stderr 'warning' # check that the C toolchain is happy
 exec ./main
 cmp stdout main.stdout
 binsubstr main$exe 'privateAdd'
@@ -34,6 +36,8 @@ package main
 import "os/user"
 
 /*
+#include "separate.h"
+
 static int privateAdd(int a, int b) {
 	return a + b;
 }
@@ -42,6 +46,7 @@ extern void goCallback();
 
 static void callGoCallback() {
 	goCallback();
+	separateFunction();
 }
 
 struct portedStruct {
@@ -65,7 +70,16 @@ func main() {
 func goCallback() {
 	fmt.Println("go callback")
 }
+-- separate.h --
+void separateFunction();
+-- separate.c --
+#include "_cgo_export.h"
+
+void separateFunction() {
+	goCallback();
+}
 -- main.stdout --
 3
 true
+go callback
 go callback
