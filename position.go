@@ -15,12 +15,6 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-func isDirective(text string) bool {
-	// TODO: can we remove the check for "// +build" now that we require Go 1.18
-	// or later? we should update the tests too.
-	return strings.HasPrefix(text, "//go:") || strings.HasPrefix(text, "// +build")
-}
-
 var printBuf1, printBuf2 bytes.Buffer
 
 // printFile prints a Go file to a buffer, while also removing non-directive
@@ -36,13 +30,13 @@ func printFile(file1 *ast.File) ([]byte, error) {
 	src := printBuf1.Bytes()
 
 	if !curPkg.ToObfuscate {
-		// TODO(mvdan): make transformCompile handle untouched
-		// packages like runtime earlier on, to remove these checks.
+		// We lightly transform packages which shouldn't be obfuscated,
+		// such as when rewriting go:linkname directives to obfuscated packages.
+		// We still need to print the files, but without obfuscating positions.
 		return src, nil
 	}
 
-	absFilename := fset.Position(file1.Pos()).Filename
-	filename := filepath.Base(absFilename)
+	filename := filepath.Base(fset.Position(file1.Pos()).Filename)
 	if strings.HasPrefix(filename, "_cgo_") {
 		// cgo-generated files don't need changed line numbers.
 		// Plus, the compiler can complain rather easily.
@@ -67,10 +61,10 @@ func printFile(file1 *ast.File) ([]byte, error) {
 	// Remove any comments by making them whitespace.
 	// Keep directives, as they affect the build.
 	// This is superior to removing the comments before printing,
-	// because then the final source would have different line numbers.
+	// as otherwise 'garble reverse' would show different line numbers.
 	for _, group := range file2.Comments {
 		for _, comment := range group.List {
-			if isDirective(comment.Text) {
+			if strings.HasPrefix(comment.Text, "//go:") {
 				continue
 			}
 			start := fset.Position(comment.Pos()).Offset
@@ -81,6 +75,7 @@ func printFile(file1 *ast.File) ([]byte, error) {
 		}
 	}
 
+	// We want to use the original positions for the hashed positions.
 	var origCallExprs []*ast.CallExpr
 	ast.Inspect(file1, func(node ast.Node) bool {
 		if node, ok := node.(*ast.CallExpr); ok {
@@ -89,7 +84,6 @@ func printFile(file1 *ast.File) ([]byte, error) {
 		return true
 	})
 
-	// Keep the compiler directives, and change position info.
 	type commentToAdd struct {
 		offset int
 		text   string
