@@ -34,7 +34,7 @@ func randObfuscator() obfuscator {
 }
 
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkStrings map[types.Object]string) *ast.File {
+func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkStrings map[*types.Var]string) *ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.GenDecl:
@@ -44,7 +44,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 			}
 		case *ast.ValueSpec:
 			for _, name := range node.Names {
-				obj := info.ObjectOf(name)
+				obj := info.Defs[name].(*types.Var)
 				if _, e := linkStrings[obj]; e {
 					// Skip this entire ValueSpec to not break -ldflags=-X.
 					// TODO: support obfuscating those injected strings, too.
