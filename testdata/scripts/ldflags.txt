@@ -7,7 +7,7 @@ env GOGARBLE=*
 #   -X=name=value
 #   -X name=value
 #   -X "name=value" (or with single quotes, allows spaces in value)
-env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/missing/path.missingVar=value'
+env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/missing/path.missingVar=value -X=main.someType=notAVariable'
 
 garble build -ldflags=${LDFLAGS}
 exec ./main
@@ -46,6 +46,12 @@ var unexportedVersion = "unknown"
 var notReplacedBefore, replacedWithEmpty, notReplacedAfter = "kept_before", "original", "kept_after"
 
 var replacedWithSpaces = "original"
+
+type someType int
+
+const someConst = "untouchable"
+
+func someFunc() string { return "untouchable" }
 
 func main() {
 	fmt.Printf("version: %q\n", unexportedVersion)

@@ -34,6 +34,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
@@ -612,6 +613,7 @@ func transformAsm(args []string) ([]string, error) {
 	const middleDot = '·'
 	middleDotLen := utf8.RuneLen(middleDot)
 
+	var buf bytes.Buffer
 	for _, path := range paths {
 		// Read the entire file into memory.
 		// If we find issues with large files, we can use bufio.
@@ -619,10 +621,10 @@ func transformAsm(args []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+		buf.Reset()
 
 		// Find all middle-dot names, and replace them.
 		remaining := content
-		var buf bytes.Buffer
 		for {
 			i := bytes.IndexRune(remaining, middleDot)
 			if i < 0 {
@@ -1110,12 +1112,13 @@ func loadCachedOutputs() error {
 }
 
 func (tf *transformer) findReflectFunctions(files []*ast.File) {
+	seenReflectParams := make(map[*types.Var]bool)
 	visitFuncDecl := func(funcDecl *ast.FuncDecl) {
-		funcObj := tf.info.ObjectOf(funcDecl.Name).(*types.Func)
+		funcObj := tf.info.Defs[funcDecl.Name].(*types.Func)
 		funcType := funcObj.Type().(*types.Signature)
 		funcParams := funcType.Params()
 
-		seenReflectParams := make(map[*types.Var]bool)
+		maps.Clear(seenReflectParams)
 		for i := 0; i < funcParams.Len(); i++ {
 			seenReflectParams[funcParams.At(i)] = false
 		}
@@ -1129,7 +1132,7 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 			if !ok {
 				return true
 			}
-			calledFunc, _ := tf.info.ObjectOf(sel.Sel).(*types.Func)
+			calledFunc, _ := tf.info.Uses[sel.Sel].(*types.Func)
 			if calledFunc == nil || calledFunc.Pkg() == nil {
 				return true
 			}
@@ -1150,7 +1153,7 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 					if !ok {
 						continue
 					}
-					obj, _ := tf.info.ObjectOf(ident).(*types.Var)
+					obj, _ := tf.info.Uses[ident].(*types.Var)
 					if obj == nil {
 						continue
 					}
@@ -1203,7 +1206,7 @@ func (tf *transformer) findReflectFunctions(files []*ast.File) {
 // Since we obfuscate one package at a time, we only detect those if the type
 // definition and the reflect usage are both in the same package.
 func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
-	tf.linkerVariableStrings = make(map[types.Object]string)
+	tf.linkerVariableStrings = make(map[*types.Var]string)
 
 	// TODO: this is a linker flag that affects how we obfuscate a package at
 	// compile time. Note that, if the user changes ldflags, then Go may only
@@ -1238,9 +1241,9 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 			return // not the current package
 		}
 
-		obj := tf.pkg.Scope().Lookup(name)
+		obj, _ := tf.pkg.Scope().Lookup(name).(*types.Var)
 		if obj == nil {
-			return // not found; skip
+			return // no such variable; skip
 		}
 		tf.linkerVariableStrings[obj] = stringValue
 	})
@@ -1261,7 +1264,7 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 			ident = sel.Sel
 		}
 
-		fnType, _ := tf.info.ObjectOf(ident).(*types.Func)
+		fnType, _ := tf.info.Uses[ident].(*types.Func)
 		if fnType == nil || fnType.Pkg() == nil {
 			return true
 		}
@@ -1297,10 +1300,11 @@ type transformer struct {
 	// linkerVariableStrings is also initialized by prefillObjectMaps.
 	// It records objects for variables used in -ldflags=-X flags,
 	// as well as the strings the user wants to inject them with.
-	linkerVariableStrings map[types.Object]string
+	linkerVariableStrings map[*types.Var]string
 
-	// recordTypeDone helps avoid cycles in recordType.
-	recordTypeDone map[types.Type]bool
+	// recordTypeDone helps avoid type cycles in recordType.
+	// We only need to track named types, as all cycles must use them.
+	recordTypeDone map[*types.Named]bool
 
 	// fieldToStruct helps locate struct types from any of their field
 	// objects. Useful when obfuscating field names.
@@ -1315,7 +1319,7 @@ func newTransformer() *transformer {
 			Defs:  make(map[*ast.Ident]types.Object),
 			Uses:  make(map[*ast.Ident]types.Object),
 		},
-		recordTypeDone: make(map[types.Type]bool),
+		recordTypeDone: make(map[*types.Named]bool),
 		fieldToStruct:  make(map[*types.Var]*types.Struct),
 	}
 }
@@ -1370,19 +1374,19 @@ func (tf *transformer) typecheck(files []*ast.File) error {
 // Right now, all it does is fill the fieldToStruct field.
 // Since types can be recursive, we need a map to avoid cycles.
 func (tf *transformer) recordType(used, origin types.Type) {
-	if tf.recordTypeDone[used] {
-		return
-	}
 	if origin == nil {
 		origin = used
 	}
 	type Container interface{ Elem() types.Type }
-	tf.recordTypeDone[used] = true
 	switch used := used.(type) {
 	case Container:
 		origin := origin.(Container)
 		tf.recordType(used.Elem(), origin.Elem())
 	case *types.Named:
+		if tf.recordTypeDone[used] {
+			return
+		}
+		tf.recordTypeDone[used] = true
 		// If we have a generic struct like
 		//
 		//	type Foo[T any] struct { Bar T }
