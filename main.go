@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -198,6 +199,21 @@ func (w *uniqueLineWriter) Write(p []byte) (n int, err error) {
 // so extra decimal points in the order of microseconds aren't meaningful.
 func debugSince(start time.Time) time.Duration {
 	return time.Since(start).Truncate(10 * time.Microsecond)
+}
+
+// noescapeLogPrintln is a version of log.Println which avoids using the "any"
+// interface for its parameters, to prevent the arguments from escaping to the heap.
+// This matters in hot loops, where a few extra allocations add up quickly.
+func noescapeLogPrintln(strs ...string) {
+	if !flagDebug {
+		return
+	}
+	var sb strings.Builder
+	for _, str := range strs {
+		sb.WriteString(str)
+	}
+	sb.WriteByte('\n')
+	log.Output(1, sb.String())
 }
 
 func main1() int {
@@ -672,7 +688,7 @@ func transformAsm(args []string) ([]string, error) {
 			}
 
 			newName := hashWithPackage(curPkg, name)
-			log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+			noescapeLogPrintln("asm name ", name, " hashed with ", hex.EncodeToString(curPkg.GarbleActionID), " to ", newName)
 			buf.WriteString(newName)
 		}
 
@@ -1439,7 +1455,7 @@ func recordedObjectString(obj types.Object) objectString {
 		return ""
 	}
 	// For top-level exported names, "pkgpath.Name" is unique.
-	return fmt.Sprintf("%s.%s", obj.Pkg().Path(), obj.Name())
+	return obj.Pkg().Path() + "." + obj.Name()
 }
 
 // recordAsNotObfuscated records all the objects whose names we cannot obfuscate.
@@ -1677,7 +1693,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				panic("could not find for " + name)
 			}
 			node.Name = hashWithStruct(strct, name)
-			log.Printf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
+			noescapeLogPrintln(debugName, " ", name, " hashed with struct fields to ", node.Name)
 			return true
 
 		case *types.TypeName:
@@ -1705,7 +1721,8 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 
 		node.Name = hashWithPackage(lpkg, name)
 		// TODO: probably move the debugf lines inside the hash funcs
-		log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
+		noescapeLogPrintln(debugName, " ", name, " hashed with",
+			hex.EncodeToString(hashToUse[:4]), "… to ", node.Name)
 		return true
 	}
 	post := func(cursor *astutil.Cursor) bool {

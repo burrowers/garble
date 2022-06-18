@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -326,7 +327,7 @@ func listPackage(path string) (*listedPackage, error) {
 			return pkg, nil
 		}
 		if listedRuntimeLinknamed {
-			panic(fmt.Sprintf("package %q still missing after go list call", path))
+			panic("package " + path + " still missing after go list call")
 		}
 		startTime := time.Now()
 		// Obtained via scripts/runtime-linknamed-nodeps.sh as of Go 1.19beta1.
@@ -370,7 +371,7 @@ func listPackage(path string) (*listedPackage, error) {
 		}
 		pkg, ok := cache.ListedPackages[path]
 		if !ok {
-			panic(fmt.Sprintf("runtime listed a std package we can't find: %s", path))
+			panic("runtime listed a std package we can't find: " + path)
 		}
 		listedRuntimeLinknamed = true
 		log.Printf("listed %d missing runtime-linknamed packages in %s", len(missing), debugSince(startTime))
@@ -379,12 +380,12 @@ func listPackage(path string) (*listedPackage, error) {
 	// Packages other than runtime can list any package,
 	// as long as they depend on it directly or indirectly.
 	if !ok {
-		return nil, fmt.Errorf("path not found in listed packages: %s", path)
+		return nil, errors.New("path not found in listed packages: " + path)
 	}
 	for _, dep := range curPkg.Deps {
 		if dep == pkg.ImportPath {
 			return pkg, nil
 		}
 	}
-	return nil, fmt.Errorf("refusing to list non-dependency package: %s", path)
+	return nil, errors.New("refusing to list non-dependency package: " + path)
 }
