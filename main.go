@@ -379,6 +379,7 @@ func mainErr(args []string) error {
 		return commandReverse(args)
 	case "build", "test":
 		cmd, err := toolexecCmd(command, args)
+		defer os.RemoveAll(os.Getenv("GARBLE_SHARED"))
 		if err != nil {
 			return err
 		}
@@ -513,7 +514,6 @@ This command wraps "go %s". Below is its help:
 		return nil, err
 	}
 	os.Setenv("GARBLE_SHARED", sharedTempDir)
-	defer os.Remove(sharedTempDir)
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, err

@@ -9,10 +9,12 @@ import (
 	"go/ast"
 	"go/printer"
 	"go/token"
+	"io/fs"
 	mathrand "math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -118,6 +120,7 @@ func TestScripts(t *testing.T) {
 			"bincmp":            bincmp,
 			"generate-literals": generateLiterals,
 			"setenvfile":        setenvfile,
+			"grepfiles":         grepfiles,
 		},
 		UpdateScripts: *update,
 	}
@@ -260,6 +263,37 @@ func setenvfile(ts *testscript.TestScript, neg bool, args []string) {
 	}
 
 	ts.Setenv(args[0], ts.ReadFile(args[1]))
+}
+
+func grepfiles(ts *testscript.TestScript, neg bool, args []string) {
+	if len(args) != 2 {
+		ts.Fatalf("usage: grepfiles path pattern")
+	}
+	anyFound := false
+	path, pattern := args[0], args[1]
+	rx := regexp.MustCompile(pattern)
+	// TODO: use https://github.com/golang/go/issues/47209 when merged,
+	// hopefully in Go 1.20.
+	errSkipAll := fmt.Errorf("sentinel error: stop walking")
+	if err := filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if rx.MatchString(path) {
+			if neg {
+				return fmt.Errorf("%q matches %q", path, pattern)
+			} else {
+				anyFound = true
+				return errSkipAll
+			}
+		}
+		return nil
+	}); err != nil && err != errSkipAll {
+		ts.Fatalf("%s", err)
+	}
+	if !neg && !anyFound {
+		ts.Fatalf("no matches for %q", pattern)
+	}
 }
 
 func TestSplitFlagsFromArgs(t *testing.T) {

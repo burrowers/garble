@@ -21,6 +21,10 @@ stdin main.stderr
 garble reverse .
 cmp stdout reverse.stdout
 
+# Ensure that we cleaned up the temporary files.
+# Note that we rely on the unix-like TMPDIR env var name.
+[!windows] ! grepfiles ${TMPDIR} 'garble|importcfg|cache\.gob|\.go'
+
 ! garble build ./build-error
 cp stderr build-error.stderr
 
