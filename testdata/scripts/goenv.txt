@@ -1,3 +1,7 @@
+# Ensure that we support temporary directories with spaces and quotes.
+env TMPDIR=${WORK}/'.temp ''quotes'' and spaces'
+mkdir ${TMPDIR}
+
 # We need to properly quote the path to garble for toolexec.
 # If we don't, characters like spaces or quotes will result in errors.
 # EXEC_PATH is the test binary's os.Executable.
@@ -6,24 +10,31 @@
 env NAME='with spaces'
 mkdir $NAME
 cp $EXEC_PATH $NAME/garble$exe
-exec $NAME/garble$exe build main.go
+exec $NAME/garble$exe build
+
+# Ensure that we cleaned up the temporary files.
+! grepfiles ${TMPDIR} 'garble|importcfg|cache\.gob|\.go'
 
 [!windows] env NAME='with"double"quotes'
 [!windows] mkdir $NAME
 [!windows] cp $EXEC_PATH $NAME/garble$exe
-[!windows] exec $NAME/garble$exe build main.go
+[!windows] exec $NAME/garble$exe build
 
 env NAME='with''single''quotes'
 mkdir $NAME
 cp $EXEC_PATH $NAME/garble$exe
-exec $NAME/garble$exe build main.go
+exec $NAME/garble$exe build
 
 [!windows] env NAME='with"both''quotes'
 [!windows] mkdir $NAME
 [!windows] cp $EXEC_PATH $NAME/garble$exe
-[!windows] ! exec $NAME/garble$exe build main.go
+[!windows] ! exec $NAME/garble$exe build
 [!windows] stderr 'cannot be quoted'
 
+-- go.mod --
+module test/main
+
+go 1.18
 -- main.go --
 package main
 
