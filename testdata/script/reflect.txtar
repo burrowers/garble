@@ -325,3 +325,5 @@ IndirectNamedWithReflect{IndirectUnobfuscated:"indirect-with", DuplicateFieldNam
 ReflectionField
 {0}
 VariadicReflection{ReflectionField:"variadic"}
+*main.StatUser
+*main.StatCompUser
