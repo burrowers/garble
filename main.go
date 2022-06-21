@@ -34,7 +34,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
@@ -889,7 +888,7 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	tf.findReflectFunctions(files)
+	tf.recordReflection(files)
 	newImportCfg, err := processImportCfg(flags)
 	if err != nil {
 		return nil, err
@@ -1281,87 +1280,269 @@ func loadCachedOutputs() error {
 	return nil
 }
 
-func (tf *transformer) findReflectFunctions(files []*ast.File) {
-	seenReflectParams := make(map[*types.Var]bool)
-	visitFuncDecl := func(funcDecl *ast.FuncDecl) {
-		funcObj := tf.info.Defs[funcDecl.Name].(*types.Func)
-		funcType := funcObj.Type().(*types.Signature)
-		funcParams := funcType.Params()
+type potentialReflectMap map[*types.Var]potentialReflectParam
 
-		maps.Clear(seenReflectParams)
-		for i := 0; i < funcParams.Len(); i++ {
-			seenReflectParams[funcParams.At(i)] = false
+// a function parameter (or a variable related to one), which might be used in reflection
+type potentialReflectParam struct {
+	// whether this parameter is definitely used in reflection
+	reflected bool
+
+	// maps a variable to a function parameter which is also affected when
+	// the variable is used in reflection, nil for the real function parameters.
+	related *types.Var
+}
+
+// Flag a function parameter as being used in reflection.
+func flagParamReflected(obj *types.Var, potentialReflectParams potentialReflectMap) {
+	if param, ok := potentialReflectParams[obj]; ok {
+		if param.related != nil {
+			flagParamReflected(param.related, potentialReflectParams)
 		}
 
-		ast.Inspect(funcDecl, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
+		param.reflected = true
+
+		potentialReflectParams[obj] = param
+	}
+}
+
+func rootIdent(node ast.Node) *ast.Ident {
+	switch x := node.(type) {
+	case *ast.Ident:
+		return x
+	case *ast.SelectorExpr:
+		return rootIdent(x.X)
+	}
+
+	return nil
+}
+
+// Exempt types which are used in reflection from obfuscation.
+func (tf *transformer) ignoreReflectedTypes(node ast.Node) {
+	visit := func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		ident, ok := call.Fun.(*ast.Ident)
+		if !ok {
 			sel, ok := call.Fun.(*ast.SelectorExpr)
 			if !ok {
 				return true
 			}
-			calledFunc, _ := tf.info.Uses[sel.Sel].(*types.Func)
-			if calledFunc == nil || calledFunc.Pkg() == nil {
+
+			ident = sel.Sel
+		}
+
+		fnType, _ := tf.info.Uses[ident].(*types.Func)
+		if fnType == nil || fnType.Pkg() == nil {
+			return true
+		}
+
+		fullName := fnType.FullName()
+		for _, reflectParam := range cachedOutput.KnownReflectAPIs[fullName] {
+			argStart := reflectParam.Position
+			argEnd := argStart + 1
+			if reflectParam.Variadic {
+				argEnd = len(call.Args)
+			}
+			for _, arg := range call.Args[argStart:argEnd] {
+				argType := tf.info.TypeOf(arg)
+
+				tf.recursivelyRecordAsNotObfuscated(argType)
+			}
+		}
+
+		return true
+	}
+
+	ast.Inspect(node, visit)
+}
+
+// Check whether function parameters are assigned to this variable
+func (tf *transformer) reflectAddAssignValue(potentialReflectParams potentialReflectMap, value ast.Expr, name *ast.Ident) {
+	objName, _ := tf.info.ObjectOf(name).(*types.Var)
+	if objName == nil {
+		return
+	}
+
+	// assignment may have composite literals on the Rhs, find all contained identifiers
+	if composite, ok := value.(*ast.CompositeLit); ok {
+
+		ast.Inspect(composite, func(n ast.Node) bool {
+			switch n.(type) {
+			case *ast.CallExpr, *ast.FuncDecl:
+				return false
+			}
+
+			ident := rootIdent(n)
+			if ident == nil {
 				return true
 			}
 
-			fullName := calledFunc.FullName()
-			for _, reflectParam := range cachedOutput.KnownReflectAPIs[fullName] {
-				// We need a range to handle any number of variadic arguments,
-				// which could be 0 or multiple.
-				// The non-variadic case is always one argument,
-				// but we still use the range to deduplicate code.
-				argStart := reflectParam.Position
-				argEnd := argStart + 1
-				if reflectParam.Variadic {
-					argEnd = len(call.Args)
-				}
-				for _, arg := range call.Args[argStart:argEnd] {
-					ident, ok := arg.(*ast.Ident)
-					if !ok {
-						continue
-					}
-					obj, _ := tf.info.Uses[ident].(*types.Var)
-					if obj == nil {
-						continue
-					}
-					if _, ok := seenReflectParams[obj]; ok {
-						seenReflectParams[obj] = true
-					}
-				}
-			}
+			tf.reflectAddAssignValue(potentialReflectParams, ident, name)
 
-			var reflectParams []reflectParameter
-			for i := 0; i < funcParams.Len(); i++ {
-				if seenReflectParams[funcParams.At(i)] {
-					reflectParams = append(reflectParams, reflectParameter{
-						Position: i,
-						Variadic: funcType.Variadic() && i == funcParams.Len()-1,
-					})
-				}
-			}
-			if len(reflectParams) > 0 {
-				cachedOutput.KnownReflectAPIs[funcObj.FullName()] = reflectParams
-			}
-
-			return true
+			// this element is handled, don't walk children of selector expressions
+			return false
 		})
+
+		return
 	}
 
+	ident := rootIdent(value)
+	if ident == nil {
+		return
+	}
+
+	objVar, _ := tf.info.Uses[ident].(*types.Var)
+	if objVar == nil {
+		return
+	}
+
+	// Check if the Rhs is a function parameter.
+	_, ok := potentialReflectParams[objVar]
+	if !ok {
+		return
+	}
+	// This function parameter gets assigned to another variable.
+
+	if named := namedType(objName.Type()); named != nil {
+		typeObj := named.Obj()
+		if recordedAsNotObfuscated(typeObj) {
+			// The type of the Lhs is already flagged as being reflected,
+			// therefore also flag this parameter as being reflected
+			flagParamReflected(objVar, potentialReflectParams)
+
+			return
+		}
+	}
+
+	// Keep track of this assignment.
+	potentialReflectParams[objName] = potentialReflectParam{
+		reflected: false,
+		related:   objVar,
+	}
+}
+
+// Flag variables to which function parameters are assigned, to also recognize indirect reflection.
+func (tf *transformer) reflectAddAssign(funcDecl *ast.FuncDecl, potentialReflectParams potentialReflectMap) {
+	ast.Inspect(funcDecl, func(node ast.Node) bool {
+		switch spec := node.(type) {
+		case *ast.AssignStmt:
+			if len(spec.Rhs) != len(spec.Lhs) {
+				return true
+			}
+
+			for i, lhs := range spec.Lhs {
+				name := rootIdent(lhs)
+				if name == nil {
+					continue
+				}
+
+				value := spec.Rhs[i]
+
+				tf.reflectAddAssignValue(potentialReflectParams, value, name)
+			}
+		case *ast.ValueSpec:
+			if len(spec.Values) != len(spec.Names) {
+				return true
+			}
+
+			for i, name := range spec.Names {
+				value := spec.Values[i]
+
+				tf.reflectAddAssignValue(potentialReflectParams, value, name)
+			}
+		}
+
+		return true
+	})
+}
+
+// Record whether a function uses reflection on its parameters.
+func (tf *transformer) recordReflectionParams(funcDecl *ast.FuncDecl) {
+	funcObj := tf.info.Defs[funcDecl.Name].(*types.Func)
+	funcType := funcObj.Type().(*types.Signature)
+	funcParams := funcType.Params()
+
+	potentialReflectParams := make(potentialReflectMap, funcParams.Len())
+	for i := 0; i < funcParams.Len(); i++ {
+		potentialReflectParams[funcParams.At(i)] = potentialReflectParam{
+			reflected: false,
+		}
+	}
+
+	tf.reflectAddAssign(funcDecl, potentialReflectParams)
+
+	ast.Inspect(funcDecl, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		calledFunc, _ := tf.info.Uses[sel.Sel].(*types.Func)
+		if calledFunc == nil || calledFunc.Pkg() == nil {
+			return true
+		}
+
+		fullName := calledFunc.FullName()
+		for _, reflectParam := range cachedOutput.KnownReflectAPIs[fullName] {
+			// We need a range to handle any number of variadic arguments,
+			// which could be 0 or multiple.
+			// The non-variadic case is always one argument,
+			// but we still use the range to deduplicate code.
+			argStart := reflectParam.Position
+			argEnd := argStart + 1
+			if reflectParam.Variadic {
+				argEnd = len(call.Args)
+			}
+			for _, arg := range call.Args[argStart:argEnd] {
+				ident := rootIdent(arg)
+
+				obj, _ := tf.info.Uses[ident].(*types.Var)
+				if obj == nil {
+					continue
+				}
+
+				flagParamReflected(obj, potentialReflectParams)
+			}
+		}
+
+		return true
+	})
+
+	var reflectParams []reflectParameter
+	for i := 0; i < funcParams.Len(); i++ {
+		if potentialReflectParams[funcParams.At(i)].reflected {
+			reflectParams = append(reflectParams, reflectParameter{
+				Position: i,
+				Variadic: funcType.Variadic() && i == funcParams.Len()-1,
+			})
+		}
+	}
+	if len(reflectParams) > 0 {
+		cachedOutput.KnownReflectAPIs[funcObj.FullName()] = reflectParams
+	}
+}
+
+// Record all instances of reflection use, and don't obfuscate types which are used in reflection.
+func (tf *transformer) recordReflection(files []*ast.File) {
 	lenPrevKnownReflectAPIs := len(cachedOutput.KnownReflectAPIs)
 	for _, file := range files {
+		tf.ignoreReflectedTypes(file)
 		for _, decl := range file.Decls {
 			if decl, ok := decl.(*ast.FuncDecl); ok {
-				visitFuncDecl(decl)
+				tf.recordReflectionParams(decl)
 			}
 		}
 	}
 
 	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
 	if len(cachedOutput.KnownReflectAPIs) > lenPrevKnownReflectAPIs {
-		tf.findReflectFunctions(files)
+		tf.recordReflection(files)
 	}
 }
 
@@ -1417,46 +1598,6 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 		}
 		tf.linkerVariableStrings[obj] = stringValue
 	})
-
-	visit := func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-
-		ident, ok := call.Fun.(*ast.Ident)
-		if !ok {
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-
-			ident = sel.Sel
-		}
-
-		fnType, _ := tf.info.Uses[ident].(*types.Func)
-		if fnType == nil || fnType.Pkg() == nil {
-			return true
-		}
-
-		fullName := fnType.FullName()
-		for _, reflectParam := range cachedOutput.KnownReflectAPIs[fullName] {
-			argStart := reflectParam.Position
-			argEnd := argStart + 1
-			if reflectParam.Variadic {
-				argEnd = len(call.Args)
-			}
-			for _, arg := range call.Args[argStart:argEnd] {
-				argType := tf.info.TypeOf(arg)
-				tf.recursivelyRecordAsNotObfuscated(argType)
-			}
-		}
-
-		return true
-	}
-	for _, file := range files {
-		ast.Inspect(file, visit)
-	}
 	return nil
 }
 
@@ -1607,10 +1748,17 @@ func recordedObjectString(obj types.Object) objectString {
 		return fmt.Sprintf("%s.%s - %s:%d", obj.Pkg().Path(), obj.Name(),
 			filepath.Base(pos.Filename), pos.Line)
 	}
+
+	pkg := obj.Pkg()
+	if pkg == nil {
+		// builtin types don't have a pkg
+		return ""
+	}
+
 	// Names which are not at the top level cannot be imported,
 	// so we don't need to record them either.
 	// Note that this doesn't apply to fields, which are never top-level.
-	if obj.Pkg().Scope().Lookup(obj.Name()) != obj {
+	if pkg.Scope().Lookup(obj.Name()) != obj {
 		return ""
 	}
 	// For top-level exported names, "pkgpath.Name" is unique.
