@@ -37,10 +37,9 @@ func printFile(file *ast.File) ([]byte, error) {
 
 	fsetFile := fset.File(file.Pos())
 	filename := filepath.Base(fsetFile.Name())
+	newPrefix := ""
 	if strings.HasPrefix(filename, "_cgo_") {
-		// cgo-generated files don't need changed line numbers.
-		// Plus, the compiler can complain rather easily.
-		return src, nil
+		newPrefix = "_cgo_"
 	}
 
 	// Many parts of garble, notably the literal obfuscator, modify the AST.
@@ -73,7 +72,7 @@ func printFile(file *ast.File) ([]byte, error) {
 	// in case we miss any positions below.
 	// We use a //-style comment, because there might be build tags.
 	// toAdd is for /*-style comments, so add it to printBuf2 directly.
-	printBuf2.WriteString("//line :1\n")
+	fmt.Fprintf(&printBuf2, "//line %s:1\n", newPrefix)
 
 	// We use an empty filename when tokenizing below.
 	// We use a nil go/scanner.ErrorHandler because src comes from go/printer.
@@ -126,7 +125,7 @@ func printFile(file *ast.File) ([]byte, error) {
 			// Otherwise, we could change the syntax of the program.
 			// Inserting "/*text*/" in "a/b" // must be "a/ /*text*/ b",
 			// as "a//*text*/b" is tokenized as a "//" comment.
-			fmt.Fprintf(&printBuf2, " /*line %s:1*/ ", newName)
+			fmt.Fprintf(&printBuf2, " /*line %s%s:1*/ ", newPrefix, newName)
 		}
 	}
 }

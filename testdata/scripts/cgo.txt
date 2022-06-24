@@ -6,7 +6,7 @@ garble build
 ! stderr 'warning' # check that the C toolchain is happy
 exec ./main
 cmp stdout main.stdout
-! binsubstr main$exe 'PortedField'
+! binsubstr main$exe 'PortedField' 'test/main'
 
 [short] stop # no need to verify this with -short
 
