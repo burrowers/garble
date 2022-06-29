@@ -283,7 +283,7 @@ var cannotObfuscate = map[string]bool{
 	"runtime/cgo": true,
 }
 
-// Obtained from "go list -deps runtime" on Go 1.19beta1.
+// Obtained from "go list -deps runtime" as of June 29th.
 // Note that the same command on Go 1.18 results in the same list.
 var runtimeAndDeps = map[string]bool{
 	"internal/goarch":          true,
@@ -329,9 +329,10 @@ func listPackage(path string) (*listedPackage, error) {
 			panic(fmt.Sprintf("package %q still missing after go list call", path))
 		}
 		startTime := time.Now()
-		// Obtained via scripts/runtime-linknamed-nodeps.sh as of Go 1.19beta1.
+		// Obtained via scripts/runtime-linknamed-nodeps.sh as of June 29th.
 		runtimeLinknamed := []string{
 			"crypto/internal/boring",
+			"crypto/internal/boring/bcache",
 			"crypto/internal/boring/fipstls",
 			"crypto/x509/internal/macos",
 			"internal/poll",
