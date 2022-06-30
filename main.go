@@ -1028,6 +1028,9 @@ type (
 var knownCannotObfuscateUnexported = map[types.Object]bool{}
 
 // cachedOutput contains information that will be stored as per garbleExportFile.
+// Note that cachedOutput gets loaded from all direct package dependencies,
+// and gets filled while obfuscating the current package, so it ends up
+// containing entries for the current package and its transitive dependencies.
 var cachedOutput = struct {
 	// KnownReflectAPIs is a static record of what std APIs use reflection on their
 	// parameters, so we can avoid obfuscating types used with them.
@@ -1037,7 +1040,7 @@ var cachedOutput = struct {
 	KnownReflectAPIs map[funcFullName][]reflectParameter
 
 	// KnownCannotObfuscate is filled with the fully qualified names from each
-	// package that we could not obfuscate as per cannotObfuscateNames.
+	// package that we cannot obfuscate.
 	// This record is necessary for knowing what names from imported packages
 	// weren't obfuscated, so we can obfuscate their local uses accordingly.
 	KnownCannotObfuscate map[objectString]struct{}
