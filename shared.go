@@ -243,7 +243,7 @@ func appendListedPackages(packages []string, withDeps bool) error {
 		// Test main packages like "foo/bar.test" are always obfuscated,
 		// just like main packages.
 		switch {
-		case cannotObfuscate[path], runtimeAndDeps[path]:
+		case cannotObfuscate[path]:
 			// We don't support obfuscating these yet.
 
 		case pkg.Incomplete:
@@ -268,24 +268,22 @@ func appendListedPackages(packages []string, withDeps bool) error {
 }
 
 // cannotObfuscate is a list of some standard library packages we currently
-// cannot obfuscate. Note that this list currently sits on top of
-// runtimeAndDeps, which are currently not obfuscated either.
+// cannot obfuscate.
 //
 // TODO: investigate and resolve each one of these
 var cannotObfuscate = map[string]bool{
 	// "undefined reference" errors at link time
 	"time": true,
 
-	// all kinds of stuff breaks when obfuscating the runtime
+	// "//go:linkname must refer to declared function or variable"
 	"syscall": true,
 
 	// "unknown pc" crashes on windows in the cgo test otherwise
 	"runtime/cgo": true,
-}
 
-// Obtained from "go list -deps runtime" as of June 29th.
-// Note that the same command on Go 1.18 results in the same list.
-var runtimeAndDeps = map[string]bool{
+	// We do not support obfuscating the runtime nor its dependencies.
+	// Obtained from "go list -deps runtime" as of June 29th.
+	// Note that the same command on Go 1.18 results in the same list.
 	"internal/goarch":          true,
 	"unsafe":                   true,
 	"internal/abi":             true,
