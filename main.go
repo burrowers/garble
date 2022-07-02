@@ -672,7 +672,9 @@ func transformAsm(args []string) ([]string, error) {
 			}
 
 			newName := hashWithPackage(curPkg, name)
-			log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
+				log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+			}
 			buf.WriteString(newName)
 		}
 
@@ -1680,7 +1682,9 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 				panic("could not find for " + name)
 			}
 			node.Name = hashWithStruct(strct, name)
-			log.Printf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
+			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
+				log.Printf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
+			}
 			return true
 
 		case *types.TypeName:
@@ -1708,7 +1712,9 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 
 		node.Name = hashWithPackage(lpkg, name)
 		// TODO: probably move the debugf lines inside the hash funcs
-		log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
+		if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
+			log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
+		}
 		return true
 	}
 	post := func(cursor *astutil.Cursor) bool {
