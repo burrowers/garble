@@ -151,6 +151,34 @@ type NormalStruct struct {
 	normalUnexportedField int
 }
 
+-- importedpkg/commented_imports.go --
+package importedpkg
+
+// The import group below used to trigger a bug in go/printer
+// where a named import could end up across two lines:
+//
+//   indirect
+//   "HPS4Mskq"
+//
+// resulting in a subsequent parsing failure:
+//
+//   syntax error: missing import path
+
+import (
+	// first comment
+
+	"test/main/importedpkg/another"
+
+	// second comment
+	"test/main/importedpkg/indirect"
+)
+
+var _ indirect.Indirect
+var _ = another.Blank
+-- importedpkg/another/pkg.go --
+package another
+
+const Blank = 3
 -- importedpkg/indirect/indirect.go --
 package indirect
 
