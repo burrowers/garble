@@ -28,8 +28,8 @@ order to:
 
 * Replace as many useful identifiers as possible with short base64 hashes
 * Replace package paths with short base64 hashes
+* Replace filenames and position information with short base64 hashes
 * Remove all [build](https://go.dev/pkg/runtime/#Version) and [module](https://go.dev/pkg/runtime/debug/#ReadBuildInfo) information
-* Strip filenames and shuffle position information
 * Strip debugging information and symbol tables via `-ldflags="-w -s"`
 * [Obfuscate literals](#literal-obfuscation), if the `-literals` flag is given
 * Remove [extra information](#tiny-mode), if the `-tiny` flag is given
@@ -54,19 +54,19 @@ $ PATH=$(go1.17.1 env GOROOT)/bin:${PATH} garble build
 ### Literal obfuscation
 
 Using the `-literals` flag causes literal expressions such as strings to be
-replaced with more complex variants, resolving to the same value at run-time.
+replaced with more complex expressions, resolving to the same value at run-time.
 This feature is opt-in, as it can cause slow-downs depending on the input code.
 
-Literal expressions used as constants cannot be obfuscated, since they are
+Literals used in constant expressions cannot be obfuscated, since they are
 resolved at compile time. This includes any expressions part of a `const`
-declaration.
+declaration, for example.
 
 ### Tiny mode
 
-When the `-tiny` flag is passed, extra information is stripped from the resulting
-Go binary. This includes line numbers, filenames, and code in the runtime that
-prints panics, fatal errors, and trace/debug info. All in all this can make binaries
-2-5% smaller in our testing, as well as prevent extracting some more information.
+With the `-tiny` flag, even more information is stripped from the Go binary.
+Position information is removed entirely, rather than being obfuscated.
+Runtime code which prints panics, fatal errors, and trace/debug info is removed.
+All in all, this can make binaries 2-5% smaller.
 
 With this flag, no panics or fatal runtime errors will ever be printed, but they
 can still be handled internally with `recover` as normal. In addition, the
