@@ -329,7 +329,7 @@ func mainErr(args []string) error {
 		}
 
 		// For the tests.
-		if v := os.Getenv("GARBLE_TEST_SETTINGS"); v != "" {
+		if v := os.Getenv("GARBLE_TEST_BUILDSETTINGS"); v != "" {
 			var extra []debug.BuildSetting
 			if err := json.Unmarshal([]byte(v), &extra); err != nil {
 				return err

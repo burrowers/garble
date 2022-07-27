@@ -92,25 +92,22 @@ stderr 'directory not found'
 # To avoid building another garble binary,
 # and to be able to use static VCS info, use an environment variable.
 # First, test without the information, and then with it.
-#
-# Note that Go 1.18.0 shipped with -buildvcs=true for "go test",
-# so it's a special case that we need to handle until 1.18.1 is out.
 garble version
 stdout -count=1 'mvdan.cc/garble \(devel\)'
 stdout -count=1 'Build settings'
 stdout -count=3 '-compiler|GOOS|GOARCH'
-[go1.19] ! stdout 'vcs'
+! stdout 'vcs'
 
 # Obtained from a real build while developing.
-env GARBLE_TEST_SETTINGS='[{"Key":"vcs","Value":"git"},{"Key":"vcs.revision","Value":"91ea246349544769f5100c29f79cb0f173abfeea"},{"Key":"vcs.time","Value":"2022-03-18T13:45:11Z"},{"Key":"vcs.modified","Value":"true"}]'
+env GARBLE_TEST_BUILDSETTINGS='[{"Key":"vcs","Value":"git"},{"Key":"vcs.revision","Value":"91ea246349544769f5100c29f79cb0f173abfeea"},{"Key":"vcs.time","Value":"2022-03-18T13:45:11Z"},{"Key":"vcs.modified","Value":"true"}]'
 garble version
 stdout -count=1 'mvdan\.cc/garble v0\.0\.0-20220318134511-91ea24634954'
 stdout -count=1 'Build settings'
 stdout -count=3 '-compiler|GOOS|GOARCH'
-[go1.19] stdout -count=1 'vcs git'
-[go1.19] stdout -count=1 'vcs\.revision 91ea246349544769f5100c29f79cb0f173abfeea'
-[go1.19] stdout -count=1 'vcs\.time 2022-03-18T13:45:11Z'
-[go1.19] stdout -count=1 'vcs\.modified true'
+stdout -count=1 'vcs git'
+stdout -count=1 'vcs\.revision 91ea246349544769f5100c29f79cb0f173abfeea'
+stdout -count=1 'vcs\.time 2022-03-18T13:45:11Z'
+stdout -count=1 'vcs\.modified true'
 
 ! garble version -flag
 stderr 'usage: garble version'
