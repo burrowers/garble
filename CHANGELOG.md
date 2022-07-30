@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.7.1] - 2022-08-??
+
+This bugfix release finishes support for Go 1.19 and features:
+
+* Obfuscate all cgo filenames to not leak import paths
+* Support obfuscating `net` and `runtime/debug`
+* Don't leak temporary directories after obfuscating
+* Fix an edge case resulting in broken import declarations
+* Reduce allocations involved in obfuscating code
+
 ## [v0.7.0] - 2022-06-10
 
 This release drops support for Go 1.17, continues support for Go 1.18,
