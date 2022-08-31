@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/rogpeppe/go-internal/goproxytest"
@@ -116,6 +117,7 @@ func TestScripts(t *testing.T) {
 			return false, fmt.Errorf("unknown condition")
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
+			"sleep":             sleep,
 			"binsubstr":         binsubstr,
 			"bincmp":            bincmp,
 			"generate-literals": generateLiterals,
@@ -136,6 +138,20 @@ func createFile(ts *testscript.TestScript, path string) *os.File {
 		ts.Fatalf("%v", err)
 	}
 	return file
+}
+
+// sleep is akin to a shell's sleep builtin.
+// Note that tests should almost never use this; it's currently only used to
+// work around a low-level Go syscall race on Linux.
+func sleep(ts *testscript.TestScript, neg bool, args []string) {
+	if len(args) != 1 {
+		ts.Fatalf("usage: sleep duration")
+	}
+	d, err := time.ParseDuration(args[0])
+	if err != nil {
+		ts.Fatalf("%v", err)
+	}
+	time.Sleep(d)
 }
 
 func binsubstr(ts *testscript.TestScript, neg bool, args []string) {

@@ -2,6 +2,16 @@
 env TMPDIR=${WORK}/'.temp ''quotes'' and spaces'
 mkdir ${TMPDIR}
 
+# Unfortunately, due to https://go.dev/issue/22315, cp + exec is racy.
+# Since we run multiple test scripts in parallel as goroutines,
+# if one thread performs a cp while another is forking, the other may keep the
+# file open slightly longer than we think, causing the fork to fail due to the
+# file still being open for writing.
+# Until the root problem is fixed, add a sleep to try to make that narrow window
+# of time less likely to cause problems.
+# TODO(mvdan): remove the sleeps once cp + exec isn't racy anymore.
+env CP_EXEC_SLEEP=10ms
+
 # We need to properly quote the path to garble for toolexec.
 # If we don't, characters like spaces or quotes will result in errors.
 # EXEC_PATH is the test binary's os.Executable.
@@ -10,6 +20,7 @@ mkdir ${TMPDIR}
 env NAME='with spaces'
 mkdir $NAME
 cp $EXEC_PATH $NAME/garble$exe
+sleep $CP_EXEC_SLEEP
 exec $NAME/garble$exe build
 
 # Ensure that we cleaned up the temporary files.
@@ -18,6 +29,7 @@ exec $NAME/garble$exe build
 [!windows] env NAME='with"double"quotes'
 [!windows] mkdir $NAME
 [!windows] cp $EXEC_PATH $NAME/garble$exe
+[!windows] sleep $CP_EXEC_SLEEP
 [!windows] exec $NAME/garble$exe build
 
 env NAME='with''single''quotes'
@@ -28,6 +40,7 @@ exec $NAME/garble$exe build
 [!windows] env NAME='with"both''quotes'
 [!windows] mkdir $NAME
 [!windows] cp $EXEC_PATH $NAME/garble$exe
+[!windows] sleep $CP_EXEC_SLEEP
 [!windows] ! exec $NAME/garble$exe build
 [!windows] stderr 'cannot be quoted'
 
