@@ -77,7 +77,7 @@ jobs:
     steps:
     - name: Install Go
       env:
-        GO_COMMIT: f32519e5fbcf1b12f9654a6175e5e72b09ae8f3a # 2022-07-30
+        GO_COMMIT: 3486735bf2ca08dcd84bb820fdcb0dea8102cf82 # 2022-08-31
       run: |
         cd $HOME
         mkdir $HOME/gotip
@@ -85,7 +85,7 @@ jobs:
 
         wget -O gotip.tar.gz https://go.googlesource.com/go/+archive/${GO_COMMIT}.tar.gz
         tar -xf gotip.tar.gz
-        echo "devel go1.19-${GO_COMMIT}" >VERSION
+        echo "devel go1.20-${GO_COMMIT}" >VERSION
 
         cd src
         # GOGC=off helps Go build about 20% faster, if we can spare memory.
