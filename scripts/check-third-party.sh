@@ -19,14 +19,21 @@ modules=(
 	# google.golang.org/protobuf v1.28.0
 
 	# Wireguard helps cover networking and cryptography.
-	golang.zx2c4.com/wireguard 0.0.20220316 
+	golang.zx2c4.com/wireguard 0.0.20220316
 
 	# Lo helps cover generics.
 	# TODO: would be nice to find a more popular alternative,
 	# at least once generics are more widespread.
 	github.com/samber/lo v1.21.0
 
-	# TODO: consider a SQL driver like modernc.org/sqlite
+	# Brotli is a compression algorithm popular with HTTP.
+	# It's also transpiled from C with a gitlab.com/cznic/ccgo,
+	# so this helps stress garble with Go code that few humans would write.
+	# Unlike other ccgo-generated projects, like modernc.org/sqlite,
+	# it's relatively small without any transitive dependencies.
+	github.com/andybalholm/brotli v1.0.4
+
+	# TODO: consider github.com/mattn/go-sqlite3 to cover a DB and more cgo
 )
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -54,15 +61,17 @@ for (( i=0; i<${#modules[@]}; i+=2 )); do
 		# We cache the files between runs and commit them in git,
 		# because each "go get module/...@version" is slow as it has to figure
 		# out where the module lives, even if GOMODCACHE is populated.
+		# Use the custom go.mod file for the rest of the commands via GOFLAGS.
+		# We should delete these cached modfiles with major Go updates,
+		# to recreate their "tidy" version with newer Go toolchains.
 		cached_modfile="${module}_${version}"
 		cached_modfile="${CACHED_MODFILES}/${cached_modfile//[^A-Za-z0-9._-]/_}.mod"
+		export GOFLAGS="${BASE_GOFLAGS} -modfile=${cached_modfile}"
+
 		if [[ ! -f "${cached_modfile}" ]]; then
 			show go mod init test
 			show go get "${module}/...@${version}"
 		fi
-
-		# Use the custom go.mod file for the rest of the commands.
-		export GOFLAGS="${BASE_GOFLAGS} -modfile=${cached_modfile}"
 
 		# Run "go build" first, to ensure the regular Go build works.
 		show go build "${module}/..."

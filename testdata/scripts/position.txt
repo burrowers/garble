@@ -64,6 +64,13 @@ func main() {
 	// The nested expression is needed to prevent spaces.
 	fmt.Printf("%v\n", 10*float64(3.0)/float64(4.0))
 }
+
+// Replacing `s` and `f` with obfuscated names triggered a bug in go/printer,
+// where it would move `.f` after the comment, breaking the syntax.
+func issue_573(s struct{ f int }) {
+	var _ *int = &s.f
+	/*x*/
+}
 -- garble_other_filename.go --
 package main
 

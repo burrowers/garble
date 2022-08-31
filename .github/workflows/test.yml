@@ -40,7 +40,8 @@ jobs:
 
     # Static checks from this point forward. Only run on one Go version and on
     # Linux, since it's the fastest platform, and the tools behave the same.
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
+    - name: Test third-party project builds
+      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
       run: |
         go install
         ./scripts/check-third-party.sh

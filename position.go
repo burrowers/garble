@@ -17,12 +17,29 @@ import (
 var printBuf1, printBuf2 bytes.Buffer
 
 // printFile prints a Go file to a buffer, while also removing non-directive
-// comments and adding extra compiler directives to obfuscate position
-// information.
+// comments and adding extra compiler directives to obfuscate position information.
 func printFile(file *ast.File) ([]byte, error) {
-	printConfig := printer.Config{Mode: printer.RawFormat}
+	if curPkg.ToObfuscate {
+		// Omit comments from the final Go code.
+		// Keep directives, as they affect the build.
+		// We do this before printing to print fewer bytes below.
+		var newComments []*ast.CommentGroup
+		for _, group := range file.Comments {
+			var newGroup ast.CommentGroup
+			for _, comment := range group.List {
+				if strings.HasPrefix(comment.Text, "//go:") {
+					newGroup.List = append(newGroup.List, comment)
+				}
+			}
+			if len(newGroup.List) > 0 {
+				newComments = append(newComments, &newGroup)
+			}
+		}
+		file.Comments = newComments
+	}
 
 	printBuf1.Reset()
+	printConfig := printer.Config{Mode: printer.RawFormat}
 	if err := printConfig.Fprint(&printBuf1, fset, file); err != nil {
 		return nil, err
 	}
@@ -71,7 +88,6 @@ func printFile(file *ast.File) ([]byte, error) {
 	// Make sure the entire file gets a zero filename by default,
 	// in case we miss any positions below.
 	// We use a //-style comment, because there might be build tags.
-	// toAdd is for /*-style comments, so add it to printBuf2 directly.
 	fmt.Fprintf(&printBuf2, "//line %s:1\n", newPrefix)
 
 	// We use an empty filename when tokenizing below.
@@ -92,10 +108,10 @@ func printFile(file *ast.File) ([]byte, error) {
 			printBuf2.Write(src[copied:])
 			return printBuf2.Bytes(), nil
 		case token.COMMENT:
-			// Omit comments from the final Go code.
-			// Keep directives, as they affect the build.
-			// This is superior to removing the comments before printing,
-			// because then the final source would have different line numbers.
+			// Omit comments from the final Go code, again.
+			// Before we removed the comments from file.Comments,
+			// but go/printer also grabs comments from some Doc ast.Node fields.
+			// TODO: is there an easy way to filter all comments at once?
 			if strings.HasPrefix(lit, "//go:") {
 				continue // directives are kept
 			}
