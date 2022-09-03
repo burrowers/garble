@@ -22,7 +22,7 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.18.x]
+        go-version: [1.18.x, 1.19.x]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -41,20 +41,20 @@ jobs:
     # Static checks from this point forward. Only run on one Go version and on
     # Linux, since it's the fastest platform, and the tools behave the same.
     - name: Test third-party project builds
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
+      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.19.x'
       run: |
         go install
         ./scripts/check-third-party.sh
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.19.x'
       run: ./scripts/crlf-test.sh
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.19.x'
       run: diff <(echo -n) <(gofmt -d .)
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.19.x'
       run: go vet ./...
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.18.x'
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.19.x'
       uses: dominikh/staticcheck-action@v1
       with:
-        version: "2022.1.1"
+        version: "2022.1.3"
         install-go: false
 
   # We don't care about GOARCH=386 particularly,
@@ -68,7 +68,7 @@ jobs:
     steps:
     - uses: actions/setup-go@v3
       with:
-        go-version: 1.18.x
+        go-version: 1.19.x
     - uses: actions/checkout@v3
     - name: Test
       run: go test -timeout=15m ./...

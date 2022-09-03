@@ -266,13 +266,13 @@ func goVersionOK() bool {
 		// Go 1.15.x and older do not have GOVERSION yet.
 		// We could go the extra mile and fetch it via 'go toolchainVersion',
 		// but we'd have to error anyway.
-		fmt.Fprintf(os.Stderr, "Go version is too old; please upgrade to Go %s or a newer devel version\n", suggestedGoVersion)
+		fmt.Fprintf(os.Stderr, "Go version is too old; please upgrade to Go %s or newer\n", suggestedGoVersion)
 		return false
 	}
 
 	toolchainVersionSemver = "v" + strings.TrimPrefix(toolchainVersion, "go")
 	if semver.Compare(toolchainVersionSemver, minGoVersionSemver) < 0 {
-		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s\n", toolchainVersionFull, suggestedGoVersion)
+		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s or newer\n", toolchainVersionFull, suggestedGoVersion)
 		return false
 	}
 
