@@ -299,8 +299,14 @@ func goVersionOK() bool {
 }
 
 func mainErr(args []string) error {
-	// If we recognize an argument, we're not running within -toolexec.
-	switch command, args := args[0], args[1:]; command {
+	command, args := args[0], args[1:]
+
+	// Catch users reaching for `go build -toolexec=garble`.
+	if command != "toolexec" && len(args) == 1 && args[0] == "-V=full" {
+		return fmt.Errorf(`did you run "go [command] -toolexec=garble" instead of "garble [command]"?`)
+	}
+
+	switch command {
 	case "help":
 		if hasHelpFlag(args) || len(args) > 1 {
 			fmt.Fprintf(os.Stderr, "usage: garble help [command]\n")
@@ -387,56 +393,51 @@ func mainErr(args []string) error {
 		cmd.Stderr = os.Stderr
 		log.Printf("calling via toolexec: %s", cmd)
 		return cmd.Run()
-	}
 
-	if !filepath.IsAbs(args[0]) {
-		// -toolexec gives us an absolute path to the tool binary to
-		// run, so this is most likely misuse of garble by a user.
-		return fmt.Errorf("unknown command: %q", args[0])
-	}
-
-	// We're in a toolexec sub-process, not directly called by the user.
-	// Load the shared data and wrap the tool, like the compiler or linker.
-
-	if err := loadSharedCache(); err != nil {
-		return err
-	}
-
-	_, tool := filepath.Split(args[0])
-	if runtime.GOOS == "windows" {
-		tool = strings.TrimSuffix(tool, ".exe")
-	}
-	if len(args) == 2 && args[1] == "-V=full" {
-		return alterToolVersion(tool, args)
-	}
-
-	toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
-
-	curPkg = cache.ListedPackages[toolexecImportPath]
-	if curPkg == nil {
-		return fmt.Errorf("TOOLEXEC_IMPORTPATH not found in listed packages: %s", toolexecImportPath)
-	}
-
-	transform := transformFuncs[tool]
-	transformed := args[1:]
-	if transform != nil {
-		startTime := time.Now()
-		log.Printf("transforming %s with args: %s", tool, strings.Join(transformed, " "))
-		var err error
-		if transformed, err = transform(transformed); err != nil {
+	case "toolexec":
+		// We're in a toolexec sub-process, not directly called by the user.
+		// Load the shared data and wrap the tool, like the compiler or linker.
+		if err := loadSharedCache(); err != nil {
 			return err
 		}
-		log.Printf("transformed args for %s in %s: %s", tool, debugSince(startTime), strings.Join(transformed, " "))
-	} else {
-		log.Printf("skipping transform on %s with args: %s", tool, strings.Join(transformed, " "))
+
+		_, tool := filepath.Split(args[0])
+		if runtime.GOOS == "windows" {
+			tool = strings.TrimSuffix(tool, ".exe")
+		}
+		if len(args) == 2 && args[1] == "-V=full" {
+			return alterToolVersion(tool, args)
+		}
+
+		toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
+		curPkg = cache.ListedPackages[toolexecImportPath]
+		if curPkg == nil {
+			return fmt.Errorf("TOOLEXEC_IMPORTPATH not found in listed packages: %s", toolexecImportPath)
+		}
+
+		transform := transformFuncs[tool]
+		transformed := args[1:]
+		if transform != nil {
+			startTime := time.Now()
+			log.Printf("transforming %s with args: %s", tool, strings.Join(transformed, " "))
+			var err error
+			if transformed, err = transform(transformed); err != nil {
+				return err
+			}
+			log.Printf("transformed args for %s in %s: %s", tool, debugSince(startTime), strings.Join(transformed, " "))
+		} else {
+			log.Printf("skipping transform on %s with args: %s", tool, strings.Join(transformed, " "))
+		}
+		cmd := exec.Command(args[0], transformed...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown command: %q", command)
 	}
-	cmd := exec.Command(args[0], transformed...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	return nil
 }
 
 func hasHelpFlag(flags []string) bool {
@@ -541,6 +542,12 @@ This command wraps "go %s". Below is its help:
 
 	// Pass the garble flags down to each toolexec invocation.
 	// This way, all garble processes see the same flag values.
+	// Note that we can end up with a single argument to `go` in the form of:
+	//
+	//	-toolexec='/binary dir/garble' -tiny toolexec
+	//
+	// We quote the absolute path to garble if it contains spaces.
+	// We can add extra flags to the end of the same -toolexec argument.
 	var toolexecFlag strings.Builder
 	toolexecFlag.WriteString("-toolexec=")
 	quotedExecPath, err := cmdgoQuotedJoin([]string{cache.ExecPath})
@@ -551,6 +558,7 @@ This command wraps "go %s". Below is its help:
 	}
 	toolexecFlag.WriteString(quotedExecPath)
 	appendFlags(&toolexecFlag, false)
+	toolexecFlag.WriteString(" toolexec")
 	goArgs = append(goArgs, toolexecFlag.String())
 
 	if flagDebugDir != "" {

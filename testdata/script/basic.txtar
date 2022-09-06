@@ -29,7 +29,9 @@ stdout 'unknown'
 
 # Check that we fail if the user used "go build -toolexec garble" instead of "garble build"
 ! go build -toolexec=garble -o=main$exe garble_main.go
-stderr 'run "garble \[command\]"'
+stderr '^did you run.*instead of "garble \[command\]"'
+! go build -toolexec='garble toolexec' -o=main$exe garble_main.go
+stderr 'cannot open shared file.*did you run.*instead of "garble \[command\]"'
 
 # Also check that the binary is reproducible.
 # No packages should be rebuilt either, thanks to the build cache.

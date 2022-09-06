@@ -75,9 +75,9 @@ stderr 'must precede command, like: garble -literals build \./pkg'
 stderr 'must precede command, like: garble -seed=random build \./pkg'
 ! stdout .
 
-[!windows] ! garble /does/not/exist/compile
-[windows] ! garble C:\does\not\exist\compile
-stderr 'run "garble \[command\]"'
+[!windows] ! garble toolexec /does/not/exist/compile
+[windows] ! garble toolexec C:\does\not\exist\compile
+stderr 'did you run.*instead of "garble \[command\]"'
 
 ! garble build badpackage
 stderr 'package badpackage is not in GOROOT'
