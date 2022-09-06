@@ -53,7 +53,7 @@ func (m garbleMain) Run() int {
 
 var update = flag.Bool("u", false, "update testscript output files")
 
-func TestScripts(t *testing.T) {
+func TestScript(t *testing.T) {
 	t.Parallel()
 
 	execPath, err := os.Executable()
@@ -62,7 +62,7 @@ func TestScripts(t *testing.T) {
 	}
 
 	p := testscript.Params{
-		Dir: filepath.Join("testdata", "scripts"),
+		Dir: filepath.Join("testdata", "script"),
 		Setup: func(env *testscript.Env) error {
 			env.Vars = append(env.Vars,
 				// Use testdata/mod as our module proxy.
