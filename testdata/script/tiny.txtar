@@ -11,6 +11,7 @@ stderr '^\(0x[\d\w]{4,8},0x[\d\w]{4,8}\)' # interfaces/pointers print correctly
 # Unfortunately, line comment directives don't allow erasing line numbers entirely.
 stderr '^caller: \?\? 1$' # position info is removed
 stderr '^recovered: ya like jazz?'
+! stderr '^init runtime'  # GODEBUG prints are hidden, like inittrace=1
 ! stderr 'panic: oh noes' # panics are hidden
 
 
