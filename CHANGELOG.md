@@ -5,6 +5,7 @@
 This bugfix release continues support for Go 1.18 and 1.19.
 
 * Fix an edge case resulting in bad syntax due to comments - [#573]
+* Avoid a panic involving generic code - [#577]
 
 ## [v0.7.1] - 2022-08-02
 
@@ -144,6 +145,7 @@ Known bugs:
 * `garble test` is temporarily disabled, as it is currently broken
 
 [#573]: https://github.com/burrowers/garble/issues/573
+[#577]: https://github.com/burrowers/garble/issues/577
 
 [v0.7.1]: https://github.com/burrowers/garble/releases/tag/v0.7.1
 

@@ -1385,8 +1385,13 @@ func (tf *transformer) recordType(used, origin types.Type) {
 	type Container interface{ Elem() types.Type }
 	switch used := used.(type) {
 	case Container:
-		origin := origin.(Container)
-		tf.recordType(used.Elem(), origin.Elem())
+		// origin may be a *types.TypeParam, which is not a Container.
+		// For now, we haven't found a need to recurse in that case.
+		// We can edit this code in the future if we find an example,
+		// because we panic if a field is not in fieldToStruct.
+		if origin, ok := origin.(Container); ok {
+			tf.recordType(used.Elem(), origin.Elem())
+		}
 	case *types.Named:
 		if tf.recordTypeDone[used] {
 			return

@@ -15,8 +15,11 @@ func main() {
 	GenericFunc[int, int](1, 2)
 	var _ GenericVector[int]
 
-	g := GenericGraph[string]{Content: "Foo"}
-	g.Edges = make([]GenericGraph[string], 1)
+	g1 := GenericGraph[string]{Content: "Foo"}
+	g1.Edges = make([]GenericGraph[string], 1)
+
+	g2 := GenericGraph[*[]byte]{Content: new([]byte)}
+	g2.Edges = make([]GenericGraph[*[]byte], 1)
 }
 
 func GenericFunc[GenericParamA, B any](x GenericParamA, y B) {}
@@ -43,4 +46,10 @@ type CombineEmbeds interface {
 
 	interface { EmbeddedMethod() }
 	RegularMethod()
+}
+
+type Slice[T any] []T
+
+func sliceOfPointer() Slice[*any] {
+	return []*any{}
 }
