@@ -1,11 +1,14 @@
+# Note that it doesn't really matter if the assembly below is badly written.
+# We just care enough to see that it obfuscates and keeps the same behavior.
 # TODO: support arm64, at least
-[!386] [!amd64] skip 'the assembly is only written for 386 and amd64'
+[!amd64] skip 'the assembly is only written for amd64'
 
 env GOGARBLE=test/main
 
 garble build
 exec ./main
 cmp stderr main.stderr
+# TODO: ! binsubstr main$exe 'test/main' 'privateAdd' 'PublicAdd' 'garble_main' 'garble_define'
 ! binsubstr main$exe 'privateAdd' 'PublicAdd'
 
 [short] stop # no need to verify this with -short
@@ -33,26 +36,59 @@ import (
 
 func privateAdd(x, y int32) int32
 
+// goData is used from both assembly and header files.
+var goData = [4]uint64{1, 2, 3, 4}
+
+func modifyGoData()
+func modifyGoData2()
+
 func main() {
 	println(privateAdd(1, 2))
+
+	println(goData[0], goData[1])
+	modifyGoData()
+	println(goData[0], goData[1])
+	modifyGoData2()
+	println(goData[0], goData[1])
+
 	println(imported.PublicAdd(3, 4))
 }
--- main_x86.s --
-//go:build 386 || amd64
-
+-- garble_main_amd64.s --
 TEXT ·privateAdd(SB),$0-16
 	MOVL x+0(FP), BX
 	MOVL y+4(FP), BP
 	ADDL BP, BX
 	MOVL BX, ret+8(FP)
 	RET
+
+#include "garble_define_amd64.h"
+
+#include "extra/garble_define2_amd64.h"
+
+TEXT ·modifyGoData(SB),$0-16
+	addGoDataTo($12)
+	ADDL $34, ·goData+8(SB)
+	RET
+
+TEXT ·modifyGoData2(SB),$0-16
+	addGoDataTo2($12)
+	ADDL $34,·goData+8(SB) // note the lack of a space
+	RET
+
+-- garble_define_amd64.h --
+#define addGoDataTo(arg) \
+	ADDL arg, ·goData+0(SB)
+
+-- extra/garble_define2_amd64.h --
+#define addGoDataTo2(arg) \
+	ADDL arg, ·goData+0(SB)
+
 -- imported/imported.go --
 package imported
 
 func PublicAdd(x, y int32) int32
--- imported/imported_x86.s --
-//go:build 386 || amd64
 
+-- imported/imported_amd64.s --
 TEXT ·PublicAdd(SB),$0-16
 	MOVL x+0(FP), BX
 	MOVL y+4(FP), BP
@@ -61,4 +97,7 @@ TEXT ·PublicAdd(SB),$0-16
 	RET
 -- main.stderr --
 3
+1 2
+13 36
+25 70
 7

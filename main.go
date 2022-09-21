@@ -584,6 +584,8 @@ var transformFuncs = map[string]func([]string) ([]string, error){
 	"link":    transformLink,
 }
 
+var rxIncludeHeader = regexp.MustCompile(`#include\s+"([^"]+)"`)
+
 func transformAsm(args []string) ([]string, error) {
 	if !curPkg.ToObfuscate {
 		return args, nil // we're not obfuscating this package
@@ -612,15 +614,8 @@ func transformAsm(args []string) ([]string, error) {
 		return append(flags, newPaths...), nil
 	}
 
-	// We need to replace all function references with their obfuscated name
-	// counterparts.
-	// Luckily, all func names in Go assembly files are immediately followed
-	// by the unicode "middle dot", like:
-	//
-	//     TEXT ·privateAdd(SB),$0-24
-	const middleDot = '·'
-	middleDotLen := utf8.RuneLen(middleDot)
-
+	const missingHeader = "missing header path"
+	newHeaderPaths := make(map[string]string)
 	var buf bytes.Buffer
 	for _, path := range paths {
 		// Read the entire file into memory.
@@ -629,67 +624,57 @@ func transformAsm(args []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		buf.Reset()
-
-		// Find all middle-dot names, and replace them.
-		remaining := content
-		for {
-			i := bytes.IndexRune(remaining, middleDot)
-			if i < 0 {
-				buf.Write(remaining)
-				remaining = nil
-				break
+		offset := 0
+		for _, match := range rxIncludeHeader.FindAllSubmatchIndex(content, -1) {
+			start, end := offset+match[2], offset+match[3]
+			path := string(content[start:end])
+			if strings.ContainsAny(path, "\n\"") {
+				// If we failed to keep track of offsets, we could see a header
+				// path that contains quotes or newlines, which should not happen.
+				return nil, fmt.Errorf("bad offset tracking? %q", path)
 			}
-
-			// We want to replace "OP ·foo" and "OP $·foo",
-			// but not "OP somepkg·foo" just yet.
-			// "somepkg" is often runtime, syscall, etc.
-			// We don't obfuscate any of those for now.
-			//
-			// TODO: we'll likely need to deal with this
-			// when we start obfuscating the runtime.
-			// When we do, note that we can't hash with curPkg.
-			localName := false
-			if i >= 0 {
-				switch remaining[i-1] {
-				case ' ', '\t', '$':
-					localName = true
-				}
-			}
-
-			i += middleDotLen
-			buf.Write(remaining[:i])
-			remaining = remaining[i:]
-
-			// The name ends at the first rune which cannot be part
-			// of a Go identifier, such as a comma or space.
-			nameEnd := 0
-			for nameEnd < len(remaining) {
-				c, size := utf8.DecodeRune(remaining[nameEnd:])
-				if !unicode.IsLetter(c) && c != '_' && !unicode.IsDigit(c) {
-					break
-				}
-				nameEnd += size
-			}
-			name := string(remaining[:nameEnd])
-			remaining = remaining[nameEnd:]
-
-			if !localName {
-				buf.WriteString(name)
+			newPath := newHeaderPaths[path]
+			switch newPath {
+			case missingHeader: // no need to try again
 				continue
-			}
+			case "": // first time we see this header
+				buf.Reset()
+				content, err := os.ReadFile(path)
+				if errors.Is(err, fs.ErrNotExist) {
+					newHeaderPaths[path] = missingHeader
+					continue // a header file provided by Go or the system
+				} else if err != nil {
+					return nil, err
+				}
+				replaceAsmNames(&buf, content)
 
-			newName := hashWithPackage(curPkg, name)
-			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
-				log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+				// For now, we replace `foo.h` or `dir/foo.h` with `garbled_foo.h`.
+				// The different name ensures we don't use the unobfuscated file.
+				// This is far from perfect, but does the job for the time being.
+				// In the future, use a randomized name.
+				newPath = "garbled_" + filepath.Base(path)
+
+				// Uncomment for some quick debugging. Do not delete.
+				// fmt.Fprintf(os.Stderr, "\n-- %s --\n%s", path, buf.Bytes())
+
+				if _, err := writeTemp(newPath, buf.Bytes()); err != nil {
+					return nil, err
+				}
+				newHeaderPaths[path] = newPath
 			}
-			buf.WriteString(newName)
+			offset += len(newPath) - len(path)
+			// TODO: copying the bytes in a loop like this is far from optimal.
+			var newContent []byte
+			newContent = append(newContent, content[:start]...)
+			newContent = append(newContent, newPath...)
+			newContent = append(newContent, content[end:]...)
+			content = newContent
 		}
+		buf.Reset()
+		replaceAsmNames(&buf, content)
 
 		// Uncomment for some quick debugging. Do not delete.
-		// if curPkg.ToObfuscate {
-		// 	fmt.Fprintf(os.Stderr, "\n-- %s --\n%s", path, buf.Bytes())
-		// }
+		// fmt.Fprintf(os.Stderr, "\n-- %s --\n%s", path, buf.Bytes())
 
 		name := filepath.Base(path)
 		if path, err := writeTemp(name, buf.Bytes()); err != nil {
@@ -700,6 +685,70 @@ func transformAsm(args []string) ([]string, error) {
 	}
 
 	return append(flags, newPaths...), nil
+}
+
+func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
+	// We need to replace all function references with their obfuscated name
+	// counterparts.
+	// Luckily, all func names in Go assembly files are immediately followed
+	// by the unicode "middle dot", like:
+	//
+	//     TEXT ·privateAdd(SB),$0-24
+	const middleDot = '·'
+	middleDotLen := utf8.RuneLen(middleDot)
+
+	for {
+		i := bytes.IndexRune(remaining, middleDot)
+		if i < 0 {
+			buf.Write(remaining)
+			remaining = nil
+			break
+		}
+
+		// We want to replace "OP ·foo" and "OP $·foo",
+		// but not "OP somepkg·foo" just yet.
+		// "somepkg" is often runtime, syscall, etc.
+		// We don't obfuscate any of those for now.
+		//
+		// TODO: we'll likely need to deal with this
+		// when we start obfuscating the runtime.
+		// When we do, note that we can't hash with curPkg.
+		localName := false
+		if i >= 0 {
+			switch remaining[i-1] {
+			case ' ', '\t', '$', ',', '(':
+				localName = true
+			}
+		}
+
+		i += middleDotLen
+		buf.Write(remaining[:i])
+		remaining = remaining[i:]
+
+		// The name ends at the first rune which cannot be part
+		// of a Go identifier, such as a comma or space.
+		nameEnd := 0
+		for nameEnd < len(remaining) {
+			c, size := utf8.DecodeRune(remaining[nameEnd:])
+			if !unicode.IsLetter(c) && c != '_' && !unicode.IsDigit(c) {
+				break
+			}
+			nameEnd += size
+		}
+		name := string(remaining[:nameEnd])
+		remaining = remaining[nameEnd:]
+
+		if !localName {
+			buf.WriteString(name)
+			continue
+		}
+
+		newName := hashWithPackage(curPkg, name)
+		if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
+			log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+		}
+		buf.WriteString(newName)
+	}
 }
 
 // writeTemp is a mix between os.CreateTemp and os.WriteFile, as it writes a
