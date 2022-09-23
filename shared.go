@@ -140,10 +140,10 @@ type listedPackage struct {
 	ImportMap  map[string]string
 	Standard   bool
 
-	Dir        string
-	GoFiles    []string
-	Imports    []string
-	Incomplete bool
+	Dir             string
+	CompiledGoFiles []string
+	Imports         []string
+	Incomplete      bool
 
 	// The fields below are not part of 'go list', but are still reused
 	// between garble processes. Use "Garble" as a prefix to ensure no
@@ -180,7 +180,7 @@ func appendListedPackages(packages []string, withDeps bool) error {
 	// TODO: perhaps include all top-level build flags set by garble,
 	// including -buildvcs=false.
 	// They shouldn't affect "go list" here, but might as well be consistent.
-	args := []string{"list", "-json", "-export", "-trimpath", "-e"}
+	args := []string{"list", "-json", "-export", "-compiled", "-trimpath", "-e"}
 	if withDeps {
 		args = append(args, "-deps")
 	}

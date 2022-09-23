@@ -10,6 +10,15 @@ cmp stdout main.stdout
 
 [short] stop # no need to verify this with -short
 
+# Ensure that reversing works with cgo.
+env GARBLE_TEST_REVERSING=true
+exec ./main
+cp stdout reversing.stdout
+stdin reversing.stdout
+garble reverse .
+cmp stdout reversed.stdout
+env GARBLE_TEST_REVERSING=false
+
 env GOGARBLE=*
 garble build
 exec ./main
@@ -33,7 +42,34 @@ go 1.18
 -- main.go --
 package main
 
-import "os/user"
+func main() {
+	regularFunc()
+	cgoFunc()
+}
+-- regular_main.go --
+package main
+
+import (
+	"fmt"
+	"os"
+	"runtime"
+)
+
+func regularFunc() {
+	if os.Getenv("GARBLE_TEST_REVERSING") == "true" {
+		_, filename, _, _ := runtime.Caller(0)
+		fmt.Println("regular filename:", filename)
+	}
+}
+-- cgo_main.go --
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/user"
+	"runtime"
+)
 
 /*
 #include "separate.h"
@@ -54,9 +90,8 @@ struct portedStruct {
 };
 */
 import "C"
-import "fmt"
 
-func main() {
+func cgoFunc() {
 	fmt.Println(C.privateAdd(C.int(1), C.int(2)))
 	_, _ = user.Current()
 
@@ -69,6 +104,11 @@ func main() {
 //export goCallback
 func goCallback() {
 	fmt.Println("go callback")
+	// TODO: support reversing filenames in cgo files
+	if false && os.Getenv("GARBLE_TEST_REVERSING") == "true" {
+		_, filename, _, _ := runtime.Caller(0)
+		fmt.Println("cgo filename:", filename)
+	}
 }
 -- separate.h --
 void separateFunction();
@@ -79,6 +119,12 @@ void separateFunction() {
 	goCallback();
 }
 -- main.stdout --
+3
+true
+go callback
+go callback
+-- reversed.stdout --
+regular filename: test/main/regular_main.go
 3
 true
 go callback

@@ -80,9 +80,14 @@ One can reverse a captured panic stack trace as follows:
 		addHashedWithPackage(lpkg.ImportPath)
 
 		var files []*ast.File
-		for _, goFile := range lpkg.GoFiles {
-			fullGoFile := filepath.Join(lpkg.Dir, goFile)
-			file, err := parser.ParseFile(fset, fullGoFile, nil, parser.SkipObjectResolution)
+		for _, goFile := range lpkg.CompiledGoFiles {
+			// Direct Go files may be relative paths like "foo.go".
+			// Compiled Go files, such as those generated from cgo,
+			// may be absolute paths inside the Go build cache.
+			if !filepath.IsAbs(goFile) {
+				goFile = filepath.Join(lpkg.Dir, goFile)
+			}
+			file, err := parser.ParseFile(fset, goFile, nil, parser.SkipObjectResolution)
 			if err != nil {
 				return err
 			}
@@ -93,7 +98,7 @@ One can reverse a captured panic stack trace as follows:
 			return err
 		}
 		for i, file := range files {
-			goFile := lpkg.GoFiles[i]
+			goFile := lpkg.CompiledGoFiles[i]
 			ast.Inspect(file, func(node ast.Node) bool {
 				switch node := node.(type) {
 
