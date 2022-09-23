@@ -89,7 +89,7 @@ One can reverse a captured panic stack trace as follows:
 			}
 			file, err := parser.ParseFile(fset, goFile, nil, parser.SkipObjectResolution)
 			if err != nil {
-				return err
+				return fmt.Errorf("go parse: %w", err)
 			}
 			files = append(files, file)
 		}

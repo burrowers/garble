@@ -13,6 +13,12 @@ cmp stderr main.stderr
 
 [short] stop # no need to verify this with -short
 
+# Ensure that reversing doesn't error with assembly files.
+# It should fail, as there is nothing to reverse, but without any parse error.
+stdin empty-reverse.txt
+! garble reverse .
+! stderr .
+
 garble -tiny build
 exec ./main
 cmp stderr main.stderr
@@ -101,3 +107,4 @@ TEXT ·PublicAdd(SB),$0-16
 13 36
 25 70
 7
+-- empty-reverse.txt --
