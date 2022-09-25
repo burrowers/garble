@@ -33,12 +33,12 @@ type sharedCache struct {
 	// useful for type checking of the packages as we obfuscate them.
 	ListedPackages map[string]*listedPackage
 
-	// We can't rely on the module version to exist,
-	// because it's missing in local builds without 'go install'.
-	// For now, use 'go tool buildid' on the garble binary.
-	// Just like Go's own cache, we use hex-encoded sha256 sums.
-	// Once https://github.com/golang/go/issues/37475 is fixed,
-	// we can likely just use that.
+	// We can't use garble's own module version, as it may not exist.
+	// We can't use the stamped VCS information either,
+	// as uncommitted changes simply show up as "dirty".
+	//
+	// The only unique way to identify garble's version without being published
+	// or committed is to use its content ID from the build cache.
 	BinaryContentID []byte
 
 	GOGARBLE string
@@ -228,7 +228,7 @@ func appendListedPackages(packages []string, withDeps bool) error {
 			pkg.GarbleActionID = addGarbleToHash(actionID)
 		}
 
-		// Work around https://golang.org/issue/28749:
+		// Work around https://go.dev/issue/28749:
 		// cmd/go puts assembly, C, and C++ files in CompiledGoFiles.
 		//
 		// TODO: remove when upstream has fixed the bug.
