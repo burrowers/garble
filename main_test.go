@@ -288,8 +288,7 @@ func grepfiles(ts *testscript.TestScript, neg bool, args []string) {
 	anyFound := false
 	path, pattern := args[0], args[1]
 	rx := regexp.MustCompile(pattern)
-	// TODO: use https://github.com/golang/go/issues/47209 when merged,
-	// hopefully in Go 1.20.
+	// TODO: use fs.SkipAll in Go 1.20 and later.
 	errSkipAll := fmt.Errorf("sentinel error: stop walking")
 	if err := filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
