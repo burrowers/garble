@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.7.2] - 2022-09-??
+## [v0.7.2] - 2022-09-26
 
 This bugfix release continues support for Go 1.18 and 1.19 and features:
 
@@ -146,6 +146,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[v0.7.2]: https://github.com/burrowers/garble/releases/tag/v0.7.2
 [#573]: https://github.com/burrowers/garble/issues/573
 [#577]: https://github.com/burrowers/garble/issues/577
 [#553]: https://github.com/burrowers/garble/issues/553
