@@ -13,11 +13,10 @@ binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'Indir
 go build
 exec ./main
 cmp stdout main.stdout
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- garble_main.go --
 package main
 

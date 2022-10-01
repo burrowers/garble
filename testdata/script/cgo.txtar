@@ -34,11 +34,10 @@ go build
 exec ./main
 cmp stdout main.stdout
 binsubstr main$exe 'privateAdd'
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- main.go --
 package main
 

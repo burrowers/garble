@@ -118,5 +118,7 @@ stderr 'usage: garble version'
 # We need a dummy module for "garble build -badflag".
 -- go.mod --
 module dummy
+
+go 1.19
 -- dummy.go --
 package dummy

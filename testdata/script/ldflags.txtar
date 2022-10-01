@@ -27,11 +27,10 @@ go build -ldflags=${LDFLAGS}
 exec ./main
 cmp stdout main.stdout
 binsubstr main$exe 'unexportedVersion' 'ExportedUnset' 'v1.22.33' 'garble_replaced'
-
 -- go.mod --
 module domain.test/main
 
-go 1.18
+go 1.19
 -- main.go --
 package main
 

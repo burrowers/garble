@@ -15,11 +15,10 @@ cmp stderr main.stderr
 
 binsubstr main$exe 'globalVar' # 'globalType' matches on some, but not all, platforms
 ! binsubstr main$exe 'localName' 'globalConst' 'remoteIntReturn' 'intReturn'
-
 -- extra/go.mod --
 module private.source/extra
 
-go 1.18
+go 1.19
 -- extra/extra.go --
 package extra
 
@@ -29,7 +28,7 @@ func Func() string {
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 
 // We include an extra module to obfuscate, included in the same original source
 // code via a replace directive.

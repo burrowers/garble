@@ -41,11 +41,10 @@ cmp stdout main.stdout
 garble -literals build --tags=buildtag
 exec ./main
 cmp stdout main.stdout
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 
 require (
 	gopkg.in/garbletest.v2 v2.999.0

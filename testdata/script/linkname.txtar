@@ -11,18 +11,14 @@ cmp stderr main.stderr
 go build
 exec ./main
 cmp stderr main.stderr
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 
 replace big.chungus/meme => ./big.chungus/meme
 
-require (
-	big.chungus/meme v0.0.0
-)
-
+require big.chungus/meme v0.0.0
 -- a.go --
 package main
 
@@ -99,8 +95,7 @@ func ByteIndex(s string, c byte) int
 -- big.chungus/meme/go.mod --
 module test/main
 
-go 1.18
-
+go 1.19
 -- big.chungus/meme/dante.go --
 package meme
 

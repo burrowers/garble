@@ -14,11 +14,10 @@ cp $WORK/debug1/test/main/main.go $WORK/debug1/some_file_from_prev_build.go
 garble -debugdir ./debug1 build -v
 stderr 'test/main' # we force rebuilds with -debugdir
 ! exists $WORK/debug1/some_file_from_prev_build.go
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- main.go --
 package main
 

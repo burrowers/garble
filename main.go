@@ -253,8 +253,8 @@ var toolchainVersionSemver string
 
 func goVersionOK() bool {
 	const (
-		minGoVersionSemver = "v1.18.0"
-		suggestedGoVersion = "1.18.x"
+		minGoVersionSemver = "v1.19.0"
+		suggestedGoVersion = "1.19.x"
 	)
 
 	// rxVersion looks for a version like "go1.2" or "go1.2.3"
