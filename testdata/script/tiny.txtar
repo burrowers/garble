@@ -23,11 +23,10 @@ garble build
 stderr '^caller: [0-9a-zA-Z_]+\.go [1-9]'
 stderr '^recovered: ya like jazz?'
 stderr 'panic: oh noes'
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- garble_main.go --
 package main
 

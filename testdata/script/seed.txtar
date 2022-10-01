@@ -95,11 +95,10 @@ exec ./main$exe test/main
 cmp stderr mainpkg.stderr
 exec ./main$exe test/main/imported
 cmp stderr importedpkg.stderr
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- main.go --
 package main
 

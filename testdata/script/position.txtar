@@ -15,11 +15,10 @@ stdout 'garble_other_filename'
 stdout ':19: main'
 stdout 'initPositions is sorted'
 stdout 'varPositions is sorted'
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- garble_main.go --
 package main
 

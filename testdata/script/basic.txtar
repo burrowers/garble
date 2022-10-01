@@ -56,11 +56,10 @@ cmp stderr main.stderr
 # Only check $WORK on non-windows, because it's difficult to do it there.
 binsubstr main$exe 'garble_main.go' 'globalVar' 'globalFunc' $gofullversion
 [!windows] binsubstr main$exe ${WORK}
-
 -- go.mod --
 module test/mainfoo
 
-go 1.18
+go 1.19
 -- garble_main.go --
 package main
 

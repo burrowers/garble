@@ -9,11 +9,10 @@ cmp stderr main.stderr
 go build
 exec ./main
 cmp stderr main.stderr
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- main.go --
 package main
 

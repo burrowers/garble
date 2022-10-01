@@ -52,11 +52,10 @@ cmp stdout reverse.stdout
 stdin main-literals.stderr
 ! garble reverse .
 cmp stdout main-literals.stderr
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- long_main.go --
 package main
 

@@ -11,11 +11,10 @@
 # A fairly average Go build, importing some std libraries.
 env GOGARBLE='*'
 garble build
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- main.go --
 package main
 

@@ -46,11 +46,10 @@ env GOCACHE=${WORK}/gocache-empty
 garble build -a runtime
 garble build -o=out_rebuild ./stdimporter
 bincmp out_rebuild out
-
 -- go.mod --
 module test/main
 
-go 1.18
+go 1.19
 -- standalone/main.go --
 package main
 
