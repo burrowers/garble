@@ -587,14 +587,10 @@ var transformFuncs = map[string]func([]string) ([]string, error){
 var rxIncludeHeader = regexp.MustCompile(`#include\s+"([^"]+)"`)
 
 func transformAsm(args []string) ([]string, error) {
-	if !curPkg.ToObfuscate {
-		return args, nil // we're not obfuscating this package
-	}
-
 	flags, paths := splitFlagsFromFiles(args, ".s")
 
 	// When assembling, the import path can make its way into the output object file.
-	if curPkg.Name != "main" {
+	if curPkg.Name != "main" && curPkg.ToObfuscate {
 		flags = flagSetValue(flags, "-p", curPkg.obfuscatedImportPath())
 	}
 
@@ -693,9 +689,16 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	// Luckily, all func names in Go assembly files are immediately followed
 	// by the unicode "middle dot", like:
 	//
-	//     TEXT ·privateAdd(SB),$0-24
+	//	TEXT ·privateAdd(SB),$0-24
+	//	TEXT runtime∕internal∕sys·Ctz64(SB), NOSPLIT, $0-12
 	const middleDot = '·'
 	middleDotLen := utf8.RuneLen(middleDot)
+
+	// Note that import paths in assembly, like `runtime∕internal∕sys` above,
+	// use a Unicode slash rather than the ASCII one used by Go and `go list`.
+	// We need to convert to ASCII to find the right package information.
+	const asmPkgSlash = '∕'
+	const goPkgSlash = '/'
 
 	for {
 		i := bytes.IndexRune(remaining, middleDot)
@@ -705,28 +708,46 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 			break
 		}
 
-		// We want to replace "OP ·foo" and "OP $·foo",
-		// but not "OP somepkg·foo" just yet.
-		// "somepkg" is often runtime, syscall, etc.
-		// We don't obfuscate any of those for now.
-		//
-		// TODO: we'll likely need to deal with this
-		// when we start obfuscating the runtime.
-		// When we do, note that we can't hash with curPkg.
-		localName := false
-		if i >= 0 {
-			switch remaining[i-1] {
-			case ' ', '\t', '$', ',', '(':
-				localName = true
+		// The package name ends at the first rune which cannot be part of a Go
+		// import path, such as a comma or space.
+		pkgStart := i
+		for pkgStart >= 0 {
+			c, size := utf8.DecodeLastRune(remaining[:pkgStart])
+			if !unicode.IsLetter(c) && c != '_' && c != asmPkgSlash && !unicode.IsDigit(c) {
+				break
+			}
+			pkgStart -= size
+		}
+		asmPkgPath := string(remaining[pkgStart:i])
+		goPkgPath := strings.ReplaceAll(asmPkgPath, string(asmPkgSlash), string(goPkgSlash))
+
+		// Write the bytes before our unqualified `·foo` or qualified `pkg·foo`.
+		buf.Write(remaining[:pkgStart])
+
+		// If the name was qualified, fetch the package, and write the
+		// obfuscated import path if needed.
+		lpkg := curPkg
+		if asmPkgPath != "" {
+			var err error
+			lpkg, err = listPackage(goPkgPath)
+			if err != nil {
+				panic(err) // shouldn't happen
+			}
+			if lpkg.ToObfuscate {
+				// Note that we don't need to worry about asmPkgSlash here,
+				// because our obfuscated import paths contain no slashes right now.
+				buf.WriteString(lpkg.obfuscatedImportPath())
+			} else {
+				buf.WriteString(asmPkgPath)
 			}
 		}
 
-		i += middleDotLen
-		buf.Write(remaining[:i])
-		remaining = remaining[i:]
+		// Write the middle dot and advance the remaining slice.
+		buf.WriteRune(middleDot)
+		remaining = remaining[i+middleDotLen:]
 
-		// The name ends at the first rune which cannot be part
-		// of a Go identifier, such as a comma or space.
+		// The declared name ends at the first rune which cannot be part of a Go
+		// identifier, such as a comma or space.
 		nameEnd := 0
 		for nameEnd < len(remaining) {
 			c, size := utf8.DecodeRune(remaining[nameEnd:])
@@ -738,16 +759,15 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		name := string(remaining[:nameEnd])
 		remaining = remaining[nameEnd:]
 
-		if !localName {
+		if lpkg.ToObfuscate {
+			newName := hashWithPackage(lpkg, name)
+			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
+				log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+			}
+			buf.WriteString(newName)
+		} else {
 			buf.WriteString(name)
-			continue
 		}
-
-		newName := hashWithPackage(curPkg, name)
-		if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
-			log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
-		}
-		buf.WriteString(newName)
 	}
 }
 
