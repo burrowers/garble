@@ -13,9 +13,42 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"math/rand"
 )
 
 const buildIDSeparator = "/"
+
+	// hashLength is the number of base64 characters to use for the final
+	// hashed name.
+	// This needs to be long enough to realistically avoid hash collisions,
+	// but short enough to not bloat binary sizes.
+	// The namespace for collisions is generally a single package, since
+	// that's where most hashed names are namespaced to.
+	// Using a "hash collision" formula, and taking a generous estimate of a
+	// package having 10k names, we get the following probabilities.
+	// Most packages will have far fewer names, but some packages are huge,
+	// especially generated ones.
+	// We also have slightly fewer bits in practice, since the base64
+	// charset has 'z' twice, and the first base64 char is coerced into a
+	// valid Go identifier. So we must be conservative.
+	// Remember that base64 stores 6 bits per encoded byte.
+	// The probability numbers are approximated.
+	//
+	//    length (base64) | length (bits) | collision probability
+	//    -------------------------------------------------------
+	//           4               24                   ~95%
+	//           5               30                    ~4%
+	//           6               36                 ~0.07%
+	//           7               42                ~0.001%
+	//           8               48              ~0.00001%
+	//
+	// We want collisions to be practically impossible, so we choose 8 to
+	// end up with a chance of about 1 in a million even when a package has
+	// thousands of obfuscated names.
+	// HashLength has been randomized as an attempt to evade AV signatures.
+
+var hashLength = rand.Intn(28)+8 // 8 <= hashLength <= b64SumBuffer
+
 
 // splitActionID returns the action ID half of a build ID, the first component.
 func splitActionID(buildID string) string {
@@ -223,34 +256,6 @@ func hashWithCustomSalt(salt []byte, name string) string {
 	if name == "" {
 		panic("hashWithCustomSalt: empty name")
 	}
-	// hashLength is the number of base64 characters to use for the final
-	// hashed name.
-	// This needs to be long enough to realistically avoid hash collisions,
-	// but short enough to not bloat binary sizes.
-	// The namespace for collisions is generally a single package, since
-	// that's where most hashed names are namespaced to.
-	// Using a "hash collision" formula, and taking a generous estimate of a
-	// package having 10k names, we get the following probabilities.
-	// Most packages will have far fewer names, but some packages are huge,
-	// especially generated ones.
-	// We also have slightly fewer bits in practice, since the base64
-	// charset has 'z' twice, and the first base64 char is coerced into a
-	// valid Go identifier. So we must be conservative.
-	// Remember that base64 stores 6 bits per encoded byte.
-	// The probability numbers are approximated.
-	//
-	//    length (base64) | length (bits) | collision probability
-	//    -------------------------------------------------------
-	//           4               24                   ~95%
-	//           5               30                    ~4%
-	//           6               36                 ~0.07%
-	//           7               42                ~0.001%
-	//           8               48              ~0.00001%
-	//
-	// We want collisions to be practically impossible, so we choose 8 to
-	// end up with a chance of about 1 in a million even when a package has
-	// thousands of obfuscated names.
-	const hashLength = 8
 
 	hasher.Reset()
 	hasher.Write(salt)
