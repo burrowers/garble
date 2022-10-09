@@ -289,9 +289,6 @@ func appendListedPackages(packages []string, withDeps bool) error {
 //
 // TODO: investigate and resolve each one of these
 var cannotObfuscate = map[string]bool{
-	// "//go:linkname must refer to declared function or variable"
-	"syscall": true,
-
 	// "unknown pc" crashes on windows in the cgo test otherwise
 	"runtime/cgo": true,
 
@@ -333,7 +330,8 @@ func listPackage(path string) (*listedPackage, error) {
 	// This is due to how it linkname-implements std packages,
 	// such as sync/atomic or reflect, without importing them in any way.
 	// If ListedPackages lacks such a package we fill it with "std".
-	if curPkg.ImportPath == "runtime" {
+	// Note that this is also allowed for runtime sub-packages.
+	if curPkg.ImportPath == "runtime" || strings.HasPrefix(curPkg.ImportPath, "runtime/") {
 		if ok {
 			return pkg, nil
 		}

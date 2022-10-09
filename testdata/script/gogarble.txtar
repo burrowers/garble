@@ -36,7 +36,13 @@ garble build std
 
 # Link a binary importing net/http, which will catch whether or not we
 # support ImportMap when linking.
+# Also ensure we are obfuscating low-level std packages.
 garble build -o=out ./stdimporter
+! binsubstr out 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
+
+# The same low-level std packages appear in plain sight in regular builds.
+go build -o=out_regular ./stdimporter
+binsubstr out_regular 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
 
 # Also check that a full rebuild is reproducible, via a new GOCACHE.
 # This is slow, but necessary to uncover bugs hidden by the build cache.
@@ -73,6 +79,8 @@ package main
 import (
 	"net/http"
 	"runtime/debug"
+	"time"
+	"syscall"
 )
 
 func main() {
@@ -80,4 +88,6 @@ func main() {
 	// debug.WriteHeapDump is particularly interesting,
 	// as it is implemented by runtime via a linkname.
 	debug.WriteHeapDump(1)
+	time.Now()
+	syscall.Listen(0, 1)
 }
