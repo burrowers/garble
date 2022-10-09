@@ -289,9 +289,6 @@ func appendListedPackages(packages []string, withDeps bool) error {
 //
 // TODO: investigate and resolve each one of these
 var cannotObfuscate = map[string]bool{
-	// "undefined reference" errors at link time
-	"time": true,
-
 	// "//go:linkname must refer to declared function or variable"
 	"syscall": true,
 
@@ -393,15 +390,30 @@ func listPackage(path string) (*listedPackage, error) {
 		log.Printf("listed %d missing runtime-linknamed packages in %s", len(missing), debugSince(startTime))
 		return pkg, nil
 	}
-	// Packages other than runtime can list any package,
-	// as long as they depend on it directly or indirectly.
 	if !ok {
 		return nil, fmt.Errorf("path not found in listed packages: %s", path)
 	}
+
+	// Packages other than runtime can list any package,
+	// as long as they depend on it directly or indirectly.
 	for _, dep := range curPkg.Deps {
 		if dep == pkg.ImportPath {
 			return pkg, nil
 		}
 	}
+
+	// As a special case, any package can list runtime or its dependencies,
+	// since those are always an implicit dependency.
+	// We need to handle this ourselves as runtime does not appear in Deps.
+	// TODO: it might be faster to bring back a "runtimeAndDeps" map or func.
+	if pkg.ImportPath == "runtime" {
+		return pkg, nil
+	}
+	for _, dep := range cache.ListedPackages["runtime"].Deps {
+		if dep == pkg.ImportPath {
+			return pkg, nil
+		}
+	}
+
 	return nil, fmt.Errorf("refusing to list non-dependency package: %s", path)
 }
