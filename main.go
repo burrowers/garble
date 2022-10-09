@@ -888,9 +888,7 @@ func transformCompile(args []string) ([]string, error) {
 		}
 
 		// Uncomment for some quick debugging. Do not delete.
-		// if curPkg.ToObfuscate {
-		// 	fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, filename, src)
-		// }
+		// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, filename, src)
 
 		if path, err := writeTemp(filename, src); err != nil {
 			return nil, err
@@ -933,62 +931,80 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 			if !strings.HasPrefix(comment.Text, "//go:linkname ") {
 				continue
 			}
+
+			// We can have either just one argument:
+			//
+			//	//go:linkname localName
+			//
+			// Or two arguments, where the second may refer to a name in a
+			// different package:
+			//
+			//	//go:linkname localName newName
+			//	//go:linkname localName pkg.newName
 			fields := strings.Fields(comment.Text)
-			if len(fields) != 3 {
-				// TODO: the 2nd argument is optional, handle when it's not present
-				continue
-			}
-			// This directive has two arguments: "go:linkname localName newName"
-
-			// obfuscate the local name, if the current package is obfuscated
-			if curPkg.ToObfuscate {
-				fields[1] = hashWithPackage(curPkg, fields[1])
+			localName := fields[1]
+			newName := ""
+			if len(fields) == 3 {
+				newName = fields[2]
 			}
 
-			// If the new name is of the form "pkgpath.Name", and
-			// we've obfuscated "Name" in that package, rewrite the
-			// directive to use the obfuscated name.
-			newName := fields[2]
-			dotCnt := strings.Count(newName, ".")
-			if dotCnt < 1 {
-				// cgo-generated code uses linknames to made up symbol names,
-				// which do not have a package path at all.
-				// Replace the comment in case the local name was obfuscated.
-				comment.Text = strings.Join(fields, " ")
-				continue
-			}
-			switch newName {
-			case "main.main", "main..inittask", "runtime..inittask":
-				// The runtime uses some special symbols with "..".
-				// We aren't touching those at the moment.
-				continue
+			localName, newName = tf.transformLinkname(localName, newName)
+			fields[1] = localName
+			if len(fields) == 3 {
+				fields[2] = newName
 			}
 
-			// If the package path has multiple dots, split on the
-			// last one.
-			lastDotIdx := strings.LastIndex(newName, ".")
-			pkgPath, name := newName[:lastDotIdx], newName[lastDotIdx+1:]
-
-			lpkg, err := listPackage(pkgPath)
-			if err != nil {
-				// Probably a made up name like above, but with a dot.
-				comment.Text = strings.Join(fields, " ")
-				continue
+			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
+				log.Printf("linkname %q changed to %q", comment.Text, strings.Join(fields, " "))
 			}
-			if lpkg.ToObfuscate {
-				// The name exists and was obfuscated; obfuscate
-				// the new name.
-				newName := hashWithPackage(lpkg, name)
-				newPkgPath := pkgPath
-				if pkgPath != "main" {
-					newPkgPath = lpkg.obfuscatedImportPath()
-				}
-				fields[2] = newPkgPath + "." + newName
-			}
-
 			comment.Text = strings.Join(fields, " ")
 		}
 	}
+}
+
+func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
+	// obfuscate the local name, if the current package is obfuscated
+	if curPkg.ToObfuscate {
+		localName = hashWithPackage(curPkg, localName)
+	}
+	if newName == "" {
+		return localName, ""
+	}
+	// If the new name is of the form "pkgpath.Name", and we've obfuscated
+	// "Name" in that package, rewrite the directive to use the obfuscated name.
+	dotCnt := strings.Count(newName, ".")
+	if dotCnt < 1 {
+		// cgo-generated code uses linknames to made up symbol names,
+		// which do not have a package path at all.
+		// Replace the comment in case the local name was obfuscated.
+		return localName, newName
+	}
+	switch newName {
+	case "main.main", "main..inittask", "runtime..inittask":
+		// The runtime uses some special symbols with "..".
+		// We aren't touching those at the moment.
+		return localName, newName
+	}
+
+	// If the package path has multiple dots, split on the last one.
+	lastDotIdx := strings.LastIndex(newName, ".")
+	pkgPath, foreignName := newName[:lastDotIdx], newName[lastDotIdx+1:]
+
+	lpkg, err := listPackage(pkgPath)
+	if err != nil {
+		// Probably a made up name like above, but with a dot.
+		return localName, newName
+	}
+	if lpkg.ToObfuscate {
+		// The name exists and was obfuscated; obfuscate the new name.
+		newForeignName := hashWithPackage(lpkg, foreignName)
+		newPkgPath := pkgPath
+		if pkgPath != "main" {
+			newPkgPath = lpkg.obfuscatedImportPath()
+		}
+		newName = newPkgPath + "." + newForeignName
+	}
+	return localName, newName
 }
 
 // processImportCfg parses the importcfg file passed to a compile or link step.
