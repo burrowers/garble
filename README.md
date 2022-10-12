@@ -36,6 +36,7 @@ order to:
 
 The tool obfuscates the packages matching `GOGARBLE`, a comma-separated list of
 glob patterns of module path prefixes, as documented in `go help private`.
+To obfuscate all the packages in a build, use `GOGARBLE=*`.
 When `GOGARBLE` is empty, it assumes the value of `GOPRIVATE`.
 When `GOPRIVATE` is also empty, then `GOGARBLE` assumes the value of the current
 module path, to obfuscate all packages under the current module.
