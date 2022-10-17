@@ -250,13 +250,19 @@ func hashWithCustomSalt(salt []byte, name string) string {
 	// We want collisions to be practically impossible, so we choose 8 to
 	// end up with a chance of about 1 in a million even when a package has
 	// thousands of obfuscated names.
-	const hashLength = 8
+
+	const minHashLength = 8
+	const maxHashLength = 15
+	const hashLengthRange = maxHashLength - minHashLength
 
 	hasher.Reset()
 	hasher.Write(salt)
 	hasher.Write(flagSeed.bytes)
 	io.WriteString(hasher, name)
 	nameBase64.Encode(b64SumBuffer[:], hasher.Sum(sumBuffer[:0]))
+
+	hashLengthRandomness := b64SumBuffer[len(b64SumBuffer)-2] % hashLengthRange
+	hashLength := minHashLength + hashLengthRandomness
 	b64Name := b64SumBuffer[:hashLength]
 
 	// Even if we are hashing a package path, we still want the result to be
