@@ -729,8 +729,12 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 
 		// If the name was qualified, fetch the package, and write the
 		// obfuscated import path if needed.
+		// Note that runtime/internal/startlinetest refers to runtime_test in
+		// one of its assembly files, and we currently do not always collect
+		// test packages in appendListedPackages for the sake of performance.
+		// We don't care about testing the runtime just yet, so work around it.
 		lpkg := curPkg
-		if asmPkgPath != "" {
+		if asmPkgPath != "" && asmPkgPath != "runtime_test" {
 			var err error
 			lpkg, err = listPackage(goPkgPath)
 			if err != nil {

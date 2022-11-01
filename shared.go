@@ -336,14 +336,18 @@ func listPackage(path string) (*listedPackage, error) {
 			panic(fmt.Sprintf("package %q still missing after go list call", path))
 		}
 		startTime := time.Now()
-		// Obtained via scripts/runtime-linknamed-nodeps.sh as of 2022-10-01.
+		// Obtained via scripts/runtime-linknamed-nodeps.sh as of 2022-11-01.
 		runtimeLinknamed := []string{
+			"arena",
 			"crypto/internal/boring",
 			"crypto/internal/boring/bcache",
 			"crypto/internal/boring/fipstls",
 			"crypto/x509/internal/macos",
+			"internal/godebug",
 			"internal/poll",
 			"internal/reflectlite",
+			"internal/syscall/unix",
+			"math/rand",
 			"net",
 			"os",
 			"os/signal",
