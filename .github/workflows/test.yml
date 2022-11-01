@@ -78,7 +78,7 @@ jobs:
     steps:
     - name: Install Go
       env:
-        GO_COMMIT: 5f566d35bf7d590c95f4d1b685b995deeb9ba957 # 2022-10-01
+        GO_COMMIT: 122a22e0e9eba7fe712030d429fc4bcf6f447f5e # 2022-11-12
       run: |
         cd $HOME
         mkdir $HOME/gotip
@@ -89,8 +89,7 @@ jobs:
         echo "devel go1.20-${GO_COMMIT}" >VERSION
 
         cd src
-        # GOGC=off helps Go build about 20% faster, if we can spare memory.
-        GOGC=off ./make.bash
+        ./make.bash
         echo "GOROOT=$HOME/gotip" >>$GITHUB_ENV
         echo "$HOME/gotip/bin" >>$GITHUB_PATH
     - uses: actions/checkout@v3
