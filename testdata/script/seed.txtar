@@ -125,6 +125,30 @@ func mainFunc() {
 	} else {
 		println(teststringVar)
 		println(imported.ImportedVar)
+
+		// When we're obfuscating, check that the obfuscated name lengths vary.
+		// With eight hashed names, and a range between 8 and 15,
+		// the chances of six repeats are (1 / 8) ** 6, or about 0.00038%.
+		// If that happens, then our randomness is clearly broken.
+		if hashedNames[0] != "main.hashed0" {
+			var count [16]int
+			for _, name := range hashedNames {
+				name = name[len("main."):]
+				if len(name) < 8 {
+					panic("ended up with a hashed name that's too short: "+name)
+				}
+				if len(name) > 15 {
+					panic("ended up with a hashed name that's too long: "+name)
+				}
+				count[len(name)]++
+				if count[len(name)] >= 6 {
+					for _, name := range hashedNames {
+						println(name)
+					}
+					panic("six or more hashed names with the same length")
+				}
+			}
+		}
 	}
 }
 
@@ -139,6 +163,20 @@ type NamedType struct {
 func NamedFunc() string {
 	return imported.CallerFuncName()
 }
+
+var hashedNames = []string{
+	hashed0(), hashed1(), hashed2(), hashed3(),
+	hashed4(), hashed5(), hashed6(), hashed7(),
+}
+
+func hashed0() string { return imported.CallerFuncName() }
+func hashed1() string { return imported.CallerFuncName() }
+func hashed2() string { return imported.CallerFuncName() }
+func hashed3() string { return imported.CallerFuncName() }
+func hashed4() string { return imported.CallerFuncName() }
+func hashed5() string { return imported.CallerFuncName() }
+func hashed6() string { return imported.CallerFuncName() }
+func hashed7() string { return imported.CallerFuncName() }
 
 -- imported/imported.go --
 package imported
