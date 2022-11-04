@@ -74,9 +74,8 @@ func alterToolVersion(tool string, args []string) error {
 }
 
 var (
-	hasher       = sha256.New()
-	sumBuffer    [sha256.Size]byte
-	b64SumBuffer [44]byte // base64's EncodedLen on sha256.Size (32) with no padding
+	hasher    = sha256.New()
+	sumBuffer [sha256.Size]byte
 )
 
 // addGarbleToHash takes some arbitrary input bytes,
@@ -170,14 +169,27 @@ func buildidOf(path string) (string, error) {
 	return string(out), nil
 }
 
+const (
+	// At most we'll need maxHashLength (15) base64 characters,
+	// so 12 checksum bytes are enough for that purpose, rounding up.
+	neededSumBytes = 12
+
+	minHashLength   = 8
+	maxHashLength   = 15
+	hashLengthRange = maxHashLength - minHashLength
+)
+
 var (
 	// Hashed names are base64-encoded.
 	// Go names can only be letters, numbers, and underscores.
 	// This means we can use base64's URL encoding, minus '-'.
 	// Use the URL encoding, replacing '-' with a duplicate 'z'.
 	// Such a lossy encoding is fine, since we never decode hashes.
+	// We don't need padding either, as we take a short prefix anyway.
 	nameCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z"
-	nameBase64  = base64.NewEncoding(nameCharset)
+	nameBase64  = base64.NewEncoding(nameCharset).WithPadding(base64.NoPadding)
+
+	b64NameBuffer [16]byte // nameBase64.EncodedLen(neededSumBytes) = 16
 )
 
 // These funcs mimic the unicode package API, but byte-based since we know
@@ -223,16 +235,20 @@ func hashWithCustomSalt(salt []byte, name string) string {
 	if name == "" {
 		panic("hashWithCustomSalt: empty name")
 	}
-	// hashLength is the number of base64 characters to use for the final
-	// hashed name.
-	// This needs to be long enough to realistically avoid hash collisions,
-	// but short enough to not bloat binary sizes.
+
+	// minHashLength and maxHashLength define the range for the number of base64
+	// characters to use for the final hashed name.
+	//
+	// minHashLength needs to be long enough to realistically avoid hash collisions,
+	// but maxHashLength should be short enough to not bloat binary sizes.
 	// The namespace for collisions is generally a single package, since
 	// that's where most hashed names are namespaced to.
+	//
 	// Using a "hash collision" formula, and taking a generous estimate of a
 	// package having 10k names, we get the following probabilities.
 	// Most packages will have far fewer names, but some packages are huge,
 	// especially generated ones.
+	//
 	// We also have slightly fewer bits in practice, since the base64
 	// charset has 'z' twice, and the first base64 char is coerced into a
 	// valid Go identifier. So we must be conservative.
@@ -247,23 +263,31 @@ func hashWithCustomSalt(salt []byte, name string) string {
 	//           7               42                ~0.001%
 	//           8               48              ~0.00001%
 	//
-	// We want collisions to be practically impossible, so we choose 8 to
-	// end up with a chance of about 1 in a million even when a package has
-	// thousands of obfuscated names.
-
+	// We want collisions to be practically impossible, so we choose 8 as
+	// minHashLength to end up with a chance of about 1 in a million even when a
+	// package has thousands of obfuscated names.
+	//
+	// In practice, the probability will be lower, as the lengths end up
+	// somewhere between minHashLength and maxHashLength.
 	const minHashLength = 8
 	const maxHashLength = 15
-	const hashLengthRange = maxHashLength - minHashLength
 
 	hasher.Reset()
 	hasher.Write(salt)
 	hasher.Write(flagSeed.bytes)
 	io.WriteString(hasher, name)
-	nameBase64.Encode(b64SumBuffer[:], hasher.Sum(sumBuffer[:0]))
+	sum := hasher.Sum(sumBuffer[:0])
 
-	hashLengthRandomness := b64SumBuffer[len(b64SumBuffer)-2] % hashLengthRange
+	// The byte after neededSumBytes is never used as part of the name,
+	// but it is still deterministic and hard to predict,
+	// so it provides us with useful randomness between 0 and 255.
+	// We want the number to be between 0 and hashLenthRange-1 as well,
+	// so we use a remainder operation.
+	hashLengthRandomness := sum[neededSumBytes] % ((maxHashLength - minHashLength) + 1)
 	hashLength := minHashLength + hashLengthRandomness
-	b64Name := b64SumBuffer[:hashLength]
+
+	nameBase64.Encode(b64NameBuffer[:], sum[:neededSumBytes])
+	b64Name := b64NameBuffer[:hashLength]
 
 	// Even if we are hashing a package path, we still want the result to be
 	// a valid identifier, since we'll use it as the package name too.
