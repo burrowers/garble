@@ -1835,8 +1835,10 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 		if !lpkg.ToObfuscate {
 			return true
 		}
-		newPath := lpkg.obfuscatedImportPath()
-		imp.Path.Value = strconv.Quote(newPath)
+		if lpkg.Name != "main" {
+			newPath := lpkg.obfuscatedImportPath()
+			imp.Path.Value = strconv.Quote(newPath)
+		}
 		if imp.Name == nil {
 			imp.Name = &ast.Ident{
 				NamePos: imp.Path.ValuePos, // ensure it ends up on the same line
