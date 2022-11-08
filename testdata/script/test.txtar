@@ -28,12 +28,14 @@ stdout 'package bar_test, func name:'
 garble test -v ./...
 stdout 'ok\s+test/bar\s'
 stdout 'PASS.*TestFoo'
+stdout 'PASS.*TestMain'
 stdout 'PASS.*TestSeparateFoo'
 stdout 'SKIP.*TestWithFlag'
 stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
 ! stdout 'OriginalFuncName'
 stdout '\?\s+test/bar/somemain\s'
+stdout 'ok\s+test/bar/somemaintest\s'
 stdout 'ok\s+test/bar/sometest\s'
 stdout 'ok\s+test/bar/exporttest\s'
 
@@ -120,6 +122,16 @@ func TestMain(m *testing.M) {
 package main
 
 func main() {}
+-- somemaintest/main.go --
+package main
+
+func main() {}
+-- somemaintest/main_test.go --
+package main
+
+import "testing"
+
+func TestMain(t *testing.T) {}
 -- sometest/foo_test.go --
 package sometest
 
