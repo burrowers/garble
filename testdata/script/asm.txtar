@@ -8,8 +8,7 @@ env GOGARBLE=test/main
 garble build
 exec ./main
 cmp stderr main.stderr
-# TODO: ! binsubstr main$exe 'test/main' 'privateAdd' 'PublicAdd' 'garble_main' 'garble_define'
-! binsubstr main$exe 'privateAdd' 'PublicAdd'
+! binsubstr main$exe 'test/main' 'privateAdd' 'PublicAdd' 'garble_'
 
 [short] stop # no need to verify this with -short
 

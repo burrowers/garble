@@ -160,9 +160,6 @@ type listedPackage struct {
 }
 
 func (p *listedPackage) obfuscatedImportPath() string {
-	if p.Name == "main" {
-		panic("main packages should never need to obfuscate their import paths")
-	}
 	// We can't obfuscate the embed package's import path,
 	// as the toolchain expects to recognize the package by it.
 	if p.ImportPath == "embed" || !p.ToObfuscate {
