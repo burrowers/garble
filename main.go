@@ -596,14 +596,15 @@ func transformAsm(args []string) ([]string, error) {
 
 	flags = alterTrimpath(flags)
 
-	// If the assembler is running just for -gensymabis,
-	// don't obfuscate the source, as we are not assembling yet.
-	// The assembler will run again later; obfuscating twice is just wasteful.
+	// The assembler runs twice; the first with -gensymabis,
+	// where we continue below and we obfuscate all the source.
+	// The second time, without -gensymabis, we reconstruct the paths to the
+	// obfuscated source files and reuse them to avoid work.
 	newPaths := make([]string, 0, len(paths))
 	if !slices.Contains(args, "-gensymabis") {
 		for _, path := range paths {
-			name := filepath.Base(path)
-			pkgDir := filepath.Join(sharedTempDir, filepath.FromSlash(curPkg.ImportPath))
+			name := hashWithPackage(curPkg, filepath.Base(path))
+			pkgDir := filepath.Join(sharedTempDir, curPkg.obfuscatedImportPath())
 			newPath := filepath.Join(pkgDir, name)
 			newPaths = append(newPaths, newPath)
 		}
@@ -672,7 +673,9 @@ func transformAsm(args []string) ([]string, error) {
 		// Uncomment for some quick debugging. Do not delete.
 		// fmt.Fprintf(os.Stderr, "\n-- %s --\n%s", path, buf.Bytes())
 
-		name := filepath.Base(path)
+		// With assembly files, we obfuscate the filename in the temporary
+		// directory, as assembly files do not support `/*line` directives.
+		name := hashWithPackage(curPkg, filepath.Base(path))
 		if path, err := writeTemp(name, buf.Bytes()); err != nil {
 			return nil, err
 		} else {
@@ -777,7 +780,10 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 // Note that the file is created under a directory tree following curPkg's
 // import path, mimicking how files are laid out in modules and GOROOT.
 func writeTemp(name string, content []byte) (string, error) {
-	pkgDir := filepath.Join(sharedTempDir, filepath.FromSlash(curPkg.ImportPath))
+	// We use the obfuscated import path to hold the temporary files.
+	// Assembly files do not support line directives to set positions,
+	// so the only way to not leak the import path is to replace it.
+	pkgDir := filepath.Join(sharedTempDir, curPkg.obfuscatedImportPath())
 	if err := os.MkdirAll(pkgDir, 0o777); err != nil {
 		return "", err
 	}
@@ -2007,8 +2013,6 @@ func splitFlagsFromArgs(all []string) (flags, args []string) {
 }
 
 func alterTrimpath(flags []string) []string {
-	// If the value of -trimpath doesn't contain the separator ';', the 'go
-	// build' command is most likely not using '-trimpath'.
 	trimpath := flagValue(flags, "-trimpath")
 
 	// Add our temporary dir to the beginning of -trimpath, so that we don't
