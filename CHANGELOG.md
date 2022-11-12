@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.8.0] - 2022-11-??
+
+This release drops support for Go 1.18, continues support for Go 1.19,
+and adds initial support for the upcoming Go 1.20.
+
+Noteworthy changes include:
+
+* Obfuscate assembly source code filenames - [#605]
+* Randomize the lengths of obfuscated names
+* Support obfuscating `time` and `syscall`
+
 ## [v0.7.2] - 2022-09-26
 
 This bugfix release continues support for Go 1.18 and 1.19 and features:
@@ -145,6 +156,8 @@ Known bugs:
 
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
+
+[#605]: https://github.com/burrowers/garble/issues/605
 
 [v0.7.2]: https://github.com/burrowers/garble/releases/tag/v0.7.2
 [#573]: https://github.com/burrowers/garble/issues/573
