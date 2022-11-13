@@ -32,6 +32,11 @@ jobs:
     - uses: actions/checkout@v3
     - name: Test
       run: go test -timeout=15m ./...
+    - uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: bincmp_output
+        path: bincmp_output/
     - name: Test with -race
       # macos and windows tend to be a bit slower,
       # and it's rare that a race in garble would be OS-specific.
