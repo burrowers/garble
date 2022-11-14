@@ -649,12 +649,10 @@ func transformAsm(args []string) ([]string, error) {
 				// The different name ensures we don't use the unobfuscated file.
 				// This is far from perfect, but does the job for the time being.
 				// In the future, use a randomized name.
-				newPath = "garbled_" + filepath.Base(path)
+				basename := filepath.Base(path)
+				newPath = "garbled_" + basename
 
-				// Uncomment for some quick debugging. Do not delete.
-				// fmt.Fprintf(os.Stderr, "\n-- %s --\n%s", path, buf.Bytes())
-
-				if _, err := writeTemp(newPath, buf.Bytes()); err != nil {
+				if _, err := writeSourceFile(basename, newPath, buf.Bytes()); err != nil {
 					return nil, err
 				}
 				newHeaderPaths[path] = newPath
@@ -670,13 +668,11 @@ func transformAsm(args []string) ([]string, error) {
 		buf.Reset()
 		replaceAsmNames(&buf, content)
 
-		// Uncomment for some quick debugging. Do not delete.
-		// fmt.Fprintf(os.Stderr, "\n-- %s --\n%s", path, buf.Bytes())
-
 		// With assembly files, we obfuscate the filename in the temporary
 		// directory, as assembly files do not support `/*line` directives.
-		name := hashWithPackage(curPkg, filepath.Base(path))
-		if path, err := writeTemp(name, buf.Bytes()); err != nil {
+		basename := filepath.Base(path)
+		newName := hashWithPackage(curPkg, basename)
+		if path, err := writeSourceFile(basename, newName, buf.Bytes()); err != nil {
 			return nil, err
 		} else {
 			newPaths = append(newPaths, path)
@@ -778,12 +774,25 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	}
 }
 
-// writeTemp is a mix between os.CreateTemp and os.WriteFile, as it writes a
+// writeSourceFile is a mix between os.CreateTemp and os.WriteFile, as it writes a
 // named source file in sharedTempDir given an input buffer.
 //
 // Note that the file is created under a directory tree following curPkg's
 // import path, mimicking how files are laid out in modules and GOROOT.
-func writeTemp(name string, content []byte) (string, error) {
+func writeSourceFile(basename, obfuscated string, content []byte) (string, error) {
+	// Uncomment for some quick debugging. Do not delete.
+	// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, basename, content)
+
+	if flagDebugDir != "" {
+		pkgDir := filepath.Join(flagDebugDir, filepath.FromSlash(curPkg.ImportPath))
+		if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+			return "", err
+		}
+		dstPath := filepath.Join(pkgDir, basename)
+		if err := os.WriteFile(dstPath, content, 0o666); err != nil {
+			return "", err
+		}
+	}
 	// We use the obfuscated import path to hold the temporary files.
 	// Assembly files do not support line directives to set positions,
 	// so the only way to not leak the import path is to replace it.
@@ -791,7 +800,7 @@ func writeTemp(name string, content []byte) (string, error) {
 	if err := os.MkdirAll(pkgDir, 0o777); err != nil {
 		return "", err
 	}
-	dstPath := filepath.Join(pkgDir, name)
+	dstPath := filepath.Join(pkgDir, obfuscated)
 	if err := writeFileExclusive(dstPath, content); err != nil {
 		return "", err
 	}
@@ -859,11 +868,11 @@ func transformCompile(args []string) ([]string, error) {
 	newPaths := make([]string, 0, len(files))
 
 	for i, file := range files {
-		filename := filepath.Base(paths[i])
-		log.Printf("obfuscating %s", filename)
+		basename := filepath.Base(paths[i])
+		log.Printf("obfuscating %s", basename)
 		if curPkg.ImportPath == "runtime" && flagTiny {
 			// strip unneeded runtime code
-			stripRuntime(filename, file)
+			stripRuntime(basename, file)
 			tf.removeUnnecessaryImports(file)
 		}
 		tf.handleDirectives(file.Comments)
@@ -897,25 +906,12 @@ func transformCompile(args []string) ([]string, error) {
 			)...)
 		}
 
-		// Uncomment for some quick debugging. Do not delete.
-		// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, filename, src)
-
-		if path, err := writeTemp(filename, src); err != nil {
+		// We hide Go source filenames via "//line" directives,
+		// so there is no need to use obfuscated filenames here.
+		if path, err := writeSourceFile(basename, basename, src); err != nil {
 			return nil, err
 		} else {
 			newPaths = append(newPaths, path)
-		}
-		if flagDebugDir != "" {
-			osPkgPath := filepath.FromSlash(curPkg.ImportPath)
-			pkgDebugDir := filepath.Join(flagDebugDir, osPkgPath)
-			if err := os.MkdirAll(pkgDebugDir, 0o755); err != nil {
-				return nil, err
-			}
-
-			debugFilePath := filepath.Join(pkgDebugDir, filename)
-			if err := os.WriteFile(debugFilePath, src, 0o666); err != nil {
-				return nil, err
-			}
 		}
 	}
 	flags = flagSetValue(flags, "-importcfg", newImportCfg)
