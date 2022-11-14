@@ -13,7 +13,7 @@ import (
 // stripRuntime removes unnecessary code from the runtime,
 // such as panic and fatal error printing, and code that
 // prints trace/debug info of the runtime.
-func stripRuntime(filename string, file *ast.File) {
+func stripRuntime(basename string, file *ast.File) {
 	stripPrints := func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
@@ -39,7 +39,7 @@ func stripRuntime(filename string, file *ast.File) {
 			continue
 		}
 
-		switch filename {
+		switch basename {
 		case "error.go":
 			// only used in panics
 			switch funcDecl.Name.Name {
@@ -120,7 +120,7 @@ func stripRuntime(filename string, file *ast.File) {
 
 	}
 
-	if filename == "print.go" {
+	if basename == "print.go" {
 		file.Decls = append(file.Decls, hidePrintDecl)
 		return
 	}
