@@ -117,8 +117,8 @@ The following commands are supported:
 
 	build          replace "go build"
 	test           replace "go test"
-	version        print Garble version
 	reverse        de-obfuscate output such as stack traces
+	version        print the version and build settings of the garble binary
 
 To learn more about a command, run "garble help <command>".
 
