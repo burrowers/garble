@@ -3,8 +3,6 @@
 # TODO: support arm64, at least
 [!amd64] skip 'the assembly is only written for amd64'
 
-env GOGARBLE=test/main
-
 garble build
 exec ./main
 cmp stderr main.stderr

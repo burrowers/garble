@@ -1,10 +1,5 @@
-# Ensure that "does not match any packages" works with GOPRIVATE and GOGARBLE.
+# Ensure that "does not match any packages" works.
 env GOGARBLE=match-absolutely/nothing
-! garble build -o=out ./standalone
-stderr '^GOGARBLE="match-absolutely/nothing" does not match any packages to be built$'
-
-env GOGARBLE=
-env GOPRIVATE=match-absolutely/nothing
 ! garble build -o=out ./standalone
 stderr '^GOGARBLE="match-absolutely/nothing" does not match any packages to be built$'
 
@@ -23,6 +18,7 @@ garble build -o=out ./stdimporter
 
 [short] stop # rebuilding std is slow
 
+# Go back to the default of obfuscating all packages.
 env GOGARBLE='*'
 
 # Try garbling all of std, given some std packages.

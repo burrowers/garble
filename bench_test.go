@@ -84,7 +84,6 @@ func BenchmarkBuild(b *testing.B) {
 		gocache, err := os.MkdirTemp(b.TempDir(), "gocache-*")
 		qt.Assert(b, err, qt.IsNil)
 		env := append(os.Environ(),
-			"GOGARBLE=*",
 			"GOCACHE="+gocache,
 			"GARBLE_WRITE_ALLOCS=true",
 		)

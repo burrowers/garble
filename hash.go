@@ -98,9 +98,7 @@ func addGarbleToHash(inputHash []byte) []byte {
 	// We also need to add the selected options to the full version string,
 	// because all of them result in different output. We use spaces to
 	// separate the env vars and flags, to reduce the chances of collisions.
-	if cache.GOGARBLE != "" {
-		fmt.Fprintf(hasher, " GOGARBLE=%s", cache.GOGARBLE)
-	}
+	fmt.Fprintf(hasher, " GOGARBLE=%s", cache.GOGARBLE)
 	appendFlags(hasher, true)
 	// addGarbleToHash returns the sum buffer, so we need a new copy.
 	// Otherwise the next use of the global sumBuffer would conflict.

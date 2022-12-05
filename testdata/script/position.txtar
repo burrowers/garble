@@ -1,5 +1,3 @@
-env GOGARBLE=test/main
-
 garble build
 exec ./main
 ! stdout 'garble_main\.go|garble_other_filename|is sorted'

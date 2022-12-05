@@ -44,14 +44,12 @@ type sharedCache struct {
 	GOGARBLE string
 
 	// Filled directly from "go env".
-	// Remember to update the exec call when adding or removing names.
+	// Keep in sync with fetchGoEnv.
 	GoEnv struct {
 		GOOS string // i.e. the GOOS build target
 
-		GOPRIVATE string
 		GOMOD     string
 		GOVERSION string
-		GOCACHE   string
 	}
 }
 

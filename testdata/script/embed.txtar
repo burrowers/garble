@@ -1,5 +1,3 @@
-env GOGARBLE=*
-
 garble build
 
 exec ./main

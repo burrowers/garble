@@ -34,12 +34,10 @@ order to:
 * [Obfuscate literals](#literal-obfuscation), if the `-literals` flag is given
 * Remove [extra information](#tiny-mode), if the `-tiny` flag is given
 
-The tool obfuscates the packages matching `GOGARBLE`, a comma-separated list of
-glob patterns of module path prefixes, as documented in `go help private`.
-To obfuscate all the packages in a build, use `GOGARBLE=*`.
-When `GOGARBLE` is empty, it assumes the value of `GOPRIVATE`.
-When `GOPRIVATE` is also empty, then `GOGARBLE` assumes the value of the current
-module path, to obfuscate all packages under the current module.
+By default, the tool obfuscates all the packages being built.
+You can manually specify which packages to obfuscate via `GOGARBLE`,
+a comma-separated list of glob patterns matching package path prefixes.
+This format is borrowed from `GOPRIVATE`; see `go help private`.
 
 Note that commands like `garble build` will use the `go` version found in your
 `$PATH`. To use different versions of Go, you can
