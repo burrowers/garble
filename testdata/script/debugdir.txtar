@@ -1,5 +1,3 @@
-env GOGARBLE=*
-
 garble -debugdir ./debug1 build
 exists 'debug1/test/main/imported/imported.go' 'debug1/test/main/main.go' 'debug1/reflect/type.go'
 exists 'debug1/runtime/map.go' 'debug1/runtime/funcdata.h' 'debug1/runtime/asm.s'

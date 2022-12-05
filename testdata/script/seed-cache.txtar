@@ -7,7 +7,6 @@
 # In the past, this threw off garble's extra cached gob files.
 
 env SEED1=OQg9kACEECQ
-env GOGARBLE=*
 
 # First, ensure that mod1's garbletest.v2 is in the cache.
 cd mod1

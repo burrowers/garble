@@ -1,7 +1,5 @@
-# Note that this is the only test with a module where we rely on the detection
-# of GOGARBLE.
-# Also note that, since this is the only test using "real" external modules
-# fetched via GOPROXY, go.mod and go.sum should declare the dependencies.
+# Since this is the only test using "real" external modules fetched via GOPROXY,
+# go.mod and go.sum should declare the dependencies.
 
 # For now, use a throwaway module download cache instead of the host machine's.
 # Usually it would be fine to reuse the host's, since we expose exact copies of

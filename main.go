@@ -36,7 +36,6 @@ import (
 
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
-	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
@@ -998,7 +997,20 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 	lpkg, err := listPackage(pkgPath)
 	if err != nil {
-		// Probably a made up name like above, but with a dot.
+		// TODO(mvdan): use errors.As or errors.Is instead
+		if strings.Contains(err.Error(), "path not found") {
+			// Probably a made up name like above, but with a dot.
+			return localName, newName
+		}
+		if strings.Contains(err.Error(), "refusing to list") {
+			fmt.Fprintf(os.Stderr,
+				"//go:linkname refers to %s - add `import _ %q` so garble can find the package",
+				newName, pkgPath)
+			return localName, newName
+		}
+		if err != nil {
+			panic(err) // shouldn't happen
+		}
 		return localName, newName
 	}
 	if lpkg.ToObfuscate {
@@ -2185,7 +2197,8 @@ func flagSetValue(flags []string, name, value string) []string {
 
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
-		"GOOS", "GOPRIVATE", "GOMOD", "GOVERSION", "GOCACHE",
+		// Keep in sync with sharedCache.GoEnv.
+		"GOOS", "GOMOD", "GOVERSION",
 	).CombinedOutput()
 	if err != nil {
 		// TODO: cover this in the tests.
@@ -2201,23 +2214,8 @@ To install Go, see: https://go.dev/doc/install
 		return fmt.Errorf(`cannot unmarshal from "go env -json": %w`, err)
 	}
 	cache.GOGARBLE = os.Getenv("GOGARBLE")
-	if cache.GOGARBLE != "" {
-		// GOGARBLE is non-empty; nothing to do.
-	} else if cache.GoEnv.GOPRIVATE != "" {
-		// GOGARBLE is empty and GOPRIVATE is non-empty.
-		// Set GOGARBLE to GOPRIVATE's value.
-		cache.GOGARBLE = cache.GoEnv.GOPRIVATE
-	} else {
-		// If GOPRIVATE isn't set and we're in a module, use its module
-		// path as a GOPRIVATE default. Include a _test variant too.
-		// TODO(mvdan): we shouldn't need the _test variant here,
-		// as the import path should not include it; only the package name.
-		if mod, err := os.ReadFile(cache.GoEnv.GOMOD); err == nil {
-			modpath := modfile.ModulePath(mod)
-			if modpath != "" {
-				cache.GOGARBLE = modpath + "," + modpath + "_test"
-			}
-		}
+	if cache.GOGARBLE == "" {
+		cache.GOGARBLE = "*" // we default to obfuscating everything
 	}
 	return nil
 }

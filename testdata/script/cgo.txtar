@@ -1,7 +1,5 @@
 [!cgo] skip 'this test requires cgo to be enabled'
 
-env GOGARBLE=test/main
-
 garble build
 ! stderr 'warning' # check that the C toolchain is happy
 exec ./main
@@ -18,12 +16,6 @@ stdin reversing.stdout
 garble reverse .
 cmp stdout reversed.stdout
 env GARBLE_TEST_REVERSING=false
-
-env GOGARBLE=*
-garble build
-exec ./main
-cmp stdout main.stdout
-env GOGARBLE=test/main
 
 garble -tiny build
 exec ./main

@@ -9,7 +9,6 @@
 [arm] env GOARCH=arm64
 
 # A fairly average Go build, importing some std libraries.
-env GOGARBLE='*'
 garble build
 -- go.mod --
 module test/main

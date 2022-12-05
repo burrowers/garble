@@ -7,6 +7,8 @@ and adds initial support for the upcoming Go 1.20.
 
 Noteworthy changes include:
 
+* `GOGARBLE=*` is now the default to obfuscate all packages - [#594]
+* `GOPRIVATE` is no longer used, being deprecated in [v0.5.0]
 * Obfuscate assembly source code filenames - [#605]
 * Randomize the lengths of obfuscated names
 * Support obfuscating `time` and `syscall`
@@ -157,6 +159,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[#594]: https://github.com/burrowers/garble/issues/594
 [#605]: https://github.com/burrowers/garble/issues/605
 
 [v0.7.2]: https://github.com/burrowers/garble/releases/tag/v0.7.2
