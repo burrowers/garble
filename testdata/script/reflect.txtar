@@ -41,13 +41,9 @@ func main() {
 	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOf(2))
 	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOfIndirect(4))
 
-
 	// More complex use of reflect.
 	v := importedpkg.ReflectValueOfVar
 	printfWithoutPackage("%#v\n", v)
-	// Keep the method from being unreachable, otherwise Call below may panic.
-	// TODO(mvdan): This only started being necessary with GOGARBLE=*. Why?
-	Sink = v.ExportedMethodName
 	method := reflect.ValueOf(&v).MethodByName("ExportedMethodName")
 	if method.IsValid() {
 		fmt.Println(method.Call(nil))

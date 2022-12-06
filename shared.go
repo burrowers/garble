@@ -158,9 +158,17 @@ type listedPackage struct {
 }
 
 func (p *listedPackage) obfuscatedImportPath() string {
-	// We can't obfuscate the embed package's import path,
-	// as the toolchain expects to recognize the package by it.
-	if p.ImportPath == "embed" || !p.ToObfuscate {
+	// We can't obfuscate these standard library import paths,
+	// as the toolchain expects to recognize the packages by them:
+	//
+	//   * runtime: it is special in many ways
+	//   * reflect: its presence turns down dead code elimination
+	//   * embed: its presence enables using //go:embed
+	switch p.ImportPath {
+	case "runtime", "reflect", "embed":
+		return p.ImportPath
+	}
+	if !p.ToObfuscate {
 		return p.ImportPath
 	}
 	newPath := hashWithPackage(p, p.ImportPath)
