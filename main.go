@@ -1741,12 +1741,19 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 			return true // universe scope
 		}
 
-		if pkg.Path() == "embed" {
-			// The Go compiler needs to detect types such as embed.FS.
-			// That will fail if we change the import path or type name.
-			// Leave it as is.
-			// Luckily, the embed package just declares the FS type.
-			return true
+		// The Go toolchain needs to detect symbols from these packages,
+		// so we are not obfuscating their package paths or declared names.
+		switch pkg.Path() {
+		case "embed":
+			// FS is detected by the compiler for //go:embed.
+			return name == "FS"
+		case "reflect":
+			// Per the linker's deadcode.go docs,
+			// the Method and MethodByName methods are what drive the logic.
+			switch name {
+			case "Method", "MethodByName":
+				return true
+			}
 		}
 
 		// The package that declared this object did not obfuscate it.
