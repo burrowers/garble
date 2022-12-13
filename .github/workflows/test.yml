@@ -84,7 +84,7 @@ jobs:
     steps:
     - name: Install Go
       env:
-        GO_COMMIT: 122a22e0e9eba7fe712030d429fc4bcf6f447f5e # 2022-11-12
+        GO_COMMIT: cb07765045aed5104a3df31507564ac99e6ddce8 # 2022-12-13
       run: |
         cd $HOME
         mkdir $HOME/gotip
