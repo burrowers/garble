@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.8.0] - 2022-11-??
+## [v0.8.0] - 2022-12-??
 
 This release drops support for Go 1.18, continues support for Go 1.19,
 and adds initial support for the upcoming Go 1.20.
@@ -12,6 +12,7 @@ Noteworthy changes include:
 * Obfuscate assembly source code filenames - [#605]
 * Randomize the lengths of obfuscated names
 * Support obfuscating `time` and `syscall`
+* Avoid reflect method call panics if `reflect` is obfuscated
 
 ## [v0.7.2] - 2022-09-26
 
