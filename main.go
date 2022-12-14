@@ -1008,10 +1008,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 				newName, pkgPath)
 			return localName, newName
 		}
-		if err != nil {
-			panic(err) // shouldn't happen
-		}
-		return localName, newName
+		panic(err) // shouldn't happen
 	}
 	if lpkg.ToObfuscate {
 		// The name exists and was obfuscated; obfuscate the new name.
