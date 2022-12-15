@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.8.0] - 2022-12-??
+## [v0.8.0] - 2022-12-15
 
 This release drops support for Go 1.18, continues support for Go 1.19,
 and adds initial support for the upcoming Go 1.20.
@@ -160,6 +160,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[v0.8.0]: https://github.com/burrowers/garble/releases/tag/v0.8.0
 [#594]: https://github.com/burrowers/garble/issues/594
 [#605]: https://github.com/burrowers/garble/issues/605
 
