@@ -36,7 +36,7 @@ modules=(
 	# TODO: consider github.com/mattn/go-sqlite3 to cover a DB and more cgo
 )
 
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 
 exit_code=0
 
@@ -49,9 +49,9 @@ BASE_GOFLAGS="$(go env GOFLAGS)"
 CACHED_MODFILES="${SCRIPT_DIR}/cached_modfiles"
 mkdir -p "${CACHED_MODFILES}"
 
-for (( i=0; i<${#modules[@]}; i+=2 )); do
+for ((i = 0; i < ${#modules[@]}; i += 2)); do
 	module="${modules[i]}"
-	version="${modules[i+1]}"
+	version="${modules[i + 1]}"
 
 	{
 		# Initialize an empty module, so we can run "go build",
