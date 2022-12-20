@@ -72,7 +72,8 @@ for ((i = 0; i < ${#modules[@]}; i += 2)); do
 		fi
 
 		# Run "go build" first, to ensure the regular Go build works.
-		show go build "${module}/..."
+		# Use -trimpath to help reuse the cache with "garble build".
+		show go build -trimpath "${module}/..."
 
 		# Run the garble build.
 		show garble build "${module}/..."
