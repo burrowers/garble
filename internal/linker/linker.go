@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 const MagicValueEnv = "GARBLE_LNK_MAGIC"
@@ -24,7 +25,10 @@ func compileLinker(workingDirectory string, overlay map[string]string, outputLin
 		return err
 	}
 
-	out, err := exec.Command("go", "build", "-overlay", overlayPath, "-o", outputLinkPath, "cmd/link").CombinedOutput()
+	cmd := exec.Command("go", "build", "-overlay", overlayPath, "-o", outputLinkPath, "cmd/link")
+	cmd.Env = append(os.Environ(), "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
+
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("compiler compile error: %v\n\n%s", err, string(out))
 	}
