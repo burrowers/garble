@@ -12,14 +12,21 @@ import (
 )
 
 const (
-	cacheDirName = ".garble"
-	versionExt   = ".version"
+	cacheDirName   = ".garble"
+	versionExt     = ".version"
+	garbleCacheDir = "GARBLE_CACHE_DIR"
 )
 
 func cachePath() string {
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		panic(fmt.Errorf("cannot retreive user cache directory: %v", err))
+	var cacheDir string
+	if val, ok := os.LookupEnv(garbleCacheDir); ok {
+		cacheDir = val
+	} else {
+		userCacheDir, err := os.UserCacheDir()
+		if err != nil {
+			panic(fmt.Errorf("cannot retreive user cache directory: %v", err))
+		}
+		cacheDir = userCacheDir
 	}
 	linkerBin := filepath.Join(cacheDir, cacheDirName, "link")
 	if runtime.GOOS == "windows" {

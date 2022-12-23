@@ -86,6 +86,7 @@ func BenchmarkBuild(b *testing.B) {
 		env := append(os.Environ(),
 			"GOCACHE="+gocache,
 			"GARBLE_WRITE_ALLOCS=true",
+			"GARBLE_CACHE_DIR="+filepath.Join(gocache, "garble-cache-tmp"),
 		)
 		args := []string{"build", "-v", "-o=" + outputBin, sourceDir}
 
