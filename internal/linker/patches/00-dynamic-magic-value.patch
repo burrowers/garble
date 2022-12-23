@@ -1,0 +1,20 @@
+diff --git a/link/internal/ld/pcln.go b/link/internal/ld/pcln.go
+--- a/link/internal/ld/pcln.go	(revision 5fca05073d47a02f538df8fd097ab7eda751bc0d)
++++ b/link/internal/ld/pcln.go	(date 1671799080000)
+@@ -239,6 +239,16 @@
+ 		if off != size {
+ 			panic(fmt.Sprintf("pcHeader size: %d != %d", off, size))
+ 		}
++
++		if val, ok := os.LookupEnv("GARBLE_LNK_MAGIC"); ok {
++			var magicVal uint32
++			// Use fmt package instead of strconv to avoid importing a new package
++			if _, err := fmt.Sscan(val, &magicVal); err != nil {
++				panic(fmt.Errorf("[garble] invalid magic value %s: %v", val, err))
++			}
++
++			header.SetUint32(ctxt.Arch, 0, magicVal)
++		}
+ 	}
+
+ 	state.pcheader = state.addGeneratedSym(ctxt, "runtime.pcheader", size, writeHeader)
