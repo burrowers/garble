@@ -19,7 +19,7 @@ func existsFile(path string) bool {
 
 func copyFile(src, target string) error {
 	targetDir := filepath.Dir(target)
-	if err := os.MkdirAll(targetDir, os.ModeDir); err != nil {
+	if err := os.MkdirAll(targetDir, os.ModePerm); err != nil {
 		return err
 	}
 	srcFile, err := os.Open(src)
