@@ -21,6 +21,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math"
 	mathrand "math/rand"
 	"mvdan.cc/garble/internal/linker"
 	"os"
@@ -490,9 +491,6 @@ This command wraps "go %s". Below is its help:
 	// The sub-processes will parse it from a shared gob file.
 	cache = &sharedCache{}
 
-	cache.Linker.MagicValue = int(mathrand.Int31())
-	os.Setenv(linker.MagicValueEnv, strconv.Itoa(cache.Linker.MagicValue))
-
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.
 	cache.ForwardBuildFlags, _ = filterForwardBuildFlags(flags)
@@ -519,6 +517,10 @@ This command wraps "go %s". Below is its help:
 		return nil, err
 	}
 	cache.BinaryContentID = decodeHash(splitContentID(binaryBuildID))
+
+	// TODO: Fix build reproducibility without -seed
+	cache.Linker.MagicValue = int(binary.LittleEndian.Uint32(cache.BinaryContentID) % math.MaxInt32)
+	os.Setenv(linker.MagicValueEnv, strconv.Itoa(cache.Linker.MagicValue))
 
 	if err := appendListedPackages(args, true); err != nil {
 		return nil, err
