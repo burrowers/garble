@@ -21,7 +21,6 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"math"
 	mathrand "math/rand"
 	"mvdan.cc/garble/internal/linker"
 	"os"
@@ -437,6 +436,8 @@ func mainErr(args []string) error {
 				return fmt.Errorf("cannot get modified linker: %v", err)
 			}
 			executablePath = modifiedLinkPath
+			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
+
 			log.Printf("replace link path to: %s", executablePath)
 		}
 
@@ -517,10 +518,6 @@ This command wraps "go %s". Below is its help:
 		return nil, err
 	}
 	cache.BinaryContentID = decodeHash(splitContentID(binaryBuildID))
-
-	// TODO: Fix build reproducibility without -seed
-	cache.Linker.MagicValue = int(binary.LittleEndian.Uint32(cache.BinaryContentID) % math.MaxInt32)
-	os.Setenv(linker.MagicValueEnv, strconv.Itoa(cache.Linker.MagicValue))
 
 	if err := appendListedPackages(args, true); err != nil {
 		return nil, err
@@ -893,7 +890,7 @@ func transformCompile(args []string) ([]string, error) {
 				tf.removeUnnecessaryImports(file)
 			}
 			if basename == "symtab.go" {
-				updateMagicValue(file, cache.Linker.MagicValue)
+				updateMagicValue(file, magicValue())
 			}
 		}
 		tf.handleDirectives(file.Comments)

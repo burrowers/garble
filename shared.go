@@ -43,10 +43,6 @@ type sharedCache struct {
 
 	GOGARBLE string
 
-	Linker struct {
-		MagicValue int
-	}
-
 	// Filled directly from "go env".
 	// Keep in sync with fetchGoEnv.
 	GoEnv struct {
