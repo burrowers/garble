@@ -86,7 +86,7 @@ func TestScript(t *testing.T) {
 
 				"gofullversion="+runtime.Version(),
 				"EXEC_PATH="+execPath,
-				"GARBLE_CACHE_DIR="+filepath.Join(env.WorkDir, "garble-cache-tmp"),
+				"GARBLE_CACHE_DIR="+filepath.Join(filepath.Dir(env.WorkDir), "garble-cache-tmp"),
 			)
 
 			if os.Getenv("TESTSCRIPT_COVER_DIR") != "" {
