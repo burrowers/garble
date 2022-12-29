@@ -12,6 +12,7 @@ require (
 )
 
 require (
+	github.com/bluekeyes/go-gitdiff v0.7.0 // indirect
 	github.com/kr/pretty v0.3.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pkg/diff v0.0.0-20210226163009-20ebb0f2a09e // indirect

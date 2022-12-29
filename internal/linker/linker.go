@@ -12,20 +12,70 @@ import (
 	"runtime"
 )
 
-const MagicValueEnv = "GARBLE_LNK_MAGIC"
+const (
+	MagicValueEnv = "GARBLE_LNK_MAGIC"
+
+	cacheDirName   = ".garble"
+	versionExt     = ".version"
+	garbleCacheDir = "GARBLE_CACHE_DIR"
+)
+
+func cachePath() string {
+	var cacheDir string
+	if val, ok := os.LookupEnv(garbleCacheDir); ok {
+		cacheDir = val
+	} else {
+		userCacheDir, err := os.UserCacheDir()
+		if err != nil {
+			panic(fmt.Errorf("cannot retreive user cache directory: %v", err))
+		}
+		cacheDir = userCacheDir
+	}
+	linkerBin := filepath.Join(cacheDir, cacheDirName, "link")
+	if runtime.GOOS == "windows" {
+		linkerBin += ".exe"
+	}
+	return linkerBin
+}
+
+func getCurrentVersion(goVersion string) string {
+	return patchesVer + " " + goVersion
+}
+
+func checkVersion(linkerPath, goVersion string) (bool, error) {
+	versionPath := linkerPath + versionExt
+	version, err := os.ReadFile(versionPath)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	return string(version) == getCurrentVersion(goVersion), nil
+}
+
+func writeVersion(linkerPath, goVersion string) error {
+	versionPath := linkerPath + versionExt
+	return os.WriteFile(versionPath, []byte(getCurrentVersion(goVersion)), os.ModePerm)
+}
 
 type overlayFile struct {
 	Replace map[string]string
 }
 
 func compileLinker(workingDirectory string, overlay map[string]string, outputLinkPath string) error {
-	file, _ := json.Marshal(&overlayFile{Replace: overlay})
+	file, err := json.Marshal(&overlayFile{Replace: overlay})
+	if err != nil {
+		return err
+	}
 	overlayPath := filepath.Join(workingDirectory, "overlay.json")
 	if err := os.WriteFile(overlayPath, file, os.ModePerm); err != nil {
 		return err
 	}
 
 	cmd := exec.Command("go", "build", "-overlay", overlayPath, "-o", outputLinkPath, "cmd/link")
+	// Explicitly setting GOOS and GOARCH variables prevents conflicts during cross-build
 	cmd.Env = append(os.Environ(), "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
 
 	out, err := cmd.CombinedOutput()
@@ -35,18 +85,12 @@ func compileLinker(workingDirectory string, overlay map[string]string, outputLin
 	return nil
 }
 
-func copyModFiles(srcDir, workingDirectory string) (map[string]string, error) {
-	overlay := make(map[string]string)
-	for _, name := range patchesModFiles {
-		src := filepath.Join(srcDir, name)
-		target := filepath.Join(workingDirectory, name)
-		overlay[src] = target
-
-		if err := copyFile(src, target); err != nil {
-			return nil, err
-		}
+func existsFile(path string) bool {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return false
 	}
-	return overlay, nil
+	return !stat.IsDir()
 }
 
 func GetModifiedLinker(goRoot, goVersion, tempDirectory string) (string, error) {
@@ -62,11 +106,8 @@ func GetModifiedLinker(goRoot, goVersion, tempDirectory string) (string, error) 
 	srcDir := filepath.Join(goRoot, baseSrcSubdir)
 	workingDirectory := filepath.Join(tempDirectory, "linker-src")
 
-	overlay, err := copyModFiles(srcDir, workingDirectory)
+	overlay, err := applyPatches(srcDir, workingDirectory)
 	if err != nil {
-		return "", err
-	}
-	if err := applyPatches(workingDirectory); err != nil {
 		return "", err
 	}
 	if err := compileLinker(workingDirectory, overlay, outputLinkPath); err != nil {

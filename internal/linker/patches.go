@@ -4,24 +4,23 @@
 package linker
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"embed"
 	"encoding/base64"
 	"fmt"
+	"github.com/bluekeyes/go-gitdiff/gitdiff"
 	"io"
 	"io/fs"
-	"os/exec"
+	"os"
 	"path/filepath"
-	"strings"
 )
 
 var (
 	//go:embed patches/*.patch
 	linkerPatches embed.FS
 
-	patchesVer      string
-	patchesModFiles []string
+	patchesVer string
+	patches    []*gitdiff.File
 
 	baseSrcSubdir = filepath.Join("src", "cmd")
 )
@@ -32,13 +31,13 @@ func init() {
 		panic(fmt.Errorf("cannot retrieve patches info: %v", err))
 	}
 	patchesVer = tmpVer
-	patchesModFiles = tmpModFiles
+	patches = tmpModFiles
 }
 
-type walkPatchFunc func(path string, reader io.Reader) error
-
-func walkPatches(walkFunc walkPatchFunc) error {
-	return fs.WalkDir(linkerPatches, "patches", func(path string, d fs.DirEntry, err error) error {
+func getPatchesVerAndModFiles() (string, []*gitdiff.File, error) {
+	versionHash := sha256.New()
+	var patches []*gitdiff.File
+	err := fs.WalkDir(linkerPatches, "patches", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -50,52 +49,61 @@ func walkPatches(walkFunc walkPatchFunc) error {
 			return err
 		}
 		defer f.Close()
-		return walkFunc(path, f)
-	})
-}
 
-func getPatchesVerAndModFiles() (string, []string, error) {
-	hash := sha256.New()
-	var modifiedFiles []string
-	err := walkPatches(func(path string, reader io.Reader) error {
-		hash.Write([]byte(path))
-
-		scanner := bufio.NewScanner(reader)
-		for scanner.Scan() {
-			hash.Write(scanner.Bytes())
-
-			text := scanner.Text()
-			if !strings.HasPrefix(text, "diff --git") {
-				continue
-			}
-
-			// Extract modified file from: diff --git a/filename b/filename
-			fields := strings.Fields(text)
-			if len(fields) != 4 {
-				continue
-			}
-
-			modifiedFile := fields[len(fields)-1]
-			modifiedFile = modifiedFile[strings.IndexRune(modifiedFile, '/'):]
-
-			modifiedFiles = append(modifiedFiles, modifiedFile)
+		if _, err := io.Copy(versionHash, f); err != nil {
+			return err
 		}
+
+		seeker := f.(io.Seeker)
+		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+
+		files, _, err := gitdiff.Parse(f)
+		if err != nil {
+			return err
+		}
+		patches = append(patches, files...)
 		return nil
 	})
+
 	if err != nil {
 		return "", nil, err
 	}
-	return base64.RawStdEncoding.EncodeToString(hash.Sum(nil)), modifiedFiles, nil
+	return base64.RawStdEncoding.EncodeToString(versionHash.Sum(nil)), patches, nil
 }
 
-func applyPatches(workingDirectory string) error {
-	return walkPatches(func(path string, reader io.Reader) error {
-		cmd := exec.Command("git", "-C", workingDirectory, "apply")
-		cmd.Stdin = reader
+func applyPatch(oldPath, newPath string, patch *gitdiff.File) error {
+	oldFile, err := os.Open(oldPath)
+	if err != nil {
+		return err
+	}
+	defer oldFile.Close()
 
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("apply patch %s failed: %v", path, err)
+	newFileDir := filepath.Dir(newPath)
+	if err := os.MkdirAll(newFileDir, os.ModePerm); err != nil {
+		return err
+	}
+
+	newFile, err := os.Create(newPath)
+	if err != nil {
+		return err
+	}
+	defer newFile.Close()
+
+	return gitdiff.Apply(newFile, oldFile, patch)
+}
+
+func applyPatches(srcDirectory, workingDirectory string) (map[string]string, error) {
+	mod := make(map[string]string)
+	for _, patch := range patches {
+		oldPath := filepath.Join(srcDirectory, patch.OldName)
+		newPath := filepath.Join(workingDirectory, patch.NewName)
+		mod[oldPath] = newPath
+
+		if err := applyPatch(oldPath, newPath, patch); err != nil {
+			return nil, fmt.Errorf("apply patch for %s failed: %v", patch.OldName, err)
 		}
-		return nil
-	})
+	}
+	return mod, nil
 }
