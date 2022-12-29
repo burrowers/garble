@@ -20,7 +20,7 @@ const (
 	garbleCacheDir = "GARBLE_CACHE_DIR"
 )
 
-func cachePath() string {
+func cachePath(goExe string) string {
 	var cacheDir string
 	if val, ok := os.LookupEnv(garbleCacheDir); ok {
 		cacheDir = val
@@ -31,11 +31,7 @@ func cachePath() string {
 		}
 		cacheDir = userCacheDir
 	}
-	linkerBin := filepath.Join(cacheDir, cacheDirName, "link")
-	if runtime.GOOS == "windows" {
-		linkerBin += ".exe"
-	}
-	return linkerBin
+	return filepath.Join(cacheDir, cacheDirName, "link"+goExe)
 }
 
 func getCurrentVersion(goVersion string) string {
@@ -93,8 +89,8 @@ func existsFile(path string) bool {
 	return !stat.IsDir()
 }
 
-func GetModifiedLinker(goRoot, goVersion, tempDirectory string) (string, error) {
-	outputLinkPath := cachePath()
+func GetModifiedLinker(goRoot, goVersion, goExe, tempDirectory string) (string, error) {
+	outputLinkPath := cachePath(goExe)
 	isCorrectVer, err := checkVersion(outputLinkPath, goVersion)
 	if err != nil {
 		return "", err

@@ -431,7 +431,7 @@ func mainErr(args []string) error {
 
 		executablePath := args[0]
 		if tool == "link" {
-			modifiedLinkPath, err := linker.GetModifiedLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, sharedTempDir)
+			modifiedLinkPath, err := linker.GetModifiedLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, cache.GoEnv.GOEXE, sharedTempDir)
 			if err != nil {
 				return fmt.Errorf("cannot get modified linker: %v", err)
 			}
@@ -2221,7 +2221,7 @@ func flagSetValue(flags []string, name, value string) []string {
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
 		// Keep in sync with sharedCache.GoEnv.
-		"GOOS", "GOMOD", "GOVERSION", "GOROOT",
+		"GOOS", "GOMOD", "GOVERSION", "GOROOT", "GOEXE",
 	).CombinedOutput()
 	if err != nil {
 		// TODO: cover this in the tests.
