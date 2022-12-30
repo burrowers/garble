@@ -4,8 +4,12 @@
 package linker
 
 import (
+	"bytes"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mvdan.cc/garble/internal/patches"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +23,81 @@ const (
 	versionExt     = ".version"
 	garbleCacheDir = "GARBLE_CACHE_DIR"
 )
+
+var (
+	//go:embed patches/*.patch
+	linkerPatchesFs embed.FS
+
+	linkerPatchesVer string
+	linkerPatcher    map[string]*bytes.Reader
+
+	baseSrcSubdir = filepath.Join("src", "cmd")
+)
+
+func init() {
+	tmpVer, tmpPatches, err := patches.LoadPatches(linkerPatchesFs)
+	if err != nil {
+		panic(fmt.Errorf("cannot retrieve patches info: %v", err))
+	}
+	linkerPatchesVer = tmpVer
+	linkerPatcher = tmpPatches
+}
+
+func copyFile(src, target string) error {
+	targetDir := filepath.Dir(target)
+	if err := os.MkdirAll(targetDir, os.ModePerm); err != nil {
+		return err
+	}
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	targetFile, err := os.Create(target)
+	if err != nil {
+		return err
+	}
+	defer targetFile.Close()
+	_, err = io.Copy(targetFile, srcFile)
+	return err
+}
+
+func existsFile(path string) bool {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !stat.IsDir()
+}
+
+func applyPatch(workingDirectory, oldPath, newPath string, patch *bytes.Reader) error {
+	if err := copyFile(oldPath, newPath); err != nil {
+		return err
+	}
+
+	if _, err := patch.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("git", "-C", workingDirectory, "apply")
+	cmd.Stdin = patch
+	return cmd.Run()
+}
+
+func applyPatches(srcDirectory, workingDirectory string) (map[string]string, error) {
+	mod := make(map[string]string)
+	for fileName, patchReader := range linkerPatcher {
+		oldPath := filepath.Join(srcDirectory, fileName)
+		newPath := filepath.Join(workingDirectory, fileName)
+		mod[oldPath] = newPath
+
+		if err := applyPatch(workingDirectory, oldPath, newPath, patchReader); err != nil {
+			return nil, fmt.Errorf("apply patch for %s failed: %v", fileName, err)
+		}
+	}
+	return mod, nil
+}
 
 func cachePath(goExe string) string {
 	var cacheDir string
@@ -35,7 +114,7 @@ func cachePath(goExe string) string {
 }
 
 func getCurrentVersion(goVersion string) string {
-	return patchesVer + " " + goVersion
+	return linkerPatchesVer + " " + goVersion
 }
 
 func checkVersion(linkerPath, goVersion string) (bool, error) {
@@ -79,14 +158,6 @@ func compileLinker(workingDirectory string, overlay map[string]string, outputLin
 		return fmt.Errorf("compiler compile error: %v\n\n%s", err, string(out))
 	}
 	return nil
-}
-
-func existsFile(path string) bool {
-	stat, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	return !stat.IsDir()
 }
 
 func GetModifiedLinker(goRoot, goVersion, goExe, tempDirectory string) (string, error) {
