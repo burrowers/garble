@@ -4,6 +4,7 @@
 package linker
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/base64"
@@ -12,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -20,23 +22,23 @@ var (
 	linkerPatches embed.FS
 
 	patchesVer string
-	patches    []*gitdiff.File
+	patches    map[string]*bytes.Reader
 
 	baseSrcSubdir = filepath.Join("src", "cmd")
 )
 
 func init() {
-	tmpVer, tmpModFiles, err := getPatchesVerAndModFiles()
+	tmpVer, tmpPatches, err := getPatchesVerAndModFiles()
 	if err != nil {
 		panic(fmt.Errorf("cannot retrieve patches info: %v", err))
 	}
 	patchesVer = tmpVer
-	patches = tmpModFiles
+	patches = tmpPatches
 }
 
-func getPatchesVerAndModFiles() (string, []*gitdiff.File, error) {
+func getPatchesVerAndModFiles() (string, map[string]*bytes.Reader, error) {
 	versionHash := sha256.New()
-	var patches []*gitdiff.File
+	patches := make(map[string]*bytes.Reader)
 	err := fs.WalkDir(linkerPatches, "patches", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -50,20 +52,34 @@ func getPatchesVerAndModFiles() (string, []*gitdiff.File, error) {
 		}
 		defer f.Close()
 
-		if _, err := io.Copy(versionHash, f); err != nil {
+		var patchBuf bytes.Buffer
+		if _, err := io.Copy(&patchBuf, f); err != nil {
 			return err
 		}
 
-		seeker := f.(io.Seeker)
-		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+		reader := bytes.NewReader(patchBuf.Bytes())
+		if _, err := reader.WriteTo(versionHash); err != nil {
 			return err
 		}
 
-		files, _, err := gitdiff.Parse(f)
+		if _, err := reader.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+
+		files, _, err := gitdiff.Parse(reader)
 		if err != nil {
 			return err
 		}
-		patches = append(patches, files...)
+		for _, file := range files {
+			if file.IsDelete || file.IsRename {
+				panic("delete and rename patch not supported")
+			}
+
+			if _, err := reader.Seek(0, io.SeekStart); err != nil {
+				return err
+			}
+			patches[file.OldName] = reader
+		}
 		return nil
 	})
 
@@ -73,36 +89,49 @@ func getPatchesVerAndModFiles() (string, []*gitdiff.File, error) {
 	return base64.RawStdEncoding.EncodeToString(versionHash.Sum(nil)), patches, nil
 }
 
-func applyPatch(oldPath, newPath string, patch *gitdiff.File) error {
-	oldFile, err := os.Open(oldPath)
+func copyFile(src, target string) error {
+	targetDir := filepath.Dir(target)
+	if err := os.MkdirAll(targetDir, os.ModePerm); err != nil {
+		return err
+	}
+	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer oldFile.Close()
+	defer srcFile.Close()
 
-	newFileDir := filepath.Dir(newPath)
-	if err := os.MkdirAll(newFileDir, os.ModePerm); err != nil {
-		return err
-	}
-
-	newFile, err := os.Create(newPath)
+	targetFile, err := os.Create(target)
 	if err != nil {
 		return err
 	}
-	defer newFile.Close()
+	defer targetFile.Close()
+	_, err = io.Copy(targetFile, srcFile)
+	return err
+}
 
-	return gitdiff.Apply(newFile, oldFile, patch)
+func applyPatch(workingDirectory, oldPath, newPath string, patch *bytes.Reader) error {
+	if err := copyFile(oldPath, newPath); err != nil {
+		return err
+	}
+
+	if _, err := patch.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("git", "-C", workingDirectory, "apply")
+	cmd.Stdin = patch
+	return cmd.Run()
 }
 
 func applyPatches(srcDirectory, workingDirectory string) (map[string]string, error) {
 	mod := make(map[string]string)
-	for _, patch := range patches {
-		oldPath := filepath.Join(srcDirectory, patch.OldName)
-		newPath := filepath.Join(workingDirectory, patch.NewName)
+	for fileName, patchReader := range patches {
+		oldPath := filepath.Join(srcDirectory, fileName)
+		newPath := filepath.Join(workingDirectory, fileName)
 		mod[oldPath] = newPath
 
-		if err := applyPatch(oldPath, newPath, patch); err != nil {
-			return nil, fmt.Errorf("apply patch for %s failed: %v", patch.OldName, err)
+		if err := applyPatch(workingDirectory, oldPath, newPath, patchReader); err != nil {
+			return nil, fmt.Errorf("apply patch for %s failed: %v", fileName, err)
 		}
 	}
 	return mod, nil
