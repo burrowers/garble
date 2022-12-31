@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"embed"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
@@ -23,6 +24,7 @@ import (
 	"log"
 	mathrand "math/rand"
 	"mvdan.cc/garble/internal/linker"
+	"mvdan.cc/garble/internal/patches"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -820,6 +822,69 @@ func writeSourceFile(basename, obfuscated string, content []byte) (string, error
 	return dstPath, nil
 }
 
+var (
+	//go:embed patches/*.patch
+	garblePatchesFs embed.FS
+	garblePatches   map[string][]string
+)
+
+func replacePatchVars(patch string) string {
+	return strings.ReplaceAll(patch, "$GARBLE_MAGIC_VALUE", strconv.FormatUint(uint64(magicValue()), 10))
+}
+
+// applyPatches apply patches to incoming source file using `git apply` command
+// and return the contents of modified file
+//
+// Note that the return of interface{} instead of []byte is specially made to pass
+// the type check in parser.ParseFile of the src parameter
+//
+// TODO(pagran): Applying `git apply` forces to save file to disk temporarily and read it after applying the patch. Need to rewrite
+func applyPatches(path string) (interface{}, error) {
+	if garblePatches == nil {
+		_, patchesTmp, err := patches.LoadPatches(garblePatchesFs)
+		if err != nil {
+			return nil, err
+		}
+		garblePatches = patchesTmp
+	}
+
+	basePath := curPkg.ImportPath + "/" + filepath.Base(path)
+	filePatches, ok := garblePatches[basePath]
+	if !ok {
+		return nil, nil
+	}
+
+	tempWorkingDir := filepath.Join(sharedTempDir, "patches-src")
+	tempFile := filepath.Join(tempWorkingDir, filepath.FromSlash(basePath))
+	if err := os.MkdirAll(filepath.Dir(tempFile), 0o777); err != nil {
+		return nil, err
+	}
+
+	srcBytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeFileExclusive(tempFile, srcBytes); err != nil {
+		return nil, err
+	}
+
+	for _, patch := range filePatches {
+		cmd := exec.Command("git", "-C", tempWorkingDir, "apply")
+		cmd.Stdin = strings.NewReader(replacePatchVars(patch))
+		if err := cmd.Run(); err != nil {
+			// TODO(pagran): Workaround for applying >1 patches on 1 file, need to find a more correct way
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				if exitErr.ExitCode() != 1 {
+					return nil, err
+				}
+			} else {
+				return nil, err
+			}
+		}
+	}
+	return os.ReadFile(tempFile)
+}
+
 func transformCompile(args []string) ([]string, error) {
 	var err error
 	flags, paths := splitFlagsFromFiles(args, ".go")
@@ -830,7 +895,11 @@ func transformCompile(args []string) ([]string, error) {
 
 	var files []*ast.File
 	for _, path := range paths {
-		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution|parser.ParseComments)
+		src, err := applyPatches(path)
+		if err != nil {
+			return nil, fmt.Errorf("apply patches for %s failed: %v", path, err)
+		}
+		file, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution|parser.ParseComments)
 		if err != nil {
 			return nil, err
 		}
@@ -883,15 +952,10 @@ func transformCompile(args []string) ([]string, error) {
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
 		log.Printf("obfuscating %s", basename)
-		if curPkg.ImportPath == "runtime" {
-			if flagTiny {
-				// strip unneeded runtime code
-				stripRuntime(basename, file)
-				tf.removeUnnecessaryImports(file)
-			}
-			if basename == "symtab.go" {
-				updateMagicValue(file, magicValue())
-			}
+		if curPkg.ImportPath == "runtime" && flagTiny {
+			// strip unneeded runtime code
+			stripRuntime(basename, file)
+			tf.removeUnnecessaryImports(file)
 		}
 		tf.handleDirectives(file.Comments)
 		file = tf.transformGo(file)

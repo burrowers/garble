@@ -9,9 +9,9 @@ import (
 	"io/fs"
 )
 
-func LoadPatches(patchesFs fs.FS) (string, map[string]*bytes.Reader, error) {
+func LoadPatches(patchesFs fs.FS) (string, map[string][]string, error) {
 	versionHash := sha256.New()
-	patches := make(map[string]*bytes.Reader)
+	patches := make(map[string][]string)
 	err := fs.WalkDir(patchesFs, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -30,16 +30,13 @@ func LoadPatches(patchesFs fs.FS) (string, map[string]*bytes.Reader, error) {
 			return err
 		}
 
-		reader := bytes.NewReader(patchBuf.Bytes())
-		if _, err := reader.WriteTo(versionHash); err != nil {
+		patchBytes := patchBuf.Bytes()
+
+		if _, err := versionHash.Write(patchBytes); err != nil {
 			return err
 		}
 
-		if _, err := reader.Seek(0, io.SeekStart); err != nil {
-			return err
-		}
-
-		files, _, err := gitdiff.Parse(reader)
+		files, _, err := gitdiff.Parse(bytes.NewReader(patchBytes))
 		if err != nil {
 			return err
 		}
@@ -48,10 +45,11 @@ func LoadPatches(patchesFs fs.FS) (string, map[string]*bytes.Reader, error) {
 				panic("delete and rename patch not supported")
 			}
 
-			if _, err := reader.Seek(0, io.SeekStart); err != nil {
-				return err
+			if _, ok := patches[file.OldName]; !ok {
+				patches[file.OldName] = []string{string(patchBytes)}
+			} else {
+				patches[file.OldName] = append(patches[file.OldName], string(patchBytes))
 			}
-			patches[file.OldName] = reader
 		}
 		return nil
 	})

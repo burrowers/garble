@@ -4,7 +4,6 @@
 package linker
 
 import (
-	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 const (
@@ -29,7 +29,7 @@ var (
 	linkerPatchesFs embed.FS
 
 	linkerPatchesVer string
-	linkerPatcher    map[string]*bytes.Reader
+	linkerPatches    map[string][]string
 
 	baseSrcSubdir = filepath.Join("src", "cmd")
 )
@@ -40,7 +40,7 @@ func init() {
 		panic(fmt.Errorf("cannot retrieve patches info: %v", err))
 	}
 	linkerPatchesVer = tmpVer
-	linkerPatcher = tmpPatches
+	linkerPatches = tmpPatches
 }
 
 func copyFile(src, target string) error {
@@ -71,29 +71,27 @@ func existsFile(path string) bool {
 	return !stat.IsDir()
 }
 
-func applyPatch(workingDirectory, oldPath, newPath string, patch *bytes.Reader) error {
+func applyPatch(workingDirectory, oldPath, newPath, patch string) error {
 	if err := copyFile(oldPath, newPath); err != nil {
 		return err
 	}
 
-	if _, err := patch.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-
 	cmd := exec.Command("git", "-C", workingDirectory, "apply")
-	cmd.Stdin = patch
+	cmd.Stdin = strings.NewReader(patch)
 	return cmd.Run()
 }
 
 func applyPatches(srcDirectory, workingDirectory string) (map[string]string, error) {
 	mod := make(map[string]string)
-	for fileName, patchReader := range linkerPatcher {
+	for fileName, filePatches := range linkerPatches {
 		oldPath := filepath.Join(srcDirectory, fileName)
 		newPath := filepath.Join(workingDirectory, fileName)
 		mod[oldPath] = newPath
 
-		if err := applyPatch(workingDirectory, oldPath, newPath, patchReader); err != nil {
-			return nil, fmt.Errorf("apply patch for %s failed: %v", fileName, err)
+		for _, patch := range filePatches {
+			if err := applyPatch(workingDirectory, oldPath, newPath, patch); err != nil {
+				return nil, fmt.Errorf("apply patch for %s failed: %v", fileName, err)
+			}
 		}
 	}
 	return mod, nil

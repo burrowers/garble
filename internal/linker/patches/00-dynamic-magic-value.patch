@@ -1,6 +1,6 @@
 diff --git a/link/internal/ld/pcln.go b/link/internal/ld/pcln.go
---- a/link/internal/ld/pcln.go	(revision 5fca05073d47a02f538df8fd097ab7eda751bc0d)
-+++ b/link/internal/ld/pcln.go	(date 1671799080000)
+--- a/link/internal/ld/pcln.go
++++ b/link/internal/ld/pcln.go
 @@ -239,6 +239,16 @@
  		if off != size {
  			panic(fmt.Sprintf("pcHeader size: %d != %d", off, size))
