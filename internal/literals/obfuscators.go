@@ -12,7 +12,7 @@ import (
 
 // obfuscator takes a byte slice and converts it to a ast.BlockStmt
 type obfuscator interface {
-	obfuscate(data []byte) *ast.BlockStmt
+	obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt
 }
 
 // obfuscators contains all types which implement the obfuscator Interface
@@ -24,33 +24,17 @@ var obfuscators = []obfuscator{
 	// seed{}, TODO: re-enable once https://go.dev/issue/47631 is fixed in Go 1.20
 }
 
-// If math/rand.Seed() is not called, the generator behaves as if seeded by rand.Seed(1),
-// so the generator is deterministic.
-
-// genRandBytes return a random []byte with the length of size.
-func genRandBytes(buffer []byte) {
-	if _, err := mathrand.Read(buffer); err != nil {
-		panic(fmt.Sprintf("couldn't generate random key:  %v", err))
-	}
-}
-
-func genRandByte() byte {
-	bytes := make([]byte, 1)
-	genRandBytes(bytes)
-	return bytes[0]
-}
-
-func genRandIntSlice(max, count int) []int {
+func genRandIntSlice(obfRand *mathrand.Rand, max, count int) []int {
 	indexes := make([]int, count)
 	for i := 0; i < count; i++ {
-		indexes[i] = mathrand.Intn(max)
+		indexes[i] = obfRand.Intn(max)
 	}
 	return indexes
 }
 
-func randOperator() token.Token {
+func randOperator(obfRand *mathrand.Rand) token.Token {
 	operatorTokens := [...]token.Token{token.XOR, token.ADD, token.SUB}
-	return operatorTokens[mathrand.Intn(len(operatorTokens))]
+	return operatorTokens[obfRand.Intn(len(operatorTokens))]
 }
 
 func evalOperator(t token.Token, x, y byte) byte {

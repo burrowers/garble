@@ -6,6 +6,7 @@ package literals
 import (
 	"go/ast"
 	"go/token"
+	mathrand "math/rand"
 
 	ah "mvdan.cc/garble/internal/asthelper"
 )
@@ -15,11 +16,11 @@ type simple struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = simple{}
 
-func (simple) obfuscate(data []byte) *ast.BlockStmt {
+func (simple) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 	key := make([]byte, len(data))
-	genRandBytes(key)
+	obfRand.Read(key)
 
-	op := randOperator()
+	op := randOperator(obfRand)
 	for i, b := range key {
 		data[i] = evalOperator(op, data[i], b)
 	}

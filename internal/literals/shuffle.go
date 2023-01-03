@@ -16,21 +16,21 @@ type shuffle struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = shuffle{}
 
-func (shuffle) obfuscate(data []byte) *ast.BlockStmt {
+func (shuffle) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 	key := make([]byte, len(data))
-	genRandBytes(key)
+	obfRand.Read(key)
 
 	fullData := make([]byte, len(data)+len(key))
 	operators := make([]token.Token, len(fullData))
 	for i := range operators {
-		operators[i] = randOperator()
+		operators[i] = randOperator(obfRand)
 	}
 
 	for i, b := range key {
 		fullData[i], fullData[i+len(data)] = evalOperator(operators[i], data[i], b), b
 	}
 
-	shuffledIdxs := mathrand.Perm(len(fullData))
+	shuffledIdxs := obfRand.Perm(len(fullData))
 
 	shuffledFullData := make([]byte, len(fullData))
 	for i, b := range fullData {
