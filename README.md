@@ -54,6 +54,7 @@ $ PATH=$(go1.17.1 env GOROOT)/bin:${PATH} garble build
 
 Using the `-literals` flag causes literal expressions such as strings to be
 replaced with more complex expressions, resolving to the same value at run-time.
+String literals injected via `-ldflags=-X` are also replaced by this flag.
 This feature is opt-in, as it can cause slow-downs depending on the input code.
 
 Literals used in constant expressions cannot be obfuscated, since they are
