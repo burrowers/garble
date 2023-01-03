@@ -167,16 +167,6 @@ func buildidOf(path string) (string, error) {
 	return string(out), nil
 }
 
-const (
-	// At most we'll need maxHashLength (15) base64 characters,
-	// so 12 checksum bytes are enough for that purpose, rounding up.
-	neededSumBytes = 12
-
-	minHashLength   = 8
-	maxHashLength   = 15
-	hashLengthRange = maxHashLength - minHashLength
-)
-
 var (
 	// Hashed names are base64-encoded.
 	// Go names can only be letters, numbers, and underscores.
@@ -269,6 +259,9 @@ func hashWithCustomSalt(salt []byte, name string) string {
 	// somewhere between minHashLength and maxHashLength.
 	const minHashLength = 8
 	const maxHashLength = 15
+	// At most we'll need maxHashLength (15) base64 characters,
+	// so 12 checksum bytes are enough for that purpose, rounding up.
+	const neededSumBytes = 12
 
 	hasher.Reset()
 	hasher.Write(salt)
