@@ -5,7 +5,7 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
@@ -78,7 +78,7 @@ func (f seedFlag) String() string {
 func (f *seedFlag) Set(s string) error {
 	if s == "random" {
 		f.bytes = make([]byte, 16) // random 128 bit seed
-		if _, err := rand.Read(f.bytes); err != nil {
+		if _, err := cryptorand.Read(f.bytes); err != nil {
 			return fmt.Errorf("error generating random seed: %v", err)
 		}
 	} else {
@@ -90,6 +90,8 @@ func (f *seedFlag) Set(s string) error {
 			return fmt.Errorf("error decoding seed: %v", err)
 		}
 
+		// TODO: Note that we always use 8 bytes; any bytes after that are
+		// entirely ignored. That may be confusing to the end user.
 		if len(seed) < 8 {
 			return fmt.Errorf("-seed needs at least 8 bytes, have %d", len(seed))
 		}
@@ -151,6 +153,13 @@ var (
 
 	// Basic information about the package being currently compiled or linked.
 	curPkg *listedPackage
+
+	// obfRand is initialized by transformCompile and used during obfuscation.
+	// It is left nil at init time, so that we only use it after it has been
+	// properly initialized with a deterministic seed.
+	// It must only be used for deterministic obfuscation;
+	// if it is used for any other purpose, we may lose determinism.
+	obfRand *mathrand.Rand
 )
 
 type importerWithMap func(path, dir string, mode types.ImportMode) (*types.Package, error)
@@ -848,7 +857,7 @@ func transformCompile(args []string) ([]string, error) {
 		randSeed = flagSeed.bytes
 	}
 	// log.Printf("seeding math/rand with %x\n", randSeed)
-	mathrand.Seed(int64(binary.BigEndian.Uint64(randSeed)))
+	obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
 
 	if err := tf.prefillObjectMaps(files); err != nil {
 		return nil, err
@@ -1652,7 +1661,7 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && curPkg.ToObfuscate {
-		file = literals.Obfuscate(file, tf.info, fset, tf.linkerVariableStrings)
+		file = literals.Obfuscate(obfRand, file, tf.info, tf.linkerVariableStrings)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
 		tf.removeUnnecessaryImports(file)

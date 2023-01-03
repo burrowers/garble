@@ -28,13 +28,8 @@ import (
 // should largely stop being used.
 const maxSizeBytes = 2 << 10 // KiB
 
-func randObfuscator() obfuscator {
-	randPos := mathrand.Intn(len(obfuscators))
-	return obfuscators[randPos]
-}
-
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkStrings map[*types.Var]string) *ast.File {
+func Obfuscate(obfRand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string) *ast.File {
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.GenDecl:
@@ -72,7 +67,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 				return true
 			}
 
-			cursor.Replace(withPos(obfuscateString(value), node.Pos()))
+			cursor.Replace(withPos(obfuscateString(obfRand, value), node.Pos()))
 
 			return true
 		}
@@ -89,7 +84,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 			}
 
 			if child, ok := node.X.(*ast.CompositeLit); ok {
-				newnode := handleCompositeLiteral(true, child, info)
+				newnode := handleCompositeLiteral(obfRand, true, child, info)
 				if newnode != nil {
 					cursor.Replace(newnode)
 				}
@@ -108,7 +103,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 				return true
 			}
 
-			newnode := handleCompositeLiteral(false, node, info)
+			newnode := handleCompositeLiteral(obfRand, false, node, info)
 			if newnode != nil {
 				cursor.Replace(newnode)
 			}
@@ -126,7 +121,7 @@ func Obfuscate(file *ast.File, info *types.Info, fset *token.FileSet, linkString
 //
 // If the input is not a byte slice or array, the node is returned as-is and
 // the second return value will be false.
-func handleCompositeLiteral(isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
+func handleCompositeLiteral(obfRand *mathrand.Rand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
 	if len(node.Elts) == 0 || len(node.Elts) > maxSizeBytes {
 		return nil
 	}
@@ -169,10 +164,10 @@ func handleCompositeLiteral(isPointer bool, node *ast.CompositeLit, info *types.
 	}
 
 	if arrayLen > 0 {
-		return withPos(obfuscateByteArray(isPointer, data, arrayLen), node.Pos())
+		return withPos(obfuscateByteArray(obfRand, isPointer, data, arrayLen), node.Pos())
 	}
 
-	return withPos(obfuscateByteSlice(isPointer, data), node.Pos())
+	return withPos(obfuscateByteSlice(obfRand, isPointer, data), node.Pos())
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.
@@ -220,18 +215,18 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 	return node
 }
 
-func obfuscateString(data string) *ast.CallExpr {
-	obfuscator := randObfuscator()
-	block := obfuscator.obfuscate([]byte(data))
+func obfuscateString(obfRand *mathrand.Rand, data string) *ast.CallExpr {
+	obfuscator := obfuscators[obfRand.Intn(len(obfuscators))]
+	block := obfuscator.obfuscate(obfRand, []byte(data))
 
 	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent("string"), ast.NewIdent("data"))))
 
 	return ah.LambdaCall(ast.NewIdent("string"), block)
 }
 
-func obfuscateByteSlice(isPointer bool, data []byte) *ast.CallExpr {
-	obfuscator := randObfuscator()
-	block := obfuscator.obfuscate(data)
+func obfuscateByteSlice(obfRand *mathrand.Rand, isPointer bool, data []byte) *ast.CallExpr {
+	obfuscator := obfuscators[obfRand.Intn(len(obfuscators))]
+	block := obfuscator.obfuscate(obfRand, data)
 
 	if isPointer {
 		block.List = append(block.List, ah.ReturnStmt(&ast.UnaryExpr{
@@ -247,9 +242,9 @@ func obfuscateByteSlice(isPointer bool, data []byte) *ast.CallExpr {
 	return ah.LambdaCall(&ast.ArrayType{Elt: ast.NewIdent("byte")}, block)
 }
 
-func obfuscateByteArray(isPointer bool, data []byte, length int64) *ast.CallExpr {
-	obfuscator := randObfuscator()
-	block := obfuscator.obfuscate(data)
+func obfuscateByteArray(obfRand *mathrand.Rand, isPointer bool, data []byte, length int64) *ast.CallExpr {
+	obfuscator := obfuscators[obfRand.Intn(len(obfuscators))]
+	block := obfuscator.obfuscate(obfRand, data)
 
 	arrayType := &ast.ArrayType{
 		Len: ah.IntLit(int(length)),
