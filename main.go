@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"log"
 	mathrand "math/rand"
+	"mvdan.cc/garble/internal/linker"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -436,7 +437,20 @@ func mainErr(args []string) error {
 		} else {
 			log.Printf("skipping transform on %s with args: %s", tool, strings.Join(transformed, " "))
 		}
-		cmd := exec.Command(args[0], transformed...)
+
+		executablePath := args[0]
+		if tool == "link" {
+			modifiedLinkPath, err := linker.GetModifiedLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, cache.GoEnv.GOEXE, sharedTempDir)
+			if err != nil {
+				return fmt.Errorf("cannot get modified linker: %v", err)
+			}
+			executablePath = modifiedLinkPath
+			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
+
+			log.Printf("replace link path to: %s", executablePath)
+		}
+
+		cmd := exec.Command(executablePath, transformed...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -878,10 +892,15 @@ func transformCompile(args []string) ([]string, error) {
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
 		log.Printf("obfuscating %s", basename)
-		if curPkg.ImportPath == "runtime" && flagTiny {
-			// strip unneeded runtime code
-			stripRuntime(basename, file)
-			tf.removeUnnecessaryImports(file)
+		if curPkg.ImportPath == "runtime" {
+			if flagTiny {
+				// strip unneeded runtime code
+				stripRuntime(basename, file)
+				tf.removeUnnecessaryImports(file)
+			}
+			if basename == "symtab.go" {
+				updateMagicValue(file, magicValue())
+			}
 		}
 		tf.handleDirectives(file.Comments)
 		file = tf.transformGo(file)
@@ -2211,7 +2230,7 @@ func flagSetValue(flags []string, name, value string) []string {
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
 		// Keep in sync with sharedCache.GoEnv.
-		"GOOS", "GOMOD", "GOVERSION",
+		"GOOS", "GOMOD", "GOVERSION", "GOROOT", "GOEXE",
 	).CombinedOutput()
 	if err != nil {
 		// TODO: cover this in the tests.

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"go/token"
 	"go/types"
@@ -188,6 +189,19 @@ func isLower(b byte) bool { return 'a' <= b && b <= 'z' }
 func isUpper(b byte) bool { return 'A' <= b && b <= 'Z' }
 func toLower(b byte) byte { return b + ('a' - 'A') }
 func toUpper(b byte) byte { return b - ('a' - 'A') }
+
+// magicValue returns random magic value based
+// on user specified seed or runtime.GarbleActionID
+func magicValue() uint32 {
+	hasher.Reset()
+	if !flagSeed.present() {
+		hasher.Write(cache.ListedPackages["runtime"].GarbleActionID)
+	} else {
+		hasher.Write(flagSeed.bytes)
+	}
+	sum := hasher.Sum(sumBuffer[:0])
+	return binary.LittleEndian.Uint32(sum)
+}
 
 func hashWithPackage(pkg *listedPackage, name string) string {
 	if !flagSeed.present() {

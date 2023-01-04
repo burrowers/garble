@@ -50,6 +50,8 @@ type sharedCache struct {
 
 		GOMOD     string
 		GOVERSION string
+		GOROOT    string
+		GOEXE     string
 	}
 }
 
