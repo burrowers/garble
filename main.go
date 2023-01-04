@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	cryptorand "crypto/rand"
+	"embed"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
