@@ -77,6 +77,10 @@ func applyPatches(srcDirectory, workingDirectory string) (map[string]string, err
 		newPath := filepath.Join(workingDirectory, fileName)
 		mod[oldPath] = newPath
 
+		if err := copyFile(oldPath, newPath); err != nil {
+			return nil, err
+		}
+
 		if err := patches.ApplyPatch(workingDirectory, patch); err != nil {
 			return nil, fmt.Errorf("apply patch for %s failed: %v", fileName, err)
 		}
@@ -134,7 +138,11 @@ func compileLinker(workingDirectory string, overlay map[string]string, outputLin
 		return err
 	}
 
-	cmd := exec.Command("go", "build", "-overlay", overlayPath, "-o", outputLinkPath, "cmd/link")
+	// Compile to temporary file for safe working with garble running in parallel multiple times first time
+	tmpOutputLinkPath := fmt.Sprintf("%s.%d", outputLinkPath, os.Getpid())
+	defer os.Remove(tmpOutputLinkPath)
+
+	cmd := exec.Command("go", "build", "-overlay", overlayPath, "-o", tmpOutputLinkPath, "cmd/link")
 	// Explicitly setting GOOS and GOARCH variables prevents conflicts during cross-build
 	cmd.Env = append(os.Environ(), "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
 
@@ -142,7 +150,8 @@ func compileLinker(workingDirectory string, overlay map[string]string, outputLin
 	if err != nil {
 		return fmt.Errorf("compiler compile error: %v\n\n%s", err, string(out))
 	}
-	return nil
+
+	return os.Rename(tmpOutputLinkPath, outputLinkPath)
 }
 
 func GetModifiedLinker(goRoot, goVersion, goExe, tempDirectory string) (string, error) {
