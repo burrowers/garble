@@ -824,13 +824,11 @@ func writeSourceFile(basename, obfuscated string, content []byte) (string, error
 
 var (
 	//go:embed patches/*.patch
-	garblePatchesFs embed.FS
-	garblePatches   map[string][]string
+	runtimePatchesFs embed.FS
+	runtimePatches   map[string]string
+	magicValueRegexp = regexp.MustCompile("(?i)0xfffffff[1-9a-f]")
+	magicValue119    = []byte("0xfffffff0")
 )
-
-func replacePatchVars(patch string) string {
-	return strings.ReplaceAll(patch, "$GARBLE_MAGIC_VALUE", strconv.FormatUint(uint64(magicValue()), 10))
-}
 
 // applyPatches apply patches to incoming source file using `git apply` command
 // and return the contents of modified file
@@ -840,16 +838,17 @@ func replacePatchVars(patch string) string {
 //
 // TODO(pagran): Applying `git apply` forces to save file to disk temporarily and read it after applying the patch. Need to rewrite
 func applyPatches(path string) (interface{}, error) {
-	if garblePatches == nil {
-		_, patchesTmp, err := patches.LoadPatches(garblePatchesFs)
+	if runtimePatches == nil {
+		_, tmpPatch, err := patches.LoadPatches(runtimePatchesFs)
 		if err != nil {
 			return nil, err
 		}
-		garblePatches = patchesTmp
+		runtimePatches = tmpPatch
 	}
 
-	basePath := curPkg.ImportPath + "/" + filepath.Base(path)
-	filePatches, ok := garblePatches[basePath]
+	baseName := filepath.Base(path)
+	basePath := curPkg.ImportPath + "/" + baseName
+	patch, ok := runtimePatches[basePath]
 	if !ok {
 		return nil, nil
 	}
@@ -864,24 +863,24 @@ func applyPatches(path string) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Special case for dynamic magic value injection
+	if baseName == "symtab.go" {
+		// Normalizing magic value to support different versions of go
+		srcBytes = magicValueRegexp.ReplaceAll(srcBytes, magicValue119)
+		srcBytes = append(srcBytes, fmt.Sprintf(
+			"\nconst garbleMagicValue uint32 = %d\n", magicValue(),
+		)...)
+	}
+
 	if err := writeFileExclusive(tempFile, srcBytes); err != nil {
 		return nil, err
 	}
 
-	for _, patch := range filePatches {
-		cmd := exec.Command("git", "-C", tempWorkingDir, "apply")
-		cmd.Stdin = strings.NewReader(replacePatchVars(patch))
-		if err := cmd.Run(); err != nil {
-			// TODO(pagran): Workaround for applying >1 patches on 1 file, need to find a more correct way
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				if exitErr.ExitCode() != 1 {
-					return nil, err
-				}
-			} else {
-				return nil, err
-			}
-		}
+	if err := patches.ApplyPatch(tempWorkingDir, patch); err != nil {
+		return nil, err
 	}
+
 	return os.ReadFile(tempFile)
 }
 

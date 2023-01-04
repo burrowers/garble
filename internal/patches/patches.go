@@ -7,11 +7,13 @@ import (
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 	"io"
 	"io/fs"
+	"os/exec"
+	"strings"
 )
 
-func LoadPatches(patchesFs fs.FS) (string, map[string][]string, error) {
+func LoadPatches(patchesFs fs.FS) (string, map[string]string, error) {
 	versionHash := sha256.New()
-	patches := make(map[string][]string)
+	patches := make(map[string]string)
 	err := fs.WalkDir(patchesFs, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -45,11 +47,7 @@ func LoadPatches(patchesFs fs.FS) (string, map[string][]string, error) {
 				panic("delete and rename patch not supported")
 			}
 
-			if _, ok := patches[file.OldName]; !ok {
-				patches[file.OldName] = []string{string(patchBytes)}
-			} else {
-				patches[file.OldName] = append(patches[file.OldName], string(patchBytes))
-			}
+			patches[file.OldName] = string(patchBytes)
 		}
 		return nil
 	})
@@ -58,4 +56,10 @@ func LoadPatches(patchesFs fs.FS) (string, map[string][]string, error) {
 		return "", nil, err
 	}
 	return base64.RawStdEncoding.EncodeToString(versionHash.Sum(nil)), patches, nil
+}
+
+func ApplyPatch(workingDirectory, patch string) error {
+	cmd := exec.Command("git", "-C", workingDirectory, "apply")
+	cmd.Stdin = strings.NewReader(patch)
+	return cmd.Run()
 }
