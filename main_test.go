@@ -231,9 +231,11 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 	}
 }
 
+var testRand = mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+
 func generateStringLit(size int) *ast.BasicLit {
 	buffer := make([]byte, size)
-	_, err := mathrand.Read(buffer)
+	_, err := testRand.Read(buffer)
 	if err != nil {
 		panic(err)
 	}
@@ -254,7 +256,7 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 	// Add 100 randomly small literals.
 	var statements []ast.Stmt
 	for i := 0; i < 100; i++ {
-		literal := generateStringLit(1 + mathrand.Intn(255))
+		literal := generateStringLit(1 + testRand.Intn(255))
 		statements = append(statements, &ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("_")},
 			Tok: token.ASSIGN,

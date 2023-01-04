@@ -23,14 +23,14 @@ type split struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = split{}
 
-func splitIntoRandomChunks(data []byte) [][]byte {
+func splitIntoRandomChunks(obfRand *mathrand.Rand, data []byte) [][]byte {
 	if len(data) == 1 {
 		return [][]byte{data}
 	}
 
 	var chunks [][]byte
 	for len(data) > 0 {
-		chunkSize := 1 + mathrand.Intn(maxChunkSize)
+		chunkSize := 1 + obfRand.Intn(maxChunkSize)
 		if chunkSize > len(data) {
 			chunkSize = len(data)
 		}
@@ -51,8 +51,8 @@ func splitIntoOneByteChunks(data []byte) [][]byte {
 
 // Shuffles the passed array and returns it back.
 // Applies for inline declaration of randomly shuffled statement arrays
-func shuffleStmts(stmts ...ast.Stmt) []ast.Stmt {
-	mathrand.Shuffle(len(stmts), func(i, j int) {
+func shuffleStmts(obfRand *mathrand.Rand, stmts ...ast.Stmt) []ast.Stmt {
+	obfRand.Shuffle(len(stmts), func(i, j int) {
 		stmts[i], stmts[j] = stmts[j], stmts[i]
 	})
 	return stmts
@@ -69,33 +69,33 @@ func encryptChunks(chunks [][]byte, op token.Token, key byte) {
 	}
 }
 
-func (split) obfuscate(data []byte) *ast.BlockStmt {
+func (split) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 	var chunks [][]byte
 	// Short arrays should be divided into single-byte fragments
 	if len(data)/maxChunkSize < minCaseCount {
 		chunks = splitIntoOneByteChunks(data)
 	} else {
-		chunks = splitIntoRandomChunks(data)
+		chunks = splitIntoRandomChunks(obfRand, data)
 	}
 
 	// Generate indexes for cases chunk count + 1 decrypt case + 1 exit case
-	indexes := mathrand.Perm(len(chunks) + 2)
+	indexes := obfRand.Perm(len(chunks) + 2)
 
-	decryptKeyInitial := genRandByte()
+	decryptKeyInitial := byte(obfRand.Uint32())
 	decryptKey := decryptKeyInitial
 	// Calculate decrypt key based on indexes and position. Ignore exit index
 	for i, index := range indexes[:len(indexes)-1] {
 		decryptKey ^= byte(index * i)
 	}
 
-	op := randOperator()
+	op := randOperator(obfRand)
 	encryptChunks(chunks, op, decryptKey)
 
 	decryptIndex := indexes[len(indexes)-2]
 	exitIndex := indexes[len(indexes)-1]
 	switchCases := []ast.Stmt{&ast.CaseClause{
 		List: []ast.Expr{ah.IntLit(decryptIndex)},
-		Body: shuffleStmts(
+		Body: shuffleStmts(obfRand,
 			&ast.AssignStmt{
 				Lhs: []ast.Expr{ast.NewIdent("i")},
 				Tok: token.ASSIGN,
@@ -142,7 +142,7 @@ func (split) obfuscate(data []byte) *ast.BlockStmt {
 
 		switchCases = append(switchCases, &ast.CaseClause{
 			List: []ast.Expr{ah.IntLit(index)},
-			Body: shuffleStmts(
+			Body: shuffleStmts(obfRand,
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{ast.NewIdent("i")},
 					Tok: token.ASSIGN,
@@ -206,7 +206,7 @@ func (split) obfuscate(data []byte) *ast.BlockStmt {
 				},
 				&ast.SwitchStmt{
 					Tag:  ast.NewIdent("i"),
-					Body: ah.BlockStmt(shuffleStmts(switchCases...)...),
+					Body: ah.BlockStmt(shuffleStmts(obfRand, switchCases...)...),
 				}),
 		},
 	)

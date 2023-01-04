@@ -6,6 +6,7 @@ package literals
 import (
 	"go/ast"
 	"go/token"
+	mathrand "math/rand"
 
 	ah "mvdan.cc/garble/internal/asthelper"
 )
@@ -15,11 +16,11 @@ type seed struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = seed{}
 
-func (seed) obfuscate(data []byte) *ast.BlockStmt {
-	seed := genRandByte()
+func (seed) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
+	seed := byte(obfRand.Uint32())
 	originalSeed := seed
 
-	op := randOperator()
+	op := randOperator(obfRand)
 
 	var callExpr *ast.CallExpr
 	for i, b := range data {
