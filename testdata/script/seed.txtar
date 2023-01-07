@@ -132,10 +132,10 @@ func mainFunc() {
 			var count [16]int
 			for _, name := range hashedNames {
 				name = name[len("main."):]
-				if len(name) < 8 {
+				if len(name) < 6 {
 					panic("ended up with a hashed name that's too short: "+name)
 				}
-				if len(name) > 15 {
+				if len(name) > 12 {
 					panic("ended up with a hashed name that's too long: "+name)
 				}
 				count[len(name)]++
