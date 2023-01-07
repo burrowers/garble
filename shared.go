@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -314,6 +315,10 @@ var cannotObfuscate = map[string]bool{
 
 var listedRuntimeLinknamed = false
 
+var ErrNotFound = errors.New("not found")
+
+var ErrNotDependency = errors.New("not a dependency")
+
 // listPackage gets the listedPackage information for a certain package
 func listPackage(path string) (*listedPackage, error) {
 	if path == curPkg.ImportPath {
@@ -396,7 +401,7 @@ func listPackage(path string) (*listedPackage, error) {
 		return pkg, nil
 	}
 	if !ok {
-		return nil, fmt.Errorf("path not found in listed packages: %s", path)
+		return nil, fmt.Errorf("list %s: %w", path, ErrNotFound)
 	}
 
 	// Packages other than runtime can list any package,
@@ -420,5 +425,5 @@ func listPackage(path string) (*listedPackage, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("refusing to list non-dependency package: %s", path)
+	return nil, fmt.Errorf("list %s: %w", path, ErrNotDependency)
 }
