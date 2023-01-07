@@ -177,7 +177,7 @@ var (
 	nameCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z"
 	nameBase64  = base64.NewEncoding(nameCharset).WithPadding(base64.NoPadding)
 
-	b64NameBuffer [16]byte // nameBase64.EncodedLen(neededSumBytes) = 16
+	b64NameBuffer [12]byte // nameBase64.EncodedLen(neededSumBytes) = 12
 )
 
 // These funcs mimic the unicode package API, but byte-based since we know
@@ -210,6 +210,51 @@ func hashWithStruct(strct *types.Struct, fieldName string) string {
 	return hashWithCustomSalt(fieldsSalt, fieldName)
 }
 
+// minHashLength and maxHashLength define the range for the number of base64
+// characters to use for the final hashed name.
+//
+// minHashLength needs to be long enough to realistically avoid hash collisions,
+// but maxHashLength should be short enough to not bloat binary sizes.
+// The namespace for collisions is generally a single package, since
+// that's where most hashed names are namespaced to.
+//
+// Using a "hash collision" formula, and taking a generous estimate of a
+// package having 10k names, we get the following probabilities.
+// Most packages will have far fewer names, but some packages are huge,
+// especially generated ones.
+//
+// We also have slightly fewer bits in practice, since the base64
+// charset has 'z' twice, and the first base64 char is coerced into a
+// valid Go identifier. So we must be conservative.
+// Remember that base64 stores 6 bits per encoded byte.
+// The probability numbers are approximated.
+//
+//	length (base64) | length (bits) | collision probability
+//	-------------------------------------------------------
+//	       4               24                   ~95%
+//	       5               30                    ~4%
+//	       6               36                 ~0.07%
+//	       7               42                ~0.001%
+//	       8               48              ~0.00001%
+//
+// We want collisions to be practically impossible, so the hashed names end up
+// with lengths evenly distributed between 6 and 12. Naively, this results in an
+// average length of 9, which has a chance well below 1 in a million even when a
+// package has thousands of obfuscated names.
+//
+// These numbers are also chosen to keep obfuscated binary sizes reasonable.
+// For example, increasing the average length of 9 by 1 results in roughly a 1%
+// increase in binary sizes.
+const (
+	minHashLength = 6
+	maxHashLength = 12
+
+	// At most we'll need maxHashLength base64 characters,
+	// so 9 checksum bytes are enough for that purpose,
+	// which is nameBase64.DecodedLen(12) being rounded up.
+	neededSumBytes = 9
+)
+
 // hashWithCustomSalt returns a hashed version of name,
 // including the provided salt as well as opts.Seed into the hash input.
 //
@@ -223,45 +268,6 @@ func hashWithCustomSalt(salt []byte, name string) string {
 	if name == "" {
 		panic("hashWithCustomSalt: empty name")
 	}
-
-	// minHashLength and maxHashLength define the range for the number of base64
-	// characters to use for the final hashed name.
-	//
-	// minHashLength needs to be long enough to realistically avoid hash collisions,
-	// but maxHashLength should be short enough to not bloat binary sizes.
-	// The namespace for collisions is generally a single package, since
-	// that's where most hashed names are namespaced to.
-	//
-	// Using a "hash collision" formula, and taking a generous estimate of a
-	// package having 10k names, we get the following probabilities.
-	// Most packages will have far fewer names, but some packages are huge,
-	// especially generated ones.
-	//
-	// We also have slightly fewer bits in practice, since the base64
-	// charset has 'z' twice, and the first base64 char is coerced into a
-	// valid Go identifier. So we must be conservative.
-	// Remember that base64 stores 6 bits per encoded byte.
-	// The probability numbers are approximated.
-	//
-	//    length (base64) | length (bits) | collision probability
-	//    -------------------------------------------------------
-	//           4               24                   ~95%
-	//           5               30                    ~4%
-	//           6               36                 ~0.07%
-	//           7               42                ~0.001%
-	//           8               48              ~0.00001%
-	//
-	// We want collisions to be practically impossible, so we choose 8 as
-	// minHashLength to end up with a chance of about 1 in a million even when a
-	// package has thousands of obfuscated names.
-	//
-	// In practice, the probability will be lower, as the lengths end up
-	// somewhere between minHashLength and maxHashLength.
-	const minHashLength = 8
-	const maxHashLength = 15
-	// At most we'll need maxHashLength (15) base64 characters,
-	// so 12 checksum bytes are enough for that purpose, rounding up.
-	const neededSumBytes = 12
 
 	hasher.Reset()
 	hasher.Write(salt)
