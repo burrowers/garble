@@ -1726,10 +1726,10 @@ func (tf *transformer) transformGo(file *ast.File) *ast.File {
 					}
 				}
 				tname, ok := pkg2.Scope().Lookup(aliasTypeName.Name).(*types.TypeName)
-				if !ok || !tname.IsAlias() {
-					if !ok {
-						panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
-					}
+				if !ok {
+					panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
+				}
+				if !tname.IsAlias() {
 					panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a non-alias type %q", vrStr, aliasTypeName))
 				}
 				obj = tname
