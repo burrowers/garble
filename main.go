@@ -403,31 +403,32 @@ func mainErr(args []string) error {
 		return cmd.Run()
 
 	case "toolexec":
-		// We're in a toolexec sub-process, not directly called by the user.
-		// Load the shared data and wrap the tool, like the compiler or linker.
-		if err := loadSharedCache(); err != nil {
-			return err
-		}
-
 		_, tool := filepath.Split(args[0])
 		if runtime.GOOS == "windows" {
 			tool = strings.TrimSuffix(tool, ".exe")
 		}
-		if len(args) == 2 && args[1] == "-V=full" {
-			return alterToolVersion(tool, args)
-		}
-
-		toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
-		curPkg = cache.ListedPackages[toolexecImportPath]
-		if curPkg == nil {
-			return fmt.Errorf("TOOLEXEC_IMPORTPATH not found in listed packages: %s", toolexecImportPath)
-		}
-
 		transform := transformFuncs[tool]
 		transformed := args[1:]
 		if transform != nil {
 			startTime := time.Now()
 			log.Printf("transforming %s with args: %s", tool, strings.Join(transformed, " "))
+
+			// We're in a toolexec sub-process, not directly called by the user.
+			// Load the shared data and wrap the tool, like the compiler or linker.
+			if err := loadSharedCache(); err != nil {
+				return err
+			}
+
+			if len(args) == 2 && args[1] == "-V=full" {
+				return alterToolVersion(tool, args)
+			}
+
+			toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
+			curPkg = cache.ListedPackages[toolexecImportPath]
+			if curPkg == nil {
+				return fmt.Errorf("TOOLEXEC_IMPORTPATH not found in listed packages: %s", toolexecImportPath)
+			}
+
 			var err error
 			if transformed, err = transform(transformed); err != nil {
 				return err
