@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
-	"github.com/gofrs/flock"
+	"github.com/rogpeppe/go-internal/lockedfile"
 	"io"
 	"io/fs"
 	"os"
@@ -22,54 +22,34 @@ import (
 )
 
 const (
-	MagicValueEnv = "GARBLE_LNK_MAGIC"
+	MagicValueEnv = "GARBLE_LINKER_MAGIC"
 
-	cacheDirName   = ".garble"
+	cacheDirName   = "garble"
 	versionExt     = ".version"
 	garbleCacheDir = "GARBLE_CACHE_DIR"
+	baseSrcSubdir  = "src"
 )
 
 var (
 	//go:embed patches/*.patch
-	linkerPatchesFs embed.FS
-
-	linkerPatchesVer string
-	linkerPatches    map[string]string
-
-	baseSrcSubdir = filepath.Join("src", "cmd")
+	linkerPatchesFS embed.FS
 )
 
-func init() {
-	tmpVer, tmpPatch, err := loadPatches(linkerPatchesFs)
-	if err != nil {
-		panic(fmt.Errorf("cannot retrieve patches info: %v", err))
-	}
-	linkerPatchesVer = tmpVer
-	linkerPatches = tmpPatch
-}
-
-func loadPatches(patchesFs fs.FS) (string, map[string]string, error) {
+func loadLinkerPatches() (string, map[string]string, error) {
 	versionHash := sha256.New()
 	patches := make(map[string]string)
-	err := fs.WalkDir(patchesFs, ".", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(linkerPatchesFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			return nil
 		}
-		f, err := patchesFs.Open(path)
+
+		patchBytes, err := linkerPatchesFS.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-
-		var patchBuf bytes.Buffer
-		if _, err := io.Copy(&patchBuf, f); err != nil {
-			return err
-		}
-
-		patchBytes := patchBuf.Bytes()
 
 		if _, err := versionHash.Write(patchBytes); err != nil {
 			return err
@@ -80,10 +60,9 @@ func loadPatches(patchesFs fs.FS) (string, map[string]string, error) {
 			return err
 		}
 		for _, file := range files {
-			if file.IsDelete || file.IsRename {
-				panic("delete and rename patch not supported")
+			if file.IsNew || file.IsDelete || file.IsCopy || file.IsRename {
+				panic("only modification patch is supported")
 			}
-
 			patches[file.OldName] = string(patchBytes)
 		}
 		return nil
@@ -95,6 +74,8 @@ func loadPatches(patchesFs fs.FS) (string, map[string]string, error) {
 	return base64.RawStdEncoding.EncodeToString(versionHash.Sum(nil)), patches, nil
 }
 
+// TODO(pagran): Remove git dependency in future
+// more information in README.md
 func applyPatch(workingDirectory, patch string) error {
 	cmd := exec.Command("git", "-C", workingDirectory, "apply")
 	cmd.Stdin = strings.NewReader(patch)
@@ -103,7 +84,7 @@ func applyPatch(workingDirectory, patch string) error {
 
 func copyFile(src, target string) error {
 	targetDir := filepath.Dir(target)
-	if err := os.MkdirAll(targetDir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(targetDir, 0o777); err != nil {
 		return err
 	}
 	srcFile, err := os.Open(src)
@@ -121,7 +102,7 @@ func copyFile(src, target string) error {
 	return err
 }
 
-func existsFile(path string) bool {
+func fileExists(path string) bool {
 	stat, err := os.Stat(path)
 	if err != nil {
 		return false
@@ -129,9 +110,9 @@ func existsFile(path string) bool {
 	return !stat.IsDir()
 }
 
-func applyPatches(srcDirectory, workingDirectory string) (map[string]string, error) {
+func applyPatches(srcDirectory, workingDirectory string, patches map[string]string) (map[string]string, error) {
 	mod := make(map[string]string)
-	for fileName, patch := range linkerPatches {
+	for fileName, patch := range patches {
 		oldPath := filepath.Join(srcDirectory, fileName)
 		newPath := filepath.Join(workingDirectory, fileName)
 		mod[oldPath] = newPath
@@ -160,18 +141,23 @@ func cachePath(goExe string) (string, error) {
 	}
 
 	cacheDir = filepath.Join(cacheDir, cacheDirName)
-	if err := os.MkdirAll(cacheDir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o777); err != nil {
 		return "", err
 	}
 
+	// Note that we only keep one patched and built linker in the cache.
+	// If the user switches between Go versions or garble versions often,
+	// this may result in rebuilds since we don't keep multiple binaries in the cache.
+	// We can consider keeping multiple versions of the binary in our cache in the future,
+	// similar to how GOCACHE works with multiple built versions of the same package.
 	return filepath.Join(cacheDir, "link"+goExe), nil
 }
 
-func getCurrentVersion(goVersion string) string {
-	return linkerPatchesVer + " " + goVersion
+func getCurrentVersion(goVersion, patchesVer string) string {
+	return goVersion + " " + patchesVer
 }
 
-func checkVersion(linkerPath, goVersion string) (bool, error) {
+func checkVersion(linkerPath, goVersion, patchesVer string) (bool, error) {
 	versionPath := linkerPath + versionExt
 	version, err := os.ReadFile(versionPath)
 	if os.IsNotExist(err) {
@@ -181,25 +167,21 @@ func checkVersion(linkerPath, goVersion string) (bool, error) {
 		return false, err
 	}
 
-	return string(version) == getCurrentVersion(goVersion), nil
+	return string(version) == getCurrentVersion(goVersion, patchesVer), nil
 }
 
-func writeVersion(linkerPath, goVersion string) error {
+func writeVersion(linkerPath, goVersion, patchesVer string) error {
 	versionPath := linkerPath + versionExt
-	return os.WriteFile(versionPath, []byte(getCurrentVersion(goVersion)), os.ModePerm)
-}
-
-type overlayFile struct {
-	Replace map[string]string
+	return os.WriteFile(versionPath, []byte(getCurrentVersion(goVersion, patchesVer)), 0o777)
 }
 
 func compileLinker(workingDirectory string, overlay map[string]string, outputLinkPath string) error {
-	file, err := json.Marshal(&overlayFile{Replace: overlay})
+	file, err := json.Marshal(&struct{ Replace map[string]string }{overlay})
 	if err != nil {
 		return err
 	}
 	overlayPath := filepath.Join(workingDirectory, "overlay.json")
-	if err := os.WriteFile(overlayPath, file, os.ModePerm); err != nil {
+	if err := os.WriteFile(overlayPath, file, 0o777); err != nil {
 		return err
 	}
 
@@ -215,48 +197,43 @@ func compileLinker(workingDirectory string, overlay map[string]string, outputLin
 	return nil
 }
 
-func GetModifiedLinker(goRoot, goVersion, goExe, tempDirectory string) (string, error) {
+func PatchLinker(goRoot, goVersion, goExe, tempDirectory string) (string, error) {
+	patchesVer, patches, err := loadLinkerPatches()
+	if err != nil {
+		panic(fmt.Errorf("cannot retrieve linker patches: %v", err))
+	}
+
 	outputLinkPath, err := cachePath(goExe)
 	if err != nil {
 		return "", err
 	}
 
-	// Used for double check. Quick check before filelock and safe check after filelock.
-	checkLinker := func() (bool, error) {
-		isCorrectVer, err := checkVersion(outputLinkPath, goVersion)
-		if err != nil {
-			return false, err
-		}
-		return isCorrectVer && existsFile(outputLinkPath), nil
-	}
-
-	isCorrectVer, err := checkLinker()
-	if isCorrectVer || err != nil {
-		return outputLinkPath, err
-	}
-
-	fileLock := flock.New(outputLinkPath + ".lock")
-	if err := fileLock.Lock(); err != nil {
+	mutex := lockedfile.MutexAt(outputLinkPath + ".lock")
+	unlock, err := mutex.Lock()
+	if err != nil {
 		return "", err
 	}
-	defer fileLock.Unlock()
+	defer unlock()
 
-	isCorrectVer, err = checkLinker()
-	if isCorrectVer || err != nil {
-		return outputLinkPath, err
+	isCorrectVer, err := checkVersion(outputLinkPath, goVersion, patchesVer)
+	if err != nil {
+		return "", err
+	}
+	if isCorrectVer && fileExists(outputLinkPath) {
+		return outputLinkPath, nil
 	}
 
 	srcDir := filepath.Join(goRoot, baseSrcSubdir)
 	workingDirectory := filepath.Join(tempDirectory, "linker-src")
 
-	overlay, err := applyPatches(srcDir, workingDirectory)
+	overlay, err := applyPatches(srcDir, workingDirectory, patches)
 	if err != nil {
 		return "", err
 	}
 	if err := compileLinker(workingDirectory, overlay, outputLinkPath); err != nil {
 		return "", err
 	}
-	if err := writeVersion(outputLinkPath, goVersion); err != nil {
+	if err := writeVersion(outputLinkPath, goVersion, patchesVer); err != nil {
 		return "", err
 	}
 	return outputLinkPath, nil

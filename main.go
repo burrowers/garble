@@ -22,7 +22,6 @@ import (
 	"io/fs"
 	"log"
 	mathrand "math/rand"
-	"mvdan.cc/garble/internal/linker"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +40,7 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 
+	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
 )
 
@@ -440,14 +440,14 @@ func mainErr(args []string) error {
 
 		executablePath := args[0]
 		if tool == "link" {
-			modifiedLinkPath, err := linker.GetModifiedLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, cache.GoEnv.GOEXE, sharedTempDir)
+			modifiedLinkPath, err := linker.PatchLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, cache.GoEnv.GOEXE, sharedTempDir)
 			if err != nil {
 				return fmt.Errorf("cannot get modified linker: %v", err)
 			}
 			executablePath = modifiedLinkPath
 			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
 
-			log.Printf("replace link path to: %s", executablePath)
+			log.Printf("replaced linker with: %s", executablePath)
 		}
 
 		cmd := exec.Command(executablePath, transformed...)

@@ -191,7 +191,7 @@ func toLower(b byte) byte { return b + ('a' - 'A') }
 func toUpper(b byte) byte { return b - ('a' - 'A') }
 
 // magicValue returns random magic value based
-// on user specified seed or runtime.GarbleActionID
+// on user specified seed or the runtime package's GarbleActionID.
 func magicValue() uint32 {
 	hasher.Reset()
 	if !flagSeed.present() {

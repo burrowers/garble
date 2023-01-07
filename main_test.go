@@ -61,6 +61,11 @@ func TestScript(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	userCacheDir, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	p := testscript.Params{
 		Dir: filepath.Join("testdata", "script"),
 		Setup: func(env *testscript.Env) error {
@@ -86,7 +91,7 @@ func TestScript(t *testing.T) {
 
 				"gofullversion="+runtime.Version(),
 				"EXEC_PATH="+execPath,
-				"GARBLE_CACHE_DIR="+filepath.Join(filepath.Dir(env.WorkDir), "garble-cache-tmp"),
+				"GARBLE_CACHE_DIR="+userCacheDir,
 			)
 
 			if os.Getenv("TESTSCRIPT_COVER_DIR") != "" {
