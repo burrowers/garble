@@ -1006,12 +1006,11 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 	lpkg, err := listPackage(pkgPath)
 	if err != nil {
-		// TODO(mvdan): use errors.As or errors.Is instead
-		if strings.Contains(err.Error(), "path not found") {
+		if errors.Is(err, ErrNotFound) {
 			// Probably a made up name like above, but with a dot.
 			return localName, newName
 		}
-		if strings.Contains(err.Error(), "refusing to list") {
+		if errors.Is(err, ErrNotDependency) {
 			fmt.Fprintf(os.Stderr,
 				"//go:linkname refers to %s - add `import _ %q` so garble can find the package",
 				newName, pkgPath)
