@@ -438,12 +438,21 @@ func mainErr(args []string) error {
 			log.Printf("skipping transform on %s with args: %s", tool, strings.Join(transformed, " "))
 		}
 
+		var linkUnlock func()
+		defer func() {
+			if linkUnlock != nil {
+				linkUnlock()
+			}
+		}()
+
 		executablePath := args[0]
 		if tool == "link" {
-			modifiedLinkPath, err := linker.PatchLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, cache.GoEnv.GOEXE, sharedTempDir)
+			modifiedLinkPath, unlock, err := linker.PatchLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, cache.GoEnv.GOEXE, sharedTempDir)
 			if err != nil {
 				return fmt.Errorf("cannot get modified linker: %v", err)
 			}
+
+			linkUnlock = unlock
 			executablePath = modifiedLinkPath
 			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
 

@@ -198,7 +198,7 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 	return nil
 }
 
-func PatchLinker(goRoot, goVersion, goExe, tempDir string) (string, error) {
+func PatchLinker(goRoot, goVersion, goExe, tempDir string) (string, func(), error) {
 	patchesVer, patches, err := loadLinkerPatches()
 	if err != nil {
 		panic(fmt.Errorf("cannot retrieve linker patches: %v", err))
@@ -206,22 +206,30 @@ func PatchLinker(goRoot, goVersion, goExe, tempDir string) (string, error) {
 
 	outputLinkPath, err := cachePath(goExe)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	mutex := lockedfile.MutexAt(outputLinkPath + ".lock")
 	unlock, err := mutex.Lock()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	defer unlock()
+
+	// If build is successful, mutex unlocking must be on the caller's side
+	successBuild := false
+	defer func() {
+		if !successBuild {
+			unlock()
+		}
+	}()
 
 	isCorrectVer, err := checkVersion(outputLinkPath, goVersion, patchesVer)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if isCorrectVer && fileExists(outputLinkPath) {
-		return outputLinkPath, nil
+		successBuild = true
+		return outputLinkPath, unlock, nil
 	}
 
 	srcDir := filepath.Join(goRoot, baseSrcSubdir)
@@ -229,13 +237,14 @@ func PatchLinker(goRoot, goVersion, goExe, tempDir string) (string, error) {
 
 	overlay, err := applyPatches(srcDir, workingDir, patches)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := buildLinker(workingDir, overlay, outputLinkPath); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := writeVersion(outputLinkPath, goVersion, patchesVer); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return outputLinkPath, nil
+	successBuild = true
+	return outputLinkPath, unlock, nil
 }
