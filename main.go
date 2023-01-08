@@ -715,18 +715,21 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	//
 	//	TEXT ·privateAdd(SB),$0-24
 	//	TEXT runtime∕internal∕sys·Ctz64(SB), NOSPLIT, $0-12
-	const middleDot = '·'
-	middleDotLen := utf8.RuneLen(middleDot)
-
+	//
 	// Note that import paths in assembly, like `runtime∕internal∕sys` above,
-	// use a Unicode slash rather than the ASCII one used by Go and `go list`.
+	// use Unicode periods and slashes rather than the ASCII ones used by `go list`.
 	// We need to convert to ASCII to find the right package information.
-	const asmPkgSlash = '∕'
-	const goPkgSlash = '/'
+	const (
+		asmPeriod = '·'
+		goPeriod  = '.'
+		asmSlash  = '∕'
+		goSlash   = '/'
+	)
+	asmPeriodLen := utf8.RuneLen(asmPeriod)
 
 	for {
-		i := bytes.IndexRune(remaining, middleDot)
-		if i < 0 {
+		periodIdx := bytes.IndexRune(remaining, asmPeriod)
+		if periodIdx < 0 {
 			buf.Write(remaining)
 			remaining = nil
 			break
@@ -734,16 +737,37 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 
 		// The package name ends at the first rune which cannot be part of a Go
 		// import path, such as a comma or space.
-		pkgStart := i
+		pkgStart := periodIdx
 		for pkgStart >= 0 {
 			c, size := utf8.DecodeLastRune(remaining[:pkgStart])
-			if !unicode.IsLetter(c) && c != '_' && c != asmPkgSlash && !unicode.IsDigit(c) {
+			if !unicode.IsLetter(c) && c != '_' && c != asmSlash && !unicode.IsDigit(c) {
 				break
 			}
 			pkgStart -= size
 		}
-		asmPkgPath := string(remaining[pkgStart:i])
-		goPkgPath := strings.ReplaceAll(asmPkgPath, string(asmPkgSlash), string(goPkgSlash))
+		// The package name might actually be longer, e.g:
+		//
+		//	JMP test∕with·many·dots∕main∕imported·PublicAdd(SB)
+		//
+		// We have `test∕with` so far; grab `·many·dots∕main∕imported` as well.
+		pkgEnd := periodIdx
+		lastAsmPeriod := -1
+		for i := pkgEnd + asmPeriodLen; i <= len(remaining); {
+			c, size := utf8.DecodeRune(remaining[i:])
+			if c == asmPeriod {
+				lastAsmPeriod = i
+			} else if !unicode.IsLetter(c) && c != '_' && c != asmSlash && !unicode.IsDigit(c) {
+				if lastAsmPeriod > 0 {
+					pkgEnd = lastAsmPeriod
+				}
+				break
+			}
+			i += size
+		}
+		asmPkgPath := string(remaining[pkgStart:pkgEnd])
+		goPkgPath := asmPkgPath
+		goPkgPath = strings.ReplaceAll(goPkgPath, string(asmPeriod), string(goPeriod))
+		goPkgPath = strings.ReplaceAll(goPkgPath, string(asmSlash), string(goSlash))
 
 		// Write the bytes before our unqualified `·foo` or qualified `pkg·foo`.
 		buf.Write(remaining[:pkgStart])
@@ -771,8 +795,8 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		}
 
 		// Write the middle dot and advance the remaining slice.
-		buf.WriteRune(middleDot)
-		remaining = remaining[i+middleDotLen:]
+		buf.WriteRune(asmPeriod)
+		remaining = remaining[pkgEnd+asmPeriodLen:]
 
 		// The declared name ends at the first rune which cannot be part of a Go
 		// identifier, such as a comma or space.
