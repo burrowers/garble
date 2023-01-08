@@ -40,6 +40,7 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 
+	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
 )
 
@@ -437,7 +438,22 @@ func mainErr(args []string) error {
 		} else {
 			log.Printf("skipping transform on %s with args: %s", tool, strings.Join(transformed, " "))
 		}
-		cmd := exec.Command(args[0], transformed...)
+
+		executablePath := args[0]
+		if tool == "link" {
+			modifiedLinkPath, unlock, err := linker.PatchLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, cache.GoEnv.GOEXE, sharedTempDir)
+			if err != nil {
+				return fmt.Errorf("cannot get modified linker: %v", err)
+			}
+			defer unlock()
+
+			executablePath = modifiedLinkPath
+			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
+
+			log.Printf("replaced linker with: %s", executablePath)
+		}
+
+		cmd := exec.Command(executablePath, transformed...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -879,10 +895,15 @@ func transformCompile(args []string) ([]string, error) {
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
 		log.Printf("obfuscating %s", basename)
-		if curPkg.ImportPath == "runtime" && flagTiny {
-			// strip unneeded runtime code
-			stripRuntime(basename, file)
-			tf.removeUnnecessaryImports(file)
+		if curPkg.ImportPath == "runtime" {
+			if flagTiny {
+				// strip unneeded runtime code
+				stripRuntime(basename, file)
+				tf.removeUnnecessaryImports(file)
+			}
+			if basename == "symtab.go" {
+				updateMagicValue(file, magicValue())
+			}
 		}
 		tf.handleDirectives(file.Comments)
 		file = tf.transformGo(file)
@@ -2211,7 +2232,7 @@ func flagSetValue(flags []string, name, value string) []string {
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
 		// Keep in sync with sharedCache.GoEnv.
-		"GOOS", "GOMOD", "GOVERSION",
+		"GOOS", "GOMOD", "GOVERSION", "GOROOT", "GOEXE",
 	).CombinedOutput()
 	if err != nil {
 		// TODO: cover this in the tests.

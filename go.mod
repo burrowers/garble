@@ -3,6 +3,7 @@ module mvdan.cc/garble
 go 1.19
 
 require (
+	github.com/bluekeyes/go-gitdiff v0.7.0
 	github.com/frankban/quicktest v1.14.3
 	github.com/google/go-cmp v0.5.8
 	github.com/rogpeppe/go-internal v1.9.0
