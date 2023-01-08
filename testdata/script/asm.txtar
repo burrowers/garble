@@ -26,14 +26,14 @@ exec ./main
 cmp stderr main.stderr
 binsubstr main$exe 'privateAdd' 'PublicAdd'
 -- go.mod --
-module test/main
+module test/with.many.dots/main
 
 go 1.19
 -- main.go --
 package main
 
 import (
-	"test/main/imported"
+	"test/with.many.dots/main/imported"
 )
 
 func privateAdd(x, y int32) int32
@@ -56,16 +56,12 @@ func main() {
 	println(imported.PublicAdd(3, 4))
 }
 -- garble_main_amd64.s --
-TEXT ·privateAdd(SB),$0-16
-	MOVL x+0(FP), BX
-	MOVL y+4(FP), BP
-	ADDL BP, BX
-	MOVL BX, ret+8(FP)
-	RET
-
 #include "garble_define_amd64.h"
 
 #include "extra/garble_define2_amd64.h"
+
+TEXT ·privateAdd(SB),$0-16
+	JMP test∕with·many·dots∕main∕imported·PublicAdd(SB)
 
 TEXT ·modifyGoData(SB),$0-16
 	addGoDataTo($12)
