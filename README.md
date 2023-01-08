@@ -140,6 +140,7 @@ to document the current shortcomings of this tool.
    ```
 
 * Go plugins are not currently supported; see [#87](https://github.com/burrowers/garble/issues/87).
+* Currently, Garble depends on `git` for applying non-strict patches. After adding support for non-strict patches to go-gitdiff (see [#30](https://github.com/bluekeyes/go-gitdiff/issues/30)) or alternative libraries, `git` dependency will be removed. 
 
 ### Contributing
 
