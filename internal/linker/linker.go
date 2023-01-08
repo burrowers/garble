@@ -10,8 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/bluekeyes/go-gitdiff/gitdiff"
-	"github.com/rogpeppe/go-internal/lockedfile"
 	"io"
 	"io/fs"
 	"os"
@@ -19,6 +17,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/bluekeyes/go-gitdiff/gitdiff"
+	"github.com/rogpeppe/go-internal/lockedfile"
 )
 
 const (
@@ -76,8 +77,8 @@ func loadLinkerPatches() (string, map[string]string, error) {
 
 // TODO(pagran): Remove git dependency in future
 // more information in README.md
-func applyPatch(workingDirectory, patch string) error {
-	cmd := exec.Command("git", "-C", workingDirectory, "apply")
+func applyPatch(workingDir, patch string) error {
+	cmd := exec.Command("git", "-C", workingDir, "apply")
 	cmd.Stdin = strings.NewReader(patch)
 	return cmd.Run()
 }
@@ -110,18 +111,18 @@ func fileExists(path string) bool {
 	return !stat.IsDir()
 }
 
-func applyPatches(srcDirectory, workingDirectory string, patches map[string]string) (map[string]string, error) {
+func applyPatches(srcDir, workingDir string, patches map[string]string) (map[string]string, error) {
 	mod := make(map[string]string)
 	for fileName, patch := range patches {
-		oldPath := filepath.Join(srcDirectory, fileName)
-		newPath := filepath.Join(workingDirectory, fileName)
+		oldPath := filepath.Join(srcDir, fileName)
+		newPath := filepath.Join(workingDir, fileName)
 		mod[oldPath] = newPath
 
 		if err := copyFile(oldPath, newPath); err != nil {
 			return nil, err
 		}
 
-		if err := applyPatch(workingDirectory, patch); err != nil {
+		if err := applyPatch(workingDir, patch); err != nil {
 			return nil, fmt.Errorf("apply patch for %s failed: %v", fileName, err)
 		}
 	}
@@ -175,12 +176,12 @@ func writeVersion(linkerPath, goVersion, patchesVer string) error {
 	return os.WriteFile(versionPath, []byte(getCurrentVersion(goVersion, patchesVer)), 0o777)
 }
 
-func compileLinker(workingDirectory string, overlay map[string]string, outputLinkPath string) error {
+func buildLinker(workingDir string, overlay map[string]string, outputLinkPath string) error {
 	file, err := json.Marshal(&struct{ Replace map[string]string }{overlay})
 	if err != nil {
 		return err
 	}
-	overlayPath := filepath.Join(workingDirectory, "overlay.json")
+	overlayPath := filepath.Join(workingDir, "overlay.json")
 	if err := os.WriteFile(overlayPath, file, 0o777); err != nil {
 		return err
 	}
@@ -197,7 +198,7 @@ func compileLinker(workingDirectory string, overlay map[string]string, outputLin
 	return nil
 }
 
-func PatchLinker(goRoot, goVersion, goExe, tempDirectory string) (string, error) {
+func PatchLinker(goRoot, goVersion, goExe, tempDir string) (string, error) {
 	patchesVer, patches, err := loadLinkerPatches()
 	if err != nil {
 		panic(fmt.Errorf("cannot retrieve linker patches: %v", err))
@@ -224,13 +225,13 @@ func PatchLinker(goRoot, goVersion, goExe, tempDirectory string) (string, error)
 	}
 
 	srcDir := filepath.Join(goRoot, baseSrcSubdir)
-	workingDirectory := filepath.Join(tempDirectory, "linker-src")
+	workingDir := filepath.Join(tempDir, "linker-src")
 
-	overlay, err := applyPatches(srcDir, workingDirectory, patches)
+	overlay, err := applyPatches(srcDir, workingDir, patches)
 	if err != nil {
 		return "", err
 	}
-	if err := compileLinker(workingDirectory, overlay, outputLinkPath); err != nil {
+	if err := buildLinker(workingDir, overlay, outputLinkPath); err != nil {
 		return "", err
 	}
 	if err := writeVersion(outputLinkPath, goVersion, patchesVer); err != nil {

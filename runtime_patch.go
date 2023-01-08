@@ -49,11 +49,10 @@ func updateMagicValue(file *ast.File, magicValue uint32) {
 
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok || funcDecl.Name.Name != "moduledataverify1" {
-			continue
+		if ok && funcDecl.Name.Name == "moduledataverify1" {
+			ast.Inspect(funcDecl, updateMagic)
+			break
 		}
-		ast.Inspect(funcDecl, updateMagic)
-		break
 	}
 
 	if !magicUpdated {
