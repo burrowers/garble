@@ -1,62 +1,73 @@
-From aad38f7aa37d00c723c3540bd8a907b92353d97d Mon Sep 17 00:00:00 2001
+From 66b62926efea3b28775c21839d8f372f7f2c59e0 Mon Sep 17 00:00:00 2001
 From: pagran <pagran@protonmail.com>
-Date: Mon, 9 Jan 2023 10:27:41 +0100
-Subject: [PATCH] add unexported function name removing
+Date: Mon, 9 Jan 2023 13:30:36 +0100
+Subject: [PATCH 2/2] add unexported function name removing
 
 ---
- cmd/link/internal/ld/pcln.go | 27 +++++++++++++++++++++++++++
- 1 file changed, 27 insertions(+)
+ cmd/link/internal/ld/pcln.go | 30 +++++++++++++++++++++++++++++-
+ 1 file changed, 29 insertions(+), 1 deletion(-)
 
 diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
-index 1ec237ffc8..e1bea2032c 100644
+index b89a4d650c..ab13b15042 100644
 --- a/cmd/link/internal/ld/pcln.go
 +++ b/cmd/link/internal/ld/pcln.go
-@@ -321,10 +321,19 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
+@@ -4,6 +4,8 @@
+ 
+ package ld
+ 
++import "unicode"
++
+ import (
+ 	"cmd/internal/goobj"
+ 	"cmd/internal/objabi"
+@@ -321,10 +323,19 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
  		return name[:i], "[...]", name[j+1:]
  	}
  
-+	garbleIsRemove := os.Getenv("GARBLE_LINK_TINY") == "true"
++	garbleTiny := os.Getenv("GARBLE_LINK_TINY") == "true"
 +
  	// Write the null terminated strings.
  	writeFuncNameTab := func(ctxt *Link, s loader.Sym) {
  		symtab := ctxt.loader.MakeSymbolUpdater(s)
-+		if garbleIsRemove {
++		if garbleTiny {
 +			symtab.AddStringAt(0, "")
 +		}
 +
  		for s, off := range nameOffsets {
-+			if garbleIsRemove && off == 0 {
++			if garbleTiny && off == 0 {
 +				continue
 +			}
  			a, b, c := nameParts(ctxt.loader.SymName(s))
  			o := int64(off)
  			o = symtab.AddStringAt(o, a)
-@@ -335,7 +344,25 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
+@@ -335,9 +346,26 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
  
  	// Loop through the CUs, and calculate the size needed.
  	var size int64
 +
-+	if garbleIsRemove {
++	if garbleTiny {
 +		size = 1 // first byte is reserved for empty string used for all non-exportable method names
 +	}
-+	garbleIsUnexported := func(s loader.Sym) bool {
-+		name, _, _ := nameParts(ctxt.loader.SymName(s))
-+		if name[len(name)-1] == '.' {
-+			return true
++	isExported := func(name string) bool {
++		for _, r := range name[strings.LastIndexByte(name, '.')+1:] {
++			return unicode.IsUpper(r)
 +		}
-+		c := name[strings.LastIndexByte(name, '.')+1]
-+		return 'a' <= c && c <= 'z'
++		return false
 +	}
 +
  	walkFuncs(ctxt, funcs, func(s loader.Sym) {
-+		if garbleIsRemove && garbleIsUnexported(s) {
+-		nameOffsets[s] = uint32(size)
+ 		a, b, c := nameParts(ctxt.loader.SymName(s))
++
++		if garbleTiny && !isExported(a) {
 +			nameOffsets[s] = 0 // redirect name to empty string
 +			return
 +		}
 +
- 		nameOffsets[s] = uint32(size)
- 		a, b, c := nameParts(ctxt.loader.SymName(s))
++		nameOffsets[s] = uint32(size)
  		size += int64(len(a) + len(b) + len(c) + 1) // NULL terminate
+ 	})
+ 
 -- 
 2.38.1.windows.1
 

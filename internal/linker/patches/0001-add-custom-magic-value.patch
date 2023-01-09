@@ -1,7 +1,7 @@
-From 444ff9310865ff5e4b367d28edfd386ec795524e Mon Sep 17 00:00:00 2001
+From 4d7daa11a4ddf84ac91f634364ee84704d1cced4 Mon Sep 17 00:00:00 2001
 From: pagran <pagran@protonmail.com>
-Date: Mon, 9 Jan 2023 10:32:32 +0100
-Subject: [PATCH] add custom magic value
+Date: Mon, 9 Jan 2023 13:30:00 +0100
+Subject: [PATCH 1/2] add custom magic value
 
 ---
  cmd/link/internal/ld/pcln.go | 13 +++++++++++++
