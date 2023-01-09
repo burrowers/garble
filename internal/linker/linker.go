@@ -10,14 +10,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/bluekeyes/go-gitdiff/gitdiff"
-	"github.com/rogpeppe/go-internal/lockedfile"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	"github.com/bluekeyes/go-gitdiff/gitdiff"
+	"github.com/rogpeppe/go-internal/lockedfile"
 )
 
 const (
