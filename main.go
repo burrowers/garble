@@ -449,6 +449,9 @@ func mainErr(args []string) error {
 
 			executablePath = modifiedLinkPath
 			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
+			if flagTiny {
+				os.Setenv(linker.TinyEnv, "true")
+			}
 
 			log.Printf("replaced linker with: %s", executablePath)
 		}

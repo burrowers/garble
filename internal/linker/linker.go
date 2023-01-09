@@ -16,14 +16,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 	"github.com/rogpeppe/go-internal/lockedfile"
 )
 
 const (
-	MagicValueEnv = "GARBLE_LINKER_MAGIC"
+	MagicValueEnv = "GARBLE_LINK_MAGIC"
+	TinyEnv       = "GARBLE_LINK_TINY"
 
 	cacheDirName   = "garble"
 	versionExt     = ".version"
@@ -36,10 +36,10 @@ var (
 	linkerPatchesFS embed.FS
 )
 
-func loadLinkerPatches() (string, map[string]string, error) {
+func loadLinkerPatches() (version string, modFiles map[string]bool, patches [][]byte, err error) {
+	modFiles = make(map[string]bool)
 	versionHash := sha256.New()
-	patches := make(map[string]string)
-	err := fs.WalkDir(linkerPatchesFS, ".", func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(linkerPatchesFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -64,23 +64,17 @@ func loadLinkerPatches() (string, map[string]string, error) {
 			if file.IsNew || file.IsDelete || file.IsCopy || file.IsRename {
 				panic("only modification patch is supported")
 			}
-			patches[file.OldName] = string(patchBytes)
+			modFiles[file.OldName] = true
 		}
+		patches = append(patches, patchBytes)
 		return nil
 	})
 
 	if err != nil {
-		return "", nil, err
+		return
 	}
-	return base64.RawStdEncoding.EncodeToString(versionHash.Sum(nil)), patches, nil
-}
-
-// TODO(pagran): Remove git dependency in future
-// more information in README.md
-func applyPatch(workingDir, patch string) error {
-	cmd := exec.Command("git", "-C", workingDir, "apply")
-	cmd.Stdin = strings.NewReader(patch)
-	return cmd.Run()
+	version = base64.RawStdEncoding.EncodeToString(versionHash.Sum(nil))
+	return
 }
 
 func copyFile(src, target string) error {
@@ -111,9 +105,11 @@ func fileExists(path string) bool {
 	return !stat.IsDir()
 }
 
-func applyPatches(srcDir, workingDir string, patches map[string]string) (map[string]string, error) {
+// TODO(pagran): Remove git dependency in future
+// more information in README.md
+func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [][]byte) (map[string]string, error) {
 	mod := make(map[string]string)
-	for fileName, patch := range patches {
+	for fileName := range modFiles {
 		oldPath := filepath.Join(srcDir, fileName)
 		newPath := filepath.Join(workingDir, fileName)
 		mod[oldPath] = newPath
@@ -121,10 +117,12 @@ func applyPatches(srcDir, workingDir string, patches map[string]string) (map[str
 		if err := copyFile(oldPath, newPath); err != nil {
 			return nil, err
 		}
+	}
 
-		if err := applyPatch(workingDir, patch); err != nil {
-			return nil, fmt.Errorf("apply patch for %s failed: %v", fileName, err)
-		}
+	cmd := exec.Command("git", "-C", workingDir, "apply")
+	cmd.Stdin = bytes.NewReader(bytes.Join(patches, []byte("\n")))
+	if err := cmd.Run(); err != nil {
+		return nil, err
 	}
 	return mod, nil
 }
@@ -199,7 +197,7 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 }
 
 func PatchLinker(goRoot, goVersion, goExe, tempDir string) (string, func(), error) {
-	patchesVer, patches, err := loadLinkerPatches()
+	patchesVer, modFiles, patches, err := loadLinkerPatches()
 	if err != nil {
 		panic(fmt.Errorf("cannot retrieve linker patches: %v", err))
 	}
@@ -235,7 +233,7 @@ func PatchLinker(goRoot, goVersion, goExe, tempDir string) (string, func(), erro
 	srcDir := filepath.Join(goRoot, baseSrcSubdir)
 	workingDir := filepath.Join(tempDir, "linker-src")
 
-	overlay, err := applyPatches(srcDir, workingDir, patches)
+	overlay, err := applyPatches(srcDir, workingDir, modFiles, patches)
 	if err != nil {
 		return "", nil, err
 	}

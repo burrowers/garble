@@ -1,14 +1,14 @@
-From de93a968f1bb3500088b30cbdce439e6a0d95e58 Mon Sep 17 00:00:00 2001
+From 444ff9310865ff5e4b367d28edfd386ec795524e Mon Sep 17 00:00:00 2001
 From: pagran <pagran@protonmail.com>
-Date: Sun, 8 Jan 2023 14:12:51 +0100
-Subject: [PATCH 1/1] add custom magic value
+Date: Mon, 9 Jan 2023 10:32:32 +0100
+Subject: [PATCH] add custom magic value
 
 ---
  cmd/link/internal/ld/pcln.go | 13 +++++++++++++
  1 file changed, 13 insertions(+)
 
 diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
-index 34ab86cf12..1ec237ffc8 100644
+index 34ab86cf12..b89a4d650c 100644
 --- a/cmd/link/internal/ld/pcln.go
 +++ b/cmd/link/internal/ld/pcln.go
 @@ -249,6 +249,19 @@ func (state *pclntab) generatePCHeader(ctxt *Link) {
@@ -17,7 +17,7 @@ index 34ab86cf12..1ec237ffc8 100644
  		}
 +
 +		// Use garble prefix in variable names to minimize collision risk
-+		garbleMagicStr := os.Getenv("GARBLE_LINKER_MAGIC")
++		garbleMagicStr := os.Getenv("GARBLE_LINK_MAGIC")
 +		if garbleMagicStr == "" {
 +			panic("[garble] magic value must be set")
 +		}
