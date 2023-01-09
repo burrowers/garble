@@ -24,6 +24,7 @@ import (
 
 const (
 	MagicValueEnv = "GARBLE_LINKER_MAGIC"
+	TinyEnv       = "GARBLE_LINK_TINY"
 
 	cacheDirName   = "garble"
 	versionExt     = ".version"

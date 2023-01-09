@@ -11,7 +11,8 @@ stderr '^caller: \?\? 1$' # position info is removed
 stderr '^recovered: ya like jazz?'
 ! stderr '^init runtime'  # GODEBUG prints are hidden, like inittrace=1
 ! stderr 'panic: oh noes' # panics are hidden
-
+stderr 'funcExported false funcUnexported true'
+stderr 'funcStructExported false funcStructUnexported true'
 
 [short] stop # no need to verify this with -short
 
@@ -21,6 +22,8 @@ garble build
 stderr '^caller: [0-9a-zA-Z_]+\.go [1-9]'
 stderr '^recovered: ya like jazz?'
 stderr 'panic: oh noes'
+stderr 'funcExported false funcUnexported false'
+stderr 'funcStructExported false funcStructUnexported false'
 -- go.mod --
 module test/main
 
@@ -28,9 +31,32 @@ go 1.19
 -- garble_main.go --
 package main
 
-import "runtime"
+import (
+	"reflect"
+	"runtime"
+)
+
+type testStruct struct {}
+
+func (testStruct) unexportedFunc() { println("dummy") }
+
+func (testStruct) ExportedFunc() { println("dummy") }
+
+func ExportedFunc() { println("dummy") }
+
+func unexportedFunc() { println("dummy") }
+
+func isEmptyFuncName(i interface{}) bool {
+	name := runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+	return len(name) == 0
+}
 
 func main() {
+	println("funcExported", isEmptyFuncName(ExportedFunc), "funcUnexported", isEmptyFuncName(unexportedFunc))
+
+	var s testStruct
+	println("funcStructExported", isEmptyFuncName(s.ExportedFunc), "funcStructUnexported", isEmptyFuncName(s.unexportedFunc))
+
 	var v any = "tada"
 	println(v)
 
