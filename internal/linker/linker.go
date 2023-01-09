@@ -10,20 +10,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/bluekeyes/go-gitdiff/gitdiff"
+	"github.com/rogpeppe/go-internal/lockedfile"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
-
-	"github.com/bluekeyes/go-gitdiff/gitdiff"
-	"github.com/rogpeppe/go-internal/lockedfile"
 )
 
 const (
-	MagicValueEnv = "GARBLE_LINKER_MAGIC"
+	MagicValueEnv = "GARBLE_LINK_MAGIC"
 	TinyEnv       = "GARBLE_LINK_TINY"
 
 	cacheDirName   = "garble"
@@ -37,12 +35,10 @@ var (
 	linkerPatchesFS embed.FS
 )
 
-func loadLinkerPatches() (string, []string, []string, error) {
+func loadLinkerPatches() (version string, modFiles map[string]bool, patches [][]byte, err error) {
+	modFiles = make(map[string]bool)
 	versionHash := sha256.New()
-	var modFiles []string
-	var patches []string
-
-	err := fs.WalkDir(linkerPatchesFS, ".", func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(linkerPatchesFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -67,16 +63,17 @@ func loadLinkerPatches() (string, []string, []string, error) {
 			if file.IsNew || file.IsDelete || file.IsCopy || file.IsRename {
 				panic("only modification patch is supported")
 			}
-			modFiles = append(modFiles, file.OldName)
+			modFiles[file.OldName] = true
 		}
-		patches = append(patches, string(patchBytes))
+		patches = append(patches, patchBytes)
 		return nil
 	})
 
 	if err != nil {
-		return "", nil, nil, err
+		return
 	}
-	return base64.RawStdEncoding.EncodeToString(versionHash.Sum(nil)), modFiles, patches, nil
+	version = base64.RawStdEncoding.EncodeToString(versionHash.Sum(nil))
+	return
 }
 
 func copyFile(src, target string) error {
@@ -109,9 +106,9 @@ func fileExists(path string) bool {
 
 // TODO(pagran): Remove git dependency in future
 // more information in README.md
-func applyPatches(srcDir, workingDir string, modFiles, patches []string) (map[string]string, error) {
+func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [][]byte) (map[string]string, error) {
 	mod := make(map[string]string)
-	for _, fileName := range modFiles {
+	for fileName := range modFiles {
 		oldPath := filepath.Join(srcDir, fileName)
 		newPath := filepath.Join(workingDir, fileName)
 		mod[oldPath] = newPath
@@ -122,7 +119,7 @@ func applyPatches(srcDir, workingDir string, modFiles, patches []string) (map[st
 	}
 
 	cmd := exec.Command("git", "-C", workingDir, "apply")
-	cmd.Stdin = strings.NewReader(strings.Join(patches, "\n"))
+	cmd.Stdin = bytes.NewReader(bytes.Join(patches, []byte("\n")))
 	if err := cmd.Run(); err != nil {
 		return nil, err
 	}
