@@ -66,16 +66,17 @@ declaration, for example.
 With the `-tiny` flag, even more information is stripped from the Go binary.
 Position information is removed entirely, rather than being obfuscated.
 Runtime code which prints panics, fatal errors, and trace/debug info is removed.
-All in all, this can make binaries 2-5% smaller.
+Many symbol names are also omitted from binary sections at link time.
+All in all, this can make binaries about 15% smaller.
 
 With this flag, no panics or fatal runtime errors will ever be printed, but they
 can still be handled internally with `recover` as normal. In addition, the
 `GODEBUG` environmental variable will be ignored.
 
 Note that this flag can make debugging crashes harder, as a panic will simply
-exit the entire program without printing a stack trace, and all source code
-positions are set to line 1. Similarly, `garble reverse` is generally not useful
-in this mode.
+exit the entire program without printing a stack trace, and source code
+positions and many names are removed.
+Similarly, `garble reverse` is generally not useful in this mode.
 
 ### Speed
 
