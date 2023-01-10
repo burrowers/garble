@@ -144,7 +144,11 @@ type listedPackage struct {
 	Dir             string
 	CompiledGoFiles []string
 	Imports         []string
-	Incomplete      bool
+
+	Incomplete bool
+	// These two exist only to fill Incomplete.
+	Error      *packageError
+	DepsErrors []*packageError
 
 	// The fields below are not part of 'go list', but are still reused
 	// between garble processes. Use "Garble" as a prefix to ensure no
@@ -157,7 +161,12 @@ type listedPackage struct {
 	GarbleActionID []byte `json:"-"`
 
 	// ToObfuscate records whether the package should be obfuscated.
+	// When true, GarbleActionID must not be empty.
 	ToObfuscate bool `json:"-"`
+}
+
+type packageError struct {
+	Err string
 }
 
 func (p *listedPackage) obfuscatedImportPath() string {
@@ -214,10 +223,40 @@ func appendListedPackages(packages []string, withDeps bool) error {
 	if cache.ListedPackages == nil {
 		cache.ListedPackages = make(map[string]*listedPackage)
 	}
+	var pkgErrors []string
 	for dec.More() {
 		var pkg listedPackage
 		if err := dec.Decode(&pkg); err != nil {
 			return err
+		}
+
+		// Sometimes cmd/go sets Error without setting Incomplete per the docs.
+		// TODO: remove the workaround once https://go.dev/issue/57724 is fixed.
+		if (pkg.Error != nil || pkg.DepsErrors != nil) && !pkg.Incomplete {
+			pkg.Incomplete = true
+		}
+
+		if pkg.Incomplete {
+			switch {
+			// All errors in non-std packages are fatal,
+			// but only some errors in std packages are.
+			case strings.Contains(pkg.ImportPath, "."):
+				fallthrough
+			default:
+				pkgErrors = append(pkgErrors, pkg.Error.Err)
+				continue
+
+			// Some packages in runtimeLinknamed are OS-specific,
+			// like crypto/internal/boring/fipstls, so "no Go files"
+			// for the current OS can be ignored safely as an error.
+			case pkg.Standard && strings.Contains(pkg.Error.Err, "build constraints exclude all Go files"):
+			// Some packages in runtimeLinknamed are recent,
+			// like "arena", so older Go versions that we support
+			// do not yet have them and that's OK.
+			// Note that pkg.Standard is false for them.
+			case strings.Contains(pkg.Error.Err, "is not in GOROOT"):
+			case strings.Contains(pkg.Error.Err, "cannot find package"):
+			}
 		}
 
 		// Note that we use the `-e` flag above with `go list`.
@@ -237,7 +276,7 @@ func appendListedPackages(packages []string, withDeps bool) error {
 		// Work around https://go.dev/issue/28749:
 		// cmd/go puts assembly, C, and C++ files in CompiledGoFiles.
 		//
-		// TODO: remove when upstream has fixed the bug.
+		// TODO: Fixed in Go 1.20; remove once we drop support for Go 1.19.
 		out := pkg.CompiledGoFiles[:0]
 		for _, path := range pkg.CompiledGoFiles {
 			switch filepath.Ext(path) {
@@ -256,6 +295,9 @@ func appendListedPackages(packages []string, withDeps bool) error {
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("go list error: %v: %s", err, stderr.Bytes())
 	}
+	if len(pkgErrors) > 0 {
+		return errors.New(strings.Join(pkgErrors, "\n"))
+	}
 
 	anyToObfuscate := false
 	for path, pkg := range cache.ListedPackages {
@@ -263,15 +305,18 @@ func appendListedPackages(packages []string, withDeps bool) error {
 		if pkg.ForTest != "" {
 			path = pkg.ForTest
 		}
-		// Test main packages like "foo/bar.test" are always obfuscated,
-		// just like main packages.
 		switch {
+		// We don't support obfuscating these yet.
 		case cannotObfuscate[path]:
-			// We don't support obfuscating these yet.
 
+		// We can't obfuscate packages which weren't loaded.
 		case pkg.Incomplete:
-			// We can't obfuscate packages which weren't loaded.
 
+		// No point in obfuscating empty packages.
+		case len(pkg.CompiledGoFiles) == 0:
+
+		// Test main packages like "foo/bar.test" are always obfuscated,
+		// just like unnamed and plugin main packages.
 		case pkg.Name == "main" && strings.HasSuffix(path, ".test"),
 			path == "command-line-arguments",
 			strings.HasPrefix(path, "plugin/unnamed"),
@@ -279,6 +324,9 @@ func appendListedPackages(packages []string, withDeps bool) error {
 
 			pkg.ToObfuscate = true
 			anyToObfuscate = true
+			if len(pkg.GarbleActionID) == 0 {
+				return fmt.Errorf("package %q to be obfuscated lacks build id?", pkg.ImportPath)
+			}
 		}
 	}
 

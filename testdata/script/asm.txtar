@@ -8,6 +8,11 @@ exec ./main
 cmp stderr main.stderr
 ! binsubstr main$exe 'test/main' 'privateAdd' 'PublicAdd' 'garble_'
 
+# We used to panic on broken packages with assembly.
+! garble build ./broken/...
+stderr -count=1 'broken[/\\]asm[/\\].*MissingType'
+stderr -count=1 'broken[/\\]syntax[/\\].*unexpected newline'
+
 [short] stop # no need to verify this with -short
 
 # Ensure that reversing doesn't error with assembly files.
@@ -91,6 +96,30 @@ package imported
 func PublicAdd(x, y int32) int32
 
 -- imported/imported_amd64.s --
+TEXT ·PublicAdd(SB),$0-16
+	MOVL x+0(FP), BX
+	MOVL y+4(FP), BP
+	ADDL BP, BX
+	MOVL BX, ret+8(FP)
+	RET
+-- broken/syntax/broken.go --
+package broken
+
+func PublicAdd
+
+-- broken/asm/imported_amd64.s --
+TEXT ·PublicAdd(SB),$0-16
+	MOVL x+0(FP), BX
+	MOVL y+4(FP), BP
+	ADDL BP, BX
+	MOVL BX, ret+8(FP)
+	RET
+-- broken/asm/broken.go --
+package broken
+
+func PublicAdd(x, y int32) MissingType
+
+-- broken/imported_amd64.s --
 TEXT ·PublicAdd(SB),$0-16
 	MOVL x+0(FP), BX
 	MOVL y+4(FP), BP
