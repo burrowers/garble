@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	cryptorand "crypto/rand"
 	"encoding/base64"
@@ -612,8 +613,6 @@ var transformFuncs = map[string]func([]string) ([]string, error){
 	"link":    transformLink,
 }
 
-var rxIncludeHeader = regexp.MustCompile(`#include\s+"([^"]+)"`)
-
 func transformAsm(args []string) ([]string, error) {
 	flags, paths := splitFlagsFromFiles(args, ".s")
 
@@ -631,7 +630,7 @@ func transformAsm(args []string) ([]string, error) {
 	newPaths := make([]string, 0, len(paths))
 	if !slices.Contains(args, "-gensymabis") {
 		for _, path := range paths {
-			name := hashWithPackage(curPkg, filepath.Base(path))
+			name := hashWithPackage(curPkg, filepath.Base(path)) + ".s"
 			pkgDir := filepath.Join(sharedTempDir, curPkg.obfuscatedImportPath())
 			newPath := filepath.Join(pkgDir, name)
 			newPaths = append(newPaths, newPath)
@@ -641,70 +640,90 @@ func transformAsm(args []string) ([]string, error) {
 
 	const missingHeader = "missing header path"
 	newHeaderPaths := make(map[string]string)
-	var buf bytes.Buffer
+	var buf, includeBuf bytes.Buffer
 	for _, path := range paths {
-		// Read the entire file into memory.
-		// If we find issues with large files, we can use bufio.
-		content, err := os.ReadFile(path)
+		buf.Reset()
+		f, err := os.Open(path)
 		if err != nil {
 			return nil, err
 		}
-		offset := 0
-		for _, match := range rxIncludeHeader.FindAllSubmatchIndex(content, -1) {
-			start, end := offset+match[2], offset+match[3]
-			path := string(content[start:end])
-			if strings.ContainsAny(path, "\n\"") {
-				// If we failed to keep track of offsets, we could see a header
-				// path that contains quotes or newlines, which should not happen.
-				return nil, fmt.Errorf("bad offset tracking? %q", path)
-			}
-			newPath := newHeaderPaths[path]
-			switch newPath {
-			case missingHeader: // no need to try again
+		defer f.Close() // in case of error
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			// First, handle hash directives without leading whitespaces.
+
+			// #include "foo.h"
+			if quoted := strings.TrimPrefix(line, "#include"); quoted != line {
+				quoted = strings.TrimSpace(quoted)
+				path, err := strconv.Unquote(quoted)
+				if err != nil {
+					return nil, err
+				}
+				newPath := newHeaderPaths[path]
+				switch newPath {
+				case missingHeader: // no need to try again
+					buf.WriteString(line)
+					buf.WriteByte('\n')
+					continue
+				case "": // first time we see this header
+					includeBuf.Reset()
+					content, err := os.ReadFile(path)
+					if errors.Is(err, fs.ErrNotExist) {
+						newHeaderPaths[path] = missingHeader
+						buf.WriteString(line)
+						buf.WriteByte('\n')
+						continue // a header file provided by Go or the system
+					} else if err != nil {
+						return nil, err
+					}
+					replaceAsmNames(&includeBuf, content)
+
+					// For now, we replace `foo.h` or `dir/foo.h` with `garbled_foo.h`.
+					// The different name ensures we don't use the unobfuscated file.
+					// This is far from perfect, but does the job for the time being.
+					// In the future, use a randomized name.
+					basename := filepath.Base(path)
+					newPath = "garbled_" + basename
+
+					if _, err := writeSourceFile(basename, newPath, includeBuf.Bytes()); err != nil {
+						return nil, err
+					}
+					newHeaderPaths[path] = newPath
+				}
+				buf.WriteString("#include ")
+				buf.WriteString(strconv.Quote(newPath))
+				buf.WriteByte('\n')
 				continue
-			case "": // first time we see this header
-				buf.Reset()
-				content, err := os.ReadFile(path)
-				if errors.Is(err, fs.ErrNotExist) {
-					newHeaderPaths[path] = missingHeader
-					continue // a header file provided by Go or the system
-				} else if err != nil {
-					return nil, err
-				}
-				replaceAsmNames(&buf, content)
-
-				// For now, we replace `foo.h` or `dir/foo.h` with `garbled_foo.h`.
-				// The different name ensures we don't use the unobfuscated file.
-				// This is far from perfect, but does the job for the time being.
-				// In the future, use a randomized name.
-				basename := filepath.Base(path)
-				newPath = "garbled_" + basename
-
-				if _, err := writeSourceFile(basename, newPath, buf.Bytes()); err != nil {
-					return nil, err
-				}
-				newHeaderPaths[path] = newPath
 			}
-			offset += len(newPath) - len(path)
-			// TODO: copying the bytes in a loop like this is far from optimal.
-			var newContent []byte
-			newContent = append(newContent, content[:start]...)
-			newContent = append(newContent, newPath...)
-			newContent = append(newContent, content[end:]...)
-			content = newContent
+
+			// Leave "//" comments unchanged; they might be directives.
+			if strings.HasPrefix(strings.TrimSpace(line), "// ") {
+				buf.WriteString(line)
+				buf.WriteByte('\n')
+				continue
+			}
+
+			// Anything else is regular assembly; replace the names.
+			replaceAsmNames(&buf, []byte(line))
+			buf.WriteByte('\n')
 		}
-		buf.Reset()
-		replaceAsmNames(&buf, content)
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
 
 		// With assembly files, we obfuscate the filename in the temporary
 		// directory, as assembly files do not support `/*line` directives.
+		// TODO(mvdan): per cmd/asm/internal/lex, they do support `#line`.
 		basename := filepath.Base(path)
-		newName := hashWithPackage(curPkg, basename)
+		newName := hashWithPackage(curPkg, basename) + ".s"
 		if path, err := writeSourceFile(basename, newName, buf.Bytes()); err != nil {
 			return nil, err
 		} else {
 			newPaths = append(newPaths, path)
 		}
+		f.Close() // do not keep len(paths) files open
 	}
 
 	return append(flags, newPaths...), nil
@@ -933,7 +952,7 @@ func transformCompile(args []string) ([]string, error) {
 			}
 		}
 		tf.handleDirectives(file.Comments)
-		file = tf.transformGo(file)
+		file = tf.transformGoFile(file)
 		if newPkgPath != "" {
 			file.Name.Name = newPkgPath
 		}
@@ -1700,8 +1719,8 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 	}
 }
 
-// transformGo obfuscates the provided Go syntax file.
-func (tf *transformer) transformGo(file *ast.File) *ast.File {
+// transformGoFile obfuscates the provided Go syntax file.
+func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// Only obfuscate the literals here if the flag is on
 	// and if the package in question is to be obfuscated.
 	//

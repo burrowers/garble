@@ -60,6 +60,10 @@ func main() {
 
 #include "extra/garble_define2_amd64.h"
 
+// A comment may include many·special∕asm·runes and it's okay.
+// Or the same with leading whitespace:
+	// A comment may include many·special∕asm·runes and it's okay.
+
 TEXT ·privateAdd(SB),$0-16
 	JMP test∕with·many·dots∕main∕imported·PublicAdd(SB)
 
