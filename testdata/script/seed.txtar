@@ -125,10 +125,10 @@ func mainFunc() {
 		println(imported.ImportedVar)
 
 		// When we're obfuscating, check that the obfuscated name lengths vary.
-		// With eight hashed names, and a range between 8 and 15,
-		// the chances of six repeats are (1 / 8) ** 6, or about 0.00038%.
+		// With sixteen hashed names, and a range of 7 (between 6 and 12),
+		// the chances of fourteen repeats are incredibly minuscule.
 		// If that happens, then our randomness is clearly broken.
-		if hashedNames[0] != "main.hashed0" {
+		if hashedNames[0] != "main.hashed_00" {
 			var count [16]int
 			for _, name := range hashedNames {
 				name = name[len("main."):]
@@ -139,7 +139,7 @@ func mainFunc() {
 					panic("ended up with a hashed name that's too long: "+name)
 				}
 				count[len(name)]++
-				if count[len(name)] >= 6 {
+				if count[len(name)] >= 14 {
 					for _, name := range hashedNames {
 						println(name)
 					}
@@ -163,18 +163,28 @@ func NamedFunc() string {
 }
 
 var hashedNames = []string{
-	hashed0(), hashed1(), hashed2(), hashed3(),
-	hashed4(), hashed5(), hashed6(), hashed7(),
+	hashed_00(), hashed_01(), hashed_02(), hashed_03(),
+	hashed_04(), hashed_05(), hashed_06(), hashed_07(),
+	hashed_08(), hashed_09(), hashed_10(), hashed_11(),
+	hashed_12(), hashed_13(), hashed_14(), hashed_15(),
 }
 
-func hashed0() string { return imported.CallerFuncName() }
-func hashed1() string { return imported.CallerFuncName() }
-func hashed2() string { return imported.CallerFuncName() }
-func hashed3() string { return imported.CallerFuncName() }
-func hashed4() string { return imported.CallerFuncName() }
-func hashed5() string { return imported.CallerFuncName() }
-func hashed6() string { return imported.CallerFuncName() }
-func hashed7() string { return imported.CallerFuncName() }
+func hashed_00() string { return imported.CallerFuncName() }
+func hashed_01() string { return imported.CallerFuncName() }
+func hashed_02() string { return imported.CallerFuncName() }
+func hashed_03() string { return imported.CallerFuncName() }
+func hashed_04() string { return imported.CallerFuncName() }
+func hashed_05() string { return imported.CallerFuncName() }
+func hashed_06() string { return imported.CallerFuncName() }
+func hashed_07() string { return imported.CallerFuncName() }
+func hashed_08() string { return imported.CallerFuncName() }
+func hashed_09() string { return imported.CallerFuncName() }
+func hashed_10() string { return imported.CallerFuncName() }
+func hashed_11() string { return imported.CallerFuncName() }
+func hashed_12() string { return imported.CallerFuncName() }
+func hashed_13() string { return imported.CallerFuncName() }
+func hashed_14() string { return imported.CallerFuncName() }
+func hashed_15() string { return imported.CallerFuncName() }
 
 -- imported/imported.go --
 package imported
