@@ -1551,6 +1551,7 @@ func (tf *transformer) recordType(used, origin types.Type) {
 // if that shows an improvement in our benchmark
 
 func recordedObjectString(obj types.Object) objectString {
+	pkg := obj.Pkg()
 	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
 		// For exported fields, "pkgpath.Field" is not unique,
 		// because two exported top-level types could share "Field".
@@ -1567,16 +1568,18 @@ func recordedObjectString(obj types.Object) objectString {
 		// numbers, but not column numbers nor byte offsets.
 		// TODO(mvdan): give this another think, and add tests involving anon types.
 		pos := fset.Position(obj.Pos())
-		return fmt.Sprintf("%s.%s - %s:%d", obj.Pkg().Path(), obj.Name(),
+		return fmt.Sprintf("%s.%s - %s:%d", pkg.Path(), obj.Name(),
 			filepath.Base(pos.Filename), pos.Line)
 	}
 	// Names which are not at the top level cannot be imported,
 	// so we don't need to record them either.
 	// Note that this doesn't apply to fields, which are never top-level.
 	if pkg.Scope() != obj.Parent() {
+	if pkg.Scope() != obj.Parent() {
 		return ""
 	}
-	return true
+	// For top-level exported names, "pkgpath.Name" is unique.
+	return pkg.Path() + "." + obj.Name()
 }
 
 func (tf *transformer) useAllImports(file *ast.File) {
