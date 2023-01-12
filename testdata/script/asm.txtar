@@ -6,7 +6,7 @@
 garble build
 exec ./main
 cmp stderr main.stderr
-! binsubstr main$exe 'test/main' 'privateAdd' 'PublicAdd' 'garble_'
+! binsubstr main$exe 'test/main' 'addJmp' 'AddImpl' 'garble_'
 
 # We used to panic on broken packages with assembly.
 ! garble build ./broken/...
@@ -24,12 +24,12 @@ stdin empty-reverse.txt
 garble -tiny build
 exec ./main
 cmp stderr main.stderr
-! binsubstr main$exe 'privateAdd' 'PublicAdd'
+! binsubstr main$exe 'addJmp' 'AddImpl'
 
 go build
 exec ./main
 cmp stderr main.stderr
-binsubstr main$exe 'privateAdd' 'PublicAdd'
+binsubstr main$exe 'addJmp' 'AddImpl'
 -- go.mod --
 module test/with.many.dots/main
 
@@ -41,7 +41,8 @@ import (
 	"test/with.many.dots/main/imported"
 )
 
-func privateAdd(x, y int32) int32
+func addJmpPkgPath(x, y int32) int32
+func addJmpPkgName(x, y int32) int32
 
 // goData is used from both assembly and header files.
 var goData = [4]uint64{1, 2, 3, 4}
@@ -50,7 +51,8 @@ func modifyGoData()
 func modifyGoData2()
 
 func main() {
-	println(privateAdd(1, 2))
+	println(addJmpPkgPath(1, 2))
+	println(addJmpPkgName(1, 2))
 
 	println(goData[0], goData[1])
 	modifyGoData()
@@ -58,7 +60,7 @@ func main() {
 	modifyGoData2()
 	println(goData[0], goData[1])
 
-	println(imported.PublicAdd(3, 4))
+	println(imported.AddImpl(3, 4))
 }
 -- garble_main_amd64.s --
 #include "garble_define_amd64.h"
@@ -69,8 +71,13 @@ func main() {
 // Or the same with leading whitespace:
 	// A comment may include many·special∕asm·runes and it's okay.
 
-TEXT ·privateAdd(SB),$0-16
-	JMP test∕with·many·dots∕main∕imported·PublicAdd(SB)
+// Reference an imported package by its package path.
+TEXT ·addJmpPkgPath(SB),$0-16
+	JMP test∕with·many·dots∕main∕imported·AddImpl(SB)
+
+// Reference the current package by its package name.
+TEXT ·addJmpPkgName(SB),$0-16
+	JMP main·addJmpPkgPath(SB)
 
 TEXT ·modifyGoData(SB),$0-16
 	addGoDataTo($12)
@@ -93,22 +100,34 @@ TEXT ·modifyGoData2(SB),$0-16
 -- imported/imported.go --
 package imported
 
-func PublicAdd(x, y int32) int32
+func AddImpl(x, y int32) int32
+
+// Reference the current package by its package path.
+func addJmpPkgPath(x, y int32) int32
+
+// Reference the current package by its package path.
+func addJmpPkgName(x, y int32) int32
 
 -- imported/imported_amd64.s --
-TEXT ·PublicAdd(SB),$0-16
+TEXT ·AddImpl(SB),$0-16
 	MOVL x+0(FP), BX
 	MOVL y+4(FP), BP
 	ADDL BP, BX
 	MOVL BX, ret+8(FP)
 	RET
+
+TEXT ·addJmpPkgPath(SB),$0-16
+	JMP test∕with·many·dots∕main∕imported·AddImpl(SB)
+
+TEXT ·addJmpPkgName(SB),$0-16
+	JMP imported·AddImpl(SB)
 -- broken/syntax/broken.go --
 package broken
 
-func PublicAdd
+func AddImpl
 
 -- broken/asm/imported_amd64.s --
-TEXT ·PublicAdd(SB),$0-16
+TEXT ·AddImpl(SB),$0-16
 	MOVL x+0(FP), BX
 	MOVL y+4(FP), BP
 	ADDL BP, BX
@@ -117,16 +136,17 @@ TEXT ·PublicAdd(SB),$0-16
 -- broken/asm/broken.go --
 package broken
 
-func PublicAdd(x, y int32) MissingType
+func AddImpl(x, y int32) MissingType
 
 -- broken/imported_amd64.s --
-TEXT ·PublicAdd(SB),$0-16
+TEXT ·AddImpl(SB),$0-16
 	MOVL x+0(FP), BX
 	MOVL y+4(FP), BP
 	ADDL BP, BX
 	MOVL BX, ret+8(FP)
 	RET
 -- main.stderr --
+3
 3
 1 2
 13 36

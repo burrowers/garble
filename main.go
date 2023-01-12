@@ -787,28 +787,34 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 			i += size
 		}
 		asmPkgPath := string(remaining[pkgStart:pkgEnd])
-		goPkgPath := asmPkgPath
-		goPkgPath = strings.ReplaceAll(goPkgPath, string(asmPeriod), string(goPeriod))
-		goPkgPath = strings.ReplaceAll(goPkgPath, string(asmSlash), string(goSlash))
 
 		// Write the bytes before our unqualified `·foo` or qualified `pkg·foo`.
 		buf.Write(remaining[:pkgStart])
 
 		// If the name was qualified, fetch the package, and write the
 		// obfuscated import path if needed.
+		// Note that we don't obfuscate the package path "main".
+		//
 		// Note that runtime/internal/startlinetest refers to runtime_test in
 		// one of its assembly files, and we currently do not always collect
 		// test packages in appendListedPackages for the sake of performance.
 		// We don't care about testing the runtime just yet, so work around it.
+		// TODO(mvdan): this runtime_test reference was removed in Go 1.20 per
+		// https://github.com/golang/go/issues/57334; remove at a later time.
 		lpkg := curPkg
-		if asmPkgPath != "" && asmPkgPath != "runtime_test" {
-			var err error
-			lpkg, err = listPackage(goPkgPath)
-			if err != nil {
-				panic(err) // shouldn't happen
+		if asmPkgPath != "" && asmPkgPath != "main" && asmPkgPath != "runtime_test" {
+			if asmPkgPath != curPkg.Name {
+				goPkgPath := asmPkgPath
+				goPkgPath = strings.ReplaceAll(goPkgPath, string(asmPeriod), string(goPeriod))
+				goPkgPath = strings.ReplaceAll(goPkgPath, string(asmSlash), string(goSlash))
+				var err error
+				lpkg, err = listPackage(goPkgPath)
+				if err != nil {
+					panic(err) // shouldn't happen
+				}
 			}
 			if lpkg.ToObfuscate {
-				// Note that we don't need to worry about asmPkgSlash here,
+				// Note that we don't need to worry about asmSlash here,
 				// because our obfuscated import paths contain no slashes right now.
 				buf.WriteString(lpkg.obfuscatedImportPath())
 			} else {
