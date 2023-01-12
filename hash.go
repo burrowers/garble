@@ -211,7 +211,7 @@ func magicValue() uint32 {
 // entryOffKey returns random entry offset key
 // on user specified seed or the runtime package's GarbleActionID.
 func entryOffKey() uint32 {
-	return 1 + runtimeHashWithCustomSalt([]byte("entryOffKey"))
+	return runtimeHashWithCustomSalt([]byte("entryOffKey"))
 }
 
 func hashWithPackage(pkg *listedPackage, name string) string {
