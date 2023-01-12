@@ -4,10 +4,8 @@
 package main
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
-	"golang.org/x/tools/go/ast/astutil"
 	"strconv"
 	"strings"
 
@@ -64,40 +62,41 @@ func updateMagicValue(file *ast.File, magicValue uint32) {
 
 // updateEntryOffset adds xor encryption for funcInfo.entryoff
 func updateEntryOffset(file *ast.File, entryOffKey uint32) {
-	const entryOffRefCount = 2
-	entryOffUpdated := 0
+	entryOffUpdated := false
 
-	updateEntryOff := func(cursor *astutil.Cursor) bool {
-		selExpr, ok := cursor.Node().(*ast.SelectorExpr)
+	updateEntryOff := func(node ast.Node) bool {
+		callExpr, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
 
-		if selExpr.Sel.Name != "entryoff" {
+		selExpr, ok := callExpr.Fun.(*ast.SelectorExpr)
+		if !ok || selExpr.Sel.Name != "textAddr" {
 			return true
 		}
 
-		cursor.Replace(&ast.BinaryExpr{
-			X:  selExpr,
+		callExpr.Args[0] = &ast.BinaryExpr{
+			X:  callExpr.Args[0],
 			Op: token.XOR,
 			Y: &ast.BasicLit{
 				Kind:  token.INT,
 				Value: strconv.FormatUint(uint64(entryOffKey), 10),
 			},
-		})
-		entryOffUpdated++
+		}
+		entryOffUpdated = true
 		return false
 	}
 
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
-		if ok && (funcDecl.Name.Name == "isInlined" || funcDecl.Name.Name == "entry") {
-			astutil.Apply(funcDecl, nil, updateEntryOff)
+		if ok && funcDecl.Name.Name == "entry" {
+			ast.Inspect(funcDecl, updateEntryOff)
+			break
 		}
 	}
 
-	if entryOffUpdated != entryOffRefCount {
-		panic(fmt.Sprintf("entryOffUpdated expected %d but found %d", entryOffRefCount, entryOffUpdated))
+	if !entryOffUpdated {
+		panic("entryOff not found")
 	}
 }
 
