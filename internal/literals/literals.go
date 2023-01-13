@@ -15,18 +15,20 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-// maxSizeBytes is the limit, in bytes, of the size of string-like literals
+// minSize is the lower bound limit, of the size of string-like literals
+// which we will obfuscate. This is needed in order for binary size to stay relatively
+// moderate, this also decreases the likelihood for performance slowdowns.
+const minSize = 8
+
+// maxSize is the upper bound limit, of the size of string-like literals
 // which we will obfuscate. This is important, because otherwise garble can take
 // a very long time to obfuscate huge code-generated literals, such as those
 // corresponding to large assets.
 //
-// Note that this is the size of the literal in source code. For example, "\xab"
-// counts as four bytes.
-//
 // If someone truly wants to obfuscate those, they should do that when they
 // generate the code, not at build time. Plus, with Go 1.16 that technique
 // should largely stop being used.
-const maxSizeBytes = 2 << 10 // KiB
+const maxSize = 2 << 10 // KiB
 
 // Obfuscate replaces literals with obfuscated anonymous functions.
 func Obfuscate(obfRand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string) *ast.File {
@@ -63,7 +65,7 @@ func Obfuscate(obfRand *mathrand.Rand, file *ast.File, info *types.Info, linkStr
 
 		if typeAndValue.Type == types.Typ[types.String] && typeAndValue.Value != nil {
 			value := constant.StringVal(typeAndValue.Value)
-			if len(value) == 0 || len(value) > maxSizeBytes {
+			if len(value) < minSize || len(value) > maxSize {
 				return true
 			}
 
@@ -119,10 +121,9 @@ func Obfuscate(obfRand *mathrand.Rand, file *ast.File, info *types.Info, linkStr
 // calls the appropriate obfuscation method, returning a new node that should
 // be used to replace it.
 //
-// If the input is not a byte slice or array, the node is returned as-is and
-// the second return value will be false.
+// If the input node cannot be obfuscated nil is returned.
 func handleCompositeLiteral(obfRand *mathrand.Rand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
-	if len(node.Elts) == 0 || len(node.Elts) > maxSizeBytes {
+	if len(node.Elts) < minSize || len(node.Elts) > maxSize {
 		return nil
 	}
 
