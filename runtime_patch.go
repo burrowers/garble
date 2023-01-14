@@ -62,7 +62,21 @@ func updateMagicValue(file *ast.File, magicValue uint32) {
 
 // updateEntryOffset adds xor encryption for funcInfo.entryoff
 func updateEntryOffset(file *ast.File, entryOffKey uint32) {
+	var nameOffField string
 	entryOffUpdated := false
+
+	extractNameOff := func(node ast.Node) bool {
+		indexExpr, ok := node.(*ast.IndexExpr)
+		if !ok {
+			return true
+		}
+		selExpr, ok := indexExpr.Index.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		nameOffField = selExpr.Sel.Name
+		return false
+	}
 
 	updateEntryOff := func(node ast.Node) bool {
 		callExpr, ok := node.(*ast.CallExpr)
@@ -70,30 +84,69 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 			return true
 		}
 
-		selExpr, ok := callExpr.Fun.(*ast.SelectorExpr)
-		if !ok || selExpr.Sel.Name != "textAddr" {
+		textSelExpr, ok := callExpr.Fun.(*ast.SelectorExpr)
+		if !ok || textSelExpr.Sel.Name != "textAddr" {
+			return true
+		}
+
+		selExpr, ok := callExpr.Args[0].(*ast.SelectorExpr)
+		if !ok {
 			return true
 		}
 
 		callExpr.Args[0] = &ast.BinaryExpr{
-			X:  callExpr.Args[0],
+			X:  selExpr,
 			Op: token.XOR,
-			Y: &ast.BasicLit{
-				Kind:  token.INT,
-				Value: strconv.FormatUint(uint64(entryOffKey), 10),
+			Y: &ast.ParenExpr{
+				X: &ast.BinaryExpr{
+					X: ah.CallExpr(ast.NewIdent("uint32"), &ast.SelectorExpr{
+						X:   selExpr.X,
+						Sel: ast.NewIdent(nameOffField),
+					}),
+					Op: token.MUL,
+					Y: &ast.BasicLit{
+						Kind:  token.INT,
+						Value: strconv.FormatUint(uint64(entryOffKey), 10),
+					},
+				},
 			},
 		}
 		entryOffUpdated = true
 		return false
 	}
 
+	var entryFunc *ast.FuncDecl
+	var cfuncnameFunc *ast.FuncDecl
+
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
-		if ok && funcDecl.Name.Name == "entry" {
-			ast.Inspect(funcDecl, updateEntryOff)
+		if !ok {
+			continue
+		}
+		switch funcDecl.Name.Name {
+		case "entry":
+			entryFunc = funcDecl
+		case "cfuncname":
+			cfuncnameFunc = funcDecl
+		}
+		if entryFunc != nil && cfuncnameFunc != nil {
 			break
 		}
 	}
+
+	if entryFunc == nil {
+		panic("entry function not found")
+	}
+	if cfuncnameFunc == nil {
+		panic("cfuncname function not found")
+	}
+
+	ast.Inspect(cfuncnameFunc, extractNameOff)
+	if nameOffField == "" {
+		panic("nameOff field not found")
+	}
+
+	ast.Inspect(entryFunc, updateEntryOff)
 
 	if !entryOffUpdated {
 		panic("entryOff not found")

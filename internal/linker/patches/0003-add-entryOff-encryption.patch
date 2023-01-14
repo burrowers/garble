@@ -1,17 +1,17 @@
-From a9c0b26ab88f04509991b10d007f1d885c87fed4 Mon Sep 17 00:00:00 2001
+From 99349f6e00859e1bd5c1dd14921b6b9d4aac9966 Mon Sep 17 00:00:00 2001
 From: pagran <pagran@protonmail.com>
-Date: Tue, 10 Jan 2023 23:56:45 +0100
+Date: Sat, 14 Jan 2023 21:36:16 +0100
 Subject: [PATCH 3/3] add entryOff encryption
 
 ---
- cmd/link/internal/ld/pcln.go | 18 ++++++++++++++++++
- 1 file changed, 18 insertions(+)
+ cmd/link/internal/ld/pcln.go | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
 
 diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
-index ab13b15042..48e656cf89 100644
+index ab13b15042..8e2fa09434 100644
 --- a/cmd/link/internal/ld/pcln.go
 +++ b/cmd/link/internal/ld/pcln.go
-@@ -790,6 +790,24 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
+@@ -790,6 +790,26 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
  			sb.SetUint32(ctxt.Arch, dataoff, uint32(ldr.SymValue(fdsym)-gofuncBase))
  		}
  	}
@@ -31,7 +31,9 @@ index ab13b15042..48e656cf89 100644
 +	garbleData := sb.Data()
 +	for _, off := range startLocations {
 +		entryOff := ctxt.Arch.ByteOrder.Uint32(garbleData[off:])
-+		sb.SetUint32(ctxt.Arch, int64(off), entryOff^garbleEntryOffKey)
++		nameOff := ctxt.Arch.ByteOrder.Uint32(garbleData[off+4:])
++
++		sb.SetUint32(ctxt.Arch, int64(off), entryOff^(nameOff*garbleEntryOffKey))
 +	}
  }
  
