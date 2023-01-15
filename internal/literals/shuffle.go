@@ -52,14 +52,10 @@ func (shuffle) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.DataToByteSlice(shuffledFullData)},
 		},
-		&ast.DeclStmt{
-			Decl: &ast.GenDecl{
-				Tok: token.VAR,
-				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{ast.NewIdent("data")},
-					Type:  &ast.ArrayType{Elt: ast.NewIdent("byte")},
-				}},
-			},
+		&ast.AssignStmt{
+			Lhs: []ast.Expr{ast.NewIdent("data")},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{ah.CallExpr(ast.NewIdent("make"), &ast.ArrayType{Elt: ast.NewIdent("byte")}, ah.IntLit(0), ah.IntLit(len(data)+1))},
 		},
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("data")},
