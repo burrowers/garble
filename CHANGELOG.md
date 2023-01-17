@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.9.0] - 2023-01-??
+## [v0.9.0] - 2023-01-17
 
 This release continues support for Go 1.19 and the upcoming Go 1.20.
 
@@ -176,6 +176,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[v0.9.0]: https://github.com/burrowers/garble/releases/tag/v0.9.0
 [#619]: https://github.com/burrowers/garble/issues/619
 [#621]: https://github.com/burrowers/garble/issues/621
 [#622]: https://github.com/burrowers/garble/issues/622
