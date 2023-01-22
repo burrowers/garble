@@ -15,14 +15,17 @@ type obfuscator interface {
 	obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt
 }
 
-// obfuscators contains all types which implement the obfuscator Interface
-var obfuscators = []obfuscator{
-	simple{},
-	swap{},
-	split{},
-	shuffle{},
-	// seed{}, TODO: re-enable once https://go.dev/issue/47631 is fixed in Go 1.20
-}
+var (
+	// obfuscators contains all types which implement the obfuscator Interface
+	obfuscators = []obfuscator{
+		simple{},
+		swap{},
+		split{},
+		shuffle{},
+		// seed{}, TODO: re-enable once https://go.dev/issue/47631 is fixed in Go 1.20
+	}
+	ObfuscatorNames = []string{"simple", "swap", "split", "shuffle"}
+)
 
 func genRandIntSlice(obfRand *mathrand.Rand, max, count int) []int {
 	indexes := make([]int, count)

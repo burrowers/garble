@@ -14,6 +14,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"mvdan.cc/garble/internal/literals"
 )
 
 const buildIDSeparator = "/"
@@ -143,6 +145,9 @@ func appendFlags(w io.Writer, forBuildHash bool) {
 	if flagSeed.present() {
 		io.WriteString(w, " -seed=")
 		io.WriteString(w, flagSeed.String())
+	}
+	if literals.TestObfuscator != "" && forBuildHash {
+		io.WriteString(w, literals.TestObfuscator)
 	}
 }
 
