@@ -1691,7 +1691,7 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 			return true
 		}
 
-		uses, ok := tf.info.Uses[node].(types.Object)
+		uses, ok := tf.info.Uses[node]
 		if !ok {
 			return true
 		}
