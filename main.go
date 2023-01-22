@@ -1691,18 +1691,20 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 			return true
 		}
 
-		uses, ok := tf.info.Uses[node].(*types.PkgName)
+		uses, ok := tf.info.Uses[node].(types.Object)
 		if !ok {
 			return true
 		}
 
-		usedImports[uses.Imported().Path()] = true
+		if pkg := uses.Pkg(); pkg != nil {
+			usedImports[pkg.Path()] = true
+		}
 
 		return true
 	})
 
 	for _, imp := range file.Imports {
-		if imp.Name != nil && (imp.Name.Name == "_" || imp.Name.Name == ".") {
+		if imp.Name != nil && imp.Name.Name == "_" {
 			continue
 		}
 
