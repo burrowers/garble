@@ -51,8 +51,9 @@ func BenchmarkBuild(b *testing.B) {
 	if b.N == 1 && strings.HasSuffix(benchtime, "x") && benchtime != "1x" {
 		return
 	}
+	tdir := b.TempDir()
 
-	garbleBin := filepath.Join(b.TempDir(), "garble")
+	garbleBin := filepath.Join(tdir, "garble")
 	if runtime.GOOS == "windows" {
 		garbleBin += ".exe"
 	}
@@ -62,8 +63,8 @@ func BenchmarkBuild(b *testing.B) {
 	// We collect extra metrics.
 	var memoryAllocs, cachedTime, systemTime int64
 
-	outputBin := filepath.Join(b.TempDir(), "output")
-	sourceDir := filepath.Join(b.TempDir(), "src")
+	outputBin := filepath.Join(tdir, "output")
+	sourceDir := filepath.Join(tdir, "src")
 	err = os.Mkdir(sourceDir, 0o777)
 	qt.Assert(b, err, qt.IsNil)
 
@@ -81,7 +82,7 @@ func BenchmarkBuild(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// First we do a fresh build, using a new GOCACHE.
 		// and the second does an incremental rebuild reusing the cache.
-		gocache, err := os.MkdirTemp(b.TempDir(), "gocache-*")
+		gocache, err := os.MkdirTemp(tdir, "gocache-*")
 		qt.Assert(b, err, qt.IsNil)
 		env := append(os.Environ(),
 			"GOCACHE="+gocache,
