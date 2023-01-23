@@ -21,6 +21,7 @@ const (
 	stepDataLen     = 4
 	dataCountPerLen = 10
 	moduleName      = "test/literals"
+	garbleSeed      = "o9WDTZ4CN4w"
 )
 
 func generateRunSrc() string {
@@ -133,7 +134,7 @@ func main() {
 	}
 
 	garbleBin := buildTestGarble(tdir)
-	args := append([]string{"-literals", "test", "-bench"}, os.Args[1:]...)
+	args := append([]string{"-seed", garbleSeed, "-literals", "test", "-bench"}, os.Args[1:]...)
 	cmd := exec.Command(garbleBin, args...)
 	cmd.Env = append(os.Environ(), "GARBLE_TEST_LITERALS_OBFUSCATOR_MAP="+strings.Join(packageToObfuscator, ","))
 	cmd.Dir = tdir
