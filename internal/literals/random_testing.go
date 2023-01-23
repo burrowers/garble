@@ -34,6 +34,7 @@ func init() {
 		}
 		packageToObfuscatorMap[keyValue[0]] = obfuscators[obfIdx]
 	}
+	TestObfuscator = obfMapEnv
 }
 
 type obfRand struct {
