@@ -306,8 +306,10 @@ func appendListedPackages(packages []string, withDeps bool) error {
 			path = pkg.ForTest
 		}
 		switch {
-		// We don't support obfuscating these yet.
-		case cannotObfuscate[path]:
+		// We do not support obfuscating the runtime nor its dependencies.
+		case runtimeAndDeps[path],
+			// "unknown pc" crashes on windows in the cgo test otherwise.
+			path == "runtime/cgo":
 
 		// We can't obfuscate packages which weren't loaded.
 		case pkg.Incomplete:
@@ -336,31 +338,6 @@ func appendListedPackages(packages []string, withDeps bool) error {
 	}
 
 	return nil
-}
-
-// cannotObfuscate is a list of some standard library packages we currently
-// cannot obfuscate.
-//
-// TODO: investigate and resolve each one of these
-var cannotObfuscate = map[string]bool{
-	// "unknown pc" crashes on windows in the cgo test otherwise
-	"runtime/cgo": true,
-
-	// We do not support obfuscating the runtime nor its dependencies.
-	// Obtained from "go list -deps runtime" as of June 29th.
-	// Note that the same command on Go 1.18 results in the same list.
-	"internal/goarch":          true,
-	"unsafe":                   true,
-	"internal/abi":             true,
-	"internal/cpu":             true,
-	"internal/bytealg":         true,
-	"internal/goexperiment":    true,
-	"internal/goos":            true,
-	"runtime/internal/atomic":  true,
-	"runtime/internal/math":    true,
-	"runtime/internal/sys":     true,
-	"runtime/internal/syscall": true,
-	"runtime":                  true,
 }
 
 var listedRuntimeLinknamed = false
@@ -397,34 +374,6 @@ func listPackage(path string) (*listedPackage, error) {
 			panic(fmt.Sprintf("package %q still missing after go list call", path))
 		}
 		startTime := time.Now()
-		// Obtained via scripts/runtime-linknamed-nodeps.sh as of 2022-11-01.
-		runtimeLinknamed := []string{
-			"arena",
-			"crypto/internal/boring",
-			"crypto/internal/boring/bcache",
-			"crypto/internal/boring/fipstls",
-			"crypto/x509/internal/macos",
-			"internal/godebug",
-			"internal/poll",
-			"internal/reflectlite",
-			"internal/syscall/unix",
-			"math/rand",
-			"net",
-			"os",
-			"os/signal",
-			"plugin",
-			"reflect",
-			"runtime/coverage",
-			"runtime/debug",
-			"runtime/metrics",
-			"runtime/pprof",
-			"runtime/trace",
-			"sync",
-			"sync/atomic",
-			"syscall",
-			"syscall/js",
-			"time",
-		}
 		missing := make([]string, 0, len(runtimeLinknamed))
 		for _, linknamed := range runtimeLinknamed {
 			switch {
