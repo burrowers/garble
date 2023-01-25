@@ -182,6 +182,9 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	case "runtime", "reflect", "embed":
 		return p.ImportPath
 	}
+	if compilerIntrinsicsPkgs[p.ImportPath] {
+		return p.ImportPath
+	}
 	if !p.ToObfuscate {
 		return p.ImportPath
 	}

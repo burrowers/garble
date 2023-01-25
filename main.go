@@ -839,7 +839,7 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		name := string(remaining[:nameEnd])
 		remaining = remaining[nameEnd:]
 
-		if lpkg.ToObfuscate {
+		if lpkg.ToObfuscate && !compilerIntrinsicsFuncs[lpkg.ImportPath+"."+name] {
 			newName := hashWithPackage(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
@@ -959,7 +959,11 @@ func transformCompile(args []string) ([]string, error) {
 		}
 		tf.handleDirectives(file.Comments)
 		file = tf.transformGoFile(file)
-		if newPkgPath != "" {
+		// newPkgPath might be the original ImportPath in some edge cases like
+		// compilerIntrinsics; we don't want to use slashes in package names.
+		// TODO: when we do away with those edge cases, only check the string is
+		// non-empty.
+		if newPkgPath != "" && newPkgPath != curPkg.ImportPath {
 			file.Name.Name = newPkgPath
 		}
 
@@ -1052,7 +1056,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
 	// obfuscate the local name, if the current package is obfuscated
-	if curPkg.ToObfuscate {
+	if curPkg.ToObfuscate && !compilerIntrinsicsFuncs[curPkg.ImportPath+"."+localName] {
 		localName = hashWithPackage(curPkg, localName)
 	}
 	if newName == "" {
@@ -1092,7 +1096,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		}
 		panic(err) // shouldn't happen
 	}
-	if lpkg.ToObfuscate {
+	if lpkg.ToObfuscate && !compilerIntrinsicsFuncs[lpkg.ImportPath+"."+foreignName] {
 		// The name exists and was obfuscated; obfuscate the new name.
 		newForeignName := hashWithPackage(lpkg, foreignName)
 		newPkgPath := pkgPath
@@ -1825,7 +1829,8 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 
 		// The Go toolchain needs to detect symbols from these packages,
 		// so we are not obfuscating their package paths or declared names.
-		switch pkg.Path() {
+		path := pkg.Path()
+		switch path {
 		case "embed":
 			// FS is detected by the compiler for //go:embed.
 			return name == "FS"
@@ -1849,7 +1854,6 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			return true
 		}
 
-		path := pkg.Path()
 		lpkg, err := listPackage(path)
 		if err != nil {
 			panic(err) // shouldn't happen
@@ -1895,6 +1899,10 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		case *types.TypeName:
 			debugName = "type"
 		case *types.Func:
+			if compilerIntrinsicsFuncs[path+"."+name] {
+				return true
+			}
+
 			sign := obj.Type().(*types.Signature)
 			if sign.Recv() == nil {
 				debugName = "func"

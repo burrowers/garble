@@ -1,15 +1,24 @@
+# A fairly average Go build, importing some std libraries.
 # We always build for a foreign GOOS.
 # GOOS=windows, unless the host is also windows; then linux.
 # GOARCH=arm, unless the host is also arm; then amd64.
 # Windows and ARM are both interesting,
 # and it helps with coverage as we mainly test on linux/amd64.
+#
+# We also ensure that intrinsics work as expected.
+# The compiler replaces calls to some functions with intrinsics in its ssa stage,
+# and it recognizes which functions via the package path and func name.
+# If we obfuscate those package paths without adjusting the compiler,
+# intrinsics aren't applied, causing performance loss or build errors.
+# We use the math/bits package, as its Len64 intrinsic is present in both arm
+# and arm64, and it is not part of the runtime nor its dependencies.
 [!windows] env GOOS=windows
 [windows] env GOOS=linux
 [!arm] env GOARCH=arm
 [arm] env GOARCH=arm64
+garble build -gcflags=math/bits=-d=ssa/intrinsics/debug=1
+stderr 'intrinsic substitution for Len64.*BitLen64'
 
-# A fairly average Go build, importing some std libraries.
-garble build
 -- go.mod --
 module test/main
 
