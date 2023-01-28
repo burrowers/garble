@@ -66,6 +66,8 @@ import (
 	. "test/main/imp_func"
 	. "test/main/imp_var"
 	. "test/main/imp_type"
+	"test/main/imp_mult"
+	. "test/main/imp_mult"
 )
 
 type structTest struct {
@@ -145,6 +147,7 @@ func main() {
 	byteTest()
 	shadowTest()
 	dotImportTest()
+	multipleTimeImportTest()
 
 	strArray := [2]string{"1: literal in", "an secret array"}
 	println(strArray[0], strArray[1])
@@ -331,6 +334,13 @@ func dotImportTest() {
     println(DotImportedVar)
     println(DotImportedType("str as dot imported type"))
 }
+
+func multipleTimeImportTest() {
+    println(imp_mult.MultImpStr)
+
+    const localConst = MultImpStr
+    println(localConst)
+}
 -- imp/imported.go --
 package imported
 
@@ -356,6 +366,12 @@ var DotImportedVar = "str from dot imported var"
 package imp_type
 
 type DotImportedType string
+
+
+-- imp_mult/imported.go --
+package imp_mult
+
+const MultImpStr = "str from package imported multiple time"
 
 -- directives.go --
 // If we misplace any of the directives below,
@@ -445,5 +461,7 @@ const str from dot imported var
 str from dot imported func
 str from dot imported var
 str as dot imported type
+str from package imported multiple time
+str from package imported multiple time
 1: literal in an secret array
 2: literal in a secret slice

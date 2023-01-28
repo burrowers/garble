@@ -1689,8 +1689,9 @@ func recordedAsNotObfuscated(obj types.Object) bool {
 
 func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 	usedImports := make(map[string]bool)
-	ast.Inspect(file, func(n ast.Node) bool {
-		node, ok := n.(*ast.Ident)
+
+	astutil.Apply(file, func(cursor *astutil.Cursor) bool {
+		node, ok := cursor.Node().(*ast.Ident)
 		if !ok {
 			return true
 		}
@@ -1700,12 +1701,26 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 			return true
 		}
 
-		if pkg := uses.Pkg(); pkg != nil {
-			usedImports[pkg.Path()] = true
+		pkg := uses.Pkg()
+		if pkg == nil {
+			return true
 		}
 
+		var pkgName string
+		switch parent := cursor.Parent().(type) {
+		case *ast.SelectorExpr:
+			pkgNameIdent, ok := parent.X.(*ast.Ident)
+			if !ok {
+				return true // TODO(pagran): review this
+			}
+			pkgName = pkgNameIdent.Name
+		default:
+			pkgName = "."
+		}
+
+		usedImports[pkg.Path()+"|"+pkgName] = true
 		return true
-	})
+	}, nil)
 
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
@@ -1724,7 +1739,14 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 			panic(err)
 		}
 
-		if usedImports[lpkg.ImportPath] {
+		var packageName string
+		if imp.Name != nil {
+			packageName = imp.Name.Name
+		} else {
+			packageName = lpkg.Name
+		}
+
+		if usedImports[lpkg.ImportPath+"|"+packageName] {
 			continue
 		}
 
