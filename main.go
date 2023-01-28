@@ -1701,24 +1701,16 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 			return true
 		}
 
-		pkg := uses.Pkg()
-		if pkg == nil {
+		// Handle qualified identifiers, cover renamed and simple imports
+		if pkgType, ok := uses.(*types.PkgName); ok {
+			usedImports[pkgType.Name()+" "+pkgType.Imported().Path()] = true
 			return true
 		}
 
-		var pkgName string
-		switch parent := cursor.Parent().(type) {
-		case *ast.SelectorExpr:
-			pkgNameIdent, ok := parent.X.(*ast.Ident)
-			if !ok {
-				return true // TODO(pagran): review this
-			}
-			pkgName = pkgNameIdent.Name
-		default:
-			pkgName = "."
+		// Handle dot-imported declarations
+		if pkg := uses.Pkg(); pkg != nil && pkg != tf.pkg && pkg.Scope().Lookup(uses.Name()) == uses {
+			usedImports[". "+pkg.Path()] = true
 		}
-
-		usedImports[pkg.Path()+"|"+pkgName] = true
 		return true
 	}, nil)
 
@@ -1739,14 +1731,14 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 			panic(err)
 		}
 
-		var packageName string
+		var pkgName string
 		if imp.Name != nil {
-			packageName = imp.Name.Name
+			pkgName = imp.Name.Name
 		} else {
-			packageName = lpkg.Name
+			pkgName = lpkg.Name
 		}
 
-		if usedImports[lpkg.ImportPath+"|"+packageName] {
+		if usedImports[pkgName+" "+lpkg.ImportPath] {
 			continue
 		}
 
