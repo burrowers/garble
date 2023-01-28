@@ -1690,13 +1690,13 @@ func recordedAsNotObfuscated(obj types.Object) bool {
 func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 	usedImports := make(map[string]bool)
 
-	astutil.Apply(file, func(cursor *astutil.Cursor) bool {
-		node, ok := cursor.Node().(*ast.Ident)
+	ast.Inspect(file, func(node ast.Node) bool {
+		ident, ok := node.(*ast.Ident)
 		if !ok {
 			return true
 		}
 
-		uses, ok := tf.info.Uses[node]
+		uses, ok := tf.info.Uses[ident]
 		if !ok {
 			return true
 		}
@@ -1712,7 +1712,7 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 			usedImports[". "+pkg.Path()] = true
 		}
 		return true
-	}, nil)
+	})
 
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
