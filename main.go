@@ -1708,6 +1708,8 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 		}
 
 		// Handle dot-imported declarations
+		// If identifier is not declared in the current scope (package) and is not types.PkgName
+		// that means that identifier imported using dot-imports
 		if pkg := uses.Pkg(); pkg != nil && pkg != tf.pkg && pkg.Scope().Lookup(uses.Name()) == uses {
 			usedImports[". "+pkg.Path()] = true
 		}
