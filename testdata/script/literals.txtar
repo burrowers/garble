@@ -66,9 +66,6 @@ import (
 	. "test/main/imp_func"
 	. "test/main/imp_var"
 	. "test/main/imp_type"
-	"test/main/imp_mult"
-	imp_mult2 "test/main/imp_mult"
-	. "test/main/imp_mult"
 )
 
 type structTest struct {
@@ -337,15 +334,62 @@ func dotImportTest() {
 }
 
 func multipleTimeImportTest() {
-	const (
-		localConst1 = MultImpStr
-		localConst2 = imp_mult2.MultImpStr
-	)
-
-	println(imp_mult.MultImpStr)
-	println(localConst1)
-	println(localConst2)
+    regularAndUnusedRenamed()
+    regularAndUnusedDotImport()
+    unusedRegularAndDotImport()
 }
+
+func multipleCheck(vals ...string) {
+	if len(vals) < 2 {
+		return
+	}
+	for i := 0; i < len(vals)-1; i++ {
+		if vals[i] != vals[i+1] {
+			panic("vals must be equals")
+		}
+	}
+}
+
+-- regular_and_unused_renamed.go --
+package main
+
+import (
+    "test/main/imp_mult"
+    imp_mult2 "test/main/imp_mult"
+)
+
+func regularAndUnusedRenamed() {
+    const localConst = imp_mult.MultImpStr
+    multipleCheck(imp_mult.MultImpStr, imp_mult2.MultImpStr)
+}
+
+-- regular_and_unused_dotimport.go --
+package main
+
+import (
+    "test/main/imp_mult"
+    . "test/main/imp_mult"
+)
+
+func regularAndUnusedDotImport() {
+    const localConst = imp_mult.MultImpStr
+    multipleCheck(imp_mult.MultImpStr, MultImpStr)
+}
+
+
+-- unused_regular_and_dotimport.go --
+package main
+
+import (
+    "test/main/imp_mult"
+    . "test/main/imp_mult"
+)
+
+func unusedRegularAndDotImport() {
+    const localConst = MultImpStr
+    multipleCheck(imp_mult.MultImpStr, MultImpStr)
+}
+
 -- imp/imported.go --
 package imported
 
@@ -466,8 +510,5 @@ const str from dot imported var
 str from dot imported func
 str from dot imported var
 str as dot imported type
-str from package imported multiple time
-str from package imported multiple time
-str from package imported multiple time
 1: literal in an secret array
 2: literal in a secret slice
