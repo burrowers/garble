@@ -1690,8 +1690,8 @@ func recordedAsNotObfuscated(obj types.Object) bool {
 func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 	usedImports := make(map[string]bool)
 
-	ast.Inspect(file, func(node ast.Node) bool {
-		ident, ok := node.(*ast.Ident)
+	astutil.Apply(file, func(cursor *astutil.Cursor) bool {
+		ident, ok := cursor.Node().(*ast.Ident)
 		if !ok {
 			return true
 		}
@@ -1708,13 +1708,23 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 		}
 
 		// Handle dot-imported declarations
-		// If identifier is not declared in the current scope (package) and is not types.PkgName
-		// that means that identifier imported using dot-imports
-		if pkg := uses.Pkg(); pkg != nil && pkg != tf.pkg && pkg.Scope().Lookup(uses.Name()) == uses {
+		// If identifier is part of SelectorExpr, it means it is a regular or renamed import
+		if _, ok := cursor.Parent().(*ast.SelectorExpr); ok {
+			return true
+		}
+
+		// If package is missing or equal to current one it is not a dot-import case
+		pkg := uses.Pkg()
+		if pkg == nil || pkg == tf.pkg {
+			return true
+		}
+
+		// Verify that identifier is declared in another package
+		if pkg.Scope().Lookup(uses.Name()) == uses {
 			usedImports[". "+pkg.Path()] = true
 		}
 		return true
-	})
+	}, nil)
 
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
