@@ -66,6 +66,7 @@ import (
 	. "test/main/imp_func"
 	. "test/main/imp_var"
 	. "test/main/imp_type"
+	. "test/main/imp_struct"
 )
 
 type structTest struct {
@@ -331,6 +332,7 @@ func dotImportTest() {
     println(DotImportedFunc())
     println(DotImportedVar)
     println(DotImportedType("str as dot imported type"))
+    println(DotImportedStruct.Str)
 }
 
 func multipleTimeImportTest() {
@@ -416,6 +418,12 @@ package imp_type
 
 type DotImportedType string
 
+
+
+-- imp_struct/imported.go --
+package imp_struct
+
+var DotImportedStruct = struct{ Str string }{Str: "string in dot imported struct"}
 
 -- imp_mult/imported.go --
 package imp_mult
@@ -510,5 +518,6 @@ const str from dot imported var
 str from dot imported func
 str from dot imported var
 str as dot imported type
+string in dot imported struct
 1: literal in an secret array
 2: literal in a secret slice
