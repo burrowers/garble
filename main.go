@@ -1708,8 +1708,8 @@ func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
 		}
 
 		// Handle dot-imported declarations
-		// If identifier is part of SelectorExpr, it means it is a regular or renamed import
-		if _, ok := cursor.Parent().(*ast.SelectorExpr); ok {
+		// If identifier is right part of SelectorExpr, it means it is a regular or renamed import
+		if selExpr, ok := cursor.Parent().(*ast.SelectorExpr); ok && selExpr.Sel == ident {
 			return true
 		}
 
