@@ -1704,6 +1704,23 @@ func (tf *transformer) resolveImportSpec(imp *ast.ImportSpec) *types.Package {
 	return pkgObj.Imported()
 }
 
+// isSafeForInstanceType returns true if the passed type is safe for var declaration
+// Unsafe types: generic structs, funcs or interfaces, type constraint
+func isSafeForInstanceType(typ types.Type) bool {
+	switch t := typ.(type) {
+	case *types.Named:
+		if t.TypeParams().Len() > 0 {
+			return false
+		}
+		return isSafeForInstanceType(t.Underlying())
+	case *types.Signature:
+		return t.TypeParams().Len() == 0
+	case *types.Interface:
+		return t.IsMethodSet()
+	}
+	return true
+}
+
 func (tf *transformer) makeImportsUsed(file *ast.File) {
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
@@ -1724,6 +1741,9 @@ func (tf *transformer) makeImportsUsed(file *ast.File) {
 			obj := scope.Lookup(name)
 			if obj == nil {
 				panic(fmt.Sprintf("%s not found in %s", name, imp.Path.Value))
+			}
+			if !isSafeForInstanceType(obj.Type()) {
+				continue
 			}
 
 			nameIdent := ast.NewIdent(name)
@@ -1776,7 +1796,9 @@ func (tf *transformer) makeImportsUsed(file *ast.File) {
 		}
 
 		if !generated {
-			panic(fmt.Sprintf("generate ref variable for %s failed", imp.Path.Value))
+			// A very unlikely situation where there is no suitable declaration for a reference variable
+			// and almost certainly means that there is another import reference in code
+			log.Printf("generate reference variable for %s failed", imp.Path.Value)
 		}
 	}
 }
