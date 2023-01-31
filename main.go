@@ -950,7 +950,7 @@ func transformCompile(args []string) ([]string, error) {
 			if flagTiny {
 				// strip unneeded runtime code
 				stripRuntime(basename, file)
-				tf.makeImportsUsed(file)
+				tf.useAllImports(file)
 			}
 			if basename == "symtab.go" {
 				updateMagicValue(file, magicValue())
@@ -1687,23 +1687,6 @@ func recordedAsNotObfuscated(obj types.Object) bool {
 	return ok
 }
 
-func (tf *transformer) resolveImportSpec(imp *ast.ImportSpec) *types.Package {
-	// Simple import has no ast.Ident and is stored in Implicits separately.
-	obj := tf.info.Implicits[imp]
-	if obj == nil {
-		obj = tf.info.Defs[imp.Name] // renamed or dot import
-	}
-	if obj == nil {
-		return nil
-	}
-
-	pkgObj, ok := obj.(*types.PkgName)
-	if !ok {
-		panic(fmt.Sprintf("unexpected object type for %s: %v", imp.Path.Value, obj))
-	}
-	return pkgObj.Imported()
-}
-
 // isSafeForInstanceType returns true if the passed type is safe for var declaration.
 // Unsafe types: generic types and non-method interfaces.
 func isSafeForInstanceType(typ types.Type) bool {
@@ -1721,93 +1704,71 @@ func isSafeForInstanceType(typ types.Type) bool {
 	return true
 }
 
-func (tf *transformer) makeImportsUsed(file *ast.File) {
+func (tf *transformer) useAllImports(file *ast.File) {
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
 			continue
 		}
 
-		pkg := tf.resolveImportSpec(imp)
-		if pkg == nil {
-			panic(fmt.Sprintf("import %s not found", imp.Path.Value))
+		// Simple import has no ast.Ident and is stored in Implicits separately.
+		pkgObj := tf.info.Implicits[imp]
+		if pkgObj == nil {
+			pkgObj = tf.info.Defs[imp.Name] // renamed or dot import
 		}
 
-		generated := false
-		scope := pkg.Scope()
-		for _, name := range scope.Names() {
-			if !token.IsExported(name) {
-				continue
+		pkgScope := pkgObj.(*types.PkgName).Imported().Scope()
+		var nameObj types.Object
+		for _, name := range pkgScope.Names() {
+			if obj := pkgScope.Lookup(name); obj.Exported() && isSafeForInstanceType(obj.Type()) {
+				nameObj = obj
+				break
 			}
-			obj := scope.Lookup(name)
-			if obj == nil {
-				panic(fmt.Sprintf("%s not found in %s", name, imp.Path.Value))
-			}
-			if !isSafeForInstanceType(obj.Type()) {
-				continue
-			}
-
-			nameIdent := ast.NewIdent(name)
-			getFullName := func() ast.Expr {
-				if imp.Name == nil {
-					return &ast.SelectorExpr{
-						X:   ast.NewIdent(pkg.Name()),
-						Sel: nameIdent,
-					}
-				}
-				if imp.Name.Name == "." {
-					return nameIdent
-				}
-				return &ast.SelectorExpr{
-					X:   ast.NewIdent(imp.Name.Name),
-					Sel: nameIdent,
-				}
-			}
-
-			var decl *ast.GenDecl
-			switch obj.(type) {
-			case *types.Const:
-				// const _ = <value>
-				decl = &ast.GenDecl{
-					Tok: token.CONST,
-					Specs: []ast.Spec{&ast.ValueSpec{
-						Names:  []*ast.Ident{ast.NewIdent("_")},
-						Values: []ast.Expr{getFullName()},
-					}},
-				}
-			case *types.Var, *types.Func:
-				// var _ = <value>
-				decl = &ast.GenDecl{
-					Tok: token.VAR,
-					Specs: []ast.Spec{&ast.ValueSpec{
-						Names:  []*ast.Ident{ast.NewIdent("_")},
-						Values: []ast.Expr{getFullName()},
-					}},
-				}
-			case *types.TypeName:
-				// var _ <type>
-				decl = &ast.GenDecl{
-					Tok: token.VAR,
-					Specs: []ast.Spec{&ast.ValueSpec{
-						Names: []*ast.Ident{ast.NewIdent("_")},
-						Type:  getFullName(),
-					}},
-				}
-			default:
-				continue // Skip *types.Builtin and other
-			}
-
-			// Manually add a new variable for correct name obfuscation
-			tf.info.Uses[nameIdent] = obj
-			file.Decls = append(file.Decls, decl)
-			generated = true
-			break
 		}
-
-		if !generated {
+		if nameObj == nil {
 			// A very unlikely situation where there is no suitable declaration for a reference variable
 			// and almost certainly means that there is another import reference in code.
-			log.Printf("generate reference variable for %s failed", imp.Path.Value)
+			continue
 		}
+		spec := &ast.ValueSpec{Names: []*ast.Ident{ast.NewIdent("_")}}
+		decl := &ast.GenDecl{Specs: []ast.Spec{spec}}
+
+		nameIdent := ast.NewIdent(nameObj.Name())
+		var nameExpr ast.Expr
+		switch {
+		case imp.Name == nil: // import "pkg/path"
+			nameExpr = &ast.SelectorExpr{
+				X:   ast.NewIdent(pkgObj.Name()),
+				Sel: nameIdent,
+			}
+		case imp.Name.Name != ".": // import path2 "pkg/path"
+			nameExpr = &ast.SelectorExpr{
+				X:   ast.NewIdent(imp.Name.Name),
+				Sel: nameIdent,
+			}
+		default: // import . "pkg/path"
+			nameExpr = nameIdent
+		}
+
+		switch nameObj.(type) {
+		case *types.Const:
+			// const _ = <value>
+			decl.Tok = token.CONST
+			spec.Values = []ast.Expr{nameExpr}
+		case *types.Var, *types.Func:
+			// var _ = <value>
+			decl.Tok = token.VAR
+			spec.Values = []ast.Expr{nameExpr}
+		case *types.TypeName:
+			// var _ <type>
+			decl.Tok = token.VAR
+			spec.Type = nameExpr
+		default:
+			continue // skip *types.Builtin and others
+		}
+
+		// Ensure that types.Info.Uses is up to date.
+		tf.info.Uses[nameIdent] = nameObj
+		file.Decls = append(file.Decls, decl)
 	}
 }
 
@@ -1823,7 +1784,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		file = literals.Obfuscate(obfRand, file, tf.info, tf.linkerVariableStrings)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
-		tf.makeImportsUsed(file)
+		tf.useAllImports(file)
 	}
 
 	pre := func(cursor *astutil.Cursor) bool {
