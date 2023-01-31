@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -40,6 +41,7 @@ import (
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
+	ah "mvdan.cc/garble/internal/asthelper"
 
 	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
@@ -1764,8 +1766,23 @@ func (tf *transformer) makeImportsUsed(file *ast.File) {
 			}
 
 			var decl *ast.GenDecl
-			switch obj.(type) {
-			case *types.Const, *types.Var, *types.Func:
+			switch t := obj.(type) {
+			case *types.Const:
+				valueExpr := getFullName()
+				if t.Val().Kind() == constant.Int {
+					// On 32-bit architectures, reference to untyped int constant with a value greater than MaxInt32 gives overflow error
+					valueExpr = ah.CallExpr(ast.NewIdent("uint64"), valueExpr)
+				}
+
+				// var _ = <value> or uint64(<value>)
+				decl = &ast.GenDecl{
+					Tok: token.VAR,
+					Specs: []ast.Spec{&ast.ValueSpec{
+						Names:  []*ast.Ident{ast.NewIdent("_")},
+						Values: []ast.Expr{valueExpr},
+					}},
+				}
+			case *types.Var, *types.Func:
 				// var _ = <value>
 				decl = &ast.GenDecl{
 					Tok: token.VAR,
