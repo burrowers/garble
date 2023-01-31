@@ -66,6 +66,7 @@ import (
 	. "test/main/imp_func"
 	. "test/main/imp_var"
 	. "test/main/imp_type"
+	. "test/main/imp_struct"
 )
 
 type structTest struct {
@@ -145,6 +146,7 @@ func main() {
 	byteTest()
 	shadowTest()
 	dotImportTest()
+	multipleTimeImportTest()
 
 	strArray := [2]string{"1: literal in", "an secret array"}
 	println(strArray[0], strArray[1])
@@ -330,7 +332,56 @@ func dotImportTest() {
     println(DotImportedFunc())
     println(DotImportedVar)
     println(DotImportedType("str as dot imported type"))
+    println(DotImportedStruct.Str)
 }
+
+func multipleTimeImportTest() {
+    regularAndUnusedRenamed()
+    regularAndUnusedDotImport()
+    unusedRegularAndDotImport()
+}
+
+func noop(...any) {}
+
+-- regular_and_unused_renamed.go --
+package main
+
+import (
+    "test/main/imp_mult"
+    imp_mult2 "test/main/imp_mult"
+)
+
+func regularAndUnusedRenamed() {
+    imp_mult.MultDummy()
+    noop(imp_mult.MultImpStr, imp_mult2.MultImpStr)
+}
+
+-- regular_and_unused_dotimport.go --
+package main
+
+import (
+    "test/main/imp_mult"
+    . "test/main/imp_mult"
+)
+
+func regularAndUnusedDotImport() {
+    imp_mult.MultDummy()
+    noop(imp_mult.MultImpStr, MultImpStr)
+}
+
+-- unused_regular_and_dotimport.go --
+package main
+
+import (
+    "test/main/imp_mult"
+    . "test/main/imp_mult"
+)
+
+func unusedRegularAndDotImport() {
+    MultDummy()
+    noop(imp_mult.MultImpStr, MultImpStr)
+}
+
 -- imp/imported.go --
 package imported
 
@@ -356,6 +407,18 @@ var DotImportedVar = "str from dot imported var"
 package imp_type
 
 type DotImportedType string
+
+-- imp_struct/imported.go --
+package imp_struct
+
+var DotImportedStruct = struct{ Str string }{Str: "string in dot imported struct"}
+
+-- imp_mult/imported.go --
+package imp_mult
+
+const MultImpStr = "str from package imported multiple time"
+
+func MultDummy() {}
 
 -- directives.go --
 // If we misplace any of the directives below,
@@ -445,5 +508,6 @@ const str from dot imported var
 str from dot imported func
 str from dot imported var
 str as dot imported type
+string in dot imported struct
 1: literal in an secret array
 2: literal in a secret slice
