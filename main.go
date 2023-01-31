@@ -951,7 +951,7 @@ func transformCompile(args []string) ([]string, error) {
 			if flagTiny {
 				// strip unneeded runtime code
 				stripRuntime(basename, file)
-				tf.removeUnnecessaryImports(file)
+				tf.makeImportsUsed(file)
 			}
 			if basename == "symtab.go" {
 				updateMagicValue(file, magicValue())
@@ -1514,9 +1514,10 @@ type transformer struct {
 func newTransformer() *transformer {
 	return &transformer{
 		info: &types.Info{
-			Types: make(map[ast.Expr]types.TypeAndValue),
-			Defs:  make(map[*ast.Ident]types.Object),
-			Uses:  make(map[*ast.Ident]types.Object),
+			Types:     make(map[ast.Expr]types.TypeAndValue),
+			Defs:      make(map[*ast.Ident]types.Object),
+			Uses:      make(map[*ast.Ident]types.Object),
+			Implicits: make(map[ast.Node]types.Object),
 		},
 		recordTypeDone: make(map[*types.Named]bool),
 		fieldToStruct:  make(map[*types.Var]*types.Struct),
@@ -1687,48 +1688,96 @@ func recordedAsNotObfuscated(obj types.Object) bool {
 	return ok
 }
 
-func (tf *transformer) removeUnnecessaryImports(file *ast.File) {
-	usedImports := make(map[string]bool)
-	ast.Inspect(file, func(n ast.Node) bool {
-		node, ok := n.(*ast.Ident)
-		if !ok {
-			return true
-		}
+func (tf *transformer) resolveImportSpec(imp *ast.ImportSpec) *types.Package {
+	obj, ok := tf.info.Implicits[imp]
+	if !ok {
+		obj = tf.info.Defs[imp.Name] // renamed or dot import
+	}
+	if obj == nil {
+		return nil
+	}
 
-		uses, ok := tf.info.Uses[node]
-		if !ok {
-			return true
-		}
+	pkgObj, ok := obj.(*types.PkgName)
+	if !ok {
+		panic(fmt.Sprintf("unexpected object type for %s: %v", imp.Path.Value, obj))
+	}
+	return pkgObj.Imported()
+}
 
-		if pkg := uses.Pkg(); pkg != nil {
-			usedImports[pkg.Path()] = true
-		}
-
-		return true
-	})
-
+func (tf *transformer) makeImportsUsed(file *ast.File) {
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
 			continue
 		}
 
-		path, err := strconv.Unquote(imp.Path.Value)
-		if err != nil {
-			panic(err)
+		pkg := tf.resolveImportSpec(imp)
+		if pkg == nil {
+			panic(fmt.Sprintf("import %s not found", imp.Path.Value))
 		}
 
-		// The import path can't be used directly here, because the actual
-		// path resolved via go/types might be different from the naive path.
-		lpkg, err := listPackage(path)
-		if err != nil {
-			panic(err)
+		generated := false
+		scope := pkg.Scope()
+		for _, name := range scope.Names() {
+			if !token.IsExported(name) {
+				continue
+			}
+			obj := scope.Lookup(name)
+			if obj == nil {
+				panic(fmt.Sprintf("%s not found in %s", name, imp.Path.Value))
+			}
+
+			nameIdent := ast.NewIdent(name)
+			getFullName := func() ast.Expr {
+				if imp.Name == nil {
+					return &ast.SelectorExpr{
+						X:   ast.NewIdent(pkg.Name()),
+						Sel: nameIdent,
+					}
+				}
+				if imp.Name.Name == "." {
+					return nameIdent
+				}
+				return &ast.SelectorExpr{
+					X:   ast.NewIdent(imp.Name.Name),
+					Sel: nameIdent,
+				}
+			}
+
+			var decl *ast.GenDecl
+			switch obj.(type) {
+			case *types.Const, *types.Var, *types.Func:
+				// var _ = <value>
+				decl = &ast.GenDecl{
+					Tok: token.VAR,
+					Specs: []ast.Spec{&ast.ValueSpec{
+						Names:  []*ast.Ident{ast.NewIdent("_")},
+						Values: []ast.Expr{getFullName()},
+					}},
+				}
+			case *types.TypeName:
+				// var _ <type>
+				decl = &ast.GenDecl{
+					Tok: token.VAR,
+					Specs: []ast.Spec{&ast.ValueSpec{
+						Names: []*ast.Ident{ast.NewIdent("_")},
+						Type:  getFullName(),
+					}},
+				}
+			default:
+				// Skip *types.Builtin and other
+				continue
+			}
+
+			// Manually add a new variable for correct name obfuscation
+			tf.info.Uses[nameIdent] = obj
+			file.Decls = append(file.Decls, decl)
+			generated = true
+			break
 		}
 
-		if usedImports[lpkg.ImportPath] {
-			continue
+		if !generated {
+			panic(fmt.Sprintf("generate ref variable for %s failed", imp.Path.Value))
 		}
-
-		imp.Name = ast.NewIdent("_")
 	}
 }
 
@@ -1744,7 +1793,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		file = literals.Obfuscate(obfRand, file, tf.info, tf.linkerVariableStrings)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
-		tf.removeUnnecessaryImports(file)
+		tf.makeImportsUsed(file)
 	}
 
 	pre := func(cursor *astutil.Cursor) bool {
