@@ -1769,9 +1769,13 @@ func (tf *transformer) makeImportsUsed(file *ast.File) {
 			switch t := obj.(type) {
 			case *types.Const:
 				valueExpr := getFullName()
-				if t.Val().Kind() == constant.Int {
+				if val := t.Val(); val.Kind() == constant.Int {
 					// On 32-bit architectures, reference to untyped int constant with a value greater than MaxInt32 gives overflow error
-					valueExpr = ah.CallExpr(ast.NewIdent("uint64"), valueExpr)
+					castName := "uint64"
+					if constant.Compare(val, token.LSS, constant.MakeInt64(0)) {
+						castName = "int64"
+					}
+					valueExpr = ah.CallExpr(ast.NewIdent(castName), valueExpr)
 				}
 
 				// var _ = <value> or uint64(<value>)
