@@ -15,7 +15,6 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/constant"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -41,8 +40,6 @@ import (
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
-	ah "mvdan.cc/garble/internal/asthelper"
-
 	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
 )
@@ -1691,8 +1688,9 @@ func recordedAsNotObfuscated(obj types.Object) bool {
 }
 
 func (tf *transformer) resolveImportSpec(imp *ast.ImportSpec) *types.Package {
-	obj, ok := tf.info.Implicits[imp]
-	if !ok {
+	// Simple import has no ast.Ident and is stored in Implicits separately.
+	obj := tf.info.Implicits[imp]
+	if obj == nil {
 		obj = tf.info.Defs[imp.Name] // renamed or dot import
 	}
 	if obj == nil {
@@ -1706,8 +1704,8 @@ func (tf *transformer) resolveImportSpec(imp *ast.ImportSpec) *types.Package {
 	return pkgObj.Imported()
 }
 
-// isSafeForInstanceType returns true if the passed type is safe for var declaration
-// Unsafe types: generic structs, funcs or interfaces, type constraint
+// isSafeForInstanceType returns true if the passed type is safe for var declaration.
+// Unsafe types: generic types and non-method interfaces.
 func isSafeForInstanceType(typ types.Type) bool {
 	switch t := typ.(type) {
 	case *types.Named:
@@ -1766,24 +1764,14 @@ func (tf *transformer) makeImportsUsed(file *ast.File) {
 			}
 
 			var decl *ast.GenDecl
-			switch t := obj.(type) {
+			switch obj.(type) {
 			case *types.Const:
-				valueExpr := getFullName()
-				if val := t.Val(); val.Kind() == constant.Int {
-					// On 32-bit architectures, reference to untyped int constant with a value greater than MaxInt32 gives overflow error
-					castName := "uint64"
-					if constant.Compare(val, token.LSS, constant.MakeInt64(0)) {
-						castName = "int64"
-					}
-					valueExpr = ah.CallExpr(ast.NewIdent(castName), valueExpr)
-				}
-
-				// var _ = <value> or uint64(<value>)
+				// const _ = <value>
 				decl = &ast.GenDecl{
-					Tok: token.VAR,
+					Tok: token.CONST,
 					Specs: []ast.Spec{&ast.ValueSpec{
 						Names:  []*ast.Ident{ast.NewIdent("_")},
-						Values: []ast.Expr{valueExpr},
+						Values: []ast.Expr{getFullName()},
 					}},
 				}
 			case *types.Var, *types.Func:
@@ -1805,8 +1793,7 @@ func (tf *transformer) makeImportsUsed(file *ast.File) {
 					}},
 				}
 			default:
-				// Skip *types.Builtin and other
-				continue
+				continue // Skip *types.Builtin and other
 			}
 
 			// Manually add a new variable for correct name obfuscation
@@ -1818,7 +1805,7 @@ func (tf *transformer) makeImportsUsed(file *ast.File) {
 
 		if !generated {
 			// A very unlikely situation where there is no suitable declaration for a reference variable
-			// and almost certainly means that there is another import reference in code
+			// and almost certainly means that there is another import reference in code.
 			log.Printf("generate reference variable for %s failed", imp.Path.Value)
 		}
 	}
