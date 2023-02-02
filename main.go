@@ -1077,33 +1077,73 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		return localName, newName
 	}
 
-	// If the package path has multiple dots, split on the last one.
-	lastDotIdx := strings.LastIndex(newName, ".")
-	pkgPath, foreignName := newName[:lastDotIdx], newName[lastDotIdx+1:]
-
-	lpkg, err := listPackage(pkgPath)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
+	pkgSplit := 0
+	var lpkg *listedPackage
+	var foreignName string
+	for {
+		i := strings.Index(newName[pkgSplit:], ".")
+		if i < 0 {
+			// We couldn't find a prefix that matched a known package.
 			// Probably a made up name like above, but with a dot.
 			return localName, newName
 		}
+		pkgSplit += i
+		pkgPath := newName[:pkgSplit]
+		pkgSplit++ // skip over the dot
+
+		var err error
+		lpkg, err = listPackage(pkgPath)
+		if err == nil {
+			foreignName = newName[pkgSplit:]
+			break
+		}
+		if errors.Is(err, ErrNotFound) {
+			// No match; find the next dot.
+			continue
+		}
 		if errors.Is(err, ErrNotDependency) {
 			fmt.Fprintf(os.Stderr,
-				"//go:linkname refers to %s - add `import _ %q` so garble can find the package",
+				"//go:linkname refers to %s - add `import _ %q` for garble to find the package",
 				newName, pkgPath)
 			return localName, newName
 		}
 		panic(err) // shouldn't happen
 	}
-	if lpkg.ToObfuscate && !compilerIntrinsicsFuncs[lpkg.ImportPath+"."+foreignName] {
-		// The name exists and was obfuscated; obfuscate the new name.
-		newForeignName := hashWithPackage(lpkg, foreignName)
-		newPkgPath := pkgPath
-		if pkgPath != "main" {
-			newPkgPath = lpkg.obfuscatedImportPath()
-		}
-		newName = newPkgPath + "." + newForeignName
+
+	if !lpkg.ToObfuscate || compilerIntrinsicsFuncs[lpkg.ImportPath+"."+foreignName] {
+		// We're not obfuscating that package or name.
+		return localName, newName
 	}
+
+	var newForeignName string
+	if receiver, name, ok := strings.Cut(foreignName, "."); ok {
+		if strings.HasPrefix(receiver, "(*") {
+			// pkg/path.(*Receiver).method
+			receiver = strings.TrimPrefix(receiver, "(*")
+			receiver = strings.TrimSuffix(receiver, ")")
+			receiver = "(*" + hashWithPackage(lpkg, receiver) + ")"
+		} else {
+			// pkg/path.Receiver.method
+			receiver = hashWithPackage(lpkg, receiver)
+		}
+		// Exported methods are never obfuscated.
+		//
+		// TODO: we're duplicating the logic behind these decisions.
+		// How can we more easily reuse the same logic?
+		if !token.IsExported(name) {
+			name = hashWithPackage(lpkg, name)
+		}
+		newForeignName = receiver + "." + name
+	} else {
+		// pkg/path.function
+		newForeignName = hashWithPackage(lpkg, foreignName)
+	}
+
+	newPkgPath := lpkg.ImportPath
+	if newPkgPath != "main" {
+		newPkgPath = lpkg.obfuscatedImportPath()
+	}
+	newName = newPkgPath + "." + newForeignName
 	return localName, newName
 }
 
@@ -1435,7 +1475,7 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 		path, name := fullName[:i], fullName[i+1:]
 
 		// -X represents the main package as "main", not its import path.
-		if path != curPkg.ImportPath && !(path == "main" && curPkg.Name == "main") {
+		if path != curPkg.ImportPath && (path != "main" || curPkg.Name != "main") {
 			return // not the current package
 		}
 
@@ -2016,8 +2056,10 @@ func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
 	switch t := t.(type) {
 	case *types.Named:
 		obj := t.Obj()
-		if obj.Pkg() == nil || obj.Pkg() != tf.pkg {
+		if pkg := obj.Pkg(); pkg == nil || pkg != tf.pkg {
 			return // not from the specified package
+		} else if pkg.Path() == "reflect" {
+			return // reflect's own types can always be obfuscated
 		}
 		if recordedAsNotObfuscated(obj) {
 			return // prevent endless recursion
