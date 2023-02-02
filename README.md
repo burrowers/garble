@@ -103,18 +103,16 @@ which will change if its build input changes: the version of garble, the version
 of Go, the package's source code, or any build parameter such as GOOS or -tags.
 This is a reasonable default since guessing those inputs is very hard.
 
-However, providing your own obfuscation seed via `-seed` brings some advantages.
-For example, builds sharing the same seed will produce the same obfuscation,
-even if any of the build parameters or versions vary.
-It can also make reverse-engineering harder, as an end user could guess what
-version of Go or garble you're using.
+You can use the `-seed` flag to provide your own obfuscation randomness seed.
+Reusing the same seed can help produce the same code obfuscation,
+which can help when debugging or reproducing problems.
+Regularly rotating the seed can also help against reverse-engineering in the long run,
+as otherwise one can look at changes in how Go's standard library is obfuscated
+to guess when the Go or garble versions were changed across a series of builds.
 
-Note that extra care should be taken when using custom seeds.
-If a seed used to build a binary gets lost, `garble reverse` will not work.
-Rotating the seeds can also help against reverse-engineering in the long run,
-as otherwise some bits of code may be obfuscated the same way over time.
-
-An alternative approach is `-seed=random`, where each build is entirely different.
+To always use a different seed for each build, use `-seed=random`.
+Note that extra care should be taken when using custom seeds:
+if a `-seed` value used in a build is lost, `garble reverse` will not work.
 
 ### Caveats
 
