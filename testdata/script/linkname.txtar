@@ -2,7 +2,9 @@ garble build
 exec ./main
 cmp stderr main.stderr
 
+# TODO: why is 'obfuscatedMethod' present?
 ! binsubstr main$exe 'obfuscatedFunc' 'ObfuscatedFunc'
+binsubstr main$exe 'UnobfuscatedMethod'
 
 [short] stop # no need to verify this with -short
 
@@ -33,8 +35,9 @@ package main
 
 import (
 	_ "os/exec"
+	"reflect"
 	_ "strings"
-	_ "unsafe"
+	"unsafe"
 
 	_ "big.chungus/meme"
 	"test/main/imported"
@@ -52,6 +55,26 @@ func interfaceEqual(a, b any) bool
 //go:linkname obfuscatedFunc test/main/imported.ObfuscatedFuncImpl
 func obfuscatedFunc() string
 
+// A linkname to an external obfuscated method.
+//go:linkname obfuscatedMethod test/main/imported.Receiver.obfuscatedMethod
+func obfuscatedMethod(imported.Receiver) string
+
+// A linkname to an external unobfuscated method.
+//go:linkname unobfuscatedMethod test/main/imported.Receiver.UnobfuscatedMethod
+func unobfuscatedMethod(imported.Receiver) string
+
+// A linkname to an external obfuscated pointer method, with an extra parameter.
+//go:linkname obfuscatedPointerMethod test/main/imported.(*Receiver).obfuscatedPointerMethod
+func obfuscatedPointerMethod(*imported.Receiver, string) string
+
+// Similar to the above, but for std, plus having to define a type.
+// Some libraries do abuse reflect in this way, unfortunately.
+type rtype struct{}
+//go:linkname rtype_ptrTo reflect.(*rtype).ptrTo
+func rtype_ptrTo(*rtype) *rtype
+//go:linkname rtype_NumMethod reflect.(*rtype).NumMethod
+func rtype_NumMethod(*rtype) int
+
 // A linkname to an entirely made up name, implemented elsewhere.
 //go:linkname renamedFunc madeup.newName
 func renamedFunc() string
@@ -64,7 +87,23 @@ func tagline() string
 func main() {
 	println(byteIndex("01234", '3'))
 	println(interfaceEqual("Sephiroth", 7))
+
 	println(obfuscatedFunc())
+
+	r := imported.Receiver{Field: "field value"}
+	println(obfuscatedMethod(r))
+	println(unobfuscatedMethod(r))
+	println(obfuscatedPointerMethod(&r, "another value"))
+
+	typ := reflect.TypeOf(new(error)).Elem()
+	type emptyInterface struct {
+		_   *rtype
+		ptr unsafe.Pointer
+	}
+	rtyp := (*rtype)(((*emptyInterface)(unsafe.Pointer(&typ))).ptr)
+	println("rtype_ptrTo non-nil", rtype_ptrTo(rtyp) != nil)
+	println("rtype_NumMethod", rtype_NumMethod(rtyp))
+
 	println(renamedFunc())
 	println(tagline())
 	println(imported.ByteIndex("01234", '3'))
@@ -80,6 +119,22 @@ import (
 
 func ObfuscatedFuncImpl() string {
 	return "obfuscated func"
+}
+
+type Receiver struct{
+	Field string
+}
+
+func (r Receiver) obfuscatedMethod() string {
+	return "obfuscated method: " + r.Field
+}
+
+func (r *Receiver) obfuscatedPointerMethod(extra string) string {
+	return "obfuscated pointer method: " + r.Field + " plus " + extra
+}
+
+func (r Receiver) UnobfuscatedMethod() string {
+	return "unobfuscated method: " + r.Field
 }
 
 //go:linkname renamedFunc madeup.newName
@@ -105,6 +160,11 @@ func chungify() string {
 3
 false
 obfuscated func
+obfuscated method: field value
+unobfuscated method: field value
+obfuscated pointer method: field value plus another value
+rtype_ptrTo non-nil true
+rtype_NumMethod 1
 renamed func
 featuring Dante from the Devil May Cry series
 3
