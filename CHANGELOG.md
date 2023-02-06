@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.9.2] - 2023-02-07
+
+This bugfix release continues support for Go 1.19 and 1.20, and features:
+
+* Support `go:linkname` directives referencing methods - [#656]
+* Fix more "unused import" errors with `-literals` - [#658]
+
 ## [v0.9.1] - 2023-01-26
 
 This bugfix release continues support for Go 1.19 and the upcoming Go 1.20,
@@ -184,6 +191,10 @@ Known bugs:
 
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
+
+[v0.9.2]: https://github.com/burrowers/garble/releases/tag/v0.9.2
+[#656]: https://github.com/burrowers/garble/issues/656
+[#658]: https://github.com/burrowers/garble/issues/658
 
 [v0.9.1]: https://github.com/burrowers/garble/releases/tag/v0.9.1
 [#610]: https://github.com/burrowers/garble/issues/610
