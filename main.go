@@ -2212,7 +2212,7 @@ func alterTrimpath(flags []string) []string {
 	return flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 }
 
-// forwardBuildFlags is obtained from 'go help build' as of Go 1.18beta1.
+// forwardBuildFlags is obtained from 'go help build' as of Go 1.20.
 var forwardBuildFlags = map[string]bool{
 	// These shouldn't be used in nested cmd/go calls.
 	"-a": false,
@@ -2225,14 +2225,13 @@ var forwardBuildFlags = map[string]bool{
 	"-toolexec": false,
 	"-buildvcs": false,
 
-	"-p":             true,
-	"-race":          true,
-	"-msan":          true,
+	"-C":             true,
 	"-asan":          true,
-	"-work":          true,
 	"-asmflags":      true,
 	"-buildmode":     true,
 	"-compiler":      true,
+	"-cover":         true,
+	"-coverpkg":      true,
 	"-gccgoflags":    true,
 	"-gcflags":       true,
 	"-installsuffix": true,
@@ -2241,36 +2240,41 @@ var forwardBuildFlags = map[string]bool{
 	"-mod":           true,
 	"-modcacherw":    true,
 	"-modfile":       true,
-	"-pkgdir":        true,
-	"-tags":          true,
-	"-workfile":      true,
+	"-msan":          true,
 	"-overlay":       true,
+	"-p":             true,
+	"-pgo":           true,
+	"-pkgdir":        true,
+	"-race":          true,
+	"-tags":          true,
+	"-work":          true,
+	"-workfile":      true,
 }
 
-// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.19beta1.
+// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.20.
 var booleanFlags = map[string]bool{
 	// Shared build flags.
 	"-a":          true,
+	"-asan":       true,
+	"-buildvcs":   true,
+	"-cover":      true,
 	"-i":          true,
+	"-linkshared": true,
+	"-modcacherw": true,
+	"-msan":       true,
 	"-n":          true,
+	"-race":       true,
+	"-trimpath":   true,
 	"-v":          true,
 	"-work":       true,
 	"-x":          true,
-	"-race":       true,
-	"-msan":       true,
-	"-asan":       true,
-	"-linkshared": true,
-	"-modcacherw": true,
-	"-trimpath":   true,
-	"-buildvcs":   true,
 
 	// Test flags (TODO: support its special -args flag)
-	"-c":        true,
-	"-json":     true,
-	"-cover":    true,
-	"-failfast": true,
-	"-short":    true,
 	"-benchmem": true,
+	"-c":        true,
+	"-failfast": true,
+	"-json":     true,
+	"-short":    true,
 }
 
 func filterForwardBuildFlags(flags []string) (filtered []string, firstUnknown string) {
