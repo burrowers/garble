@@ -68,8 +68,9 @@ func main() {
 #include "extra/garble_define2_amd64.h"
 
 // A comment may include many·special∕asm·runes and it's okay.
-// Or the same with leading whitespace:
-	// A comment may include many·special∕asm·runes and it's okay.
+//No space: many·special∕asm·runes.
+	// Indented: many·special∕asm·runes.
+DATA bar+0(SB)/8, $0 // Inline: many·special∕asm·runes.
 
 // Reference an imported package by its package path.
 TEXT ·addJmpPkgPath(SB),$0-16

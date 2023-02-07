@@ -698,14 +698,15 @@ func transformAsm(args []string) ([]string, error) {
 			}
 
 			// Leave "//" comments unchanged; they might be directives.
-			if strings.HasPrefix(strings.TrimSpace(line), "// ") {
-				buf.WriteString(line)
-				buf.WriteByte('\n')
-				continue
-			}
+			line, comment, hasComment := strings.Cut(line, "//")
 
 			// Anything else is regular assembly; replace the names.
 			replaceAsmNames(&buf, []byte(line))
+
+			if hasComment {
+				buf.WriteString("//")
+				buf.WriteString(comment)
+			}
 			buf.WriteByte('\n')
 		}
 		if err := scanner.Err(); err != nil {
