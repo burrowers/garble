@@ -119,7 +119,8 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 		}
 	}
 
-	cmd := exec.Command("git", "-C", workingDir, "apply")
+	cmd := exec.Command("git", "apply")
+	cmd.Dir = workingDir
 	cmd.Stdin = bytes.NewReader(bytes.Join(patches, []byte("\n")))
 	if err := cmd.Run(); err != nil {
 		return nil, err
@@ -187,6 +188,8 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 	cmd := exec.Command("go", "build", "-overlay", overlayPath, "-o", outputLinkPath, "cmd/link")
 	// Explicitly setting GOOS and GOARCH variables prevents conflicts during cross-build
 	cmd.Env = append(os.Environ(), "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
+	// Building cmd/link is possible from anywhere, but to avoid any possible side effects build in a temp directory
+	cmd.Dir = workingDir
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
