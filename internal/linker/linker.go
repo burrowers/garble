@@ -119,7 +119,7 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 		}
 	}
 
-	cmd := exec.Command("git", "apply")
+	cmd := exec.Command("git", "--git-dir", workingDir, "apply")
 	cmd.Dir = workingDir
 	cmd.Stdin = bytes.NewReader(bytes.Join(patches, []byte("\n")))
 	if err := cmd.Run(); err != nil {
