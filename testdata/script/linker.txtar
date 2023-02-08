@@ -1,3 +1,6 @@
+[!short] [exec:git] exec git init -q
+[!short] [exec:git] env GARBLE_CACHE_DIR=$WORK/linker-cache
+
 garble build
 exec ./main
 ! cmp stderr main.stderr
