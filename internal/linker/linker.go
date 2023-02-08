@@ -132,8 +132,8 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 
 	// Running git without errors does not guarantee that all patches have been applied.
 	// Make sure that all passed patches have been applied correctly.
-	reg := regexp.MustCompile(`(?m)^Applied patch .+ cleanly\.$`)
-	if appliedPatches := len(reg.FindAllIndex(out, -1)); appliedPatches != len(patches) {
+	rx := regexp.MustCompile(`(?m)^Applied patch .+ cleanly\.$`)
+	if appliedPatches := len(rx.FindAllIndex(out, -1)); appliedPatches != len(patches) {
 		return nil, fmt.Errorf("expected %d applied patches, actually %d:\n\n%s", len(patches), appliedPatches, string(out))
 	}
 	return mod, nil
