@@ -32,7 +32,7 @@ const maxSize = 2 << 10 // KiB
 
 // Obfuscate replaces literals with obfuscated anonymous functions.
 func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string) *ast.File {
-	obfRand := NewObfuscatorRandom(rand, file)
+	obfRand := newObfRand(rand, file)
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.GenDecl:

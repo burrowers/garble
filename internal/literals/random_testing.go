@@ -3,17 +3,9 @@
 package literals
 
 import (
-	"go/ast"
-	mathrand "math/rand"
 	"os"
+	"strconv"
 	"strings"
-
-	"golang.org/x/exp/slices"
-)
-
-var (
-	TestObfuscator         string
-	packageToObfuscatorMap map[string]obfuscator
 )
 
 func init() {
@@ -21,35 +13,19 @@ func init() {
 	if obfMapEnv == "" {
 		panic("literals obfuscator map required for testing build")
 	}
-	packageToObfuscatorMap = make(map[string]obfuscator)
-	// Parse obfuscator map: packageName1=obfName1,packageName2=obfName2
+	testPkgToObfuscatorMap = make(map[string]obfuscator)
+
+	// Parse obfuscator mapping: pkgName1=obfIndex1,pkgName2=obfIndex2
 	pairs := strings.Split(obfMapEnv, ",")
 	for _, pair := range pairs {
 		keyValue := strings.SplitN(pair, "=", 2)
 
-		obfName := keyValue[1]
-		obfIdx := slices.Index(ObfuscatorNames, obfName)
-		if obfIdx < 0 {
-			panic("unknown obfuscator " + obfName)
+		pkgName := keyValue[0]
+		obfIndex, err := strconv.Atoi(keyValue[1])
+		if err != nil {
+			panic(err)
 		}
-		packageToObfuscatorMap[keyValue[0]] = obfuscators[obfIdx]
+		testPkgToObfuscatorMap[pkgName] = Obfuscators[obfIndex]
 	}
 	TestObfuscator = obfMapEnv
-}
-
-type obfRand struct {
-	*mathrand.Rand
-	obf obfuscator
-}
-
-func (r *obfRand) nextObfuscator() obfuscator {
-	if r.obf == nil {
-		return obfuscators[r.Intn(len(obfuscators))]
-	}
-	return r.obf
-}
-
-func NewObfuscatorRandom(rand *mathrand.Rand, f *ast.File) *obfRand {
-	obf, _ := packageToObfuscatorMap[f.Name.Name]
-	return &obfRand{rand, obf}
 }

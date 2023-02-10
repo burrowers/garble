@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -22,6 +23,10 @@ const (
 	dataCountPerLen = 10
 	moduleName      = "test/literals"
 	garbleSeed      = "o9WDTZ4CN4w"
+
+	// For benchmarking individual obfuscators, we use package=obfuscator mapping
+	// and add a prefix to package name to make sure there are no collisions with system packages.
+	packagePrefix = "literals_bench_"
 )
 
 func generateRunSrc() string {
@@ -71,7 +76,9 @@ func buildTestGarble(tdir string) string {
 }
 
 func writeDateFile(tdir, obfName, src string) error {
-	dir := path.Join(tdir, obfName)
+	pkgName := packagePrefix + obfName
+
+	dir := path.Join(tdir, pkgName)
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return err
 	}
@@ -82,7 +89,7 @@ func writeDateFile(tdir, obfName, src string) error {
 	}
 	defer f.Close()
 
-	fmt.Fprintf(f, "package %s\n\n", obfName)
+	fmt.Fprintf(f, "package %s\n\n", pkgName)
 	f.WriteString(src)
 	return nil
 }
@@ -97,13 +104,14 @@ func writeTestFile(dir, obfName string) error {
 	f.WriteString(`package main
 import "testing"
 `)
-	fmt.Fprintf(f, "import %q\n", moduleName+"/"+obfName)
+	pkgName := packagePrefix + obfName
+	fmt.Fprintf(f, "import %q\n", moduleName+"/"+pkgName)
 	fmt.Fprintf(f, `func Benchmark%s(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		%s.Run()		
 	}
 }
-`, strings.ToUpper(obfName[:1])+obfName[1:], obfName)
+`, strings.ToUpper(obfName[:1])+obfName[1:], pkgName)
 	return nil
 }
 
@@ -118,25 +126,28 @@ func main() {
 		log.Fatalf("write go.mod failed: %v", err)
 	}
 
-	var packageToObfuscator []string
-
 	runSrc := generateRunSrc()
-	for _, name := range append(literals.ObfuscatorNames, "all") {
+	writeTest := func(name string) {
 		if err := writeDateFile(tdir, name, runSrc); err != nil {
 			log.Fatalf("write data for %s failed: %v", name, err)
 		}
 		if err := writeTestFile(tdir, name); err != nil {
 			log.Fatalf("write test for %s failed: %v", name, err)
 		}
-		if name != "all" {
-			packageToObfuscator = append(packageToObfuscator, name+"="+name)
-		}
 	}
+
+	var packageToObfuscatorIndex []string
+	for i, obf := range literals.Obfuscators {
+		obfName := reflect.TypeOf(obf).Name()
+		writeTest(obfName)
+		packageToObfuscatorIndex = append(packageToObfuscatorIndex, fmt.Sprintf(packagePrefix+"%s=%d", obfName, i))
+	}
+	writeTest("all")
 
 	garbleBin := buildTestGarble(tdir)
 	args := append([]string{"-seed", garbleSeed, "-literals", "test", "-bench"}, os.Args[1:]...)
 	cmd := exec.Command(garbleBin, args...)
-	cmd.Env = append(os.Environ(), "GARBLE_TEST_LITERALS_OBFUSCATOR_MAP="+strings.Join(packageToObfuscator, ","))
+	cmd.Env = append(os.Environ(), "GARBLE_TEST_LITERALS_OBFUSCATOR_MAP="+strings.Join(packageToObfuscatorIndex, ","))
 	cmd.Dir = tdir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
