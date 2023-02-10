@@ -145,9 +145,12 @@ func main() {
 	writeTest("all")
 
 	garbleBin := buildTestGarble(tdir)
-	args := append([]string{"-seed", garbleSeed, "-literals", "test", "-bench"}, os.Args[1:]...)
+	args := append([]string{"-seed", garbleSeed, "-literals", "-debugdir=.dbg", "test", "-bench"}, os.Args[1:]...)
 	cmd := exec.Command(garbleBin, args...)
-	cmd.Env = append(os.Environ(), "GARBLE_TEST_LITERALS_OBFUSCATOR_MAP="+strings.Join(packageToObfuscatorIndex, ","))
+	cmd.Env = append(os.Environ(),
+		"GOGARBLE="+moduleName,
+		"GARBLE_TEST_LITERALS_OBFUSCATOR_MAP="+strings.Join(packageToObfuscatorIndex, ","),
+	)
 	cmd.Dir = tdir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
