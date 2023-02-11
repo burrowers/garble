@@ -145,7 +145,7 @@ func main() {
 	writeTest("all")
 
 	garbleBin := buildTestGarble(tdir)
-	args := append([]string{"-seed", garbleSeed, "-literals", "-debugdir=.dbg", "test", "-bench"}, os.Args[1:]...)
+	args := append([]string{"-seed", garbleSeed, "-literals", "test", "-bench"}, os.Args[1:]...)
 	cmd := exec.Command(garbleBin, args...)
 	cmd.Env = append(os.Environ(),
 		"GOGARBLE="+moduleName,
