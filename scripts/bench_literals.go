@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -78,12 +77,12 @@ func buildTestGarble(tdir string) string {
 func writeDateFile(tdir, obfName, src string) error {
 	pkgName := packagePrefix + obfName
 
-	dir := path.Join(tdir, pkgName)
+	dir := filepath.Join(tdir, pkgName)
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return err
 	}
 
-	f, err := os.Create(path.Join(dir, "data.go"))
+	f, err := os.Create(filepath.Join(dir, "data.go"))
 	if err != nil {
 		return err
 	}
@@ -95,7 +94,7 @@ func writeDateFile(tdir, obfName, src string) error {
 }
 
 func writeTestFile(dir, obfName string) error {
-	f, err := os.Create(path.Join(dir, obfName+"_test.go"))
+	f, err := os.Create(filepath.Join(dir, obfName+"_test.go"))
 	if err != nil {
 		return err
 	}
@@ -122,7 +121,7 @@ func main() {
 	}
 	defer os.RemoveAll(tdir)
 
-	if err := os.WriteFile(path.Join(tdir, "go.mod"), []byte("module "+moduleName), 0o777); err != nil {
+	if err := os.WriteFile(filepath.Join(tdir, "go.mod"), []byte("module "+moduleName), 0o777); err != nil {
 		log.Fatalf("write go.mod failed: %v", err)
 	}
 
