@@ -1,3 +1,6 @@
+// This script generate benchmarks for performance analysis of individual obfuscator literals.
+// Note that only the speed of obfuscated methods is measured, initialization cost or build speed are not measured.
+
 package main
 
 import (
@@ -138,6 +141,7 @@ func main() {
 	args := append([]string{"-seed", garbleSeed, "-literals", "test", "-bench"}, os.Args[1:]...)
 	cmd := exec.Command(garbleBin, args...)
 	cmd.Env = append(os.Environ(),
+		// Explicitly specify package for obfuscation to avoid affecting testing package.
 		"GOGARBLE="+moduleName,
 		"GARBLE_TEST_LITERALS_OBFUSCATOR_MAP="+strings.Join(packageToObfuscatorIndex, ","),
 	)
