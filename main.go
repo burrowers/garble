@@ -1118,7 +1118,10 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 	var newForeignName string
 	if receiver, name, ok := strings.Cut(foreignName, "."); ok {
-		if strings.HasPrefix(receiver, "(*") {
+		if lpkg.ImportPath == "reflect" && (receiver == "(*rtype)" || receiver == "Value") {
+			// These receivers are not obfuscated.
+			// See the TODO below.
+		} else if strings.HasPrefix(receiver, "(*") {
 			// pkg/path.(*Receiver).method
 			receiver = strings.TrimPrefix(receiver, "(*")
 			receiver = strings.TrimSuffix(receiver, ")")
@@ -1129,8 +1132,8 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		}
 		// Exported methods are never obfuscated.
 		//
-		// TODO: we're duplicating the logic behind these decisions.
-		// How can we more easily reuse the same logic?
+		// TODO(mvdan): We're duplicating the logic behind these decisions.
+		// Reuse the logic with transformCompile.
 		if !token.IsExported(name) {
 			name = hashWithPackage(lpkg, name)
 		}
@@ -1908,18 +1911,28 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			return true // universe scope
 		}
 
-		// The Go toolchain needs to detect symbols from these packages,
-		// so we are not obfuscating their package paths or declared names.
+		// TODO: We match by object name here, which is actually imprecise.
+		// For example, in package embed we match the type FS, but we would also
+		// match any field or method named FS.
 		path := pkg.Path()
 		switch path {
 		case "embed":
 			// FS is detected by the compiler for //go:embed.
+			// TODO: We probably want a conditional, otherwise we're not
+			// obfuscating the embed package at all.
 			return name == "FS"
 		case "reflect":
+			switch name {
 			// Per the linker's deadcode.go docs,
 			// the Method and MethodByName methods are what drive the logic.
-			switch name {
 			case "Method", "MethodByName":
+				return true
+			// Some packages reach into reflect internals, like go-spew.
+			// It's not particularly right of them to do that,
+			// and it's entirely unsupported, but try to accomodate for now.
+			// At least it's enough to leave the rtype and Value types intact.
+			case "rtype", "Value":
+				tf.recursivelyRecordAsNotObfuscated(obj.Type())
 				return true
 			}
 		}
@@ -2059,8 +2072,6 @@ func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
 		obj := t.Obj()
 		if pkg := obj.Pkg(); pkg == nil || pkg != tf.pkg {
 			return // not from the specified package
-		} else if pkg.Path() == "reflect" {
-			return // reflect's own types can always be obfuscated
 		}
 		if recordedAsNotObfuscated(obj) {
 			return // prevent endless recursion

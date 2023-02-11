@@ -154,6 +154,16 @@ type FmtType struct {
 	FmtTypeField int
 }
 
+// copied from github.com/davecgh/go-spew, which reaches into reflect's internals
+var _ = func() uintptr {
+	field, ok := reflect.TypeOf(reflect.Value{}).FieldByName("flag")
+	if !ok {
+		panic("reflect.Value has no flag field")
+	}
+	return field.Offset
+}()
+
+
 -- importedpkg/imported.go --
 package importedpkg
 
