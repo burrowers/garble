@@ -1,3 +1,5 @@
+# Past garble versions might not properly patch cmd/link with "git apply"
+# when running inside a git repository. Skip the extra check with -short.
 [!short] [exec:git] exec git init -q
 [!short] [exec:git] env GARBLE_CACHE_DIR=$WORK/linker-cache
 
