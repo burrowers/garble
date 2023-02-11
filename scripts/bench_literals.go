@@ -74,44 +74,39 @@ func buildTestGarble(tdir string) string {
 	return garbleBin
 }
 
-func writeDateFile(tdir, obfName, src string) error {
-	pkgName := packagePrefix + obfName
-
-	dir := filepath.Join(tdir, pkgName)
-	if err := os.MkdirAll(dir, 0o777); err != nil {
-		return err
-	}
-
-	f, err := os.Create(filepath.Join(dir, "data.go"))
+func handle(err error) {
 	if err != nil {
-		return err
+		panic(err)
 	}
-	defer f.Close()
-
-	fmt.Fprintf(f, "package %s\n\n", pkgName)
-	f.WriteString(src)
-	return nil
 }
 
-func writeTestFile(dir, obfName string) error {
-	f, err := os.Create(filepath.Join(dir, obfName+"_test.go"))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+func writeDateFile(tdir, obfName, src string) {
+	pkgName := packagePrefix + obfName
 
-	f.WriteString(`package main
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "package %s\n\n", pkgName)
+	sb.WriteString(src)
+
+	dir := filepath.Join(tdir, pkgName)
+	handle(os.MkdirAll(dir, 0o777))
+	handle(os.WriteFile(filepath.Join(dir, "data.go"), []byte(sb.String()), 0o777))
+}
+
+func writeTestFile(dir, obfName string) {
+	var sb strings.Builder
+	sb.WriteString(`package main
 import "testing"
 `)
 	pkgName := packagePrefix + obfName
-	fmt.Fprintf(f, "import %q\n", moduleName+"/"+pkgName)
-	fmt.Fprintf(f, `func Benchmark%s(b *testing.B) {
+	fmt.Fprintf(&sb, "import %q\n", moduleName+"/"+pkgName)
+	fmt.Fprintf(&sb, `func Benchmark%s(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		%s.Run()		
 	}
 }
 `, strings.ToUpper(obfName[:1])+obfName[1:], pkgName)
-	return nil
+
+	handle(os.WriteFile(filepath.Join(dir, obfName+"_test.go"), []byte(sb.String()), 0o777))
 }
 
 func main() {
@@ -127,12 +122,8 @@ func main() {
 
 	runSrc := generateRunSrc()
 	writeTest := func(name string) {
-		if err := writeDateFile(tdir, name, runSrc); err != nil {
-			log.Fatalf("write data for %s failed: %v", name, err)
-		}
-		if err := writeTestFile(tdir, name); err != nil {
-			log.Fatalf("write test for %s failed: %v", name, err)
-		}
+		writeDateFile(tdir, name, runSrc)
+		writeTestFile(tdir, name)
 	}
 
 	var packageToObfuscatorIndex []string
