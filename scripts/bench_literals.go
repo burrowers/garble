@@ -158,8 +158,7 @@ func main() {
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			os.Exit(exitErr.ExitCode())
-		} else {
-			log.Fatalf("run garble test failed: %v", err)
 		}
+		log.Fatalf("run garble test failed: %v", err)
 	}
 }
