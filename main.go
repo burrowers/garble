@@ -1138,6 +1138,10 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 			// These receivers are not obfuscated.
 			// See the TODO below.
 		} else if strings.HasPrefix(receiver, "(*") {
+		if lpkg.ImportPath == "reflect" && (receiver == "(*rtype)" || receiver == "Value") {
+			// These receivers are not obfuscated.
+			// See the TODO below.
+		} else if strings.HasPrefix(receiver, "(*") {
 			// pkg/path.(*Receiver).method
 			receiver = strings.TrimPrefix(receiver, "(*")
 			receiver = strings.TrimSuffix(receiver, ")")
@@ -1148,6 +1152,8 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		}
 		// Exported methods are never obfuscated.
 		//
+		// TODO(mvdan): We're duplicating the logic behind these decisions.
+		// Reuse the logic with transformCompile.
 		// TODO(mvdan): We're duplicating the logic behind these decisions.
 		// Reuse the logic with transformCompile.
 		if !token.IsExported(name) {
@@ -1748,18 +1754,31 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		// TODO: We match by object name here, which is actually imprecise.
 		// For example, in package embed we match the type FS, but we would also
 		// match any field or method named FS.
+		// TODO: We match by object name here, which is actually imprecise.
+		// For example, in package embed we match the type FS, but we would also
+		// match any field or method named FS.
 		path := pkg.Path()
 		switch path {
 		case "embed":
 			// FS is detected by the compiler for //go:embed.
 			// TODO: We probably want a conditional, otherwise we're not
 			// obfuscating the embed package at all.
+			// TODO: We probably want a conditional, otherwise we're not
+			// obfuscating the embed package at all.
 			return name == "FS"
 		case "reflect":
+			switch name {
 			switch name {
 			// Per the linker's deadcode.go docs,
 			// the Method and MethodByName methods are what drive the logic.
 			case "Method", "MethodByName":
+				return true
+			// Some packages reach into reflect internals, like go-spew.
+			// It's not particularly right of them to do that,
+			// and it's entirely unsupported, but try to accomodate for now.
+			// At least it's enough to leave the rtype and Value types intact.
+			case "rtype", "Value":
+				tf.recursivelyRecordAsNotObfuscated(obj.Type())
 				return true
 			// Some packages reach into reflect internals, like go-spew.
 			// It's not particularly right of them to do that,
@@ -1886,6 +1905,50 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	}
 
 	return astutil.Apply(file, pre, post).(*ast.File)
+}
+
+// recursivelyRecordAsNotObfuscated calls recordAsNotObfuscated on any named
+// types and fields under typ.
+//
+// Only the names declared in the current package are recorded. This is to ensure
+// that reflection detection only happens within the package declaring a type.
+// Detecting it in downstream packages could result in inconsistencies.
+func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
+	switch t := t.(type) {
+	case *types.Named:
+		obj := t.Obj()
+		if pkg := obj.Pkg(); pkg == nil || pkg != tf.pkg {
+			return // not from the specified package
+		}
+		if recordedAsNotObfuscated(obj) {
+			return // prevent endless recursion
+		}
+		recordAsNotObfuscated(obj)
+
+		// Record the underlying type, too.
+		tf.recursivelyRecordAsNotObfuscated(t.Underlying())
+
+	case *types.Struct:
+		for i := 0; i < t.NumFields(); i++ {
+			field := t.Field(i)
+
+			// This check is similar to the one in *types.Named.
+			// It's necessary for unnamed struct types,
+			// as they aren't named but still have named fields.
+			if field.Pkg() == nil || field.Pkg() != tf.pkg {
+				return // not from the specified package
+			}
+
+			// Record the field itself, too.
+			recordAsNotObfuscated(field)
+
+			tf.recursivelyRecordAsNotObfuscated(field.Type())
+		}
+
+	case interface{ Elem() types.Type }:
+		// Get past pointers, slices, etc.
+		tf.recursivelyRecordAsNotObfuscated(t.Elem())
+	}
 }
 
 // named tries to obtain the *types.Named behind a type, if there is one.

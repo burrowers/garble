@@ -171,6 +171,16 @@ var _ = func() uintptr {
 	return field.Offset
 }()
 
+
+// copied from github.com/davecgh/go-spew, which reaches into reflect's internals
+var _ = func() uintptr {
+	field, ok := reflect.TypeOf(reflect.Value{}).FieldByName("flag")
+	if !ok {
+		panic("reflect.Value has no flag field")
+	}
+	return field.Offset
+}()
+
 // encoding/x509 uses encoding/asn1, which uses reflect.
 // In one place it depends on field names; that used to be broken by garble.
 func testx509() {
