@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.9.3] - 2023-02-12
+
+This bugfix release continues support for Go 1.19 and 1.20, and features:
+
+* Support inline comments in assembly to fix `GOARCH=ppc64` - [#672]
+* Avoid obfuscating `reflect.Value` to fix `davecgh/go-spew` - [#676]
+* Fix runtime panics when using `garble build` inside a VCS directory - [#675]
+
 ## [v0.9.2] - 2023-02-07
 
 This bugfix release continues support for Go 1.19 and 1.20, and features:
@@ -191,6 +199,11 @@ Known bugs:
 
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
+
+[v0.9.3]: https://github.com/burrowers/garble/releases/tag/v0.9.3
+[#672]: https://github.com/burrowers/garble/issues/672
+[#675]: https://github.com/burrowers/garble/pull/675
+[#676]: https://github.com/burrowers/garble/issues/676
 
 [v0.9.2]: https://github.com/burrowers/garble/releases/tag/v0.9.2
 [#656]: https://github.com/burrowers/garble/issues/656
