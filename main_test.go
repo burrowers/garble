@@ -315,8 +315,6 @@ func grepfiles(ts *testscript.TestScript, neg bool, args []string) {
 	anyFound := false
 	path, pattern := args[0], args[1]
 	rx := regexp.MustCompile(pattern)
-	// TODO: use fs.SkipAll in Go 1.20 and later.
-	errSkipAll := fmt.Errorf("sentinel error: stop walking")
 	if err := filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -326,11 +324,11 @@ func grepfiles(ts *testscript.TestScript, neg bool, args []string) {
 				return fmt.Errorf("%q matches %q", path, pattern)
 			} else {
 				anyFound = true
-				return errSkipAll
+				return fs.SkipAll
 			}
 		}
 		return nil
-	}); err != nil && err != errSkipAll {
+	}); err != nil {
 		ts.Fatalf("%s", err)
 	}
 	if !neg && !anyFound {

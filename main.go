@@ -354,7 +354,7 @@ func mainErr(args []string) error {
 
 		// Until https://github.com/golang/go/issues/50603 is implemented,
 		// manually construct something like a pseudo-version.
-		// TODO: remove when this code is dead, hopefully in Go 1.20.
+		// TODO: remove when this code is dead, hopefully in Go 1.21.
 		if mod.Version == "(devel)" {
 			var vcsTime time.Time
 			var vcsRevision string
@@ -794,15 +794,8 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		// If the name was qualified, fetch the package, and write the
 		// obfuscated import path if needed.
 		// Note that we don't obfuscate the package path "main".
-		//
-		// Note that runtime/internal/startlinetest refers to runtime_test in
-		// one of its assembly files, and we currently do not always collect
-		// test packages in appendListedPackages for the sake of performance.
-		// We don't care about testing the runtime just yet, so work around it.
-		// TODO(mvdan): this runtime_test reference was removed in Go 1.20 per
-		// https://github.com/golang/go/issues/57334; remove at a later time.
 		lpkg := curPkg
-		if asmPkgPath != "" && asmPkgPath != "main" && asmPkgPath != "runtime_test" {
+		if asmPkgPath != "" && asmPkgPath != "main" {
 			if asmPkgPath != curPkg.Name {
 				goPkgPath := asmPkgPath
 				goPkgPath = strings.ReplaceAll(goPkgPath, string(asmPeriod), string(goPeriod))

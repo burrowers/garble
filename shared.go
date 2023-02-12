@@ -278,22 +278,6 @@ func appendListedPackages(packages []string, withDeps bool) error {
 			pkg.GarbleActionID = addGarbleToHash(actionID)
 		}
 
-		// Work around https://go.dev/issue/28749:
-		// cmd/go puts assembly, C, and C++ files in CompiledGoFiles.
-		//
-		// TODO: Fixed in Go 1.20; remove once we drop support for Go 1.19.
-		out := pkg.CompiledGoFiles[:0]
-		for _, path := range pkg.CompiledGoFiles {
-			switch filepath.Ext(path) {
-			case "": // e.g. a generated Go file inside the build cache
-			case ".go":
-			default: // e.g. an assembly file
-				continue
-			}
-			out = append(out, path)
-		}
-		pkg.CompiledGoFiles = out
-
 		cache.ListedPackages[pkg.ImportPath] = &pkg
 	}
 
