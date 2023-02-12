@@ -22,7 +22,7 @@ var (
 		swap{},
 		split{},
 		shuffle{},
-		// seed{}, TODO: re-enable once https://go.dev/issue/47631 is fixed in Go 1.20
+		seed{},
 	}
 
 	TestObfuscator         string

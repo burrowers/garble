@@ -44,9 +44,8 @@ grep '^\s+\w+ \^= \w+ \* \w+$' debug1/test/main/extra_literals.go
 # Note that the line obfuscator adds an inline comment before the call.
 grep '^\s+\w+ = .*\bappend\(\w+,(\s+\w+\[\d+\][\^\-+]\w+\[\d+\],?)+\)$' debug1/test/main/extra_literals.go
 
-# TODO: re-enable once https://github.com/golang/go/issues/47631 is fixed
 # XorSeed obfuscator. Detect type decFunc func(byte) decFunc
-# grep '^\s+type \w+ func\(byte\) \w+$' debug1/test/main/extra_literals.go 
+grep '^\s+type \w+ func\(byte\) \w+$' debug1/test/main/extra_literals.go
 
 # Finally, sanity check that we can build all of std with -literals.
 # Analogous to gogarble.txt.
