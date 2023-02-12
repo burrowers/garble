@@ -96,7 +96,7 @@ cmp stderr importedpkg.stderr
 -- go.mod --
 module test/main
 
-go 1.19
+go 1.20
 -- main.go --
 package main
 
