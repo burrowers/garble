@@ -262,7 +262,7 @@ var toolchainVersionSemver string
 
 func goVersionOK() bool {
 	const (
-		minGoVersionSemver = "v1.19.0"
+		minGoVersionSemver = "v1.20.0"
 		suggestedGoVersion = "1.20.x"
 	)
 

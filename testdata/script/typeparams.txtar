@@ -3,7 +3,7 @@ garble build
 -- go.mod --
 module test/main
 
-go 1.19
+go 1.20
 -- garble_main.go --
 package main
 

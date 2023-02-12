@@ -23,7 +23,7 @@ stderr 'Go version "devel go1\.15-.*2020.*" is too old; please upgrade to Go 1\.
 # A current devel version should be fine.
 # Note that we don't look at devel version timestamps.
 env GARBLE_TEST_GOVERSION='go1.20'
-env TOOLCHAIN_GOVERSION='devel go1.20-ad97d204f0 Sun Sep 12 16:46:58 2021 +0000'
+env TOOLCHAIN_GOVERSION='devel go1.20-ad97d204f0 Sun Sep 12 16:46:58 2023 +0000'
 ! garble build
 stderr 'mocking the real build'
 
@@ -45,40 +45,40 @@ env TOOLCHAIN_GOVERSION='devel go1.20-somecustomversion'
 stderr 'mocking the real build'
 
 # The current toolchain may be older than the one that built garble.
-env GARBLE_TEST_GOVERSION='go1.20'
-env TOOLCHAIN_GOVERSION='go1.19.3'
+env GARBLE_TEST_GOVERSION='go1.21'
+env TOOLCHAIN_GOVERSION='go1.20.3'
 ! garble build
 stderr 'mocking the real build'
 
 # The current toolchain may be equal to the one that built garble.
-env GARBLE_TEST_GOVERSION='devel go1.19-6673d5d701 Sun Mar 20 16:05:03 2022 +0000'
-env TOOLCHAIN_GOVERSION='devel go1.19-6673d5d701 Sun Mar 20 16:05:03 2022 +0000'
+env GARBLE_TEST_GOVERSION='devel go1.20-6673d5d701 Sun Mar 20 16:05:03 2023 +0000'
+env TOOLCHAIN_GOVERSION='devel go1.20-6673d5d701 Sun Mar 20 16:05:03 2023 +0000'
 ! garble build
 stderr 'mocking the real build'
 
 # The current toolchain must not be newer than the one that built garble.
 env GARBLE_TEST_GOVERSION='go1.18'
-env TOOLCHAIN_GOVERSION='go1.19.1'
+env TOOLCHAIN_GOVERSION='go1.20.1'
 ! garble build
-stderr 'garble was built with "go1\.18" and is being used with "go1\.19\.1"; please rebuild garble with the newer version'
+stderr 'garble was built with "go1\.18" and is being used with "go1\.20\.1"; please rebuild garble with the newer version'
 
 # We'll error even if the difference is a minor (bugfix) level.
 # In practice it probably wouldn't matter, but in theory it could still lead to tricky bugs.
-env GARBLE_TEST_GOVERSION='go1.19.11'
-env TOOLCHAIN_GOVERSION='go1.19.14'
+env GARBLE_TEST_GOVERSION='go1.20.11'
+env TOOLCHAIN_GOVERSION='go1.20.14'
 ! garble build
-stderr 'garble was built with "go1\.19\.11" and is being used with "go1\.19\.14"; please rebuild garble with the newer version'
+stderr 'garble was built with "go1\.20\.11" and is being used with "go1\.20\.14"; please rebuild garble with the newer version'
 
 # If garble builds itself and is then used, it won't know what version built it.
 # As a fallback, we drop the comparison against the toolchain's version.
 env GARBLE_TEST_GOVERSION='bogus version'
-env TOOLCHAIN_GOVERSION='go1.19.3'
+env TOOLCHAIN_GOVERSION='go1.20.3'
 ! garble build
 stderr 'mocking the real build'
 -- go.mod --
 module test/main
 
-go 1.19
+go 1.20
 -- main.go --
 package main
 
