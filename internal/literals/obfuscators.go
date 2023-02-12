@@ -15,14 +15,19 @@ type obfuscator interface {
 	obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt
 }
 
-// obfuscators contains all types which implement the obfuscator Interface
-var obfuscators = []obfuscator{
-	simple{},
-	swap{},
-	split{},
-	shuffle{},
-	// seed{}, TODO: re-enable once https://go.dev/issue/47631 is fixed in Go 1.20
-}
+var (
+	// Obfuscators contains all types which implement the obfuscator Interface
+	Obfuscators = []obfuscator{
+		simple{},
+		swap{},
+		split{},
+		shuffle{},
+		// seed{}, TODO: re-enable once https://go.dev/issue/47631 is fixed in Go 1.20
+	}
+
+	TestObfuscator         string
+	testPkgToObfuscatorMap map[string]obfuscator
+)
 
 func genRandIntSlice(obfRand *mathrand.Rand, max, count int) []int {
 	indexes := make([]int, count)
@@ -65,4 +70,21 @@ func operatorToReversedBinaryExpr(t token.Token, x, y ast.Expr) *ast.BinaryExpr 
 	}
 
 	return expr
+}
+
+type obfRand struct {
+	*mathrand.Rand
+	testObfuscator obfuscator
+}
+
+func (r *obfRand) nextObfuscator() obfuscator {
+	if r.testObfuscator != nil {
+		return r.testObfuscator
+	}
+	return Obfuscators[r.Intn(len(Obfuscators))]
+}
+
+func newObfRand(rand *mathrand.Rand, file *ast.File) *obfRand {
+	testObf := testPkgToObfuscatorMap[file.Name.Name]
+	return &obfRand{rand, testObf}
 }

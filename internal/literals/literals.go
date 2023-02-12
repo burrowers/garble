@@ -31,7 +31,8 @@ const minSize = 8
 const maxSize = 2 << 10 // KiB
 
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(obfRand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string) *ast.File {
+func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string) *ast.File {
+	obfRand := newObfRand(rand, file)
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.GenDecl:
@@ -122,7 +123,7 @@ func Obfuscate(obfRand *mathrand.Rand, file *ast.File, info *types.Info, linkStr
 // be used to replace it.
 //
 // If the input node cannot be obfuscated nil is returned.
-func handleCompositeLiteral(obfRand *mathrand.Rand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
+func handleCompositeLiteral(obfRand *obfRand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
 	if len(node.Elts) < minSize || len(node.Elts) > maxSize {
 		return nil
 	}
@@ -216,18 +217,18 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 	return node
 }
 
-func obfuscateString(obfRand *mathrand.Rand, data string) *ast.CallExpr {
-	obfuscator := obfuscators[obfRand.Intn(len(obfuscators))]
-	block := obfuscator.obfuscate(obfRand, []byte(data))
+func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
+	obfuscator := obfRand.nextObfuscator()
+	block := obfuscator.obfuscate(obfRand.Rand, []byte(data))
 
 	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent("string"), ast.NewIdent("data"))))
 
 	return ah.LambdaCall(ast.NewIdent("string"), block)
 }
 
-func obfuscateByteSlice(obfRand *mathrand.Rand, isPointer bool, data []byte) *ast.CallExpr {
-	obfuscator := obfuscators[obfRand.Intn(len(obfuscators))]
-	block := obfuscator.obfuscate(obfRand, data)
+func obfuscateByteSlice(obfRand *obfRand, isPointer bool, data []byte) *ast.CallExpr {
+	obfuscator := obfRand.nextObfuscator()
+	block := obfuscator.obfuscate(obfRand.Rand, data)
 
 	if isPointer {
 		block.List = append(block.List, ah.ReturnStmt(&ast.UnaryExpr{
@@ -243,9 +244,9 @@ func obfuscateByteSlice(obfRand *mathrand.Rand, isPointer bool, data []byte) *as
 	return ah.LambdaCall(&ast.ArrayType{Elt: ast.NewIdent("byte")}, block)
 }
 
-func obfuscateByteArray(obfRand *mathrand.Rand, isPointer bool, data []byte, length int64) *ast.CallExpr {
-	obfuscator := obfuscators[obfRand.Intn(len(obfuscators))]
-	block := obfuscator.obfuscate(obfRand, data)
+func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length int64) *ast.CallExpr {
+	obfuscator := obfRand.nextObfuscator()
+	block := obfuscator.obfuscate(obfRand.Rand, data)
 
 	arrayType := &ast.ArrayType{
 		Len: ah.IntLit(int(length)),
