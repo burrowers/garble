@@ -61,10 +61,16 @@ func updateMagicValue(file *ast.File, magicValue uint32) {
 }
 
 // updateEntryOffset adds xor encryption for funcInfo.entryoff
+// Encryption algorithm contains 1 xor and 1 multiply operations and is not cryptographically strong.
+// Its goal, without slowing down program performance (reflection, stacktrace),
+// is to make it difficult to determine relations between function metadata and function itself in a binary file.
+// Difficulty of decryption is based on the difficulty of finding a small (probably inlined) entry() function without obvious patterns.
 func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 	var nameOffField string
 	entryOffUpdated := false
 
+	// The funcInfo.nameoff field can be renamed between versions and for more stability
+	// we dynamically extract its name from the cfuncname function.
 	extractNameOff := func(node ast.Node) bool {
 		indexExpr, ok := node.(*ast.IndexExpr)
 		if !ok {
@@ -78,6 +84,16 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 		return false
 	}
 
+	// During linker stage we encrypt funcInfo.entryoff using a random number and funcInfo.nameoff,
+	// for correct program functioning we must decrypt funcInfo.entryoff at any access to it.
+	// In runtime package all references to funcInfo.entryOff are made through one method entry():
+	// func (f funcInfo) entry() uintptr {
+	//	return f.datap.textAddr(f.entryoff)
+	// }
+	// It is enough to inject decryption into entry() method for program to start working transparently with encrypted value of funcInfo.entryOff:
+	// func (f funcInfo) entry() uintptr {
+	//	return f.datap.textAddr(f.entryoff ^ (uint32(f.nameoff) * <random int>))
+	// }
 	updateEntryOff := func(node ast.Node) bool {
 		callExpr, ok := node.(*ast.CallExpr)
 		if !ok {
@@ -97,19 +113,17 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 		callExpr.Args[0] = &ast.BinaryExpr{
 			X:  selExpr,
 			Op: token.XOR,
-			Y: &ast.ParenExpr{
-				X: &ast.BinaryExpr{
-					X: ah.CallExpr(ast.NewIdent("uint32"), &ast.SelectorExpr{
-						X:   selExpr.X,
-						Sel: ast.NewIdent(nameOffField),
-					}),
-					Op: token.MUL,
-					Y: &ast.BasicLit{
-						Kind:  token.INT,
-						Value: strconv.FormatUint(uint64(entryOffKey), 10),
-					},
+			Y: &ast.ParenExpr{X: &ast.BinaryExpr{
+				X: ah.CallExpr(ast.NewIdent("uint32"), &ast.SelectorExpr{
+					X:   selExpr.X,
+					Sel: ast.NewIdent(nameOffField),
+				}),
+				Op: token.MUL,
+				Y: &ast.BasicLit{
+					Kind:  token.INT,
+					Value: strconv.FormatUint(uint64(entryOffKey), 10),
 				},
-			},
+			}},
 		}
 		entryOffUpdated = true
 		return false
@@ -147,7 +161,6 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 	}
 
 	ast.Inspect(entryFunc, updateEntryOff)
-
 	if !entryOffUpdated {
 		panic("entryOff not found")
 	}
