@@ -449,6 +449,7 @@ func mainErr(args []string) error {
 
 			executablePath = modifiedLinkPath
 			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
+			os.Setenv(linker.EntryOffKeyEnv, strconv.FormatUint(uint64(entryOffKey()), 10))
 			if flagTiny {
 				os.Setenv(linker.TinyEnv, "true")
 			}
@@ -948,6 +949,7 @@ func transformCompile(args []string) ([]string, error) {
 			}
 			if basename == "symtab.go" {
 				updateMagicValue(file, magicValue())
+				updateEntryOffset(file, entryOffKey())
 			}
 		}
 		tf.handleDirectives(file.Comments)

@@ -195,17 +195,28 @@ func isUpper(b byte) bool { return 'A' <= b && b <= 'Z' }
 func toLower(b byte) byte { return b + ('a' - 'A') }
 func toUpper(b byte) byte { return b - ('a' - 'A') }
 
-// magicValue returns random magic value based
-// on user specified seed or the runtime package's GarbleActionID.
-func magicValue() uint32 {
+func runtimeHashWithCustomSalt(salt []byte) uint32 {
 	hasher.Reset()
 	if !flagSeed.present() {
 		hasher.Write(cache.ListedPackages["runtime"].GarbleActionID)
 	} else {
 		hasher.Write(flagSeed.bytes)
 	}
+	hasher.Write(salt)
 	sum := hasher.Sum(sumBuffer[:0])
 	return binary.LittleEndian.Uint32(sum)
+}
+
+// magicValue returns random magic value based
+// on user specified seed or the runtime package's GarbleActionID.
+func magicValue() uint32 {
+	return runtimeHashWithCustomSalt([]byte("magic"))
+}
+
+// entryOffKey returns random entry offset key
+// on user specified seed or the runtime package's GarbleActionID.
+func entryOffKey() uint32 {
+	return runtimeHashWithCustomSalt([]byte("entryOffKey"))
 }
 
 func hashWithPackage(pkg *listedPackage, name string) string {
