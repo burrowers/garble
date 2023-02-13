@@ -94,7 +94,7 @@ func TestScript(t *testing.T) {
 				"GARBLE_CACHE_DIR="+userCacheDir,
 			)
 
-			if os.Getenv("TESTSCRIPT_COVER_DIR") != "" {
+			if os.Getenv("GOCOVERDIR") != "" {
 				// Don't reuse the build cache if we want to collect
 				// code coverage. Otherwise, many toolexec calls would
 				// be avoided and the coverage would be incomplete.
