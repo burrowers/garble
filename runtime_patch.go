@@ -71,6 +71,7 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 
 	// The funcInfo.nameoff field can be renamed between versions and for more stability
 	// we dynamically extract its name from the cfuncname function.
+	// Note that extractNameOff must be called before updateEntryOff.
 	extractNameOff := func(node ast.Node) bool {
 		indexExpr, ok := node.(*ast.IndexExpr)
 		if !ok {
