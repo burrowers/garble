@@ -1216,7 +1216,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			// See exporttest/*.go in testdata/scripts/test.txt.
 			// For now, spot the pattern and avoid the unnecessary error;
 			// the dependency is unused, so the packagefile line is redundant.
-			// This still triggers as of go1.19beta1.
+			// This still triggers as of go1.20.
 			if strings.HasSuffix(curPkg.ImportPath, ".test]") && strings.HasPrefix(curPkg.ImportPath, impPath) {
 				continue
 			}
@@ -1932,12 +1932,6 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 
 		// The package that declared this object did not obfuscate it.
 		if recordedAsNotObfuscated(obj) {
-			return true
-		}
-
-		// TODO(mvdan): investigate obfuscating these too.
-		filename := fset.Position(obj.Pos()).Filename
-		if strings.HasPrefix(filename, "_cgo_") || strings.Contains(filename, ".cgo1.") {
 			return true
 		}
 
