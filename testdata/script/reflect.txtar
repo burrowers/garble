@@ -107,6 +107,14 @@ func main() {
 	variadic := VariadicReflection{ReflectionField: "variadic"}
 	_ = importedpkg.VariadicReflect("foo", 1, variadic, false)
 	printfWithoutPackage("%#v\n", variadic)
+
+	// Very complex reflection used by gorm
+	user := StatUser{}
+	find(&user)
+
+	// Similar to gorm with composite literals instead of direct assignments
+	userComp := StatCompUser{}
+	findComp(&userComp)
 }
 
 type EmbeddingIndirect struct {
@@ -163,6 +171,49 @@ var _ = func() uintptr {
 	return field.Offset
 }()
 
+type StatUser struct {
+	Id      int64 `gorm:"primaryKey"`
+	User_Id int64
+}
+
+type StatCompUser struct {
+	Id      int64 `gorm:"primaryKey"`
+	User_Id int64
+}
+
+type Transaction struct {
+	Statement Statement
+}
+
+type Statement struct {
+	Dest  interface{}
+	Model string
+}
+
+func find(dest interface{}) {
+	tx := Transaction{}
+
+	tx.Statement.Dest = dest
+	execute(tx)
+}
+
+func findComp(dest interface{}) {
+	tx := Transaction{
+		Statement: Statement{
+			Dest: dest,
+		},
+	}
+
+	execute(tx)
+}
+
+func execute(db Transaction) {
+	stmt := db.Statement
+
+	v := reflect.TypeOf(stmt.Dest)
+
+	fmt.Println(v)
+}
 
 -- importedpkg/imported.go --
 package importedpkg
@@ -240,9 +291,7 @@ type ReflectEmbeddingNamed struct{}
 
 func VariadicReflect(x any, ys ...any) int {
 	_ = reflect.TypeOf(x)
-	_ = reflect.TypeOf(ys)
 
-	// TODO: we likely do not notice indirect calls via a range like this.
 	for _, y := range ys {
 		_ = reflect.TypeOf(y)
 	}
@@ -293,3 +342,5 @@ IndirectNamedWithReflect{IndirectUnobfuscated:"indirect-with", DuplicateFieldNam
 ReflectionField
 {0}
 VariadicReflection{ReflectionField:"variadic"}
+*main.StatUser
+*main.StatCompUser

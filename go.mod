@@ -7,13 +7,14 @@ require (
 	github.com/frankban/quicktest v1.14.4
 	github.com/google/go-cmp v0.5.9
 	github.com/rogpeppe/go-internal v1.9.1-0.20230209130841-f0583b8402aa
-	golang.org/x/exp v0.0.0-20230206171751-46f607a40771
-	golang.org/x/mod v0.7.0
-	golang.org/x/tools v0.5.0
+	golang.org/x/exp v0.0.0-20230213192124-5e25df0256eb
+	golang.org/x/mod v0.8.0
+	golang.org/x/tools v0.6.0
 )
 
 require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pkg/diff v0.0.0-20210226163009-20ebb0f2a09e // indirect
+	golang.org/x/sys v0.5.0 // indirect
 )

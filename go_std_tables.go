@@ -191,3 +191,7 @@ var compilerIntrinsicsFuncs = map[string]bool{
 	"sync.runtime_LoadAcquintptr":             true,
 	"sync.runtime_StoreReluintptr":            true,
 }
+
+var reflectSkipPkg = map[string]bool{
+	"fmt": true,
+}

@@ -35,11 +35,12 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
+	"golang.org/x/tools/go/ssa"
+
 	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
 )
@@ -908,7 +909,27 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	tf.findReflectFunctions(files)
+	ssaProg := ssa.NewProgram(fset, 0)
+
+	// Create SSA packages for all imports.
+	// Order is not significant.
+	created := make(map[*types.Package]bool)
+	var createAll func(pkgs []*types.Package)
+	createAll = func(pkgs []*types.Package) {
+		for _, p := range pkgs {
+			if !created[p] {
+				created[p] = true
+				ssaProg.CreatePackage(p, nil, nil, true)
+				createAll(p.Imports())
+			}
+		}
+	}
+	createAll(tf.pkg.Imports())
+
+	ssaPkg := ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
+	ssaPkg.Build()
+
+	tf.recordReflection(ssaPkg)
 	newImportCfg, err := processImportCfg(flags)
 	if err != nil {
 		return nil, err
@@ -1244,11 +1265,6 @@ type (
 	funcFullName = string // as per go/types.Func.FullName
 	objectString = string // as per recordedObjectString
 
-	reflectParameter struct {
-		Position int  // 0-indexed
-		Variadic bool // ...int
-	}
-
 	typeName struct {
 		PkgPath, Name string
 	}
@@ -1271,7 +1287,7 @@ var cachedOutput = struct {
 	//
 	// TODO: we're not including fmt.Printf, as it would have many false positives,
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
-	KnownReflectAPIs map[funcFullName][]reflectParameter
+	KnownReflectAPIs map[funcFullName][]int
 
 	// KnownCannotObfuscate is filled with the fully qualified names from each
 	// package that we cannot obfuscate.
@@ -1287,9 +1303,9 @@ var cachedOutput = struct {
 	// bearing in mind that it may be owned by a different package.
 	KnownEmbeddedAliasFields map[objectString]typeName
 }{
-	KnownReflectAPIs: map[funcFullName][]reflectParameter{
-		"reflect.TypeOf":  {{Position: 0, Variadic: false}},
-		"reflect.ValueOf": {{Position: 0, Variadic: false}},
+	KnownReflectAPIs: map[funcFullName][]int{
+		"reflect.TypeOf":  {0},
+		"reflect.ValueOf": {0},
 	},
 	KnownCannotObfuscate:     map[objectString]struct{}{},
 	KnownEmbeddedAliasFields: map[objectString]typeName{},
@@ -1348,90 +1364,6 @@ func loadCachedOutputs() error {
 	return nil
 }
 
-func (tf *transformer) findReflectFunctions(files []*ast.File) {
-	seenReflectParams := make(map[*types.Var]bool)
-	visitFuncDecl := func(funcDecl *ast.FuncDecl) {
-		funcObj := tf.info.Defs[funcDecl.Name].(*types.Func)
-		funcType := funcObj.Type().(*types.Signature)
-		funcParams := funcType.Params()
-
-		maps.Clear(seenReflectParams)
-		for i := 0; i < funcParams.Len(); i++ {
-			seenReflectParams[funcParams.At(i)] = false
-		}
-
-		ast.Inspect(funcDecl, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			calledFunc, _ := tf.info.Uses[sel.Sel].(*types.Func)
-			if calledFunc == nil || calledFunc.Pkg() == nil {
-				return true
-			}
-
-			fullName := calledFunc.FullName()
-			for _, reflectParam := range cachedOutput.KnownReflectAPIs[fullName] {
-				// We need a range to handle any number of variadic arguments,
-				// which could be 0 or multiple.
-				// The non-variadic case is always one argument,
-				// but we still use the range to deduplicate code.
-				argStart := reflectParam.Position
-				argEnd := argStart + 1
-				if reflectParam.Variadic {
-					argEnd = len(call.Args)
-				}
-				for _, arg := range call.Args[argStart:argEnd] {
-					ident, ok := arg.(*ast.Ident)
-					if !ok {
-						continue
-					}
-					obj, _ := tf.info.Uses[ident].(*types.Var)
-					if obj == nil {
-						continue
-					}
-					if _, ok := seenReflectParams[obj]; ok {
-						seenReflectParams[obj] = true
-					}
-				}
-			}
-
-			var reflectParams []reflectParameter
-			for i := 0; i < funcParams.Len(); i++ {
-				if seenReflectParams[funcParams.At(i)] {
-					reflectParams = append(reflectParams, reflectParameter{
-						Position: i,
-						Variadic: funcType.Variadic() && i == funcParams.Len()-1,
-					})
-				}
-			}
-			if len(reflectParams) > 0 {
-				cachedOutput.KnownReflectAPIs[funcObj.FullName()] = reflectParams
-			}
-
-			return true
-		})
-	}
-
-	lenPrevKnownReflectAPIs := len(cachedOutput.KnownReflectAPIs)
-	for _, file := range files {
-		for _, decl := range file.Decls {
-			if decl, ok := decl.(*ast.FuncDecl); ok {
-				visitFuncDecl(decl)
-			}
-		}
-	}
-
-	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
-	if len(cachedOutput.KnownReflectAPIs) > lenPrevKnownReflectAPIs {
-		tf.findReflectFunctions(files)
-	}
-}
-
 // cmd/bundle will include a go:generate directive in its output by default.
 // Ours specifies a version and doesn't assume bundle is in $PATH, so drop it.
 
@@ -1484,46 +1416,6 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 		}
 		tf.linkerVariableStrings[obj] = stringValue
 	})
-
-	visit := func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-
-		ident, ok := call.Fun.(*ast.Ident)
-		if !ok {
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-
-			ident = sel.Sel
-		}
-
-		fnType, _ := tf.info.Uses[ident].(*types.Func)
-		if fnType == nil || fnType.Pkg() == nil {
-			return true
-		}
-
-		fullName := fnType.FullName()
-		for _, reflectParam := range cachedOutput.KnownReflectAPIs[fullName] {
-			argStart := reflectParam.Position
-			argEnd := argStart + 1
-			if reflectParam.Variadic {
-				argEnd = len(call.Args)
-			}
-			for _, arg := range call.Args[argStart:argEnd] {
-				argType := tf.info.TypeOf(arg)
-				tf.recursivelyRecordAsNotObfuscated(argType)
-			}
-		}
-
-		return true
-	}
-	for _, file := range files {
-		ast.Inspect(file, visit)
-	}
 	return nil
 }
 
@@ -1552,10 +1444,13 @@ type transformer struct {
 func newTransformer() *transformer {
 	return &transformer{
 		info: &types.Info{
-			Types:     make(map[ast.Expr]types.TypeAndValue),
-			Defs:      make(map[*ast.Ident]types.Object),
-			Uses:      make(map[*ast.Ident]types.Object),
-			Implicits: make(map[ast.Node]types.Object),
+			Types:      make(map[ast.Expr]types.TypeAndValue),
+			Defs:       make(map[*ast.Ident]types.Object),
+			Uses:       make(map[*ast.Ident]types.Object),
+			Implicits:  make(map[ast.Node]types.Object),
+			Scopes:     make(map[ast.Node]*types.Scope),
+			Selections: make(map[*ast.SelectorExpr]*types.Selection),
+			Instances:  make(map[*ast.Ident]types.Instance),
 		},
 		recordTypeDone: make(map[*types.Named]bool),
 		fieldToStruct:  make(map[*types.Var]*types.Struct),
@@ -1650,80 +1545,6 @@ func (tf *transformer) recordType(used, origin types.Type) {
 			}
 		}
 	}
-}
-
-// TODO: consider caching recordedObjectString via a map,
-// if that shows an improvement in our benchmark
-
-func recordedObjectString(obj types.Object) objectString {
-	pkg := obj.Pkg()
-	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
-		// For exported fields, "pkgpath.Field" is not unique,
-		// because two exported top-level types could share "Field".
-		//
-		// Moreover, note that not all fields belong to named struct types;
-		// an API could be exposing:
-		//
-		//   var usedInReflection = struct{Field string}
-		//
-		// For now, a hack: assume that packages don't declare the same field
-		// more than once in the same line. This works in practice, but one
-		// could craft Go code to break this assumption.
-		// Also note that the compiler's object files include filenames and line
-		// numbers, but not column numbers nor byte offsets.
-		// TODO(mvdan): give this another think, and add tests involving anon types.
-		pos := fset.Position(obj.Pos())
-		return fmt.Sprintf("%s.%s - %s:%d", pkg.Path(), obj.Name(),
-			filepath.Base(pos.Filename), pos.Line)
-	}
-	// Names which are not at the top level cannot be imported,
-	// so we don't need to record them either.
-	// Note that this doesn't apply to fields, which are never top-level.
-	if pkg.Scope() != obj.Parent() {
-		return ""
-	}
-	// For top-level exported names, "pkgpath.Name" is unique.
-	return pkg.Path() + "." + obj.Name()
-}
-
-// recordAsNotObfuscated records all the objects whose names we cannot obfuscate.
-// An object is any named entity, such as a declared variable or type.
-//
-// As of June 2022, this only records types which are used in reflection.
-// TODO(mvdan): If this is still the case in a year's time,
-// we should probably rename "not obfuscated" and "cannot obfuscate" to be
-// directly about reflection, e.g. "used in reflection".
-func recordAsNotObfuscated(obj types.Object) {
-	if obj.Pkg().Path() != curPkg.ImportPath {
-		panic("called recordedAsNotObfuscated with a foreign object")
-	}
-	if !obj.Exported() {
-		// Unexported names will never be used by other packages,
-		// so we don't need to bother recording them in cachedOutput.
-		knownCannotObfuscateUnexported[obj] = true
-		return
-	}
-
-	objStr := recordedObjectString(obj)
-	if objStr == "" {
-		// If the object can't be described via a qualified string,
-		// then other packages can't use it.
-		// TODO: should we still record it in knownCannotObfuscateUnexported?
-		return
-	}
-	cachedOutput.KnownCannotObfuscate[objStr] = struct{}{}
-}
-
-func recordedAsNotObfuscated(obj types.Object) bool {
-	if knownCannotObfuscateUnexported[obj] {
-		return true
-	}
-	objStr := recordedObjectString(obj)
-	if objStr == "" {
-		return false
-	}
-	_, ok := cachedOutput.KnownCannotObfuscate[objStr]
-	return ok
 }
 
 // isSafeForInstanceType returns true if the passed type is safe for var declaration.
@@ -2047,50 +1868,6 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	}
 
 	return astutil.Apply(file, pre, post).(*ast.File)
-}
-
-// recursivelyRecordAsNotObfuscated calls recordAsNotObfuscated on any named
-// types and fields under typ.
-//
-// Only the names declared in the current package are recorded. This is to ensure
-// that reflection detection only happens within the package declaring a type.
-// Detecting it in downstream packages could result in inconsistencies.
-func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
-	switch t := t.(type) {
-	case *types.Named:
-		obj := t.Obj()
-		if pkg := obj.Pkg(); pkg == nil || pkg != tf.pkg {
-			return // not from the specified package
-		}
-		if recordedAsNotObfuscated(obj) {
-			return // prevent endless recursion
-		}
-		recordAsNotObfuscated(obj)
-
-		// Record the underlying type, too.
-		tf.recursivelyRecordAsNotObfuscated(t.Underlying())
-
-	case *types.Struct:
-		for i := 0; i < t.NumFields(); i++ {
-			field := t.Field(i)
-
-			// This check is similar to the one in *types.Named.
-			// It's necessary for unnamed struct types,
-			// as they aren't named but still have named fields.
-			if field.Pkg() == nil || field.Pkg() != tf.pkg {
-				return // not from the specified package
-			}
-
-			// Record the field itself, too.
-			recordAsNotObfuscated(field)
-
-			tf.recursivelyRecordAsNotObfuscated(field.Type())
-		}
-
-	case interface{ Elem() types.Type }:
-		// Get past pointers, slices, etc.
-		tf.recursivelyRecordAsNotObfuscated(t.Elem())
-	}
 }
 
 // named tries to obtain the *types.Named behind a type, if there is one.
