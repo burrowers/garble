@@ -60,7 +60,7 @@ jobs:
     - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.20.x'
       uses: dominikh/staticcheck-action@v1
       with:
-        version: "2023.1"
+        version: "2023.1.2"
         install-go: false
 
   # We don't care about GOARCH=386 particularly,
@@ -84,7 +84,7 @@ jobs:
     steps:
     - name: Install Go
       env:
-        GO_COMMIT: 6d4de4e386cd9e4ec32937ab2d4f79317db461cd # 2023-01-31
+        GO_COMMIT: ffb07d0c66db2f3f33faedf2927f9aa476d47720 # 2023-02-25
       run: |
         cd $HOME
         mkdir $HOME/gotip
