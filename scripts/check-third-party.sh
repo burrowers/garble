@@ -13,12 +13,6 @@
 # For example, a good example of a project to add is one that has unearthed
 # multiple bugs in garble before, such as Protobuf.
 # Also remember that the standard library already provides significant cover.
-#
-# TODO: note that this script only catches errors when compiling packages,
-# but it will not catch problems that may only arise at link time,
-# such as go:linknames which are not properly obfuscated.
-# Consider building and linking relevant main packages from each project,
-# such as ./cmd/protoc-gen-go for protobuf.
 modules=(
 	# Protobuf helps cover encoding libraries and reflection.
 	google.golang.org/protobuf v1.28.1
