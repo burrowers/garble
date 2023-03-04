@@ -16,7 +16,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 	"github.com/rogpeppe/go-internal/lockedfile"
@@ -33,10 +32,8 @@ const (
 	baseSrcSubdir  = "src"
 )
 
-var (
-	//go:embed patches/*.patch
-	linkerPatchesFS embed.FS
-)
+//go:embed patches/*.patch
+var linkerPatchesFS embed.FS
 
 func loadLinkerPatches() (version string, modFiles map[string]bool, patches [][]byte, err error) {
 	modFiles = make(map[string]bool)
@@ -198,8 +195,19 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 	}
 
 	cmd := exec.Command("go", "build", "-overlay", overlayPath, "-o", outputLinkPath, "cmd/link")
-	// Explicitly setting GOOS and GOARCH variables prevents conflicts during cross-build
-	cmd.Env = append(os.Environ(), "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
+	// Ignore any build settings from the environment or GOENV.
+	// We want to build cmd/link like the rest of the toolchain,
+	// regardless of what build options are set for the current build.
+	//
+	// TODO: a nicer way would be to use the same flags recorded in the current
+	// cmd/link binary, which can be seen via:
+	//
+	//   go version -m ~/tip/pkg/tool/linux_amd64/link
+	//
+	// and which can be done from Go via debug/buildinfo.ReadFile.
+	cmd.Env = append(os.Environ(),
+		"GOENV=off", "GOOS=", "GOARCH=", "GOEXPERIMENT=", "GOFLAGS=",
+	)
 	// Building cmd/link is possible from anywhere, but to avoid any possible side effects build in a temp directory
 	cmd.Dir = workingDir
 

@@ -1,7 +1,12 @@
 # Past garble versions might not properly patch cmd/link with "git apply"
 # when running inside a git repository. Skip the extra check with -short.
 [!short] [exec:git] exec git init -q
-[!short] [exec:git] env GARBLE_CACHE_DIR=$WORK/linker-cache
+[!short] [exec:git] env GARBLE_CACHE_DIR=${WORK}/linker-cache
+
+# Any build settings for the main build shouldn't affect building the linker.
+# If this flag makes it through when using build commands on std or cmd,
+# those commands are likely to fail as std and cmd are their own modules.
+env GOFLAGS=-modfile=${WORK}/go.mod
 
 garble build
 exec ./main

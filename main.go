@@ -563,11 +563,7 @@ This command wraps "go %s". Below is its help:
 		}
 	}
 
-	goArgs := []string{
-		command,
-		"-trimpath",
-		"-buildvcs=false",
-	}
+	goArgs := append([]string{command}, garbleBuildFlags...)
 
 	// Pass the garble flags down to each toolexec invocation.
 	// This way, all garble processes see the same flag values.
