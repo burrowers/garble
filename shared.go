@@ -193,18 +193,38 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	return newPath
 }
 
+// garbleBuildFlags are always passed to top-level build commands such as
+// "go build", "go list", or "go test".
+var garbleBuildFlags = []string{"-trimpath", "-buildvcs=false"}
+
 // appendListedPackages gets information about the current package
 // and all of its dependencies
-func appendListedPackages(packages []string, withDeps bool) error {
+func appendListedPackages(packages []string, mainBuild bool) error {
 	startTime := time.Now()
-	// TODO: perhaps include all top-level build flags set by garble,
-	// including -buildvcs=false.
-	// They shouldn't affect "go list" here, but might as well be consistent.
-	args := []string{"list", "-json", "-export", "-compiled", "-trimpath", "-e"}
-	if withDeps {
+	args := []string{
+		"list",
+		// Similar flags to what go/packages uses.
+		"-json", "-export", "-compiled", "-e",
+	}
+	if mainBuild {
+		// When loading the top-level packages we are building,
+		// we want to transitively load all their dependencies as well.
+		// That is not the case when loading standard library packages,
+		// as runtimeLinknamed already contains transitive dependencies.
 		args = append(args, "-deps")
 	}
+	args = append(args, garbleBuildFlags...)
 	args = append(args, cache.ForwardBuildFlags...)
+
+	if !mainBuild {
+		// If the top-level build included the -mod or -modfile flags,
+		// they should be used when loading the top-level packages.
+		// However, when loading standard library packages,
+		// using those flags would likely result in an error,
+		// as the standard library uses its own Go module and vendoring.
+		args = append(args, "-mod=", "-modfile=")
+	}
+
 	args = append(args, packages...)
 	cmd := exec.Command("go", args...)
 
@@ -282,7 +302,7 @@ func appendListedPackages(packages []string, withDeps bool) error {
 	}
 
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("go list error: %v: %s", err, stderr.Bytes())
+		return fmt.Errorf("go list error: %v:\nargs: %q\n%s", err, args, stderr.Bytes())
 	}
 	if len(pkgErrors) > 0 {
 		return errors.New(strings.Join(pkgErrors, "\n"))
