@@ -1,0 +1,30 @@
+! garble build ./...
+cmpenv stderr stderr.golden
+
+-- stderr.golden --
+# test/main/broken
+broken${/}broken.go:5:16: cannot use 123 (untyped int constant) as string value in variable declaration
+# test/main/imports_missing
+package test/main/missing is not in GOROOT (${GOROOT}${/}src${/}test${/}main${/}missing)
+-- go.mod --
+module test/main
+
+go 1.20
+-- broken/broken.go --
+package broken
+
+// A broken package will list in JSON form like:
+// {..., "Incomplete": true, "Error": {...}, ...}
+var x string = 123
+-- imports_broken/imports.go --
+package imports_broken
+
+// Importing a broken package will list in JSON form like:
+// {..., "Incomplete": false, ...}
+import _ "test/main/broken"
+-- imports_missing/imports.go --
+package imports_missing
+
+// Importing a missing package will list in JSON form like:
+// {..., "Incomplete": true, "DepsErrors": [...], ...}
+import _ "test/main/missing"
