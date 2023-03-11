@@ -14,9 +14,23 @@ exec ./main
 
 [short] stop # no need to verify this with -short
 
+# The rebuilt linker should use the executable extension for the host GOOS,
+# not the target one. Not doing so might be harmless, but can result in
+# building the linker twice, wasting CPU and disk.
+[!windows] env GOOS=windows
+[windows] env GOOS=linux
+garble build
+[!windows] [exec:git]   exists ${GARBLE_CACHE_DIR}/garble/link
+[!windows] [exec:git] ! exists ${GARBLE_CACHE_DIR}/garble/link.exe
+[windows]  [exec:git] ! exists ${GARBLE_CACHE_DIR}/garble/link
+[windows]  [exec:git]   exists ${GARBLE_CACHE_DIR}/garble/link.exe
+env GOOS=
+
+# Verify a build without garble.
 go build
 exec ./main
 cmp stderr main.stderr
+
 -- go.mod --
 module test/main
 

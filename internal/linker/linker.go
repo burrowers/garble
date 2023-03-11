@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 	"github.com/rogpeppe/go-internal/lockedfile"
@@ -138,7 +139,7 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 	return mod, nil
 }
 
-func cachePath(goExe string) (string, error) {
+func cachePath() (string, error) {
 	var cacheDir string
 	if val, ok := os.LookupEnv(garbleCacheDir); ok {
 		cacheDir = val
@@ -153,6 +154,11 @@ func cachePath(goExe string) (string, error) {
 	cacheDir = filepath.Join(cacheDir, cacheDirName)
 	if err := os.MkdirAll(cacheDir, 0o777); err != nil {
 		return "", err
+	}
+
+	goExe := ""
+	if runtime.GOOS == "windows" {
+		goExe = ".exe"
 	}
 
 	// Note that we only keep one patched and built linker in the cache.
@@ -220,13 +226,13 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 	return nil
 }
 
-func PatchLinker(goRoot, goVersion, goExe, tempDir string) (string, func(), error) {
+func PatchLinker(goRoot, goVersion, tempDir string) (string, func(), error) {
 	patchesVer, modFiles, patches, err := loadLinkerPatches()
 	if err != nil {
 		panic(fmt.Errorf("cannot retrieve linker patches: %v", err))
 	}
 
-	outputLinkPath, err := cachePath(goExe)
+	outputLinkPath, err := cachePath()
 	if err != nil {
 		return "", nil, err
 	}
