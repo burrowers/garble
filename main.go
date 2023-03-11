@@ -1907,6 +1907,10 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		// match any field or method named FS.
 		path := pkg.Path()
 		switch path {
+		case "sync/atomic", "runtime/internal/atomic":
+			if name == "align64" {
+				return true
+			}
 		case "embed":
 			// FS is detected by the compiler for //go:embed.
 			// TODO: We probably want a conditional, otherwise we're not

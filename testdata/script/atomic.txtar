@@ -1,0 +1,51 @@
+# amd64 can typically run 386 programs,
+# which is handy to actually make this test useful.
+# We assume that the same applies to arm64.
+# Note that darwin is an exception compared to linux and windows,
+# as darwin/386 and darwin/arm are not supported.
+[amd64] [!darwin] env GOARCH=386
+[arm64] [!darwin] env GOARCH=arm
+
+garble build
+exec ./main
+cmp stderr main.stderr
+
+[short] stop # no need to verify this with -short
+
+go build
+exec ./main
+cmp stderr main.stderr
+-- go.mod --
+module test/main
+
+go 1.20
+-- main.go --
+package main
+
+import (
+	"sync"
+	"sync/atomic"
+)
+
+var unalignedUint64 struct {
+	// If sync/atomic's support in the compiler is broken,
+	// then u64 is not aligned to 64 bits on 32-bit platforms,
+	// and that may cause a panic.
+	_   bool
+	u64 atomic.Uint64
+}
+
+func main() {
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			unalignedUint64.u64.Add(2)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	println(unalignedUint64.u64.Load())
+}
+-- main.stderr --
+20
