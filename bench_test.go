@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -53,19 +52,12 @@ func BenchmarkBuild(b *testing.B) {
 	}
 	tdir := b.TempDir()
 
-	garbleBin := filepath.Join(tdir, "garble")
-	if runtime.GOOS == "windows" {
-		garbleBin += ".exe"
-	}
-	err := exec.Command("go", "build", "-o="+garbleBin).Run()
-	qt.Assert(b, err, qt.IsNil)
-
 	// We collect extra metrics.
 	var memoryAllocs, cachedTime, systemTime int64
 
 	outputBin := filepath.Join(tdir, "output")
 	sourceDir := filepath.Join(tdir, "src")
-	err = os.Mkdir(sourceDir, 0o777)
+	err := os.Mkdir(sourceDir, 0o777)
 	qt.Assert(b, err, qt.IsNil)
 
 	writeSourceFile := func(name string, content []byte) {
@@ -85,6 +77,7 @@ func BenchmarkBuild(b *testing.B) {
 		gocache, err := os.MkdirTemp(tdir, "gocache-*")
 		qt.Assert(b, err, qt.IsNil)
 		env := append(os.Environ(),
+			"RUN_GARBLE_MAIN=true",
 			"GOCACHE="+gocache,
 			"GARBLE_WRITE_ALLOCS=true",
 		)
@@ -97,7 +90,7 @@ func BenchmarkBuild(b *testing.B) {
 				writeSourceFile("rebuild.go", []byte(fmt.Sprintf("package main\nvar v%d int", i)))
 			}
 
-			cmd := exec.Command(garbleBin, args...)
+			cmd := exec.Command(os.Args[0], args...)
 			cmd.Env = env
 			cmd.Dir = sourceDir
 
