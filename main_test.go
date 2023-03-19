@@ -31,6 +31,9 @@ import (
 var proxyURL string
 
 func TestMain(m *testing.M) {
+	if os.Getenv("RUN_GARBLE_MAIN") == "true" {
+		os.Exit(main1())
+	}
 	os.Exit(testscript.RunMain(garbleMain{m}, map[string]func() int{
 		"garble": main1,
 	}))
