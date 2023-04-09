@@ -63,6 +63,7 @@ cp stderr importedpkg-seed-static-2
 
 # Use a random seed, which should always trigger a full build.
 garble -seed=random build -v
+stderr -count=1 '^-seed chosen at random: .+'
 stderr -count=1 '^runtime$'
 stderr -count=1 '^test/main$'
 exec ./main$exe
