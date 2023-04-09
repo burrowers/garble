@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/mod/semver"
+
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
@@ -236,7 +238,11 @@ func stripRuntime(basename string, file *ast.File) {
 				"printAncestorTracebackFuncInfo", "goroutineheader", "tracebackothers", "tracebackHexdump", "printCgoTraceback":
 				funcDecl.Body.List = nil
 			case "printOneCgoTraceback":
-				funcDecl.Body = ah.BlockStmt(ah.ReturnStmt(ah.IntLit(0)))
+				if semver.Compare(cache.GoVersionSemver, "v1.21") >= 0 {
+					funcDecl.Body = ah.BlockStmt(ah.ReturnStmt(ast.NewIdent("false")))
+				} else {
+					funcDecl.Body = ah.BlockStmt(ah.ReturnStmt(ah.IntLit(0)))
+				}
 			default:
 				if strings.HasPrefix(funcDecl.Name.Name, "print") {
 					funcDecl.Body.List = nil
