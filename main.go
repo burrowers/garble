@@ -78,6 +78,8 @@ func (f seedFlag) String() string {
 
 func (f *seedFlag) Set(s string) error {
 	if s == "random" {
+		f.random = true // to show the random seed we chose
+
 		f.bytes = make([]byte, 16) // random 128 bit seed
 		if _, err := cryptorand.Read(f.bytes); err != nil {
 			return fmt.Errorf("error generating random seed: %v", err)
@@ -234,18 +236,20 @@ func main1() int {
 		usage()
 		return 2
 	}
+
+	// If a random seed was used, the user won't be able to reproduce the
+	// same output or failure unless we print the random seed we chose.
+	// If the build failed and a random seed was used,
+	// the failure might not reproduce with a different seed.
+	// Print it before we exit.
+	if flagSeed.random {
+		fmt.Fprintf(os.Stderr, "-seed chosen at random: %s\n", base64.RawStdEncoding.EncodeToString(flagSeed.bytes))
+	}
 	if err := mainErr(args); err != nil {
 		if code, ok := err.(errJustExit); ok {
 			return int(code)
 		}
 		fmt.Fprintln(os.Stderr, err)
-
-		// If the build failed and a random seed was used,
-		// the failure might not reproduce with a different seed.
-		// Print it before we exit.
-		if flagSeed.random {
-			fmt.Fprintf(os.Stderr, "random seed: %s\n", base64.RawStdEncoding.EncodeToString(flagSeed.bytes))
-		}
 		return 1
 	}
 	return 0
