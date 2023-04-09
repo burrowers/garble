@@ -46,6 +46,13 @@ type sharedCache struct {
 
 	GOGARBLE string
 
+	// GoVersionSemver is a semver-compatible version of the Go toolchain
+	// currently being used, as reported by "go env GOVERSION".
+	// Note that the version of Go that built the garble binary might be newer.
+	// Also note that a devel version like "go1.21-231f290e51" is
+	// currently represented as "v1.21".
+	GoVersionSemver string
+
 	// Filled directly from "go env".
 	// Keep in sync with fetchGoEnv.
 	GoEnv struct {

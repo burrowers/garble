@@ -260,11 +260,6 @@ type errJustExit int
 
 func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
-// toolchainVersionSemver is a semver-compatible version of the Go toolchain currently
-// being used, as reported by "go env GOVERSION".
-// Note that the version of Go that built the garble binary might be newer.
-var toolchainVersionSemver string
-
 func goVersionOK() bool {
 	const (
 		minGoVersionSemver = "v1.20.0"
@@ -275,7 +270,7 @@ func goVersionOK() bool {
 	rxVersion := regexp.MustCompile(`go\d+\.\d+(?:\.\d+)?`)
 
 	toolchainVersionFull := cache.GoEnv.GOVERSION
-	toolchainVersion := rxVersion.FindString(cache.GoEnv.GOVERSION)
+	toolchainVersion := rxVersion.FindString(toolchainVersionFull)
 	if toolchainVersion == "" {
 		// Go 1.15.x and older do not have GOVERSION yet.
 		// We could go the extra mile and fetch it via 'go toolchainVersion',
@@ -284,14 +279,14 @@ func goVersionOK() bool {
 		return false
 	}
 
-	toolchainVersionSemver = "v" + strings.TrimPrefix(toolchainVersion, "go")
-	if semver.Compare(toolchainVersionSemver, minGoVersionSemver) < 0 {
+	cache.GoVersionSemver = "v" + strings.TrimPrefix(toolchainVersion, "go")
+	if semver.Compare(cache.GoVersionSemver, minGoVersionSemver) < 0 {
 		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s or newer\n", toolchainVersionFull, suggestedGoVersion)
 		return false
 	}
 
 	// Ensure that the version of Go that built the garble binary is equal or
-	// newer than toolchainVersionSemver.
+	// newer than cache.GoVersionSemver.
 	builtVersionFull := os.Getenv("GARBLE_TEST_GOVERSION")
 	if builtVersionFull == "" {
 		builtVersionFull = runtime.Version()
@@ -303,7 +298,7 @@ func goVersionOK() bool {
 		return true
 	}
 	builtVersionSemver := "v" + strings.TrimPrefix(builtVersion, "go")
-	if semver.Compare(builtVersionSemver, toolchainVersionSemver) < 0 {
+	if semver.Compare(builtVersionSemver, cache.GoVersionSemver) < 0 {
 		fmt.Fprintf(os.Stderr, "garble was built with %q and is being used with %q; please rebuild garble with the newer version\n",
 			builtVersionFull, toolchainVersionFull)
 		return false
