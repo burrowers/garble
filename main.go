@@ -121,6 +121,7 @@ The following commands are supported:
 
 	build          replace "go build"
 	test           replace "go test"
+	run            replace "go run"
 	reverse        de-obfuscate output such as stack traces
 	version        print the version and build settings of the garble binary
 
@@ -396,7 +397,7 @@ func mainErr(args []string) error {
 		return nil
 	case "reverse":
 		return commandReverse(args)
-	case "build", "test":
+	case "build", "test", "run":
 		cmd, err := toolexecCmd(command, args)
 		defer os.RemoveAll(os.Getenv("GARBLE_SHARED"))
 		if err != nil {

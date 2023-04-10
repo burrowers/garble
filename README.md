@@ -7,6 +7,7 @@ Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.20 or later.
 	garble build [build flags] [packages]
 
 The tool also supports `garble test` to run tests with obfuscated code,
+`garble run` to obfuscate and execute simple programs,
 and `garble reverse` to de-obfuscate text such as stack traces.
 See `garble -h` for up to date usage information.
 
