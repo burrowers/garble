@@ -1,0 +1,29 @@
+garble run garble_main.go
+! stdout '^garble_main\.go 9$'
+stdout '\.go \d'
+
+[short] stop # no need to verify this with -short
+
+# also with a package
+garble run .
+! stdout '^garble_main\.go 9$'
+stdout '\.go \d'
+
+go run garble_main.go
+stdout 'garble_main\.go 9$'
+-- go.mod --
+module test/main
+
+go 1.20
+-- garble_main.go --
+package main
+
+import (
+	"fmt"
+	"runtime"
+)
+
+func main() {
+	_, file, line, _ := runtime.Caller(0)
+	fmt.Println(file, line)
+}
