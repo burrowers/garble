@@ -20,14 +20,9 @@ import (
 // moderate, this also decreases the likelihood for performance slowdowns.
 const minSize = 8
 
-// maxSize is the upper bound limit, of the size of string-like literals
-// which we will obfuscate. This is important, because otherwise garble can take
-// a very long time to obfuscate huge code-generated literals, such as those
-// corresponding to large assets.
-//
-// If someone truly wants to obfuscate those, they should do that when they
-// generate the code, not at build time. Plus, with Go 1.16 that technique
-// should largely stop being used.
+// maxSize is the upper limit of the size of string-like literals
+// which we will obfuscate with any of the available obfuscators.
+// Beyond that we apply only a subset of obfuscators which are guaranteed to run efficiently.
 const maxSize = 2 << 10 // KiB
 
 // Obfuscate replaces literals with obfuscated anonymous functions.
@@ -66,7 +61,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 
 		if typeAndValue.Type == types.Typ[types.String] && typeAndValue.Value != nil {
 			value := constant.StringVal(typeAndValue.Value)
-			if len(value) < minSize || len(value) > maxSize {
+			if len(value) < minSize {
 				return true
 			}
 
@@ -124,7 +119,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 //
 // If the input node cannot be obfuscated nil is returned.
 func handleCompositeLiteral(obfRand *obfRand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
-	if len(node.Elts) < minSize || len(node.Elts) > maxSize {
+	if len(node.Elts) < minSize {
 		return nil
 	}
 
@@ -218,8 +213,8 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 }
 
 func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
-	obfuscator := obfRand.nextObfuscator()
-	block := obfuscator.obfuscate(obfRand.Rand, []byte(data))
+	obf := getNextObfuscator(obfRand, len(data))
+	block := obf.obfuscate(obfRand.Rand, []byte(data))
 
 	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent("string"), ast.NewIdent("data"))))
 
@@ -227,8 +222,8 @@ func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 }
 
 func obfuscateByteSlice(obfRand *obfRand, isPointer bool, data []byte) *ast.CallExpr {
-	obfuscator := obfRand.nextObfuscator()
-	block := obfuscator.obfuscate(obfRand.Rand, data)
+	obf := getNextObfuscator(obfRand, len(data))
+	block := obf.obfuscate(obfRand.Rand, data)
 
 	if isPointer {
 		block.List = append(block.List, ah.ReturnStmt(&ast.UnaryExpr{
@@ -245,8 +240,8 @@ func obfuscateByteSlice(obfRand *obfRand, isPointer bool, data []byte) *ast.Call
 }
 
 func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length int64) *ast.CallExpr {
-	obfuscator := obfRand.nextObfuscator()
-	block := obfuscator.obfuscate(obfRand.Rand, data)
+	obf := getNextObfuscator(obfRand, len(data))
+	block := obf.obfuscate(obfRand.Rand, data)
 
 	arrayType := &ast.ArrayType{
 		Len: ah.IntLit(int(length)),
@@ -290,4 +285,12 @@ func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length in
 	}
 
 	return ah.LambdaCall(arrayType, block)
+}
+
+func getNextObfuscator(obfRand *obfRand, size int) obfuscator {
+	if size <= maxSize {
+		return obfRand.nextObfuscator()
+	} else {
+		return obfRand.nextLinearTimeObfuscator()
+	}
 }

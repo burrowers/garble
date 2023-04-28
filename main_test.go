@@ -248,7 +248,7 @@ func generateStringLit(size int) *ast.BasicLit {
 		panic(err)
 	}
 
-	return ah.StringLit(string(buffer))
+	return ah.StringLit(string(buffer) + "a_unique_string_that_is_part_of_all_extra_literals")
 }
 
 func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
@@ -261,35 +261,64 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 
 	codePath := args[0]
 
-	// Add 100 randomly small literals.
 	var statements []ast.Stmt
+
+	// Add 100 randomly small literals.
 	for i := 0; i < 100; i++ {
-		literal := generateStringLit(1 + testRand.Intn(255))
-		statements = append(statements, &ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("_")},
-			Tok: token.ASSIGN,
-			Rhs: []ast.Expr{literal},
-		})
+		statements = append(statements, &ast.ExprStmt{
+			X: &ast.CallExpr{
+				Fun: &ast.SelectorExpr{
+					X:   &ast.Ident{Name: "fmt"},
+					Sel: &ast.Ident{Name: "Println"},
+				},
+				Args: []ast.Expr{generateStringLit(1 + testRand.Intn(255))},
+			},
+		},
+		)
 	}
-	// Add 5 huge literals, to make sure we don't try to obfuscate them.
+
+	// Add 5 huge literals, to make sure we obfuscate them fast.
 	// 5 * 128KiB is large enough that it would take a very, very long time
-	// to obfuscate those literals with our simple code.
+	// to obfuscate those literals with our too complex obfuscators.
 	for i := 0; i < 5; i++ {
-		literal := generateStringLit(128 << 10)
-		statements = append(statements, &ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("_")},
-			Tok: token.ASSIGN,
-			Rhs: []ast.Expr{literal},
-		})
+		statements = append(statements, &ast.ExprStmt{
+			X: &ast.CallExpr{
+				Fun: &ast.SelectorExpr{
+					X:   &ast.Ident{Name: "fmt"},
+					Sel: &ast.Ident{Name: "Println"},
+				},
+				Args: []ast.Expr{generateStringLit(128 << 10)},
+			},
+		},
+		)
+	}
+
+	fmtImport := &ast.GenDecl{
+		Tok: token.IMPORT,
+		Specs: []ast.Spec{
+			&ast.ImportSpec{
+				Path: &ast.BasicLit{
+					Kind:  token.STRING,
+					Value: `"fmt"`,
+				},
+			},
+		},
+	}
+
+	initFunc := &ast.FuncDecl{
+		Name: &ast.Ident{
+			Name: "init",
+		},
+		Type: &ast.FuncType{},
+		Body: ah.BlockStmt(statements...),
 	}
 
 	file := &ast.File{
 		Name: ast.NewIdent("main"),
-		Decls: []ast.Decl{&ast.FuncDecl{
-			Name: ast.NewIdent("extraLiterals"),
-			Type: &ast.FuncType{Params: &ast.FieldList{}},
-			Body: ah.BlockStmt(statements...),
-		}},
+		Decls: []ast.Decl{
+			fmtImport,
+			initFunc,
+		},
 	}
 
 	codeFile := createFile(ts, codePath)
