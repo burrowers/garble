@@ -1,6 +1,8 @@
 // This script generate benchmarks for performance analysis of individual obfuscator literals.
 // Note that only the speed of obfuscated methods is measured, initialization cost or build speed are not measured.
 
+//go:build ignore
+
 package main
 
 import (
