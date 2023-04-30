@@ -290,9 +290,17 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 			}
 		}
 		if len(pkg.DepsErrors) > 0 {
-			// DepsErrors appears to not include the "# pkgpath" line.
-			pkgErrors = append(pkgErrors, "# "+pkg.ImportPath)
-			for _, derr := range pkg.DepsErrors {
+			for i, derr := range pkg.DepsErrors {
+				// When an error in DepsErrors starts with a "# pkg/path" line,
+				// it's an error that we're already printing via that package's Error field.
+				// Otherwise, the error is that we couldn't find that package at all,
+				// so we do need to print it here as that package won't be listed.
+				if i == 0 {
+					if strings.HasPrefix(derr.Err, "# ") {
+						break
+					}
+					pkgErrors = append(pkgErrors, "# "+pkg.ImportPath)
+				}
 				// Error messages sometimes include a trailing newline.
 				pkgErrors = append(pkgErrors, strings.TrimSpace(derr.Err))
 			}
