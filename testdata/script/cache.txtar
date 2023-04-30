@@ -1,0 +1,102 @@
+# Ensure that garble knows how to handle all kinds of initial state scenarios
+# when it comes to caching. If any cache file is missing, garble should redo
+# the work and write the cache file again. See the docs below.
+
+[short] stop # This step is slow by design, since it starts with an empty cache.
+
+env GOCACHE=${WORK}/gocache
+
+# level1a has the regular Go build cached.
+exec go build ./level1a
+
+# level1b has the garble build cached, but our own cache files are gone.
+exec garble build ./level1b
+find-remove gocache '-garble-'
+
+# level1c has the garble build cached with all files available.
+exec garble build ./level1c
+
+# TODO: this test now fails due to our fragile caching.
+! exec garble build
+stderr 'cannot load garble export file'
+# exec garble build
+# exec ./main
+# cmp stderr main.stderr
+
+# verify with regular Go.
+go build
+exec ./main
+cmp stderr main.stderr
+-- go.mod --
+module test/main
+
+go 1.20
+-- main.go --
+package main
+
+import (
+	"test/main/level1a"
+	"test/main/level1b"
+	"test/main/level1c"
+)
+
+func main() {
+	level1a.Print()
+	level1b.Print()
+	level1c.Print()
+}
+-- level1a/pkg.go --
+package level1a
+
+import (
+	"test/main/level1a/level2x"
+	"test/main/level1a/level2y"
+)
+
+func Print() { println(level2x.Value, level2y.Value) }
+-- level1a/level2x/pkg.go --
+package level2x
+
+var Value = "1a/2x"
+-- level1a/level2y/pkg.go --
+package level2y
+
+var Value = "1a/2y"
+-- level1b/pkg.go --
+package level1b
+
+import (
+	"test/main/level1b/level2x"
+	"test/main/level1b/level2y"
+)
+
+func Print() { println(level2x.Value, level2y.Value) }
+-- level1b/level2x/pkg.go --
+package level2x
+
+var Value = "1b/2x"
+-- level1b/level2y/pkg.go --
+package level2y
+
+var Value = "1b/2y"
+-- level1c/pkg.go --
+package level1c
+
+import (
+	"test/main/level1c/level2x"
+	"test/main/level1c/level2y"
+)
+
+func Print() { println(level2x.Value, level2y.Value) }
+-- level1c/level2x/pkg.go --
+package level2x
+
+var Value = "1c/2x"
+-- level1c/level2y/pkg.go --
+package level2y
+
+var Value = "1c/2y"
+-- main.stderr --
+1a/2x 1a/2y
+1b/2x 1b/2y
+1c/2x 1c/2y
