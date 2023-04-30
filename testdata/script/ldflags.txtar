@@ -7,14 +7,14 @@
 #   -X "name=value" (or with single quotes, allows spaces in value)
 env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/missing/path.missingVar=value -X=main.someType=notAVariable'
 
-garble build -ldflags=${LDFLAGS}
+exec garble build -ldflags=${LDFLAGS}
 exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'domain.test/main' 'unexportedVersion' 'ExportedUnset'
 
 [short] stop # no need to verify this with -short
 
-garble -tiny -literals -seed=0002deadbeef build -ldflags=${LDFLAGS}
+exec garble -tiny -literals -seed=0002deadbeef build -ldflags=${LDFLAGS}
 exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'unexportedVersion' 'ExportedUnset'

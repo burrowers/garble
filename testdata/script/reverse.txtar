@@ -1,8 +1,8 @@
 # Unknown build flags should result in errors.
-! garble reverse -badflag=foo .
+! exec garble reverse -badflag=foo .
 stderr 'flag provided but not defined'
 
-garble build
+exec garble build
 exec ./main
 cp stderr main.stderr
 
@@ -16,18 +16,18 @@ grep 'goroutine 1 \[running\]' main.stderr
 ! grep 'ExportedLib(Type|Field)|unexportedMainFunc|test/main|long_main\.go|long_lib\.go' main.stderr
 
 stdin main.stderr
-garble reverse .
+exec garble reverse .
 cmp stdout reverse.stdout
 
 # Ensure that we cleaned up the temporary files.
 # Note that we rely on the unix-like TMPDIR env var name.
 [!windows] ! grepfiles ${TMPDIR} 'garble|importcfg|cache\.gob|\.go'
 
-! garble build ./build-error
+! exec garble build ./build-error
 cp stderr build-error.stderr
 
 stdin build-error.stderr
-garble reverse ./build-error
+exec garble reverse ./build-error
 cmp stdout build-error-reverse.stdout
 
 [short] stop # no need to verify this with -short
@@ -38,17 +38,17 @@ exec ./main
 cmp stderr reverse.stdout
 
 # Ensure that we can still reverse with -literals.
-garble -literals build
+exec garble -literals build
 exec ./main
 cp stderr main-literals.stderr
 
 stdin main-literals.stderr
-garble -literals reverse .
+exec garble -literals reverse .
 cmp stdout reverse.stdout
 
 # Reversing a -literals output without the flag should fail.
 stdin main-literals.stderr
-! garble reverse .
+! exec garble reverse .
 cmp stdout main-literals.stderr
 -- go.mod --
 module test/main

@@ -10,7 +10,7 @@ env SEED1=OQg9kACEECQ
 
 # First, ensure that mod1's garbletest.v2 is in the cache.
 cd mod1
-garble -seed=${SEED1} build gopkg.in/garbletest.v2
+exec garble -seed=${SEED1} build gopkg.in/garbletest.v2
 
 # We collect the Action IDs to ensure they're different.
 # This is one of the factors that confused garble.
@@ -20,7 +20,7 @@ cp stdout ../buildid-mod1
 # Then, do the mod2 build, using the different-but-equal garbletest.v2.
 # Ensure that our workaround's inserted garbleActionID does not end up in the binary.
 cd ../mod2
-garble -seed=${SEED1} build
+exec garble -seed=${SEED1} build
 ! binsubstr mod2$exe 'garbleActionID'
 
 go list -trimpath -export -f '{{.BuildID}}' gopkg.in/garbletest.v2

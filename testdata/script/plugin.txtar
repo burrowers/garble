@@ -2,7 +2,7 @@ skip # TODO: get plugins working properly. See issue #87
 
 [windows] skip 'Go plugins are not supported on Windows'
 
-garble build -buildmode=plugin ./plugin
+exec garble build -buildmode=plugin ./plugin
 binsubstr plugin.so 'PublicVar' 'PublicFunc'
 ! binsubstr plugin.so 'privateFunc'
 
@@ -16,7 +16,7 @@ binsubstr main$exe 'PublicVar' 'PublicFunc'
 
 # This used to fail, since in this case the package path for the ad-hoc plugin
 # package isn't "main", but "plugin/unnamed-*".
-garble build -buildmode=plugin plugin/main.go
+exec garble build -buildmode=plugin plugin/main.go
 
 go build -buildmode=plugin ./plugin
 binsubstr plugin.so 'PublicVar' 'PublicFunc' 'privateFunc'

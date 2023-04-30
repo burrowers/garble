@@ -6,7 +6,7 @@
 [exec:git] exec git rev-parse HEAD
 [exec:git] setenvfile HEAD_COMMIT_SHA stdout
 
-garble build -tags veryuniquebuildtag
+exec garble build -tags veryuniquebuildtag
 ! binsubstr main$exe '(devel)' 'veryuniquebuildtag' ${HEAD_COMMIT_SHA}
 
 go version -m main$exe

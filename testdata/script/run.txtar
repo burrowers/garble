@@ -1,11 +1,11 @@
-garble run garble_main.go
+exec garble run garble_main.go
 ! stdout '^garble_main\.go 9$'
 stdout '\.go \d'
 
 [short] stop # no need to verify this with -short
 
 # also with a package
-garble run .
+exec garble run .
 ! stdout '^garble_main\.go 9$'
 stdout '\.go \d'
 

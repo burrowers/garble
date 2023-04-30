@@ -8,7 +8,7 @@
 # those commands are likely to fail as std and cmd are their own modules.
 env GOFLAGS=-modfile=${WORK}/go.mod
 
-garble build
+exec garble build
 exec ./main
 ! cmp stderr main.stderr
 
@@ -19,7 +19,7 @@ exec ./main
 # building the linker twice, wasting CPU and disk.
 [!windows] env GOOS=windows
 [windows] env GOOS=linux
-garble build
+exec garble build
 [!windows] [exec:git]   exists ${GARBLE_CACHE_DIR}/garble/link
 [!windows] [exec:git] ! exists ${GARBLE_CACHE_DIR}/garble/link.exe
 [windows]  [exec:git] ! exists ${GARBLE_CACHE_DIR}/garble/link

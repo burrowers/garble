@@ -1,29 +1,29 @@
-! garble
+! exec garble
 stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
 ! stderr 'usage: go build'
 ! stdout .
 
-! garble -h
+! exec garble -h
 stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
 ! stdout .
 
-! garble help
+! exec garble help
 stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
 ! stdout .
 
-! garble help foo bar
+! exec garble help foo bar
 stderr 'usage: garble help'
 ! stderr 'Garble obfuscates Go code'
 ! stdout .
 
-! garble help -h
+! exec garble help -h
 stderr 'usage: garble help'
 ! stdout .
 
-! garble build -h
+! exec garble build -h
 stderr 'garble \[garble flags\] build'
 stderr 'This command wraps "go build"'
 stderr 'usage: go build'
@@ -31,7 +31,7 @@ stderr 'Run .go help build.'
 ! stderr 'Garble obfuscates Go code'
 ! stdout .
 
-! garble test -h
+! exec garble test -h
 stderr 'garble \[garble flags\] test'
 stderr 'This command wraps "go test"'
 stderr 'usage: go test'
@@ -39,49 +39,49 @@ stderr 'Run .go help test.'
 ! stderr 'Garble obfuscates Go code'
 ! stdout .
 
-! garble reverse -h
+! exec garble reverse -h
 stderr 'garble \[garble flags\] reverse \[build flags\] package \[files\]'
 ! stderr 'usage: go '
 ! stdout .
 
-! garble help reverse
+! exec garble help reverse
 stderr 'garble \[garble flags\] reverse \[build flags\] package \[files\]'
 ! stderr 'usage: go '
 ! stdout .
 
-! garble -badflag
+! exec garble -badflag
 stderr 'flag provided but not defined'
 stderr 'garble \[garble flags\] command'
 ! stdout .
 
-! garble badcmd
+! exec garble badcmd
 stderr 'unknown command'
 
-! garble build -badflag
+! exec garble build -badflag
 stderr 'usage: go build' # TODO: is this confusing?
 ! stdout .
 
-! garble build -tiny
+! exec garble build -tiny
 stderr 'must precede command, like: garble -tiny build \./pkg'
 ! stdout .
 
-! garble build -literals
+! exec garble build -literals
 stderr 'must precede command, like: garble -literals build \./pkg'
 ! stdout .
 
-! garble build -seed=random
+! exec garble build -seed=random
 stderr 'must precede command, like: garble -seed=random build \./pkg'
 ! stdout .
 
-[!windows] ! garble toolexec /does/not/exist/compile
-[windows] ! garble toolexec C:\does\not\exist\compile
+[!windows] ! exec garble toolexec /does/not/exist/compile
+[windows] ! exec garble toolexec C:\does\not\exist\compile
 stderr 'did you run.*instead of "garble \[command\]"'
 
-! garble build badpackage
+! exec garble build badpackage
 stderr 'package badpackage is not in GOROOT'
 ! stdout .
 
-! garble build ./badpackage
+! exec garble build ./badpackage
 stderr 'directory not found'
 ! stdout .
 
@@ -90,7 +90,7 @@ stderr 'directory not found'
 # To avoid building another garble binary,
 # and to be able to use static VCS info, use an environment variable.
 # First, test without the information, and then with it.
-garble version
+exec garble version
 stdout -count=1 'mvdan.cc/garble \(devel\)'
 stdout -count=1 'Build settings'
 stdout -count=3 '-compiler|GOOS|GOARCH'
@@ -98,7 +98,7 @@ stdout -count=3 '-compiler|GOOS|GOARCH'
 
 # Obtained from a real build while developing.
 env GARBLE_TEST_BUILDSETTINGS='[{"Key":"vcs","Value":"git"},{"Key":"vcs.revision","Value":"91ea246349544769f5100c29f79cb0f173abfeea"},{"Key":"vcs.time","Value":"2022-03-18T13:45:11Z"},{"Key":"vcs.modified","Value":"true"}]'
-garble version
+exec garble version
 stdout -count=1 'mvdan\.cc/garble v0\.0\.0-20220318134511-91ea24634954'
 stdout -count=1 'Build settings'
 stdout -count=3 '-compiler|GOOS|GOARCH'
@@ -107,10 +107,10 @@ stdout -count=1 'vcs\.revision 91ea246349544769f5100c29f79cb0f173abfeea'
 stdout -count=1 'vcs\.time 2022-03-18T13:45:11Z'
 stdout -count=1 'vcs\.modified true'
 
-! garble version -flag
+! exec garble version -flag
 stderr 'usage: garble version'
 
-! garble version arg
+! exec garble version arg
 stderr 'usage: garble version'
 
 # We need a dummy module for "garble build -badflag".

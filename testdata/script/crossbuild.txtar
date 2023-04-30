@@ -16,7 +16,7 @@
 [windows] env GOOS=linux
 [!arm] env GOARCH=arm
 [arm] env GOARCH=arm64
-garble build -gcflags=math/bits=-d=ssa/intrinsics/debug=1
+exec garble build -gcflags=math/bits=-d=ssa/intrinsics/debug=1
 stderr 'intrinsic substitution for Len64.*BitLen64'
 -- go.mod --
 module test/main

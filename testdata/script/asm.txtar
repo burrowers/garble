@@ -3,13 +3,13 @@
 # TODO: support arm64, at least
 [!amd64] skip 'the assembly is only written for amd64'
 
-garble build
+exec garble build
 exec ./main
 cmp stderr main.stderr
 ! binsubstr main$exe 'test/main' 'addJmp' 'AddImpl' 'garble_'
 
 # We used to panic on broken packages with assembly.
-! garble build ./broken/...
+! exec garble build ./broken/...
 stderr -count=1 'broken[/\\]asm[/\\].*MissingType'
 stderr -count=1 'broken[/\\]syntax[/\\].*unexpected newline'
 
@@ -18,10 +18,10 @@ stderr -count=1 'broken[/\\]syntax[/\\].*unexpected newline'
 # Ensure that reversing doesn't error with assembly files.
 # It should fail, as there is nothing to reverse, but without any parse error.
 stdin empty-reverse.txt
-! garble reverse .
+! exec garble reverse .
 ! stderr .
 
-garble -tiny build
+exec garble -tiny build
 exec ./main
 cmp stderr main.stderr
 ! binsubstr main$exe 'addJmp' 'AddImpl'

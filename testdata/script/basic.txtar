@@ -1,5 +1,5 @@
 # Check that the simplest use of garble works. Note the lack of a module or GOGARBLE.
-garble build -o=main$exe garble_main.go
+exec garble build -o=main$exe garble_main.go
 exec ./main
 cmp stderr main.stderr
 
@@ -37,7 +37,7 @@ stderr 'cannot open shared file.*did you run.*instead of "garble \[command\]"'
 # No packages should be rebuilt either, thanks to the build cache.
 cp main$exe main_old$exe
 rm main$exe
-garble build -v -o=main$exe garble_main.go
+exec garble build -v -o=main$exe garble_main.go
 ! stderr .
 bincmp main$exe main_old$exe
 

@@ -1,4 +1,4 @@
-garble build
+exec garble build
 
 exec ./main
 cmp stdout main.stdout
