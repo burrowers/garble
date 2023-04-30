@@ -241,16 +241,23 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 
 var testRand = mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
 
-func generateStringLit(size int) *ast.BasicLit {
-	buffer := make([]byte, size)
+func generateStringLit(minSize int) *ast.BasicLit {
+	buffer := make([]byte, minSize)
 	_, err := testRand.Read(buffer)
 	if err != nil {
 		panic(err)
 	}
 
-	return ah.StringLit(string(buffer))
+	return ah.StringLit(string(buffer) + "a_unique_string_that_is_part_of_all_extra_literals")
 }
 
+// generateLiterals creates a new source code file with a few random literals inside.
+// All literals contain the string "a_unique_string_that_is_part_of_all_extra_literals"
+// so we can later check if they are all obfuscated by looking for this substring.
+// The code is designed such that the Go compiler does not optimize away the literals,
+// which would destroy the test.
+// This is achieved by defining a global variable `var x = ""` and an `init` function
+// which appends all literals to `x`.
 func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 	if neg {
 		ts.Fatalf("unsupported: ! generate-literals")
@@ -261,35 +268,64 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 
 	codePath := args[0]
 
-	// Add 100 randomly small literals.
-	var statements []ast.Stmt
-	for i := 0; i < 100; i++ {
-		literal := generateStringLit(1 + testRand.Intn(255))
-		statements = append(statements, &ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("_")},
-			Tok: token.ASSIGN,
-			Rhs: []ast.Expr{literal},
-		})
-	}
-	// Add 5 huge literals, to make sure we don't try to obfuscate them.
-	// 5 * 128KiB is large enough that it would take a very, very long time
-	// to obfuscate those literals with our simple code.
-	for i := 0; i < 5; i++ {
-		literal := generateStringLit(128 << 10)
-		statements = append(statements, &ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("_")},
-			Tok: token.ASSIGN,
-			Rhs: []ast.Expr{literal},
-		})
+	// Global string variable to which which we append string literals: `var x = ""`
+	globalVar := &ast.GenDecl{
+		Tok: token.VAR,
+		Specs: []ast.Spec{
+			&ast.ValueSpec{
+				Names: []*ast.Ident{ast.NewIdent("x")},
+				Values: []ast.Expr{
+					&ast.BasicLit{Kind: token.STRING, Value: `""`},
+				},
+			},
+		},
 	}
 
+	var statements []ast.Stmt
+
+	// Assignments which append 100 random small literals to x: `x += "the_small_random_literal"`
+	for i := 0; i < 100; i++ {
+		statements = append(
+			statements,
+			&ast.AssignStmt{
+				Lhs: []ast.Expr{ast.NewIdent("x")},
+				Tok: token.ADD_ASSIGN,
+				Rhs: []ast.Expr{generateStringLit(1 + testRand.Intn(255))},
+			},
+		)
+	}
+
+	// Assignments which append 5 random huge literals to x: `x += "the_huge_random_literal"`
+	// We add huge literals to make sure we obfuscate them fast.
+	// 5 * 128KiB is large enough that it would take a very, very long time
+	// to obfuscate those literals if too complex obfuscators are used.
+	for i := 0; i < 5; i++ {
+		statements = append(
+			statements,
+			&ast.AssignStmt{
+				Lhs: []ast.Expr{ast.NewIdent("x")},
+				Tok: token.ADD_ASSIGN,
+				Rhs: []ast.Expr{generateStringLit(128 << 10)},
+			},
+		)
+	}
+
+	// An `init` function which includes all assignments from above
+	initFunc := &ast.FuncDecl{
+		Name: &ast.Ident{
+			Name: "init",
+		},
+		Type: &ast.FuncType{},
+		Body: ah.BlockStmt(statements...),
+	}
+
+	// A file with the global string variable and init function
 	file := &ast.File{
 		Name: ast.NewIdent("main"),
-		Decls: []ast.Decl{&ast.FuncDecl{
-			Name: ast.NewIdent("extraLiterals"),
-			Type: &ast.FuncType{Params: &ast.FieldList{}},
-			Body: ah.BlockStmt(statements...),
-		}},
+		Decls: []ast.Decl{
+			globalVar,
+			initFunc,
+		},
 	}
 
 	codeFile := createFile(ts, codePath)

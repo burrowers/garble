@@ -16,13 +16,20 @@ type obfuscator interface {
 }
 
 var (
+	simpleObfuscator = simple{}
+
 	// Obfuscators contains all types which implement the obfuscator Interface
 	Obfuscators = []obfuscator{
-		simple{},
+		simpleObfuscator,
 		swap{},
 		split{},
 		shuffle{},
 		seed{},
+	}
+
+	// LinearTimeObfuscators contains all types which implement the obfuscator Interface and can safely be used on large literals
+	LinearTimeObfuscators = []obfuscator{
+		simpleObfuscator,
 	}
 
 	TestObfuscator         string
@@ -82,6 +89,13 @@ func (r *obfRand) nextObfuscator() obfuscator {
 		return r.testObfuscator
 	}
 	return Obfuscators[r.Intn(len(Obfuscators))]
+}
+
+func (r *obfRand) nextLinearTimeObfuscator() obfuscator {
+	if r.testObfuscator != nil {
+		return r.testObfuscator
+	}
+	return Obfuscators[r.Intn(len(LinearTimeObfuscators))]
 }
 
 func newObfRand(rand *mathrand.Rand, file *ast.File) *obfRand {

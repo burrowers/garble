@@ -25,9 +25,15 @@ binsubstr main$exe 'Lorem Ipsum' 'dolor sit amet' 'second assign' 'First Line' '
 # seconds, it means we're trying to obfuscate them.
 generate-literals extra_literals.go
 
+# ensure we find the extra literals in an unobfuscated build
+go build
+binsubstr main$exe 'a_unique_string_that_is_part_of_all_extra_literals'
+
+# ensure we don't find the extra literals in an obfuscated build
 garble -literals -debugdir=debug1 build
 exec ./main$exe
 cmp stderr main.stderr
+! binsubstr main$exe 'a_unique_string_that_is_part_of_all_extra_literals'
 
 # Check obfuscators.
 
