@@ -1,6 +1,6 @@
 # Test that garble keeps init functions in the order they were declared in.
 
-garble build
+exec garble build
 exec ./main
 cmp stderr main.stderr
 

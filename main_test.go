@@ -133,7 +133,9 @@ func TestScript(t *testing.T) {
 			"setenvfile":        setenvfile,
 			"grepfiles":         grepfiles,
 		},
-		UpdateScripts: *update,
+		UpdateScripts:       *update,
+		RequireExplicitExec: true,
+		RequireUniqueNames:  true,
 	}
 	if err := gotooltest.Setup(&p); err != nil {
 		t.Fatal(err)

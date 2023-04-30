@@ -9,7 +9,7 @@ env SEED1=OQg9kACEECQ
 env SEED2=NruiDmVz6/s
 
 # Check the binary with a given base64 encoded seed.
-garble -seed=${SEED1} build
+exec garble -seed=${SEED1} build
 exec ./main$exe
 cmp stderr main.stderr
 binsubstr main$exe 'teststring' 'imported var value'
@@ -24,7 +24,7 @@ cp stderr importedpkg-seed-static-1
 # No packages should be rebuilt either, thanks to the build cache.
 cp main$exe main_seed1$exe
 rm main$exe
-garble -seed=${SEED1}= build -v
+exec garble -seed=${SEED1}= build -v
 ! stderr .
 bincmp main$exe main_seed1$exe
 
@@ -42,11 +42,11 @@ cp stderr mainpkg-seed-static-1
 # TODO: also test that changing non-garble build parameters,
 # such as GOARCH or -tags, still results in the same hashing via the seed.
 
-garble -seed=${SEED1} -literals build
+exec garble -seed=${SEED1} -literals build
 exec ./main$exe test/main/imported
 cmp stderr importedpkg-seed-static-1
 
-garble -seed=${SEED1} -tiny build
+exec garble -seed=${SEED1} -tiny build
 exec ./main$exe test/main/imported
 cmp stderr importedpkg-seed-static-1
 
@@ -54,7 +54,7 @@ cmp stderr importedpkg-seed-static-1
 # We can't know if caching happens here, because of previous test runs.
 cp main$exe main_seed2$exe
 rm main$exe
-garble -seed=${SEED2} build
+exec garble -seed=${SEED2} build
 ! bincmp main$exe main_seed2$exe
 
 exec ./main$exe test/main/imported
@@ -62,7 +62,7 @@ cp stderr importedpkg-seed-static-2
 ! bincmp importedpkg-seed-static-2 importedpkg-seed-static-1
 
 # Use a random seed, which should always trigger a full build.
-garble -seed=random build -v
+exec garble -seed=random build -v
 stderr -count=1 '^-seed chosen at random: .+'
 stderr -count=1 '^runtime$'
 stderr -count=1 '^test/main$'
@@ -78,7 +78,7 @@ cp stderr importedpkg-seed-random-1
 # Also check that the random binary is not reproducible.
 cp main$exe main_random$exe
 rm main$exe
-garble -seed=random build -v
+exec garble -seed=random build -v
 stderr .
 ! bincmp main$exe main_random$exe
 

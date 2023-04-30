@@ -1,5 +1,5 @@
 # build the test binary
-garble test -c
+exec garble test -c
 ! stdout 'PASS'
 binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
 ! binsubstr bar.test$exe 'LocalFoo|ImportedVar|OriginalFuncName'
@@ -25,7 +25,7 @@ stdout 'package bar_test, func name:'
 #
 # The combination of those used to result in "refusing to list non-dependency
 # package" errors, which we've currently worked around.
-garble test -v ./...
+exec garble test -v ./...
 stdout 'ok\s+test/bar\s'
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestMain'
@@ -40,7 +40,7 @@ stdout 'ok\s+test/bar/sometest\s'
 stdout 'ok\s+test/bar/exporttest\s'
 
 # verify that non-build flags are kept
-garble test -withflag -v
+exec garble test -withflag -v
 stdout 'PASS.*TestWithFlag'
 
 # verify with regular cmd/go; OriginalFuncName should appear

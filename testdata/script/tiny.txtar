@@ -1,5 +1,5 @@
 # Tiny mode
-garble -tiny build
+exec garble -tiny build
 ! binsubstr main$exe 'garble_main.go' 'fmt/print.go'
 env GODEBUG='allocfreetrace=1,gcpacertrace=1,gctrace=1,inittrace=1,scavenge=1,scavtrace=1,scheddetail=1,schedtrace=10'
 ! exec ./main$exe
@@ -17,7 +17,7 @@ stderr 'funcStructExported false funcStructUnexported true'
 [short] stop # no need to verify this with -short
 
 # Default mode
-garble build
+exec garble build
 ! exec ./main$exe
 stderr '^caller: [0-9a-zA-Z_]+\.go [1-9]'
 stderr '^recovered: ya like jazz?'

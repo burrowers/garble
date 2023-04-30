@@ -6,7 +6,7 @@
 [amd64] [!darwin] env GOARCH=386
 [arm64] [!darwin] env GOARCH=arm
 
-garble build
+exec garble build
 exec ./main
 cmp stderr main.stderr
 

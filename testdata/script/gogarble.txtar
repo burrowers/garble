@@ -1,11 +1,11 @@
 # Ensure that "does not match any packages" works.
 env GOGARBLE=match-absolutely/nothing
-! garble build -o=out ./standalone
+! exec garble build -o=out ./standalone
 stderr '^GOGARBLE="match-absolutely/nothing" does not match any packages to be built$'
 
 # A build where just some packages are obfuscated.
 env GOGARBLE=test/main/imported
-garble -literals build -o=out ./importer
+exec garble -literals build -o=out ./importer
 
 ! binsubstr out 'some long string to obfuscate'
 binsubstr out 'some long string to not obfuscate'
@@ -14,7 +14,7 @@ binsubstr out 'some long string to not obfuscate'
 # Some of the imported std packages use "import maps" due to vendoring,
 # and a past bug made this case fail for "garble build".
 env GOGARBLE=test/main
-garble build -o=out ./stdimporter
+exec garble build -o=out ./stdimporter
 
 [short] stop # rebuilding std is slow
 
@@ -28,12 +28,12 @@ env GOGARBLE='*'
 # packages so we must properly support ImportMap.
 # Plus, some packages like net make heavy use of complex features like Cgo.
 # Note that we won't obfuscate a few std packages just yet, mainly those around runtime.
-garble build std
+exec garble build std
 
 # Link a binary importing net/http, which will catch whether or not we
 # support ImportMap when linking.
 # Also ensure we are obfuscating low-level std packages.
-garble build -o=out ./stdimporter
+exec garble build -o=out ./stdimporter
 ! binsubstr out 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
 
 # The same low-level std packages appear in plain sight in regular builds.
@@ -45,8 +45,8 @@ binsubstr out_regular 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'sy
 # We also forcibly rebuild runtime on its own, given it used to be non-reproducible
 # due to its use of linknames pointing at std packages it doesn't depend upon.
 env GOCACHE=${WORK}/gocache-empty
-garble build -a runtime
-garble build -o=out_rebuild ./stdimporter
+exec garble build -a runtime
+exec garble build -o=out_rebuild ./stdimporter
 bincmp out_rebuild out
 -- go.mod --
 module test/main
