@@ -19,8 +19,14 @@ go 1.20
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"reflect"
 	"strings"
@@ -107,6 +113,8 @@ func main() {
 	variadic := VariadicReflection{ReflectionField: "variadic"}
 	_ = importedpkg.VariadicReflect("foo", 1, variadic, false)
 	printfWithoutPackage("%#v\n", variadic)
+
+	testx509()
 }
 
 type EmbeddingIndirect struct {
@@ -162,6 +170,30 @@ var _ = func() uintptr {
 	}
 	return field.Offset
 }()
+
+// encoding/x509 uses encoding/asn1, which uses reflect.
+// In one place it depends on field names; that used to be broken by garble.
+func testx509() {
+	priv, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{Organization: []string{"Acme Co"}},
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = x509.ParseCertificate(derBytes)
+	if err != nil {
+		panic(err)
+	}
+}
 
 
 -- importedpkg/imported.go --

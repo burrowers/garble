@@ -1930,6 +1930,15 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 				tf.recursivelyRecordAsNotObfuscated(obj.Type())
 				return true
 			}
+		case "crypto/x509/pkix":
+			// For better or worse, encoding/asn1 detects a "SET" suffix on slice type names
+			// to tell whether those slices should be treated as sets or sequences.
+			// Do not obfuscate those names to prevent breaking x509 certificates.
+			// TODO: we can surely do better; ideally propose a non-string-based solution
+			// upstream, or as a fallback, obfuscate to a name ending with "SET".
+			if strings.HasSuffix(name, "SET") {
+				return true
+			}
 		}
 
 		// The package that declared this object did not obfuscate it.
