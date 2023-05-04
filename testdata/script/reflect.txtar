@@ -115,6 +115,18 @@ func main() {
 	printfWithoutPackage("%#v\n", variadic)
 
 	testx509()
+
+
+	// Very complex reflection used by gorm
+	user := StatUser{}
+	find(&user)
+
+	// Similar to gorm with composite literals instead of direct assignments
+	userComp := StatCompUser{}
+	findComp(&userComp)
+
+	x := UnnamedStructInterface(importedpkg.ReflectUnnamedStruct(0))
+	x.UnnamedStructMethod(struct{ UnnamedStructField string }{UnnamedStructField: "field value"})
 }
 
 type EmbeddingIndirect struct {
@@ -205,11 +217,60 @@ func testx509() {
 	}
 }
 
+type StatUser struct {
+	Id      int64 `gorm:"primaryKey"`
+	User_Id int64
+}
+
+type StatCompUser struct {
+	Id      int64 `gorm:"primaryKey"`
+	User_Id int64
+}
+
+type Transaction struct {
+	Statement Statement
+}
+
+type Statement struct {
+	Dest  interface{}
+	Model string
+}
+
+func find(dest interface{}) {
+	tx := Transaction{}
+
+	tx.Statement.Dest = dest
+	execute(tx)
+}
+
+func findComp(dest interface{}) {
+	tx := Transaction{
+		Statement: Statement{
+			Dest: dest,
+		},
+	}
+
+	execute(tx)
+}
+
+func execute(db Transaction) {
+	stmt := db.Statement
+
+	v := reflect.TypeOf(stmt.Dest)
+
+	fmt.Println(v)
+}
+
+type UnnamedStructInterface interface {
+	UnnamedStructMethod(struct{ UnnamedStructField string })
+}
+
 
 -- importedpkg/imported.go --
 package importedpkg
 
 import (
+	"fmt"
 	"reflect"
 
 	"test/main/importedpkg/indirect"
@@ -282,14 +343,18 @@ type ReflectEmbeddingNamed struct{}
 
 func VariadicReflect(x any, ys ...any) int {
 	_ = reflect.TypeOf(x)
-	_ = reflect.TypeOf(ys)
 
-	// TODO: we likely do not notice indirect calls via a range like this.
 	for _, y := range ys {
 		_ = reflect.TypeOf(y)
 	}
 
 	return len(ys)
+}
+
+type ReflectUnnamedStruct int
+
+func (ReflectUnnamedStruct) UnnamedStructMethod(s struct{ UnnamedStructField string }) {
+	fmt.Println(reflect.TypeOf(s))
 }
 
 -- importedpkg2/imported2.go --
@@ -337,3 +402,4 @@ ReflectionField
 VariadicReflection{ReflectionField:"variadic"}
 *main.StatUser
 *main.StatCompUser
+struct { UnnamedStructField string }

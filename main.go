@@ -79,6 +79,8 @@ func (f seedFlag) String() string {
 
 func (f *seedFlag) Set(s string) error {
 	if s == "random" {
+		f.random = true // to show the random seed we chose
+
 		f.bytes = make([]byte, 16) // random 128 bit seed
 		if _, err := cryptorand.Read(f.bytes); err != nil {
 			return fmt.Errorf("error generating random seed: %v", err)
@@ -120,6 +122,7 @@ The following commands are supported:
 
 	build          replace "go build"
 	test           replace "go test"
+	run            replace "go run"
 	reverse        de-obfuscate output such as stack traces
 	version        print the version and build settings of the garble binary
 
@@ -235,18 +238,20 @@ func main1() int {
 		usage()
 		return 2
 	}
+
+	// If a random seed was used, the user won't be able to reproduce the
+	// same output or failure unless we print the random seed we chose.
+	// If the build failed and a random seed was used,
+	// the failure might not reproduce with a different seed.
+	// Print it before we exit.
+	if flagSeed.random {
+		fmt.Fprintf(os.Stderr, "-seed chosen at random: %s\n", base64.RawStdEncoding.EncodeToString(flagSeed.bytes))
+	}
 	if err := mainErr(args); err != nil {
 		if code, ok := err.(errJustExit); ok {
 			return int(code)
 		}
 		fmt.Fprintln(os.Stderr, err)
-
-		// If the build failed and a random seed was used,
-		// the failure might not reproduce with a different seed.
-		// Print it before we exit.
-		if flagSeed.random {
-			fmt.Fprintf(os.Stderr, "random seed: %s\n", base64.RawStdEncoding.EncodeToString(flagSeed.bytes))
-		}
 		return 1
 	}
 	return 0
@@ -255,11 +260,6 @@ func main1() int {
 type errJustExit int
 
 func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
-
-// toolchainVersionSemver is a semver-compatible version of the Go toolchain currently
-// being used, as reported by "go env GOVERSION".
-// Note that the version of Go that built the garble binary might be newer.
-var toolchainVersionSemver string
 
 func goVersionOK() bool {
 	const (
@@ -271,7 +271,7 @@ func goVersionOK() bool {
 	rxVersion := regexp.MustCompile(`go\d+\.\d+(?:\.\d+)?`)
 
 	toolchainVersionFull := cache.GoEnv.GOVERSION
-	toolchainVersion := rxVersion.FindString(cache.GoEnv.GOVERSION)
+	toolchainVersion := rxVersion.FindString(toolchainVersionFull)
 	if toolchainVersion == "" {
 		// Go 1.15.x and older do not have GOVERSION yet.
 		// We could go the extra mile and fetch it via 'go toolchainVersion',
@@ -280,14 +280,14 @@ func goVersionOK() bool {
 		return false
 	}
 
-	toolchainVersionSemver = "v" + strings.TrimPrefix(toolchainVersion, "go")
-	if semver.Compare(toolchainVersionSemver, minGoVersionSemver) < 0 {
+	cache.GoVersionSemver = "v" + strings.TrimPrefix(toolchainVersion, "go")
+	if semver.Compare(cache.GoVersionSemver, minGoVersionSemver) < 0 {
 		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to Go %s or newer\n", toolchainVersionFull, suggestedGoVersion)
 		return false
 	}
 
 	// Ensure that the version of Go that built the garble binary is equal or
-	// newer than toolchainVersionSemver.
+	// newer than cache.GoVersionSemver.
 	builtVersionFull := os.Getenv("GARBLE_TEST_GOVERSION")
 	if builtVersionFull == "" {
 		builtVersionFull = runtime.Version()
@@ -299,7 +299,7 @@ func goVersionOK() bool {
 		return true
 	}
 	builtVersionSemver := "v" + strings.TrimPrefix(builtVersion, "go")
-	if semver.Compare(builtVersionSemver, toolchainVersionSemver) < 0 {
+	if semver.Compare(builtVersionSemver, cache.GoVersionSemver) < 0 {
 		fmt.Fprintf(os.Stderr, "garble was built with %q and is being used with %q; please rebuild garble with the newer version\n",
 			builtVersionFull, toolchainVersionFull)
 		return false
@@ -393,7 +393,7 @@ func mainErr(args []string) error {
 		return nil
 	case "reverse":
 		return commandReverse(args)
-	case "build", "test":
+	case "build", "test", "run":
 		cmd, err := toolexecCmd(command, args)
 		defer os.RemoveAll(os.Getenv("GARBLE_SHARED"))
 		if err != nil {
@@ -442,7 +442,7 @@ func mainErr(args []string) error {
 
 		executablePath := args[0]
 		if tool == "link" {
-			modifiedLinkPath, unlock, err := linker.PatchLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, cache.GoEnv.GOEXE, sharedTempDir)
+			modifiedLinkPath, unlock, err := linker.PatchLinker(cache.GoEnv.GOROOT, cache.GoEnv.GOVERSION, sharedTempDir)
 			if err != nil {
 				return fmt.Errorf("cannot get modified linker: %v", err)
 			}
@@ -564,11 +564,7 @@ This command wraps "go %s". Below is its help:
 		}
 	}
 
-	goArgs := []string{
-		command,
-		"-trimpath",
-		"-buildvcs=false",
-	}
+	goArgs := append([]string{command}, garbleBuildFlags...)
 
 	// Pass the garble flags down to each toolexec invocation.
 	// This way, all garble processes see the same flag values.
@@ -1138,10 +1134,6 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 			// These receivers are not obfuscated.
 			// See the TODO below.
 		} else if strings.HasPrefix(receiver, "(*") {
-		if lpkg.ImportPath == "reflect" && (receiver == "(*rtype)" || receiver == "Value") {
-			// These receivers are not obfuscated.
-			// See the TODO below.
-		} else if strings.HasPrefix(receiver, "(*") {
 			// pkg/path.(*Receiver).method
 			receiver = strings.TrimPrefix(receiver, "(*")
 			receiver = strings.TrimSuffix(receiver, ")")
@@ -1152,8 +1144,6 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		}
 		// Exported methods are never obfuscated.
 		//
-		// TODO(mvdan): We're duplicating the logic behind these decisions.
-		// Reuse the logic with transformCompile.
 		// TODO(mvdan): We're duplicating the logic behind these decisions.
 		// Reuse the logic with transformCompile.
 		if !token.IsExported(name) {
@@ -1293,7 +1283,7 @@ var cachedOutput = struct {
 	//
 	// TODO: we're not including fmt.Printf, as it would have many false positives,
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
-	KnownReflectAPIs map[funcFullName][]int
+	KnownReflectAPIs map[funcFullName]map[int]bool
 
 	// KnownCannotObfuscate is filled with the fully qualified names from each
 	// package that we cannot obfuscate.
@@ -1309,9 +1299,9 @@ var cachedOutput = struct {
 	// bearing in mind that it may be owned by a different package.
 	KnownEmbeddedAliasFields map[objectString]typeName
 }{
-	KnownReflectAPIs: map[funcFullName][]int{
-		"reflect.TypeOf":  {0},
-		"reflect.ValueOf": {0},
+	KnownReflectAPIs: map[funcFullName]map[int]bool{
+		"reflect.TypeOf":  {0: true},
+		"reflect.ValueOf": {0: true},
 	},
 	KnownCannotObfuscate:     map[objectString]struct{}{},
 	KnownEmbeddedAliasFields: map[objectString]typeName{},
@@ -1553,39 +1543,21 @@ func (tf *transformer) recordType(used, origin types.Type) {
 	}
 }
 
-// TODO: consider caching recordedObjectString via a map,
-// if that shows an improvement in our benchmark
-
-func recordedObjectString(obj types.Object) objectString {
-	pkg := obj.Pkg()
-	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
-		// For exported fields, "pkgpath.Field" is not unique,
-		// because two exported top-level types could share "Field".
-		//
-		// Moreover, note that not all fields belong to named struct types;
-		// an API could be exposing:
-		//
-		//   var usedInReflection = struct{Field string}
-		//
-		// For now, a hack: assume that packages don't declare the same field
-		// more than once in the same line. This works in practice, but one
-		// could craft Go code to break this assumption.
-		// Also note that the compiler's object files include filenames and line
-		// numbers, but not column numbers nor byte offsets.
-		// TODO(mvdan): give this another think, and add tests involving anon types.
-		pos := fset.Position(obj.Pos())
-		return fmt.Sprintf("%s.%s - %s:%d", pkg.Path(), obj.Name(),
-			filepath.Base(pos.Filename), pos.Line)
+// isSafeForInstanceType returns true if the passed type is safe for var declaration.
+// Unsafe types: generic types and non-method interfaces.
+func isSafeForInstanceType(typ types.Type) bool {
+	switch t := typ.(type) {
+	case *types.Named:
+		if t.TypeParams().Len() > 0 {
+			return false
+		}
+		return isSafeForInstanceType(t.Underlying())
+	case *types.Signature:
+		return t.TypeParams().Len() == 0
+	case *types.Interface:
+		return t.IsMethodSet()
 	}
-	// Names which are not at the top level cannot be imported,
-	// so we don't need to record them either.
-	// Note that this doesn't apply to fields, which are never top-level.
-	if pkg.Scope() != obj.Parent() {
-	if pkg.Scope() != obj.Parent() {
-		return ""
-	}
-	// For top-level exported names, "pkgpath.Name" is unique.
-	return pkg.Path() + "." + obj.Name()
+	return true
 }
 
 func (tf *transformer) useAllImports(file *ast.File) {
@@ -1754,20 +1726,18 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		// TODO: We match by object name here, which is actually imprecise.
 		// For example, in package embed we match the type FS, but we would also
 		// match any field or method named FS.
-		// TODO: We match by object name here, which is actually imprecise.
-		// For example, in package embed we match the type FS, but we would also
-		// match any field or method named FS.
 		path := pkg.Path()
 		switch path {
+		case "sync/atomic", "runtime/internal/atomic":
+			if name == "align64" {
+				return true
+			}
 		case "embed":
 			// FS is detected by the compiler for //go:embed.
 			// TODO: We probably want a conditional, otherwise we're not
 			// obfuscating the embed package at all.
-			// TODO: We probably want a conditional, otherwise we're not
-			// obfuscating the embed package at all.
 			return name == "FS"
 		case "reflect":
-			switch name {
 			switch name {
 			// Per the linker's deadcode.go docs,
 			// the Method and MethodByName methods are what drive the logic.
@@ -1780,12 +1750,14 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			case "rtype", "Value":
 				tf.recursivelyRecordAsNotObfuscated(obj.Type())
 				return true
-			// Some packages reach into reflect internals, like go-spew.
-			// It's not particularly right of them to do that,
-			// and it's entirely unsupported, but try to accomodate for now.
-			// At least it's enough to leave the rtype and Value types intact.
-			case "rtype", "Value":
-				tf.recursivelyRecordAsNotObfuscated(obj.Type())
+			}
+		case "crypto/x509/pkix":
+			// For better or worse, encoding/asn1 detects a "SET" suffix on slice type names
+			// to tell whether those slices should be treated as sets or sequences.
+			// Do not obfuscate those names to prevent breaking x509 certificates.
+			// TODO: we can surely do better; ideally propose a non-string-based solution
+			// upstream, or as a fallback, obfuscate to a name ending with "SET".
+			if strings.HasSuffix(name, "SET") {
 				return true
 			}
 		}
@@ -1905,50 +1877,6 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	}
 
 	return astutil.Apply(file, pre, post).(*ast.File)
-}
-
-// recursivelyRecordAsNotObfuscated calls recordAsNotObfuscated on any named
-// types and fields under typ.
-//
-// Only the names declared in the current package are recorded. This is to ensure
-// that reflection detection only happens within the package declaring a type.
-// Detecting it in downstream packages could result in inconsistencies.
-func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
-	switch t := t.(type) {
-	case *types.Named:
-		obj := t.Obj()
-		if pkg := obj.Pkg(); pkg == nil || pkg != tf.pkg {
-			return // not from the specified package
-		}
-		if recordedAsNotObfuscated(obj) {
-			return // prevent endless recursion
-		}
-		recordAsNotObfuscated(obj)
-
-		// Record the underlying type, too.
-		tf.recursivelyRecordAsNotObfuscated(t.Underlying())
-
-	case *types.Struct:
-		for i := 0; i < t.NumFields(); i++ {
-			field := t.Field(i)
-
-			// This check is similar to the one in *types.Named.
-			// It's necessary for unnamed struct types,
-			// as they aren't named but still have named fields.
-			if field.Pkg() == nil || field.Pkg() != tf.pkg {
-				return // not from the specified package
-			}
-
-			// Record the field itself, too.
-			recordAsNotObfuscated(field)
-
-			tf.recursivelyRecordAsNotObfuscated(field.Type())
-		}
-
-	case interface{ Elem() types.Type }:
-		// Get past pointers, slices, etc.
-		tf.recursivelyRecordAsNotObfuscated(t.Elem())
-	}
 }
 
 // named tries to obtain the *types.Named behind a type, if there is one.
@@ -2240,7 +2168,7 @@ func flagSetValue(flags []string, name, value string) []string {
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
 		// Keep in sync with sharedCache.GoEnv.
-		"GOOS", "GOMOD", "GOVERSION", "GOROOT", "GOEXE",
+		"GOOS", "GOMOD", "GOVERSION", "GOROOT",
 	).CombinedOutput()
 	if err != nil {
 		// TODO: cover this in the tests.
