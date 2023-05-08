@@ -23,6 +23,7 @@ import (
 	"io/fs"
 	"log"
 	mathrand "math/rand"
+	"mvdan.cc/garble/internal/name"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,6 +52,7 @@ var (
 	flagTiny     bool
 	flagDebug    bool
 	flagDebugDir string
+	flagName     string
 	flagSeed     seedFlag
 )
 
@@ -60,10 +62,11 @@ func init() {
 	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
+	flagSet.StringVar(&flagName, "name", "", "Customize name generation, e.g. -name=short")
 	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
 
-var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed)(?:$|=)`)
+var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed|name)(?:$|=)`)
 
 type seedFlag struct {
 	random bool
@@ -140,9 +143,10 @@ For more information, see https://github.com/burrowers/garble.
 func main() { os.Exit(main1()) }
 
 var (
-	fset          = token.NewFileSet()
-	sharedTempDir = os.Getenv("GARBLE_SHARED")
-	parentWorkDir = os.Getenv("GARBLE_PARENT_WORK")
+	fset           = token.NewFileSet()
+	sharedTempDir  = os.Getenv("GARBLE_SHARED")
+	parentWorkDir  = os.Getenv("GARBLE_PARENT_WORK")
+	nameServerAddr = os.Getenv("GARBLE_NAME_SERVER")
 
 	// origImporter is a go/types importer which uses the original versions
 	// of packages, without any obfuscation. This is helpful to make
@@ -419,6 +423,9 @@ func mainErr(args []string) error {
 			if err := loadSharedCache(); err != nil {
 				return err
 			}
+			if err := setupNameClient(); err != nil {
+				return err
+			}
 
 			if len(args) == 2 && args[1] == "-V=full" {
 				return alterToolVersion(tool, args)
@@ -549,6 +556,11 @@ This command wraps "go %s". Below is its help:
 		return nil, err
 	}
 	os.Setenv("GARBLE_PARENT_WORK", wd)
+
+	if flagName != "" {
+		nameServerAddr, err = name.StartNameServer(name.NewShortGenerator())
+		os.Setenv("GARBLE_NAME_SERVER", nameServerAddr)
+	}
 
 	if flagDebugDir != "" {
 		if !filepath.IsAbs(flagDebugDir) {
@@ -1982,7 +1994,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			if strct == nil {
 				panic("could not find for " + name)
 			}
-			node.Name = hashWithStruct(strct, name)
+			node.Name = getObfuscatedFieldName(strct, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
 			}

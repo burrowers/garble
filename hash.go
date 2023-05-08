@@ -149,6 +149,11 @@ func appendFlags(w io.Writer, forBuildHash bool) {
 	if literals.TestObfuscator != "" && forBuildHash {
 		io.WriteString(w, literals.TestObfuscator)
 	}
+
+	if flagName != "" {
+		io.WriteString(w, " -name=")
+		io.WriteString(w, flagName)
+	}
 }
 
 // buildIDComponentLength is the number of bytes each build ID component takes,
