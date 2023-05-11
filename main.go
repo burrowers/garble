@@ -1434,6 +1434,8 @@ type transformer struct {
 	// fieldToStruct helps locate struct types from any of their field
 	// objects. Useful when obfuscating field names.
 	fieldToStruct map[*types.Var]*types.Struct
+
+	reflectCheckedAPIs map[string]bool
 }
 
 // newTransformer helps initialize some maps.
@@ -1448,8 +1450,9 @@ func newTransformer() *transformer {
 			Selections: make(map[*ast.SelectorExpr]*types.Selection),
 			Instances:  make(map[*ast.Ident]types.Instance),
 		},
-		recordTypeDone: make(map[*types.Named]bool),
-		fieldToStruct:  make(map[*types.Var]*types.Struct),
+		recordTypeDone:     make(map[*types.Named]bool),
+		fieldToStruct:      make(map[*types.Var]*types.Struct),
+		reflectCheckedAPIs: make(map[string]bool),
 	}
 }
 

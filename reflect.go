@@ -10,11 +10,9 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-var checkedAPIs = make(map[string]bool)
-
 // Record all instances of reflection use, and don't obfuscate types which are used in reflection.
 func (tf *transformer) recordReflection(ssaPkg *ssa.Package) {
-	if reflectSkipPkg[ssaPkg.Pkg.Name()] {
+	if reflectSkipPkg[ssaPkg.Pkg.Path()] {
 		return
 	}
 
@@ -23,7 +21,7 @@ func (tf *transformer) recordReflection(ssaPkg *ssa.Package) {
 	// find all unchecked APIs to add them to checkedAPIs after the pass
 	notCheckedAPIs := make(map[string]bool)
 	for _, knownAPI := range maps.Keys(cachedOutput.KnownReflectAPIs) {
-		if !checkedAPIs[knownAPI] {
+		if !tf.reflectCheckedAPIs[knownAPI] {
 			notCheckedAPIs[knownAPI] = true
 		}
 	}
@@ -32,7 +30,7 @@ func (tf *transformer) recordReflection(ssaPkg *ssa.Package) {
 
 	// all previously unchecked APIs have now been checked add them to checkedAPIs,
 	// to avoid checking them twice
-	maps.Copy(checkedAPIs, notCheckedAPIs)
+	maps.Copy(tf.reflectCheckedAPIs, notCheckedAPIs)
 
 	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
 	if len(cachedOutput.KnownReflectAPIs) > lenPrevKnownReflectAPIs {
@@ -53,12 +51,12 @@ func (tf *transformer) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 				for i, n := 0, mset.Len(); i < n; i++ {
 					at := mset.At(i)
 
-					if f := ssaPkg.Prog.MethodValue(at); f != nil {
-						tf.checkCalls(nil, f)
+					if m := ssaPkg.Prog.MethodValue(at); m != nil {
+						tf.checkFunction(m)
 					} else {
-						fun := at.Obj().(*types.Func)
+						m := at.Obj().(*types.Func)
 						// handle interface declarations
-						tf.checkCalls(fun, nil)
+						tf.checkInterfaceMethod(m)
 					}
 
 				}
@@ -75,7 +73,7 @@ func (tf *transformer) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 			// these not only include top level functions, but also synthetic
 			// functions like the initialization of global variables
 
-			tf.checkCalls(nil, x)
+			tf.checkFunction(x)
 		}
 	}
 }
@@ -121,82 +119,90 @@ func (tf *transformer) checkMethodSignature(reflectParams map[int]bool, sig *typ
 	}
 }
 
-// Checks all callsites in a function declaration for use of reflection.
-func (tf *transformer) checkCalls(f *types.Func, fun *ssa.Function) {
-	if f != nil && fun != nil {
-		panic("either provide a *types.Func or a *ssa.Function not both")
+// Checks the signature of an interface method for potential reflection use.
+func (tf *transformer) checkInterfaceMethod(m *types.Func) {
+	reflectParams := make(map[int]bool)
+
+	maps.Copy(reflectParams, cachedOutput.KnownReflectAPIs[m.FullName()])
+
+	sig := m.Type().(*types.Signature)
+	if m.Exported() {
+		tf.checkMethodSignature(reflectParams, sig)
 	}
 
+	if len(reflectParams) > 0 {
+		cachedOutput.KnownReflectAPIs[m.FullName()] = reflectParams
+
+		/* fmt.Printf("cachedOutput.KnownReflectAPIs: %v\n", cachedOutput.KnownReflectAPIs) */
+	}
+}
+
+// Checks all callsites in a function declaration for use of reflection.
+func (tf *transformer) checkFunction(fun *ssa.Function) {
 	/* 	if fun != nil && fun.Synthetic != "loaded from gc object file" {
 		// fun.WriteTo crashes otherwise
 		fun.WriteTo(os.Stdout)
 	} */
 
-	if f == nil {
-		f, _ = fun.Object().(*types.Func)
-	}
+	f, _ := fun.Object().(*types.Func)
 
-	var sig *types.Signature
 	reflectParams := make(map[int]bool)
 	if f != nil {
-		sig = f.Type().(*types.Signature)
 		maps.Copy(reflectParams, cachedOutput.KnownReflectAPIs[f.FullName()])
 
 		if f.Exported() {
-			tf.checkMethodSignature(reflectParams, sig)
+			tf.checkMethodSignature(reflectParams, fun.Signature)
 		}
 	}
 
 	/* 	fmt.Printf("f: %v\n", f)
 	   	fmt.Printf("fun: %v\n", fun) */
 
-	if fun != nil {
-		for _, block := range fun.Blocks {
-			for _, inst := range block.Instrs {
-				/* 	fmt.Printf("inst: %v, t: %T\n", inst, inst) */
-				call, ok := inst.(*ssa.Call)
-				if !ok {
+	for _, block := range fun.Blocks {
+		for _, inst := range block.Instrs {
+			/* 	fmt.Printf("inst: %v, t: %T\n", inst, inst) */
+			call, ok := inst.(*ssa.Call)
+			if !ok {
+				continue
+			}
+
+			callName := call.Call.Value.String()
+			if m := call.Call.Method; m != nil {
+				callName = call.Call.Method.FullName()
+			}
+
+			if tf.reflectCheckedAPIs[callName] {
+				// only check apis which were not already checked
+				continue
+			}
+
+			/* fmt.Printf("callName: %v\n", callName) */
+
+			// record each call argument passed to a function parameter which is used in reflection
+			knownParams := cachedOutput.KnownReflectAPIs[callName]
+			for knownParam := range knownParams {
+				if len(call.Call.Args) <= knownParam {
 					continue
 				}
 
-				callName := call.Call.Value.String()
-				if m := call.Call.Method; m != nil {
-					callName = call.Call.Method.FullName()
-				}
+				arg := call.Call.Args[knownParam]
 
-				if checkedAPIs[callName] {
-					// only check apis which were not already checked
+				/* fmt.Printf("flagging arg: %v\n", arg) */
+
+				visited := make(map[ssa.Value]bool)
+				reflectedParam := tf.recordArgReflected(arg, visited)
+				if reflectedParam == nil {
 					continue
 				}
 
-				/* fmt.Printf("callName: %v\n", callName) */
-
-				// record each call argument passed to a function parameter which is used in reflection
-				knownParams := cachedOutput.KnownReflectAPIs[callName]
-				for knownParam := range knownParams {
-					if len(call.Call.Args) <= knownParam {
-						continue
-					}
-
-					arg := call.Call.Args[knownParam]
-
-					/* fmt.Printf("flagging arg: %v\n", arg) */
-
-					visited := make(map[ssa.Value]bool)
-					reflectedParam := tf.recordArgReflected(arg, visited)
-					if reflectedParam == nil {
-						continue
-					}
-
-					pos := slices.Index(fun.Params, reflectedParam)
-					if pos < 0 {
-						continue
-					}
-
-					/* fmt.Printf("recorded param: %v func: %v\n", pos, fun) */
-
-					reflectParams[pos] = true
+				pos := slices.Index(fun.Params, reflectedParam)
+				if pos < 0 {
+					continue
 				}
+
+				/* fmt.Printf("recorded param: %v func: %v\n", pos, fun) */
+
+				reflectParams[pos] = true
 			}
 		}
 	}
