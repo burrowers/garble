@@ -1,7 +1,7 @@
-From 66b62926efea3b28775c21839d8f372f7f2c59e0 Mon Sep 17 00:00:00 2001
+From 32d5f31bf11858d9282271980a923bdde2ed5ffe Mon Sep 17 00:00:00 2001
 From: pagran <pagran@protonmail.com>
 Date: Mon, 9 Jan 2023 13:30:36 +0100
-Subject: [PATCH 2/2] add unexported function name removing
+Subject: [PATCH 2/3] add unexported function name removing
 
 ---
  cmd/link/internal/ld/pcln.go | 30 +++++++++++++++++++++++++++++-
@@ -69,5 +69,5 @@ index b89a4d650c..ab13b15042 100644
  	})
  
 -- 
-2.38.1.windows.1
+2.40.1
 
