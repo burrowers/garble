@@ -127,6 +127,9 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 	cmd.Stdin = bytes.NewReader(bytes.Join(patches, []byte("\n")))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if err, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("%v:\n%s", err, out)
+		}
 		return nil, err
 	}
 
