@@ -300,8 +300,10 @@ func goVersionOK() bool {
 	}
 	builtVersionSemver := "v" + strings.TrimPrefix(builtVersion, "go")
 	if semver.Compare(builtVersionSemver, cache.GoVersionSemver) < 0 {
-		fmt.Fprintf(os.Stderr, "garble was built with %q and is being used with %q; please rebuild garble with the newer version\n",
-			builtVersionFull, toolchainVersionFull)
+		fmt.Fprintf(os.Stderr, `
+garble was built with %q and is being used with %q; rebuild it with a command like:
+    garble install mvdan.cc/garble@latest
+`[1:], builtVersionFull, toolchainVersionFull)
 		return false
 	}
 
