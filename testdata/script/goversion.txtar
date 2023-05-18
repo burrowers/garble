@@ -60,14 +60,14 @@ stderr 'mocking the real build'
 env GARBLE_TEST_GOVERSION='go1.18'
 env TOOLCHAIN_GOVERSION='go1.20.1'
 ! exec garble build
-stderr 'garble was built with "go1\.18" and is being used with "go1\.20\.1"; please rebuild garble with the newer version'
+stderr 'garble was built with "go1\.18" and is being used with "go1\.20\.1"; rebuild '
 
 # We'll error even if the difference is a minor (bugfix) level.
 # In practice it probably wouldn't matter, but in theory it could still lead to tricky bugs.
 env GARBLE_TEST_GOVERSION='go1.20.11'
 env TOOLCHAIN_GOVERSION='go1.20.14'
 ! exec garble build
-stderr 'garble was built with "go1\.20\.11" and is being used with "go1\.20\.14"; please rebuild garble with the newer version'
+stderr 'garble was built with "go1\.20\.11" and is being used with "go1\.20\.14"; rebuild '
 
 # If garble builds itself and is then used, it won't know what version built it.
 # As a fallback, we drop the comparison against the toolchain's version.
