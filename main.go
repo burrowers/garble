@@ -894,40 +894,57 @@ func transformCompile(args []string) ([]string, error) {
 		files = append(files, file)
 	}
 	tf := newTransformer()
-	if err := tf.typecheck(files); err != nil {
-		return nil, err
-	}
 
-	flags = alterTrimpath(flags)
-
+	// cachedOutput is modified starting at this point, with the typecheck call.
+	// We use an extra syntax block to clarify what bits of code set up the caching.
 	// Note that if the file already exists in the cache from another build,
 	// we don't need to write to it again thanks to the hash.
 	// TODO: as an optimization, just load that one gob file.
-	if err := loadCachedOutputs(); err != nil {
-		return nil, err
-	}
+	{
+		if err := loadCachedOutputs(); err != nil {
+			return nil, err
+		}
 
-	ssaProg := ssa.NewProgram(fset, 0)
+		if err := tf.typecheck(files); err != nil {
+			return nil, err
+		}
 
-	// Create SSA packages for all imports.
-	// Order is not significant.
-	created := make(map[*types.Package]bool)
-	var createAll func(pkgs []*types.Package)
-	createAll = func(pkgs []*types.Package) {
-		for _, p := range pkgs {
-			if !created[p] {
-				created[p] = true
-				ssaProg.CreatePackage(p, nil, nil, true)
-				createAll(p.Imports())
+		ssaProg := ssa.NewProgram(fset, 0)
+
+		// Create SSA packages for all imports.
+		// Order is not significant.
+		created := make(map[*types.Package]bool)
+		var createAll func(pkgs []*types.Package)
+		createAll = func(pkgs []*types.Package) {
+			for _, p := range pkgs {
+				if !created[p] {
+					created[p] = true
+					ssaProg.CreatePackage(p, nil, nil, true)
+					createAll(p.Imports())
+				}
 			}
 		}
+		createAll(tf.pkg.Imports())
+
+		ssaPkg := ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
+		ssaPkg.Build()
+
+		tf.recordReflection(ssaPkg)
+
+		if err := tf.prefillObjectMaps(files); err != nil {
+			return nil, err
+		}
+
+		if err := writeGobExclusive(
+			garbleExportFile(curPkg),
+			cachedOutput,
+		); err != nil && !errors.Is(err, fs.ErrExist) {
+			return nil, err
+		}
 	}
-	createAll(tf.pkg.Imports())
+	// cachedOutput isn't modified after this point.
 
-	ssaPkg := ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
-	ssaPkg.Build()
-
-	tf.recordReflection(ssaPkg)
+	flags = alterTrimpath(flags)
 	newImportCfg, err := processImportCfg(flags)
 	if err != nil {
 		return nil, err
@@ -940,10 +957,6 @@ func transformCompile(args []string) ([]string, error) {
 	}
 	// log.Printf("seeding math/rand with %x\n", randSeed)
 	obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
-
-	if err := tf.prefillObjectMaps(files); err != nil {
-		return nil, err
-	}
 
 	// If this is a package to obfuscate, swap the -p flag with the new package path.
 	// We don't if it's the main package, as that just uses "-p main".
@@ -1015,13 +1028,6 @@ func transformCompile(args []string) ([]string, error) {
 		}
 	}
 	flags = flagSetValue(flags, "-importcfg", newImportCfg)
-
-	if err := writeGobExclusive(
-		garbleExportFile(curPkg),
-		cachedOutput,
-	); err != nil && !errors.Is(err, fs.ErrExist) {
-		return nil, err
-	}
 
 	return append(flags, newPaths...), nil
 }
