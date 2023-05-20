@@ -6,6 +6,7 @@ require (
 	github.com/bluekeyes/go-gitdiff v0.7.1
 	github.com/frankban/quicktest v1.14.5
 	github.com/google/go-cmp v0.5.9
+	github.com/pagran/go-identifiers-database v0.0.0-20230512181323-d758a8c3dbad
 	github.com/rogpeppe/go-internal v1.10.0
 	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53
 	golang.org/x/mod v0.10.0

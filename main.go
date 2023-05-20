@@ -62,7 +62,7 @@ func init() {
 	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
-	flagSet.StringVar(&flagName, "name", "", "Customize name generation, e.g. -name=short")
+	flagSet.StringVar(&flagName, "name", "x", "Customize name generation, e.g. -name=short")
 	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
 
@@ -398,7 +398,7 @@ func mainErr(args []string) error {
 		return commandReverse(args)
 	case "build", "test", "run":
 		cmd, err := toolexecCmd(command, args)
-		defer os.RemoveAll(os.Getenv("GARBLE_SHARED"))
+		// defer os.RemoveAll(os.Getenv("GARBLE_SHARED"))
 		if err != nil {
 			return err
 		}
@@ -423,7 +423,7 @@ func mainErr(args []string) error {
 			if err := loadSharedCache(); err != nil {
 				return err
 			}
-			if err := setupNameClient(); err != nil {
+			if err := setupNameGenerator(); err != nil {
 				return err
 			}
 
@@ -558,7 +558,8 @@ This command wraps "go %s". Below is its help:
 	os.Setenv("GARBLE_PARENT_WORK", wd)
 
 	if flagName != "" {
-		nameServerAddr, err = name.StartNameServer(name.NewShortGenerator())
+		realisticGen := name.NewRealisticGenerator(666)
+		nameServerAddr, err = name.StartNameServer(realisticGen)
 		os.Setenv("GARBLE_NAME_SERVER", nameServerAddr)
 	}
 
@@ -638,7 +639,7 @@ func transformAsm(args []string) ([]string, error) {
 	newPaths := make([]string, 0, len(paths))
 	if !slices.Contains(args, "-gensymabis") {
 		for _, path := range paths {
-			name := hashWithPackage(curPkg, filepath.Base(path)) + ".s"
+			name := getObfuscatedFile(curPkg, filepath.Base(path)) + ".s"
 			pkgDir := filepath.Join(sharedTempDir, curPkg.obfuscatedImportPath())
 			newPath := filepath.Join(pkgDir, name)
 			newPaths = append(newPaths, newPath)
@@ -726,7 +727,7 @@ func transformAsm(args []string) ([]string, error) {
 		// directory, as assembly files do not support `/*line` directives.
 		// TODO(mvdan): per cmd/asm/internal/lex, they do support `#line`.
 		basename := filepath.Base(path)
-		newName := hashWithPackage(curPkg, basename) + ".s"
+		newName := getObfuscatedFile(curPkg, basename) + ".s"
 		if path, err := writeSourceFile(basename, newName, buf.Bytes()); err != nil {
 			return nil, err
 		} else {
@@ -842,7 +843,7 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		remaining = remaining[nameEnd:]
 
 		if lpkg.ToObfuscate && !compilerIntrinsicsFuncs[lpkg.ImportPath+"."+name] {
-			newName := hashWithPackage(lpkg, name)
+			newName := getObfuscatedName(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
 			}
@@ -905,6 +906,15 @@ func transformCompile(args []string) ([]string, error) {
 	tf := newTransformer()
 	if err := tf.typecheck(files); err != nil {
 		return nil, err
+	}
+
+	if blacklistName != nil {
+		for n := range tf.info.Defs {
+			blacklistName(n.Name)
+		}
+		for n := range tf.info.Uses {
+			blacklistName(n.Name)
+		}
 	}
 
 	flags = alterTrimpath(flags)
@@ -1060,7 +1070,7 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
 	// obfuscate the local name, if the current package is obfuscated
 	if curPkg.ToObfuscate && !compilerIntrinsicsFuncs[curPkg.ImportPath+"."+localName] {
-		localName = hashWithPackage(curPkg, localName)
+		localName = getObfuscatedName(curPkg, localName)
 	}
 	if newName == "" {
 		return localName, ""
@@ -1128,22 +1138,22 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 			// pkg/path.(*Receiver).method
 			receiver = strings.TrimPrefix(receiver, "(*")
 			receiver = strings.TrimSuffix(receiver, ")")
-			receiver = "(*" + hashWithPackage(lpkg, receiver) + ")"
+			receiver = "(*" + getObfuscatedName(lpkg, receiver) + ")"
 		} else {
 			// pkg/path.Receiver.method
-			receiver = hashWithPackage(lpkg, receiver)
+			receiver = getObfuscatedName(lpkg, receiver)
 		}
 		// Exported methods are never obfuscated.
 		//
 		// TODO(mvdan): We're duplicating the logic behind these decisions.
 		// Reuse the logic with transformCompile.
 		if !token.IsExported(name) {
-			name = hashWithPackage(lpkg, name)
+			name = getObfuscatedName(lpkg, name)
 		}
 		newForeignName = receiver + "." + name
 	} else {
 		// pkg/path.function
-		newForeignName = hashWithPackage(lpkg, foreignName)
+		newForeignName = getObfuscatedName(lpkg, foreignName)
 	}
 
 	newPkgPath := lpkg.ImportPath
@@ -1211,7 +1221,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			// For beforePath="vendor/foo", afterPath and
 			// lpkg.ImportPath can be just "foo".
 			// Don't use obfuscatedImportPath here.
-			beforePath = hashWithPackage(lpkg, beforePath)
+			beforePath = getObfuscatedName(lpkg, beforePath)
 
 			afterPath = lpkg.obfuscatedImportPath()
 		}
@@ -2027,7 +2037,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			return true // we only want to rename the above
 		}
 
-		node.Name = hashWithPackage(lpkg, name)
+		node.Name = getObfuscatedName(lpkg, name)
 		// TODO: probably move the debugf lines inside the hash funcs
 		if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 			log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
@@ -2190,7 +2200,7 @@ func transformLink(args []string) ([]string, error) {
 		if path != "main" {
 			newPath = lpkg.obfuscatedImportPath()
 		}
-		newName := hashWithPackage(lpkg, name)
+		newName := getObfuscatedName(lpkg, name)
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPath, newName, stringValue))
 	})
 

@@ -127,7 +127,7 @@ func printFile(file *ast.File) ([]byte, error) {
 			newName := ""
 			if !flagTiny {
 				origPos := fmt.Sprintf("%s:%d", filename, origOffset)
-				newName = hashWithPackage(curPkg, origPos) + ".go"
+				newName = getObfuscatedFile(curPkg, origPos) + ".go"
 				// log.Printf("%q hashed with %x to %q", origPos, curPkg.GarbleActionID, newName)
 			}
 
