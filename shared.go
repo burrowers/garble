@@ -285,7 +285,10 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 			// like "arena", so older Go versions that we support
 			// do not yet have them and that's OK.
 			// Note that pkg.Standard is false for them.
+			// Note that Go 1.21 is swapping "GOROOT" for "std".
+			// TODO(mvdan): We try to list test packages like runtime/metrics_test, which always fail.
 			case strings.Contains(perr.Err, "is not in GOROOT"):
+			case strings.Contains(perr.Err, "is not in std"):
 			case strings.Contains(perr.Err, "cannot find package"):
 			}
 		}
