@@ -78,7 +78,8 @@ stderr 'must precede command, like: garble -seed=random build \./pkg'
 stderr 'did you run.*instead of "garble \[command\]"'
 
 ! exec garble build badpackage
-stderr 'package badpackage is not in GOROOT'
+[!go1.21] stderr 'package badpackage is not in GOROOT'
+[go1.21]  stderr 'package badpackage is not in std'
 ! stdout .
 
 ! exec garble build ./badpackage
