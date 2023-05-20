@@ -39,7 +39,7 @@ func (r *realisticGenerator) randomChoice(arr []string, count int) []string {
 }
 
 func (r *realisticGenerator) generatePackage(try int) string {
-	return "_" + joinName(r.randomChoice(db.GetPackages(), try), "_")
+	return joinName(r.randomChoice(db.GetPackages(), try), "_")
 }
 
 func (r *realisticGenerator) generateFile(try int) string {

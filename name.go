@@ -5,6 +5,7 @@ import (
 	"mvdan.cc/garble/internal/name"
 )
 
+// TODO: Merge to interface?
 var (
 	getObfuscatedImportPath func(*listedPackage) string
 	getObfuscatedFieldName  func(*types.Struct, string) string

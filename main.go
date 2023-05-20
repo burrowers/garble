@@ -62,7 +62,7 @@ func init() {
 	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
-	flagSet.StringVar(&flagName, "name", "x", "Customize name generation, e.g. -name=short")
+	flagSet.StringVar(&flagName, "name", "", "Customize name generation, e.g. -name=short")
 	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
 
@@ -558,6 +558,7 @@ This command wraps "go %s". Below is its help:
 	os.Setenv("GARBLE_PARENT_WORK", wd)
 
 	if flagName != "" {
+		// TODO: Get pseudo random seed
 		realisticGen := name.NewRealisticGenerator(666)
 		nameServerAddr, err = name.StartNameServer(realisticGen)
 		os.Setenv("GARBLE_NAME_SERVER", nameServerAddr)
