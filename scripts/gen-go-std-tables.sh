@@ -53,4 +53,8 @@ $(while read path name; do
 	echo "\"${path}.${name}\": true,"
 done <<<"${compiler_intrinsics_table}")
 }
+
+var reflectSkipPkg = map[string]bool{
+	"fmt": true,
+}
 EOF

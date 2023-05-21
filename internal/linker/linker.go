@@ -33,18 +33,15 @@ const (
 	baseSrcSubdir  = "src"
 )
 
-//go:embed patches/*.patch
+//go:embed patches/*/*.patch
 var linkerPatchesFS embed.FS
 
-func loadLinkerPatches() (version string, modFiles map[string]bool, patches [][]byte, err error) {
+func loadLinkerPatches(majorGoVersion string) (version string, modFiles map[string]bool, patches [][]byte, err error) {
 	modFiles = make(map[string]bool)
 	versionHash := sha256.New()
-	err = fs.WalkDir(linkerPatchesFS, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+	if err := fs.WalkDir(linkerPatchesFS, "patches/"+majorGoVersion, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
 			return err
-		}
-		if d.IsDir() {
-			return nil
 		}
 
 		patchBytes, err := linkerPatchesFS.ReadFile(path)
@@ -68,10 +65,8 @@ func loadLinkerPatches() (version string, modFiles map[string]bool, patches [][]
 		}
 		patches = append(patches, patchBytes)
 		return nil
-	})
-
-	if err != nil {
-		return
+	}); err != nil {
+		return "", nil, nil, err
 	}
 	version = base64.RawStdEncoding.EncodeToString(versionHash.Sum(nil))
 	return
@@ -127,6 +122,9 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 	cmd.Stdin = bytes.NewReader(bytes.Join(patches, []byte("\n")))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if err, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("%v:\n%s", err, out)
+		}
 		return nil, err
 	}
 
@@ -227,7 +225,11 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 }
 
 func PatchLinker(goRoot, goVersion, tempDir string) (string, func(), error) {
-	patchesVer, modFiles, patches, err := loadLinkerPatches()
+	// rxVersion looks for a version like "go1.19" or "go1.20"
+	rxVersion := regexp.MustCompile(`go\d+\.\d+`)
+	majorGoVersion := rxVersion.FindString(goVersion)
+
+	patchesVer, modFiles, patches, err := loadLinkerPatches(majorGoVersion)
 	if err != nil {
 		panic(fmt.Errorf("cannot retrieve linker patches: %v", err))
 	}

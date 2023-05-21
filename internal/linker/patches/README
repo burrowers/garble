@@ -1,0 +1,9 @@
+The patches are maintained and reviewed at https://github.com/burrowers/go-patches/pulls.
+
+For stable releases, the patches are generated like:
+
+	git format-patch --relative=src release-branch.go1.20..garble-go1.20
+
+For master:
+
+	git format-patch --relative=src master..garble-go1.21
