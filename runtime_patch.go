@@ -238,7 +238,7 @@ func stripRuntime(basename string, file *ast.File) {
 				"printAncestorTracebackFuncInfo", "goroutineheader", "tracebackothers", "tracebackHexdump", "printCgoTraceback":
 				funcDecl.Body.List = nil
 			case "printOneCgoTraceback":
-				if semver.Compare(cache.GoVersionSemver, "v1.21") >= 0 {
+				if semver.Compare(sharedCache.GoVersionSemver, "v1.21") >= 0 {
 					funcDecl.Body = ah.BlockStmt(ah.ReturnStmt(ast.NewIdent("false")))
 				} else {
 					funcDecl.Body = ah.BlockStmt(ah.ReturnStmt(ah.IntLit(0)))

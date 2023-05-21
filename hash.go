@@ -93,15 +93,15 @@ func addGarbleToHash(inputHash []byte) []byte {
 	// content ID.
 	hasher.Reset()
 	hasher.Write(inputHash)
-	if len(cache.BinaryContentID) == 0 {
+	if len(sharedCache.BinaryContentID) == 0 {
 		panic("missing binary content ID")
 	}
-	hasher.Write(cache.BinaryContentID)
+	hasher.Write(sharedCache.BinaryContentID)
 
 	// We also need to add the selected options to the full version string,
 	// because all of them result in different output. We use spaces to
 	// separate the env vars and flags, to reduce the chances of collisions.
-	fmt.Fprintf(hasher, " GOGARBLE=%s", cache.GOGARBLE)
+	fmt.Fprintf(hasher, " GOGARBLE=%s", sharedCache.GOGARBLE)
 	appendFlags(hasher, true)
 	// addGarbleToHash returns the sum buffer, so we need a new copy.
 	// Otherwise the next use of the global sumBuffer would conflict.
@@ -198,7 +198,7 @@ func toUpper(b byte) byte { return b - ('a' - 'A') }
 func runtimeHashWithCustomSalt(salt []byte) uint32 {
 	hasher.Reset()
 	if !flagSeed.present() {
-		hasher.Write(cache.ListedPackages["runtime"].GarbleActionID)
+		hasher.Write(sharedCache.ListedPackages["runtime"].GarbleActionID)
 	} else {
 		hasher.Write(flagSeed.bytes)
 	}
