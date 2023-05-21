@@ -319,7 +319,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 			return fmt.Errorf("duplicate package: %q", pkg.ImportPath)
 		}
 		if pkg.BuildID != "" {
-			actionID := decodeHash(splitActionID(pkg.BuildID))
+			actionID := decodeBuildIDHash(splitActionID(pkg.BuildID))
 			pkg.GarbleActionID = addGarbleToHash(actionID)
 		}
 

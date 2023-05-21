@@ -536,7 +536,7 @@ This command wraps "go %s". Below is its help:
 	if err != nil {
 		return nil, err
 	}
-	sharedCache.BinaryContentID = decodeHash(splitContentID(binaryBuildID))
+	sharedCache.BinaryContentID = decodeBuildIDHash(splitContentID(binaryBuildID))
 
 	if err := appendListedPackages(args, true); err != nil {
 		return nil, err
@@ -1015,7 +1015,7 @@ func transformCompile(args []string) ([]string, error) {
 		// as we end up with extra near-duplicate cached artifacts.
 		if i == 0 {
 			src = append(src, fmt.Sprintf(
-				"\nvar garbleActionID = %q\n", hashToString(curPkg.GarbleActionID),
+				"\nvar garbleActionID = %q\n", encodeBuildIDHash(curPkg.GarbleActionID),
 			)...)
 		}
 
@@ -1331,7 +1331,7 @@ func garbleExportFile(pkg *listedPackage) string {
 	if trimmed == pkg.Export {
 		panic(fmt.Sprintf("unexpected export path of %s: %q", pkg.ImportPath, pkg.Export))
 	}
-	return trimmed + "-garble-" + hashToString(pkg.GarbleActionID) + "-d"
+	return trimmed + "-garble-" + encodeBuildIDHash(pkg.GarbleActionID) + "-d"
 }
 
 func loadCachedOutputs() error {
