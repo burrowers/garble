@@ -20,24 +20,38 @@ import (
 
 const buildIDSeparator = "/"
 
-// splitActionID returns the action ID half of a build ID, the first component.
+// splitActionID returns the action ID half of a build ID, the first hash.
 func splitActionID(buildID string) string {
 	return buildID[:strings.Index(buildID, buildIDSeparator)]
 }
 
-// splitContentID returns the content ID half of a build ID, the last component.
+// splitContentID returns the content ID half of a build ID, the last hash.
 func splitContentID(buildID string) string {
 	return buildID[strings.LastIndex(buildID, buildIDSeparator)+1:]
 }
 
-// decodeHash is the opposite of hashToString, with a panic for error handling
-// since it should never happen.
-func decodeHash(str string) []byte {
+// buildIDHashLength is the number of bytes each build ID hash takes,
+// such as an action ID or a content ID.
+const buildIDHashLength = 15
+
+// decodeBuildIDHash decodes a build ID hash in base64, just like cmd/go does.
+func decodeBuildIDHash(str string) []byte {
 	h, err := base64.RawURLEncoding.DecodeString(str)
 	if err != nil {
 		panic(fmt.Sprintf("invalid hash %q: %v", str, err))
 	}
+	if len(h) != buildIDHashLength {
+		panic(fmt.Sprintf("decodeHash expects to result in a hash of length %d, got %d", buildIDHashLength, len(h)))
+	}
 	return h
+}
+
+// encodeBuildIDHash encodes a build ID hash in base64, just like cmd/go does.
+func encodeBuildIDHash(h []byte) string {
+	if len(h) != buildIDHashLength {
+		panic(fmt.Sprintf("hashToString expects a hash of length %d, got %d", buildIDHashLength, len(h)))
+	}
+	return base64.RawURLEncoding.EncodeToString(h)
 }
 
 func alterToolVersion(tool string, args []string) error {
@@ -57,7 +71,7 @@ func alterToolVersion(tool string, args []string) error {
 	var toolID []byte
 	if f[2] == "devel" {
 		// On the development branch, use the content ID part of the build ID.
-		toolID = decodeHash(splitContentID(f[len(f)-1]))
+		toolID = decodeBuildIDHash(splitContentID(f[len(f)-1]))
 	} else {
 		// For a release, the output is like: "compile version go1.9.1 X:framepointer".
 		// Use the whole line, as we can assume it's unique.
@@ -70,9 +84,9 @@ func alterToolVersion(tool string, args []string) error {
 	// the action (build) or not. Since cmd/go parses the last word in the
 	// output as "buildID=...", we simply add "+garble buildID=_/_/_/${hash}".
 	// The slashes let us imitate a full binary build ID, but we assume that
-	// the other components such as the action ID are not necessary, since the
+	// the other hashes such as the action ID are not necessary, since the
 	// only reader here is cmd/go and it only consumes the content ID.
-	fmt.Printf("%s +garble buildID=_/_/_/%s\n", line, hashToString(contentID))
+	fmt.Printf("%s +garble buildID=_/_/_/%s\n", line, encodeBuildIDHash(contentID))
 	return nil
 }
 
@@ -106,7 +120,7 @@ func addGarbleToHash(inputHash []byte) []byte {
 	// addGarbleToHash returns the sum buffer, so we need a new copy.
 	// Otherwise the next use of the global sumBuffer would conflict.
 	sumBuffer := make([]byte, 0, sha256.Size)
-	return hasher.Sum(sumBuffer)[:buildIDComponentLength]
+	return hasher.Sum(sumBuffer)[:buildIDHashLength]
 }
 
 // appendFlags writes garble's own flags to w in string form.
@@ -149,16 +163,6 @@ func appendFlags(w io.Writer, forBuildHash bool) {
 	if literals.TestObfuscator != "" && forBuildHash {
 		io.WriteString(w, literals.TestObfuscator)
 	}
-}
-
-// buildIDComponentLength is the number of bytes each build ID component takes,
-// such as an action ID or a content ID.
-const buildIDComponentLength = 15
-
-// hashToString encodes the first 120 bits of a sha256 sum in base64, the same
-// format used for components in a build ID.
-func hashToString(h []byte) string {
-	return base64.RawURLEncoding.EncodeToString(h[:buildIDComponentLength])
 }
 
 func buildidOf(path string) (string, error) {
