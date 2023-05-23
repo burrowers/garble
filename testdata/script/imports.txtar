@@ -96,13 +96,13 @@ func main() {
 	fmt.Println(sql.Drivers()[0])
 }
 -- notag_fail.go --
-// +build !buildtag
+//go:build !buildtag
 
 package main
 
 var foo int = "should be omitted by -tags"
 -- withtag_success.go --
-// +build buildtag
+//go:build buildtag
 
 package main
 
