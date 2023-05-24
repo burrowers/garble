@@ -26,8 +26,7 @@ jobs:
     strategy:
       matrix:
         go-version: [1.20.x]
-        # TODO: revert to macos-latest once we figure out https://github.com/burrowers/garble/issues/609.
-        os: [ubuntu-latest, macos-11, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
@@ -70,7 +69,7 @@ jobs:
         version: "2023.1.3"
         install-go: false
 
-  # We don't care about GOARCH=386 particularly,
+  # We don't care about GOARCH=386 particularly, hence -short,
   # but it helps ensure we support 32-bit hosts and targets well.
   # TODO: use CGO_ENABLED=1 once we figure out how to install gcc-multilib,
   # and once gotooltest forwards the value of CGO_ENABLED to the scripts.
@@ -79,16 +78,17 @@ jobs:
     env:
       GOARCH: 386
     steps:
-    - uses: actions/setup-go@v3
+    - uses: actions/checkout@v3
+    - uses: actions/setup-go@v4
       with:
         go-version: 1.20.x
-    - uses: actions/checkout@v3
-    - name: Test
-      run: go test -timeout=15m ./...
+        cache: false
+    - run: go test -short ./...
 
   test-gotip:
     runs-on: ubuntu-latest
     steps:
+    - uses: actions/checkout@v3
     - name: Install Go
       env:
         GO_COMMIT: aeb0644bd33e67f24e2411a651ac9ff72ddc96b4 # 2023-05-19
@@ -105,6 +105,4 @@ jobs:
         ./make.bash
         echo "GOROOT=$HOME/gotip" >>$GITHUB_ENV
         echo "$HOME/gotip/bin" >>$GITHUB_PATH
-    - uses: actions/checkout@v3
-    - name: Test
-      run: go test -timeout=15m ./...
+    - run: go test -timeout=15m ./...
