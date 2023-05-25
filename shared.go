@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/gob"
 	"encoding/json"
 	"errors"
@@ -166,7 +167,7 @@ type listedPackage struct {
 	// with Garble's own inputs as per addGarbleToHash.
 	// It is set even when ToObfuscate is false, as it is also used for random
 	// seeds and build cache paths, and not just to obfuscate names.
-	GarbleActionID []byte `json:"-"`
+	GarbleActionID [sha256.Size]byte `json:"-"`
 
 	// ToObfuscate records whether the package should be obfuscated.
 	// When true, GarbleActionID must not be empty.

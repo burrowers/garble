@@ -47,11 +47,8 @@ func decodeBuildIDHash(str string) []byte {
 }
 
 // encodeBuildIDHash encodes a build ID hash in base64, just like cmd/go does.
-func encodeBuildIDHash(h []byte) string {
-	if len(h) != buildIDHashLength {
-		panic(fmt.Sprintf("hashToString expects a hash of length %d, got %d", buildIDHashLength, len(h)))
-	}
-	return base64.RawURLEncoding.EncodeToString(h)
+func encodeBuildIDHash(h [sha256.Size]byte) string {
+	return base64.RawURLEncoding.EncodeToString(h[:buildIDHashLength])
 }
 
 func alterToolVersion(tool string, args []string) error {
@@ -101,7 +98,7 @@ var (
 //
 // This includes garble's own version, obtained via its own binary's content ID,
 // as well as any other options which affect a build, such as GOGARBLE and -tiny.
-func addGarbleToHash(inputHash []byte) []byte {
+func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 	// Join the two content IDs together into a single base64-encoded sha256
 	// sum. This includes the original tool's content ID, and garble's own
 	// content ID.
@@ -119,8 +116,9 @@ func addGarbleToHash(inputHash []byte) []byte {
 	appendFlags(hasher, true)
 	// addGarbleToHash returns the sum buffer, so we need a new copy.
 	// Otherwise the next use of the global sumBuffer would conflict.
-	sumBuffer := make([]byte, 0, sha256.Size)
-	return hasher.Sum(sumBuffer)[:buildIDHashLength]
+	var sumBuffer [sha256.Size]byte
+	hasher.Sum(sumBuffer[:0])
+	return sumBuffer
 }
 
 // appendFlags writes garble's own flags to w in string form.
@@ -202,7 +200,7 @@ func toUpper(b byte) byte { return b - ('a' - 'A') }
 func runtimeHashWithCustomSalt(salt []byte) uint32 {
 	hasher.Reset()
 	if !flagSeed.present() {
-		hasher.Write(sharedCache.ListedPackages["runtime"].GarbleActionID)
+		hasher.Write(sharedCache.ListedPackages["runtime"].GarbleActionID[:])
 	} else {
 		hasher.Write(flagSeed.bytes)
 	}
@@ -225,7 +223,7 @@ func entryOffKey() uint32 {
 
 func hashWithPackage(pkg *listedPackage, name string) string {
 	if !flagSeed.present() {
-		return hashWithCustomSalt(pkg.GarbleActionID, name)
+		return hashWithCustomSalt(pkg.GarbleActionID[:], name)
 	}
 	// Use a separator at the end of ImportPath as a salt,
 	// to ensure that "pkgfoo.bar" and "pkg.foobar" don't both hash
@@ -239,7 +237,8 @@ func hashWithStruct(strct *types.Struct, fieldName string) string {
 	// struct type "canonical"?
 	fieldsSalt := []byte(strct.String())
 	if !flagSeed.present() {
-		fieldsSalt = addGarbleToHash(fieldsSalt)
+		withGarbleHash := addGarbleToHash(fieldsSalt)
+		fieldsSalt = withGarbleHash[:]
 	}
 	return hashWithCustomSalt(fieldsSalt, fieldName)
 }
