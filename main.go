@@ -951,7 +951,7 @@ func transformCompile(args []string) ([]string, error) {
 	}
 
 	// Literal obfuscation uses math/rand, so seed it deterministically.
-	randSeed := curPkg.GarbleActionID
+	randSeed := curPkg.GarbleActionID[:]
 	if flagSeed.present() {
 		randSeed = flagSeed.bytes
 	}
