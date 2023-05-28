@@ -100,9 +100,11 @@ func TestScript(t *testing.T) {
 				// Don't share cache dirs with the host if we want to collect code
 				// coverage. Otherwise, the coverage info might be incomplete.
 				env.Setenv("GOCACHE", filepath.Join(tempCacheDir, "go-cache"))
-				env.Setenv("GARBLE_CACHE_DIR", filepath.Join(tempCacheDir, "garble-cache"))
+				env.Setenv("GARBLE_CACHE", filepath.Join(tempCacheDir, "garble-cache"))
+				env.Setenv("GARBLE_CACHE_DIR", filepath.Join(tempCacheDir, "garble-cache-2"))
 			} else {
 				// GOCACHE is initialized by gotooltest to use the host's cache.
+				env.Setenv("GARBLE_CACHE", filepath.Join(hostCacheDir, "garble"))
 				env.Setenv("GARBLE_CACHE_DIR", hostCacheDir)
 			}
 			return nil
@@ -132,7 +134,6 @@ func TestScript(t *testing.T) {
 			"generate-literals": generateLiterals,
 			"setenvfile":        setenvfile,
 			"grepfiles":         grepfiles,
-			"find-remove":       findRemove,
 		},
 		UpdateScripts:       *update,
 		RequireExplicitExec: true,
@@ -376,36 +377,6 @@ func grepfiles(ts *testscript.TestScript, neg bool, args []string) {
 	if !neg && !anyFound {
 		ts.Fatalf("no matches for %q", pattern)
 	}
-}
-
-func findRemove(ts *testscript.TestScript, neg bool, args []string) {
-	if neg {
-		ts.Fatalf("unsupported: ! find-remove")
-	}
-	if len(args) != 2 {
-		ts.Fatalf("usage: find-remove path pattern")
-	}
-	removed := 0
-	path, pattern := ts.MkAbs(args[0]), args[1]
-	rx := regexp.MustCompile(pattern)
-	if err := filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if rx.MatchString(path) {
-			if err := os.Remove(path); err != nil {
-				return err
-			}
-			removed++
-		}
-		return nil
-	}); err != nil {
-		ts.Fatalf("%s", err)
-	}
-	if removed == 0 {
-		ts.Fatalf("no matching files to remove")
-	}
-	ts.Logf("removed %d matching files", removed)
 }
 
 func TestSplitFlagsFromArgs(t *testing.T) {

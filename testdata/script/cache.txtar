@@ -4,21 +4,22 @@
 
 [short] stop # This step is slow by design, since it starts with an empty cache.
 
-env GOCACHE=${WORK}/gocache
+env GOCACHE=${WORK}/go-cache
+env GARBLE_CACHE=${WORK}/garble-cache
 
 # level1a has the regular Go build cached.
 exec go build ./level1a
 
 # level1b has the garble build cached, but our own cache files are gone.
 exec garble build ./level1b
-find-remove gocache '-garble-'
+rm garble-cache
 
 # level1c has the garble build cached with all files available.
 exec garble build ./level1c
 
 # TODO: this test now fails due to our fragile caching.
 ! exec garble build
-stderr 'cannot load garble export file'
+stderr 'cannot load cache entry for test/main/level1b'
 # exec garble build
 # exec ./main
 # cmp stderr main.stderr

@@ -57,8 +57,7 @@ func BenchmarkBuild(b *testing.B) {
 
 	outputBin := filepath.Join(tdir, "output")
 	sourceDir := filepath.Join(tdir, "src")
-	err := os.Mkdir(sourceDir, 0o777)
-	qt.Assert(b, err, qt.IsNil)
+	qt.Assert(b, os.Mkdir(sourceDir, 0o777), qt.IsNil)
 
 	writeSourceFile := func(name string, content []byte) {
 		err := os.WriteFile(filepath.Join(sourceDir, name), content, 0o666)
@@ -72,13 +71,18 @@ func BenchmarkBuild(b *testing.B) {
 	b.ResetTimer()
 	b.StopTimer()
 	for i := 0; i < b.N; i++ {
-		// First we do a fresh build, using a new GOCACHE.
-		// and the second does an incremental rebuild reusing the cache.
-		gocache, err := os.MkdirTemp(tdir, "gocache-*")
-		qt.Assert(b, err, qt.IsNil)
+		// First we do a fresh build, using empty cache directories,
+		// and the second does an incremental rebuild reusing the same cache directories.
+		goCache := filepath.Join(tdir, "go-cache")
+		qt.Assert(b, os.RemoveAll(goCache), qt.IsNil)
+		qt.Assert(b, os.Mkdir(goCache, 0o777), qt.IsNil)
+		garbleCache := filepath.Join(tdir, "garble-cache")
+		qt.Assert(b, os.RemoveAll(garbleCache), qt.IsNil)
+		qt.Assert(b, os.Mkdir(garbleCache, 0o777), qt.IsNil)
 		env := append(os.Environ(),
 			"RUN_GARBLE_MAIN=true",
-			"GOCACHE="+gocache,
+			"GOCACHE="+goCache,
+			"GARBLE_CACHE="+garbleCache,
 			"GARBLE_WRITE_ALLOCS=true",
 		)
 		args := []string{"build", "-v", "-o=" + outputBin, sourceDir}

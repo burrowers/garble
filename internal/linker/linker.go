@@ -137,6 +137,8 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 	return mod, nil
 }
 
+// TODO: put linker binaries into fsCache in the main package
+
 func cachePath() (string, error) {
 	var cacheDir string
 	if val, ok := os.LookupEnv(garbleCacheDir); ok {

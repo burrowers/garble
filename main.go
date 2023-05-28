@@ -35,6 +35,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/rogpeppe/go-internal/cache"
 	"golang.org/x/exp/slices"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
@@ -397,7 +398,18 @@ func mainErr(args []string) error {
 		return commandReverse(args)
 	case "build", "test", "run":
 		cmd, err := toolexecCmd(command, args)
-		defer os.RemoveAll(os.Getenv("GARBLE_SHARED"))
+		defer func() {
+			if err := os.RemoveAll(os.Getenv("GARBLE_SHARED")); err != nil {
+				fmt.Fprintf(os.Stderr, "could not clean up GARBLE_SHARED: %v\n", err)
+			}
+			fsCache, err := openCache()
+			if err == nil {
+				err = fsCache.Trim()
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "could not trim GARBLE_CACHE: %v\n", err)
+			}
+		}()
 		if err != nil {
 			return err
 		}
@@ -893,56 +905,27 @@ func transformCompile(args []string) ([]string, error) {
 		}
 		files = append(files, file)
 	}
-	tf := newTransformer()
+	tf := &transformer{}
 
-	// cachedOutput is modified starting at this point, with the typecheck call.
-	// We use an extra syntax block to clarify what bits of code set up the caching.
-	// Note that if the file already exists in the cache from another build,
-	// we don't need to write to it again thanks to the hash.
-	// TODO: as an optimization, just load that one gob file.
-	{
-		if err := loadCachedOutputs(); err != nil {
-			return nil, err
-		}
-
-		if err := tf.typecheck(files); err != nil {
-			return nil, err
-		}
-
-		ssaProg := ssa.NewProgram(fset, 0)
-
-		// Create SSA packages for all imports.
-		// Order is not significant.
-		created := make(map[*types.Package]bool)
-		var createAll func(pkgs []*types.Package)
-		createAll = func(pkgs []*types.Package) {
-			for _, p := range pkgs {
-				if !created[p] {
-					created[p] = true
-					ssaProg.CreatePackage(p, nil, nil, true)
-					createAll(p.Imports())
-				}
-			}
-		}
-		createAll(tf.pkg.Imports())
-
-		ssaPkg := ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
-		ssaPkg.Build()
-
-		tf.recordReflection(ssaPkg)
-
-		if err := tf.prefillObjectMaps(files); err != nil {
-			return nil, err
-		}
-
-		if err := writeGobExclusive(
-			garbleExportFile(curPkg),
-			cachedOutput,
-		); err != nil && !errors.Is(err, fs.ErrExist) {
-			return nil, err
-		}
+	// Even if loadGarbleCache below finds a direct cache hit,
+	// other parts of garble still need type information to obfuscate.
+	// We could potentially avoid this by saving the type info we need in the cache,
+	// although in general that wouldn't help much, since it's rare for Go's cache
+	// to miss on a package and for our cache to hit.
+	if err := tf.typecheck(files); err != nil {
+		return nil, err
 	}
-	// cachedOutput isn't modified after this point.
+
+	// NOTE: cachedOutput.KnownEmbeddedAliasFields is already filled by typecheck above.
+	// That's needed if loadCachedOutput is a miss, as we need to save the map.
+	// If loadCachedOutput is a hit, then it's still fine, as the map entries are the same.
+	if err := tf.loadCachedOutput(files); err != nil {
+		return nil, err
+	}
+
+	if err := tf.prefillObjectMaps(files); err != nil {
+		return nil, err
+	}
 
 	flags = alterTrimpath(flags)
 	newImportCfg, err := processImportCfg(flags)
@@ -1013,6 +996,7 @@ func transformCompile(args []string) ([]string, error) {
 		// TODO(mvdan): replace this workaround with an actual fix if we can.
 		// This workaround is presumably worse on the build cache,
 		// as we end up with extra near-duplicate cached artifacts.
+		// TODO: can we remove this now with the better caching?
 		if i == 0 {
 			src = append(src, fmt.Sprintf(
 				"\nvar garbleActionID = %q\n", encodeBuildIDHash(curPkg.GarbleActionID),
@@ -1279,9 +1263,13 @@ type (
 // knownCannotObfuscateUnexported is like KnownCannotObfuscate but for
 // unexported names. We don't need to store this in the build cache,
 // because these names cannot be referenced by downstream packages.
+//
+// TODO: move inside cachedOutput once we allow loadCachedOutput to load
+// the cache entry for curPkg.
+// Otherwise, we only fill this when loadCachedOutput hits a cache miss for curPkg.
 var knownCannotObfuscateUnexported = map[types.Object]bool{}
 
-// cachedOutput contains information that will be stored as per garbleExportFile.
+// cachedOutput contains information that will be stored in fsCache.
 // Note that cachedOutput gets loaded from all direct package dependencies,
 // and gets filled while obfuscating the current package, so it ends up
 // containing entries for the current package and its transitive dependencies.
@@ -1315,56 +1303,122 @@ var cachedOutput = struct {
 	KnownEmbeddedAliasFields: map[objectString]typeName{},
 }
 
-// garbleExportFile returns an absolute path to a build cache entry
-// which belongs to garble and corresponds to the given Go package.
-//
-// Unlike pkg.Export, it is only read and written by garble itself.
-// Also unlike pkg.Export, it includes GarbleActionID,
-// so its path will change if the obfuscated build changes.
-//
-// The purpose of such a file is to store garble-specific information
-// in the build cache, to be reused at a later time.
-// The file should have the same lifetime as pkg.Export,
-// as it lives under the same cache directory that gets trimmed automatically.
-func garbleExportFile(pkg *listedPackage) string {
-	trimmed := strings.TrimSuffix(pkg.Export, "-d")
-	if trimmed == pkg.Export {
-		panic(fmt.Sprintf("unexpected export path of %s: %q", pkg.ImportPath, pkg.Export))
+func openCache() (*cache.Cache, error) {
+	dir := os.Getenv("GARBLE_CACHE") // e.g. "~/.cache/garble"
+	if dir == "" {
+		parentDir, err := os.UserCacheDir()
+		if err != nil {
+			return nil, err
+		}
+		dir = filepath.Join(parentDir, "garble")
 	}
-	return trimmed + "-garble-" + encodeBuildIDHash(pkg.GarbleActionID) + "-d"
+	// Use a subdirectory for the hashed build cache, to clarify what it is,
+	// and to allow us to have other directories or files later on without mixing.
+	dir = filepath.Join(dir, "build")
+
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		return nil, err
+	}
+	return cache.Open(dir)
 }
 
-func loadCachedOutputs() error {
-	startTime := time.Now()
-	loaded := 0
-	for _, path := range curPkg.Deps {
-		pkg, err := listPackage(path)
-		if err != nil {
-			panic(err) // shouldn't happen
-		}
-		if pkg.Export == "" {
-			continue // nothing to load
-		}
-		// this function literal is used for the deferred close
-		if err := func() error {
-			filename := garbleExportFile(pkg)
+func (tf *transformer) loadCachedOutput(files []*ast.File) error {
+	fsCache, err := openCache()
+	if err != nil {
+		return err
+	}
+	if false { // TODO: re-enable once the problem described in knownCannotObfuscateUnexported is solved
+		filename, _, err := fsCache.GetFile(curPkg.GarbleActionID)
+		// Already in the cache; load it directly.
+		if err == nil {
 			f, err := os.Open(filename)
 			if err != nil {
 				return err
 			}
 			defer f.Close()
-
+			if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
+				return fmt.Errorf("gob decode: %w", err)
+			}
+			return nil
+		}
+	}
+	// Not yet in the cache. Load the cache entries for all direct dependencies,
+	// build our cache entry, and write it to disk.
+	// Note that practically all errors from Cache.GetFile are a cache miss;
+	// for example, a file might exist but be empty if another process
+	// is filling the same cache entry concurrently.
+	//
+	// TODO: if A (curPkg) imports B and C, and B also imports C,
+	// then loading the gob files from both B and C is unnecessary;
+	// loading B's gob file would be enough. Is there an easy way to do that?
+	startTime := time.Now()
+	loaded := 0
+	for _, path := range curPkg.Imports {
+		if path == "C" {
+			// `go list -json` shows "C" in Imports but not Deps. A bug?
+			continue
+		}
+		pkg, err := listPackage(path)
+		if err != nil {
+			panic(err) // shouldn't happen
+		}
+		if pkg.BuildID == "" {
+			continue // nothing to load
+		}
+		// this function literal is used for the deferred close
+		if err := func() error {
+			filename, _, err := fsCache.GetFile(pkg.GarbleActionID)
+			if err != nil {
+				return err
+			}
+			f, err := os.Open(filename)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
 			// Decode appends new entries to the existing maps
 			if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
 				return fmt.Errorf("gob decode: %w", err)
 			}
 			return nil
 		}(); err != nil {
-			return fmt.Errorf("cannot load garble export file for %s: %w", path, err)
+			return fmt.Errorf("cannot load cache entry for %s: %w", path, err)
 		}
 		loaded++
 	}
 	log.Printf("%d cached output files loaded in %s", loaded, debugSince(startTime))
+
+	ssaProg := ssa.NewProgram(fset, 0)
+
+	// Create SSA packages for all imports.
+	// Order is not significant.
+	created := make(map[*types.Package]bool)
+	var createAll func(pkgs []*types.Package)
+	createAll = func(pkgs []*types.Package) {
+		for _, p := range pkgs {
+			if !created[p] {
+				created[p] = true
+				ssaProg.CreatePackage(p, nil, nil, true)
+				createAll(p.Imports())
+			}
+		}
+	}
+	createAll(tf.pkg.Imports())
+
+	ssaPkg := ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
+	ssaPkg.Build()
+
+	tf.reflectCheckedAPIs = make(map[string]bool)
+	tf.recordReflection(ssaPkg)
+
+	// Unlikely that we could stream the gob encode, as cache.Put wants an io.ReadSeeker.
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(cachedOutput); err != nil {
+		return err
+	}
+	if err := fsCache.PutBytes(curPkg.GarbleActionID, buf.Bytes()); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1446,25 +1500,18 @@ type transformer struct {
 	reflectCheckedAPIs map[string]bool
 }
 
-// newTransformer helps initialize some maps.
-func newTransformer() *transformer {
-	return &transformer{
-		info: &types.Info{
-			Types:      make(map[ast.Expr]types.TypeAndValue),
-			Defs:       make(map[*ast.Ident]types.Object),
-			Uses:       make(map[*ast.Ident]types.Object),
-			Implicits:  make(map[ast.Node]types.Object),
-			Scopes:     make(map[ast.Node]*types.Scope),
-			Selections: make(map[*ast.SelectorExpr]*types.Selection),
-			Instances:  make(map[*ast.Ident]types.Instance),
-		},
-		recordTypeDone:     make(map[*types.Named]bool),
-		fieldToStruct:      make(map[*types.Var]*types.Struct),
-		reflectCheckedAPIs: make(map[string]bool),
-	}
-}
-
 func (tf *transformer) typecheck(files []*ast.File) error {
+	tf.info = &types.Info{
+		Types:      make(map[ast.Expr]types.TypeAndValue),
+		Defs:       make(map[*ast.Ident]types.Object),
+		Uses:       make(map[*ast.Ident]types.Object),
+		Implicits:  make(map[ast.Node]types.Object),
+		Scopes:     make(map[ast.Node]*types.Scope),
+		Selections: make(map[*ast.SelectorExpr]*types.Selection),
+		Instances:  make(map[*ast.Ident]types.Instance),
+	}
+	tf.recordTypeDone = make(map[*types.Named]bool)
+	tf.fieldToStruct = make(map[*types.Var]*types.Struct)
 	origTypesConfig := types.Config{Importer: origImporter}
 	pkg, err := origTypesConfig.Check(curPkg.ImportPath, fset, files, tf.info)
 	if err != nil {

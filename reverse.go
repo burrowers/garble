@@ -93,7 +93,7 @@ One can reverse a captured panic stack trace as follows:
 			}
 			files = append(files, file)
 		}
-		tf := newTransformer()
+		tf := &transformer{}
 		if err := tf.typecheck(files); err != nil {
 			return err
 		}
