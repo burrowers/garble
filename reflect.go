@@ -432,27 +432,16 @@ func recordAsNotObfuscated(obj types.Object) {
 	if obj.Pkg().Path() != curPkg.ImportPath {
 		panic("called recordedAsNotObfuscated with a foreign object")
 	}
-	if !obj.Exported() {
-		// Unexported names will never be used by other packages,
-		// so we don't need to bother recording them in cachedOutput.
-		knownCannotObfuscateUnexported[obj] = true
-		return
-	}
-
 	objStr := recordedObjectString(obj)
 	if objStr == "" {
 		// If the object can't be described via a qualified string,
-		// then other packages can't use it.
-		// TODO: should we still record it in knownCannotObfuscateUnexported?
+		// do we need to record it at all?
 		return
 	}
 	cachedOutput.KnownCannotObfuscate[objStr] = struct{}{}
 }
 
 func recordedAsNotObfuscated(obj types.Object) bool {
-	if knownCannotObfuscateUnexported[obj] {
-		return true
-	}
 	objStr := recordedObjectString(obj)
 	if objStr == "" {
 		return false

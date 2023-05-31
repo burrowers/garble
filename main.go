@@ -907,7 +907,7 @@ func transformCompile(args []string) ([]string, error) {
 	}
 	tf := &transformer{}
 
-	// Even if loadGarbleCache below finds a direct cache hit,
+	// Even if loadCachedOutput below finds a direct cache hit,
 	// other parts of garble still need type information to obfuscate.
 	// We could potentially avoid this by saving the type info we need in the cache,
 	// although in general that wouldn't help much, since it's rare for Go's cache
@@ -1260,15 +1260,6 @@ type (
 
 // TODO: read-write globals like these should probably be inside transformer
 
-// knownCannotObfuscateUnexported is like KnownCannotObfuscate but for
-// unexported names. We don't need to store this in the build cache,
-// because these names cannot be referenced by downstream packages.
-//
-// TODO: move inside cachedOutput once we allow loadCachedOutput to load
-// the cache entry for curPkg.
-// Otherwise, we only fill this when loadCachedOutput hits a cache miss for curPkg.
-var knownCannotObfuscateUnexported = map[types.Object]bool{}
-
 // cachedOutput contains information that will be stored in fsCache.
 // Note that cachedOutput gets loaded from all direct package dependencies,
 // and gets filled while obfuscating the current package, so it ends up
@@ -1327,20 +1318,18 @@ func (tf *transformer) loadCachedOutput(files []*ast.File) error {
 	if err != nil {
 		return err
 	}
-	if false { // TODO: re-enable once the problem described in knownCannotObfuscateUnexported is solved
-		filename, _, err := fsCache.GetFile(curPkg.GarbleActionID)
-		// Already in the cache; load it directly.
-		if err == nil {
-			f, err := os.Open(filename)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
-				return fmt.Errorf("gob decode: %w", err)
-			}
-			return nil
+	filename, _, err := fsCache.GetFile(curPkg.GarbleActionID)
+	// Already in the cache; load it directly.
+	if err == nil {
+		f, err := os.Open(filename)
+		if err != nil {
+			return err
 		}
+		defer f.Close()
+		if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
+			return fmt.Errorf("gob decode: %w", err)
+		}
+		return nil
 	}
 	// Not yet in the cache. Load the cache entries for all direct dependencies,
 	// build our cache entry, and write it to disk.
