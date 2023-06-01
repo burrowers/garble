@@ -42,6 +42,7 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
 
+	"mvdan.cc/garble/internal/ctrlflow"
 	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
 )
@@ -54,6 +55,8 @@ var (
 	flagDebug    bool
 	flagDebugDir string
 	flagSeed     seedFlag
+	// TODO(pagran): temporarily mimicry as a flag
+	flagControlFlow = os.Getenv("GARBLE_EXPERIMENTAL_CONTROLFLOW") == "1"
 )
 
 func init() {
@@ -923,6 +926,24 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
+	if flagControlFlow {
+		newFile, affectedFiles, err := ctrlflow.Obfuscate(fset, tf.ssaPkg, files)
+		if err != nil {
+			return nil, err
+		}
+
+		if newFile != nil {
+			files = append(files, newFile)
+			paths = append(paths, ctrlflow.FileName)
+			for _, file := range affectedFiles {
+				tf.useAllImports(file)
+			}
+			if err := tf.typecheck(files); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if err := tf.prefillObjectMaps(files); err != nil {
 		return nil, err
 	}
@@ -1405,11 +1426,11 @@ func (tf *transformer) loadCachedOutput(files []*ast.File) error {
 	}
 	createAll(tf.pkg.Imports())
 
-	ssaPkg := ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
-	ssaPkg.Build()
+	tf.ssaPkg = ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
+	tf.ssaPkg.Build()
 
 	tf.reflectCheckedAPIs = make(map[string]bool)
-	tf.recordReflection(ssaPkg)
+	tf.recordReflection(tf.ssaPkg)
 
 	// Unlikely that we could stream the gob encode, as cache.Put wants an io.ReadSeeker.
 	var buf bytes.Buffer
@@ -1497,7 +1518,9 @@ type transformer struct {
 	// objects. Useful when obfuscating field names.
 	fieldToStruct map[*types.Var]*types.Struct
 
-	reflectCheckedAPIs map[string]bool
+	reflectCheckedAPIs  map[string]bool
+	ssaPkg              *ssa.Package
+	usedAllImportsFiles map[*ast.File]bool
 }
 
 func (tf *transformer) typecheck(files []*ast.File) error {
@@ -1619,6 +1642,14 @@ func isSafeForInstanceType(typ types.Type) bool {
 }
 
 func (tf *transformer) useAllImports(file *ast.File) {
+	if tf.usedAllImportsFiles == nil {
+		tf.usedAllImportsFiles = make(map[*ast.File]bool)
+	} else if ok := tf.usedAllImportsFiles[file]; ok {
+		return
+	}
+
+	tf.usedAllImportsFiles[file] = true
+
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
 			continue

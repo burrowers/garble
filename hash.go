@@ -158,6 +158,9 @@ func appendFlags(w io.Writer, forBuildHash bool) {
 		io.WriteString(w, " -seed=")
 		io.WriteString(w, flagSeed.String())
 	}
+	if flagControlFlow && forBuildHash {
+		io.WriteString(w, " -ctrlflow")
+	}
 	if literals.TestObfuscator != "" && forBuildHash {
 		io.WriteString(w, literals.TestObfuscator)
 	}
