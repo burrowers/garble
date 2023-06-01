@@ -1339,18 +1339,21 @@ func (tf *transformer) loadCachedOutput(files []*ast.File) error {
 	if err != nil {
 		return err
 	}
-	filename, _, err := fsCache.GetFile(curPkg.GarbleActionID)
-	// Already in the cache; load it directly.
-	if err == nil {
-		f, err := os.Open(filename)
-		if err != nil {
-			return err
+
+	if !flagControlFlow { // TODO(pagran): remove this after ssa2ast integration
+		filename, _, err := fsCache.GetFile(curPkg.GarbleActionID)
+		// Already in the cache; load it directly.
+		if err == nil {
+			f, err := os.Open(filename)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
+				return fmt.Errorf("gob decode: %w", err)
+			}
+			return nil
 		}
-		defer f.Close()
-		if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
-			return fmt.Errorf("gob decode: %w", err)
-		}
-		return nil
 	}
 	// Not yet in the cache. Load the cache entries for all direct dependencies,
 	// build our cache entry, and write it to disk.
