@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"go/types"
 	"log"
+	mathrand "math/rand"
 	"strconv"
 	"strings"
 
@@ -21,7 +22,7 @@ const (
 	importPrefix  = "___garble_import"
 )
 
-func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File) (newFile *ast.File, affectedFiles []*ast.File, err error) {
+func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfRand *mathrand.Rand) (newFile *ast.File, affectedFiles []*ast.File, err error) {
 	var ssaFuncs []*ssa.Function
 
 	for _, file := range files {
@@ -96,6 +97,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File) (new
 
 	funcConverter := ssa2ast.NewFuncConverter(funcConfig)
 	for _, ssaFunc := range ssaFuncs {
+		applyControlFlowFlattering(ssaFunc, obfRand)
 		astFunc, err := funcConverter.Convert(ssaFunc)
 		if err != nil {
 			return nil, nil, err

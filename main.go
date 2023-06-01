@@ -926,8 +926,16 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
+	// Literal obfuscation uses math/rand, so seed it deterministically.
+	randSeed := curPkg.GarbleActionID[:]
+	if flagSeed.present() {
+		randSeed = flagSeed.bytes
+	}
+	// log.Printf("seeding math/rand with %x\n", randSeed)
+	obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
+
 	if flagControlFlow {
-		newFile, affectedFiles, err := ctrlflow.Obfuscate(fset, tf.ssaPkg, files)
+		newFile, affectedFiles, err := ctrlflow.Obfuscate(fset, tf.ssaPkg, files, obfRand)
 		if err != nil {
 			return nil, err
 		}
@@ -953,14 +961,6 @@ func transformCompile(args []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Literal obfuscation uses math/rand, so seed it deterministically.
-	randSeed := curPkg.GarbleActionID[:]
-	if flagSeed.present() {
-		randSeed = flagSeed.bytes
-	}
-	// log.Printf("seeding math/rand with %x\n", randSeed)
-	obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
 
 	// If this is a package to obfuscate, swap the -p flag with the new package path.
 	// We don't if it's the main package, as that just uses "-p main".
