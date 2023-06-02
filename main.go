@@ -1272,11 +1272,14 @@ type pkgCache struct {
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
 	ReflectAPIs map[funcFullName]map[int]bool
 
-	// CannotObfuscate is filled with the fully qualified names from each
-	// package that we cannot obfuscate.
+	// ReflectObjects is filled with the fully qualified names from each
+	// package that we cannot obfuscate due to reflection.
+	// The included objects are named types and their fields,
+	// since it is those names being obfuscated that could break the use of reflect.
+	//
 	// This record is necessary for knowing what names from imported packages
 	// weren't obfuscated, so we can obfuscate their local uses accordingly.
-	CannotObfuscate map[objectString]struct{}
+	ReflectObjects map[objectString]struct{}
 
 	// EmbeddedAliasFields records which embedded fields use a type alias.
 	// They are the only instance where a type alias matters for obfuscation,
@@ -1292,7 +1295,7 @@ var curPkgCache = pkgCache{
 		"reflect.TypeOf":  {0: true},
 		"reflect.ValueOf": {0: true},
 	},
-	CannotObfuscate:     map[objectString]struct{}{},
+	ReflectObjects:      map[objectString]struct{}{},
 	EmbeddedAliasFields: map[objectString]typeName{},
 }
 
@@ -1797,7 +1800,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			// and it's entirely unsupported, but try to accomodate for now.
 			// At least it's enough to leave the rtype and Value types intact.
 			case "rtype", "Value":
-				tf.recursivelyRecordAsNotObfuscated(obj.Type())
+				tf.recursivelyRecordUsedForReflect(obj.Type())
 				return true
 			}
 		case "crypto/x509/pkix":
@@ -1812,7 +1815,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		}
 
 		// The package that declared this object did not obfuscate it.
-		if recordedAsNotObfuscated(obj) {
+		if usedForReflect(obj) {
 			return true
 		}
 
