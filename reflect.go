@@ -114,7 +114,7 @@ func (tf *transformer) checkMethodSignature(reflectParams map[int]bool, sig *typ
 
 		if ignore {
 			reflectParams[i] = true
-			tf.recursivelyRecordAsNotObfuscated(param.Type())
+			tf.recursivelyRecordUsedForReflect(param.Type())
 		}
 	}
 }
@@ -245,7 +245,7 @@ func (tf *transformer) recordArgReflected(val ssa.Value, visited map[ssa.Value]b
 
 	case *ssa.Alloc:
 		/* fmt.Printf("recording val %v \n", *val.Referrers()) */
-		tf.recursivelyRecordAsNotObfuscated(val.Type())
+		tf.recursivelyRecordUsedForReflect(val.Type())
 
 		for _, ref := range *val.Referrers() {
 			if idx, ok := ref.(*ssa.IndexAddr); ok {
@@ -260,9 +260,9 @@ func (tf *transformer) recordArgReflected(val ssa.Value, visited map[ssa.Value]b
 		return relatedParam(val, visited)
 
 	case *ssa.Const:
-		tf.recursivelyRecordAsNotObfuscated(val.Type())
+		tf.recursivelyRecordUsedForReflect(val.Type())
 	case *ssa.Global:
-		tf.recursivelyRecordAsNotObfuscated(val.Type())
+		tf.recursivelyRecordUsedForReflect(val.Type())
 
 		// TODO: this might need similar logic to *ssa.Alloc, however
 		// reassigning a function param to a global variable and then reflecting
@@ -271,7 +271,7 @@ func (tf *transformer) recordArgReflected(val ssa.Value, visited map[ssa.Value]b
 		// this only finds the parameters who want to be found,
 		// otherwise relatedParam is used for more in depth analysis
 
-		tf.recursivelyRecordAsNotObfuscated(val.Type())
+		tf.recursivelyRecordUsedForReflect(val.Type())
 		return val
 	}
 
@@ -341,13 +341,13 @@ func relatedParam(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 	return nil
 }
 
-// recursivelyRecordAsNotObfuscated calls recordAsNotObfuscated on any named
+// recursivelyRecordUsedForReflect calls recordUsedForReflect on any named
 // types and fields under typ.
 //
 // Only the names declared in the current package are recorded. This is to ensure
 // that reflection detection only happens within the package declaring a type.
 // Detecting it in downstream packages could result in inconsistencies.
-func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
+func (tf *transformer) recursivelyRecordUsedForReflect(t types.Type) {
 	switch t := t.(type) {
 	case *types.Named:
 		obj := t.Obj()
@@ -357,13 +357,13 @@ func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
 		if obj.Pkg() == nil || obj.Pkg() != tf.pkg {
 			return // not from the specified package
 		}
-		if recordedAsNotObfuscated(obj) {
+		if usedForReflect(obj) {
 			return // prevent endless recursion
 		}
-		recordAsNotObfuscated(obj)
+		recordUsedForReflect(obj)
 
 		// Record the underlying type, too.
-		tf.recursivelyRecordAsNotObfuscated(t.Underlying())
+		tf.recursivelyRecordUsedForReflect(t.Underlying())
 
 	case *types.Struct:
 		for i := 0; i < t.NumFields(); i++ {
@@ -377,14 +377,14 @@ func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
 			}
 
 			// Record the field itself, too.
-			recordAsNotObfuscated(field)
+			recordUsedForReflect(field)
 
-			tf.recursivelyRecordAsNotObfuscated(field.Type())
+			tf.recursivelyRecordUsedForReflect(field.Type())
 		}
 
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
-		tf.recursivelyRecordAsNotObfuscated(t.Elem())
+		tf.recursivelyRecordUsedForReflect(t.Elem())
 	}
 }
 
@@ -421,16 +421,11 @@ func recordedObjectString(obj types.Object) objectString {
 	return pkg.Path() + "." + obj.Name()
 }
 
-// recordAsNotObfuscated records all the objects whose names we cannot obfuscate.
-// An object is any named entity, such as a declared variable or type.
-//
-// As of June 2022, this only records types which are used in reflection.
-// TODO(mvdan): If this is still the case in a year's time,
-// we should probably rename "not obfuscated" and "cannot obfuscate" to be
-// directly about reflection, e.g. "used in reflection".
-func recordAsNotObfuscated(obj types.Object) {
+// recordUsedForReflect records the objects whose names we cannot obfuscate due to reflection.
+// We currently record named types and fields.
+func recordUsedForReflect(obj types.Object) {
 	if obj.Pkg().Path() != curPkg.ImportPath {
-		panic("called recordedAsNotObfuscated with a foreign object")
+		panic("called recordUsedForReflect with a foreign object")
 	}
 	objStr := recordedObjectString(obj)
 	if objStr == "" {
@@ -438,14 +433,14 @@ func recordAsNotObfuscated(obj types.Object) {
 		// do we need to record it at all?
 		return
 	}
-	curPkgCache.CannotObfuscate[objStr] = struct{}{}
+	curPkgCache.ReflectObjects[objStr] = struct{}{}
 }
 
-func recordedAsNotObfuscated(obj types.Object) bool {
+func usedForReflect(obj types.Object) bool {
 	objStr := recordedObjectString(obj)
 	if objStr == "" {
 		return false
 	}
-	_, ok := curPkgCache.CannotObfuscate[objStr]
+	_, ok := curPkgCache.ReflectObjects[objStr]
 	return ok
 }
