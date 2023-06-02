@@ -4,7 +4,6 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
-	"math"
 	mathrand "math/rand"
 	_ "unsafe"
 
@@ -18,14 +17,8 @@ type blockMapping struct {
 //go:linkname setPhiType golang.org/x/tools/go/ssa.(*register).setType
 func setPhiType(*ssa.Phi, types.Type)
 
-//go:linkname setPhiNum golang.org/x/tools/go/ssa.(*register).setNum
-func setPhiNum(*ssa.Phi, int)
-
 //go:linkname setBinOpType golang.org/x/tools/go/ssa.(*register).setType
 func setBinOpType(*ssa.BinOp, types.Type)
-
-//go:linkname setBinOpNum golang.org/x/tools/go/ssa.(*register).setNum
-func setBinOpNum(*ssa.BinOp, int)
 
 //go:linkname setBinOpBlock golang.org/x/tools/go/ssa.(*anInstruction).setBlock
 func setBinOpBlock(*ssa.BinOp, *ssa.BasicBlock)
@@ -37,11 +30,6 @@ func makeSsaInt(i int) *ssa.Const {
 	return ssa.NewConst(constant.MakeInt64(int64(i)), types.Typ[types.Int])
 }
 
-const (
-	controlFlowNum = math.MaxInt32 - math.MaxInt16
-	startCondNum   = controlFlowNum + 1
-)
-
 func applyControlFlowFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 	if len(ssaFunc.Blocks) < 3 {
 		return
@@ -49,7 +37,6 @@ func applyControlFlowFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 
 	phiInstr := &ssa.Phi{Comment: "ctrflow.phi"}
 	setPhiType(phiInstr, types.Typ[types.Int])
-	setPhiNum(phiInstr, controlFlowNum)
 
 	entryBlock := &ssa.BasicBlock{
 		Comment: "ctrflow.entry",
@@ -106,7 +93,6 @@ func applyControlFlowFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 
 		cond := &ssa.BinOp{X: phiInstr, Op: token.EQL, Y: makeSsaInt(phiIdxs[i])}
 		setBinOpType(cond, types.Typ[types.Bool])
-		setBinOpNum(cond, startCondNum+i)
 
 		*phiInstr.Referrers() = append(*phiInstr.Referrers(), cond)
 
