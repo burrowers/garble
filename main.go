@@ -1402,8 +1402,12 @@ func (tf *transformer) loadPkgCache(files []*ast.File) error {
 	ssaPkg := ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
 	ssaPkg.Build()
 
-	tf.reflectCheckedAPIs = make(map[string]bool)
-	tf.recordReflection(ssaPkg)
+	inspector := reflectInspector{
+		pkg:         tf.pkg,
+		checkedAPIs: make(map[string]bool),
+		result:      curPkgCache, // append the results
+	}
+	inspector.recordReflection(ssaPkg)
 
 	// Unlikely that we could stream the gob encode, as cache.Put wants an io.ReadSeeker.
 	var buf bytes.Buffer
@@ -1490,8 +1494,6 @@ type transformer struct {
 	// fieldToStruct helps locate struct types from any of their field
 	// objects. Useful when obfuscating field names.
 	fieldToStruct map[*types.Var]*types.Struct
-
-	reflectCheckedAPIs map[string]bool
 }
 
 func (tf *transformer) typecheck(files []*ast.File) error {
@@ -1778,6 +1780,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		// TODO: We match by object name here, which is actually imprecise.
 		// For example, in package embed we match the type FS, but we would also
 		// match any field or method named FS.
+		// Can we instead use an object map like ReflectObjects?
 		path := pkg.Path()
 		switch path {
 		case "sync/atomic", "runtime/internal/atomic":
@@ -1794,13 +1797,6 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			// Per the linker's deadcode.go docs,
 			// the Method and MethodByName methods are what drive the logic.
 			case "Method", "MethodByName":
-				return true
-			// Some packages reach into reflect internals, like go-spew.
-			// It's not particularly right of them to do that,
-			// and it's entirely unsupported, but try to accomodate for now.
-			// At least it's enough to leave the rtype and Value types intact.
-			case "rtype", "Value":
-				tf.recursivelyRecordUsedForReflect(obj.Type())
 				return true
 			}
 		case "crypto/x509/pkix":
