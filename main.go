@@ -907,7 +907,7 @@ func transformCompile(args []string) ([]string, error) {
 	}
 	tf := &transformer{}
 
-	// Even if loadCachedOutput below finds a direct cache hit,
+	// Even if loadPkgCache below finds a direct cache hit,
 	// other parts of garble still need type information to obfuscate.
 	// We could potentially avoid this by saving the type info we need in the cache,
 	// although in general that wouldn't help much, since it's rare for Go's cache
@@ -916,10 +916,10 @@ func transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	// NOTE: cachedOutput.KnownEmbeddedAliasFields is already filled by typecheck above.
-	// That's needed if loadCachedOutput is a miss, as we need to save the map.
-	// If loadCachedOutput is a hit, then it's still fine, as the map entries are the same.
-	if err := tf.loadCachedOutput(files); err != nil {
+	// NOTE: curPkgCache.EmbeddedAliasFields is already filled by typecheck above.
+	// That's needed if loadPkgCache is a miss, as we need to save the map.
+	// If loadPkgCache is a hit, then it's still fine, as the map entries are the same.
+	if err := tf.loadPkgCache(files); err != nil {
 		return nil, err
 	}
 
@@ -1260,38 +1260,40 @@ type (
 
 // TODO: read-write globals like these should probably be inside transformer
 
-// cachedOutput contains information that will be stored in fsCache.
-// Note that cachedOutput gets loaded from all direct package dependencies,
+// pkgCache contains information that will be stored in fsCache.
+// Note that pkgCache gets loaded from all direct package dependencies,
 // and gets filled while obfuscating the current package, so it ends up
 // containing entries for the current package and its transitive dependencies.
-var cachedOutput = struct {
-	// KnownReflectAPIs is a static record of what std APIs use reflection on their
+type pkgCache struct {
+	// ReflectAPIs is a static record of what std APIs use reflection on their
 	// parameters, so we can avoid obfuscating types used with them.
 	//
 	// TODO: we're not including fmt.Printf, as it would have many false positives,
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
-	KnownReflectAPIs map[funcFullName]map[int]bool
+	ReflectAPIs map[funcFullName]map[int]bool
 
-	// KnownCannotObfuscate is filled with the fully qualified names from each
+	// CannotObfuscate is filled with the fully qualified names from each
 	// package that we cannot obfuscate.
 	// This record is necessary for knowing what names from imported packages
 	// weren't obfuscated, so we can obfuscate their local uses accordingly.
-	KnownCannotObfuscate map[objectString]struct{}
+	CannotObfuscate map[objectString]struct{}
 
-	// KnownEmbeddedAliasFields records which embedded fields use a type alias.
+	// EmbeddedAliasFields records which embedded fields use a type alias.
 	// They are the only instance where a type alias matters for obfuscation,
 	// because the embedded field name is derived from the type alias itself,
 	// and not the type that the alias points to.
 	// In that way, the type alias is obfuscated as a form of named type,
 	// bearing in mind that it may be owned by a different package.
-	KnownEmbeddedAliasFields map[objectString]typeName
-}{
-	KnownReflectAPIs: map[funcFullName]map[int]bool{
+	EmbeddedAliasFields map[objectString]typeName
+}
+
+var curPkgCache = pkgCache{
+	ReflectAPIs: map[funcFullName]map[int]bool{
 		"reflect.TypeOf":  {0: true},
 		"reflect.ValueOf": {0: true},
 	},
-	KnownCannotObfuscate:     map[objectString]struct{}{},
-	KnownEmbeddedAliasFields: map[objectString]typeName{},
+	CannotObfuscate:     map[objectString]struct{}{},
+	EmbeddedAliasFields: map[objectString]typeName{},
 }
 
 func openCache() (*cache.Cache, error) {
@@ -1313,7 +1315,7 @@ func openCache() (*cache.Cache, error) {
 	return cache.Open(dir)
 }
 
-func (tf *transformer) loadCachedOutput(files []*ast.File) error {
+func (tf *transformer) loadPkgCache(files []*ast.File) error {
 	fsCache, err := openCache()
 	if err != nil {
 		return err
@@ -1326,7 +1328,7 @@ func (tf *transformer) loadCachedOutput(files []*ast.File) error {
 			return err
 		}
 		defer f.Close()
-		if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
+		if err := gob.NewDecoder(f).Decode(&curPkgCache); err != nil {
 			return fmt.Errorf("gob decode: %w", err)
 		}
 		return nil
@@ -1366,7 +1368,7 @@ func (tf *transformer) loadCachedOutput(files []*ast.File) error {
 			}
 			defer f.Close()
 			// Decode appends new entries to the existing maps
-			if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
+			if err := gob.NewDecoder(f).Decode(&curPkgCache); err != nil {
 				return fmt.Errorf("gob decode: %w", err)
 			}
 			return nil
@@ -1402,7 +1404,7 @@ func (tf *transformer) loadCachedOutput(files []*ast.File) error {
 
 	// Unlikely that we could stream the gob encode, as cache.Put wants an io.ReadSeeker.
 	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(cachedOutput); err != nil {
+	if err := gob.NewEncoder(&buf).Encode(curPkgCache); err != nil {
 		return err
 	}
 	if err := fsCache.PutBytes(curPkg.GarbleActionID, buf.Bytes()); err != nil {
@@ -1521,7 +1523,7 @@ func (tf *transformer) typecheck(files []*ast.File) error {
 		}
 		tf.recordType(obj.Type(), nil)
 
-		// Record into KnownEmbeddedAliasFields.
+		// Record into EmbeddedAliasFields.
 		obj, ok := obj.(*types.TypeName)
 		if !ok || !obj.IsAlias() {
 			continue
@@ -1538,7 +1540,7 @@ func (tf *transformer) typecheck(files []*ast.File) error {
 			PkgPath: obj.Pkg().Path(),
 			Name:    obj.Name(),
 		}
-		cachedOutput.KnownEmbeddedAliasFields[vrStr] = aliasTypeName
+		curPkgCache.EmbeddedAliasFields[vrStr] = aliasTypeName
 	}
 	for _, tv := range tf.info.Types {
 		tf.recordType(tv.Type, nil)
@@ -1735,7 +1737,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			// Alternatively, if we don't have an alias, we still want to
 			// use the embedded type, not the field.
 			vrStr := recordedObjectString(vr)
-			aliasTypeName, ok := cachedOutput.KnownEmbeddedAliasFields[vrStr]
+			aliasTypeName, ok := curPkgCache.EmbeddedAliasFields[vrStr]
 			if ok {
 				pkg2 := tf.pkg
 				if path := aliasTypeName.PkgPath; pkg2.Path() != path {
@@ -1751,10 +1753,10 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 				}
 				tname, ok := pkg2.Scope().Lookup(aliasTypeName.Name).(*types.TypeName)
 				if !ok {
-					panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
+					panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
 				}
 				if !tname.IsAlias() {
-					panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a non-alias type %q", vrStr, aliasTypeName))
+					panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a non-alias type %q", vrStr, aliasTypeName))
 				}
 				obj = tname
 			} else {

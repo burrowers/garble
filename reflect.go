@@ -16,11 +16,11 @@ func (tf *transformer) recordReflection(ssaPkg *ssa.Package) {
 		return
 	}
 
-	lenPrevKnownReflectAPIs := len(cachedOutput.KnownReflectAPIs)
+	lenPrevReflectAPIs := len(curPkgCache.ReflectAPIs)
 
 	// find all unchecked APIs to add them to checkedAPIs after the pass
 	notCheckedAPIs := make(map[string]bool)
-	for _, knownAPI := range maps.Keys(cachedOutput.KnownReflectAPIs) {
+	for _, knownAPI := range maps.Keys(curPkgCache.ReflectAPIs) {
 		if !tf.reflectCheckedAPIs[knownAPI] {
 			notCheckedAPIs[knownAPI] = true
 		}
@@ -33,7 +33,7 @@ func (tf *transformer) recordReflection(ssaPkg *ssa.Package) {
 	maps.Copy(tf.reflectCheckedAPIs, notCheckedAPIs)
 
 	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
-	if len(cachedOutput.KnownReflectAPIs) > lenPrevKnownReflectAPIs {
+	if len(curPkgCache.ReflectAPIs) > lenPrevReflectAPIs {
 		tf.recordReflection(ssaPkg)
 	}
 }
@@ -123,7 +123,7 @@ func (tf *transformer) checkMethodSignature(reflectParams map[int]bool, sig *typ
 func (tf *transformer) checkInterfaceMethod(m *types.Func) {
 	reflectParams := make(map[int]bool)
 
-	maps.Copy(reflectParams, cachedOutput.KnownReflectAPIs[m.FullName()])
+	maps.Copy(reflectParams, curPkgCache.ReflectAPIs[m.FullName()])
 
 	sig := m.Type().(*types.Signature)
 	if m.Exported() {
@@ -131,9 +131,9 @@ func (tf *transformer) checkInterfaceMethod(m *types.Func) {
 	}
 
 	if len(reflectParams) > 0 {
-		cachedOutput.KnownReflectAPIs[m.FullName()] = reflectParams
+		curPkgCache.ReflectAPIs[m.FullName()] = reflectParams
 
-		/* fmt.Printf("cachedOutput.KnownReflectAPIs: %v\n", cachedOutput.KnownReflectAPIs) */
+		/* fmt.Printf("curPkgCache.ReflectAPIs: %v\n", curPkgCache.ReflectAPIs) */
 	}
 }
 
@@ -148,7 +148,7 @@ func (tf *transformer) checkFunction(fun *ssa.Function) {
 
 	reflectParams := make(map[int]bool)
 	if f != nil {
-		maps.Copy(reflectParams, cachedOutput.KnownReflectAPIs[f.FullName()])
+		maps.Copy(reflectParams, curPkgCache.ReflectAPIs[f.FullName()])
 
 		if f.Exported() {
 			tf.checkMethodSignature(reflectParams, fun.Signature)
@@ -179,7 +179,7 @@ func (tf *transformer) checkFunction(fun *ssa.Function) {
 			/* fmt.Printf("callName: %v\n", callName) */
 
 			// record each call argument passed to a function parameter which is used in reflection
-			knownParams := cachedOutput.KnownReflectAPIs[callName]
+			knownParams := curPkgCache.ReflectAPIs[callName]
 			for knownParam := range knownParams {
 				if len(call.Call.Args) <= knownParam {
 					continue
@@ -208,9 +208,9 @@ func (tf *transformer) checkFunction(fun *ssa.Function) {
 	}
 
 	if len(reflectParams) > 0 {
-		cachedOutput.KnownReflectAPIs[f.FullName()] = reflectParams
+		curPkgCache.ReflectAPIs[f.FullName()] = reflectParams
 
-		/* fmt.Printf("cachedOutput.KnownReflectAPIs: %v\n", cachedOutput.KnownReflectAPIs) */
+		/* fmt.Printf("curPkgCache.ReflectAPIs: %v\n", curPkgCache.ReflectAPIs) */
 	}
 }
 
@@ -438,7 +438,7 @@ func recordAsNotObfuscated(obj types.Object) {
 		// do we need to record it at all?
 		return
 	}
-	cachedOutput.KnownCannotObfuscate[objStr] = struct{}{}
+	curPkgCache.CannotObfuscate[objStr] = struct{}{}
 }
 
 func recordedAsNotObfuscated(obj types.Object) bool {
@@ -446,6 +446,6 @@ func recordedAsNotObfuscated(obj types.Object) bool {
 	if objStr == "" {
 		return false
 	}
-	_, ok := cachedOutput.KnownCannotObfuscate[objStr]
+	_, ok := curPkgCache.CannotObfuscate[objStr]
 	return ok
 }
