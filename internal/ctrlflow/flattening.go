@@ -42,7 +42,7 @@ const (
 	startCondNum   = controlFlowNum + 1
 )
 
-func applyControlFlowFlattering(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
+func applyControlFlowFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 	if len(ssaFunc.Blocks) < 3 {
 		return
 	}
