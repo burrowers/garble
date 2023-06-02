@@ -95,10 +95,9 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		return ast.NewIdent(name)
 	}
 
-	funcConverter := ssa2ast.NewFuncConverter(funcConfig)
 	for _, ssaFunc := range ssaFuncs {
 		applyControlFlowFlattening(ssaFunc, obfRand)
-		astFunc, err := funcConverter.Convert(ssaFunc)
+		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)
 		if err != nil {
 			return nil, nil, err
 		}
