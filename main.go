@@ -968,7 +968,7 @@ func transformCompile(args []string) ([]string, error) {
 				updateEntryOffset(file, entryOffKey())
 			}
 		}
-		tf.handleDirectives(file.Comments)
+		tf.transformDirectives(file.Comments)
 		file = tf.transformGoFile(file)
 		// newPkgPath might be the original ImportPath in some edge cases like
 		// compilerIntrinsics; we don't want to use slashes in package names.
@@ -1017,12 +1017,9 @@ func transformCompile(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
-// handleDirectives looks at all the comments in a file containing build
-// directives, and does the necessary for the obfuscation process to work.
-//
-// Right now, this means recording what local names are used with go:linkname,
-// and rewriting those directives to use obfuscated name from other packages.
-func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
+// transformDirectives rewrites //go:linkname toolchain directives in comments
+// to replace names with their obfuscated versions.
+func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) {
 	for _, group := range comments {
 		for _, comment := range group.List {
 			if !strings.HasPrefix(comment.Text, "//go:linkname ") {
