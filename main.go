@@ -922,8 +922,10 @@ func transformCompile(args []string) ([]string, error) {
 
 	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
 	tf.fieldToStruct = computeFieldToStruct(tf.info)
-	if err := tf.prefillObjectMaps(files); err != nil {
-		return nil, err
+	if flagLiterals {
+		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg, files); err != nil {
+			return nil, err
+		}
 	}
 
 	flags = alterTrimpath(flags)
@@ -1445,12 +1447,11 @@ func loadPkgCache(pkg *types.Package, files []*ast.File, info *types.Info) error
 //go:generate go run golang.org/x/tools/cmd/bundle@v0.5.0 -o cmdgo_quoted.go -prefix cmdgoQuoted cmd/internal/quoted
 //go:generate sed -i /go:generate/d cmdgo_quoted.go
 
-// prefillObjectMaps collects objects which should not be obfuscated,
-// such as those used as arguments to reflect.TypeOf or reflect.ValueOf.
-// Since we obfuscate one package at a time, we only detect those if the type
-// definition and the reflect usage are both in the same package.
-func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
-	tf.linkerVariableStrings = make(map[*types.Var]string)
+// computeLinkerVariableStrings iterates over the -ldflags arguments,
+// filling a map with all the string values set via the linker's -X flag.
+// TODO: can we put this in sharedCache, using objectString as a key?
+func computeLinkerVariableStrings(pkg *types.Package, files []*ast.File) (map[*types.Var]string, error) {
+	linkerVariableStrings := make(map[*types.Var]string)
 
 	// TODO: this is a linker flag that affects how we obfuscate a package at
 	// compile time. Note that, if the user changes ldflags, then Go may only
@@ -1467,7 +1468,7 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 	// or to force including -ldflags into the build cache key.
 	ldflags, err := cmdgoQuotedSplit(flagValue(sharedCache.ForwardBuildFlags, "-ldflags"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	flagValueIter(ldflags, "-X", func(val string) {
 		// val is in the form of "foo.com/bar.name=value".
@@ -1485,13 +1486,13 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 			return // not the current package
 		}
 
-		obj, _ := tf.pkg.Scope().Lookup(name).(*types.Var)
+		obj, _ := pkg.Scope().Lookup(name).(*types.Var)
 		if obj == nil {
 			return // no such variable; skip
 		}
-		tf.linkerVariableStrings[obj] = stringValue
+		linkerVariableStrings[obj] = stringValue
 	})
-	return nil
+	return linkerVariableStrings, nil
 }
 
 // transformer holds all the information and state necessary to obfuscate a
@@ -1501,9 +1502,9 @@ type transformer struct {
 	pkg  *types.Package
 	info *types.Info
 
-	// linkerVariableStrings is also initialized by prefillObjectMaps.
-	// It records objects for variables used in -ldflags=-X flags,
+	// linkerVariableStrings records objects for variables used in -ldflags=-X flags,
 	// as well as the strings the user wants to inject them with.
+	// Used when obfuscating literals, so that we obfuscate the injected value.
 	linkerVariableStrings map[*types.Var]string
 
 	// fieldToStruct helps locate struct types from any of their field
