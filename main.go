@@ -912,17 +912,16 @@ func transformCompile(args []string) ([]string, error) {
 	// We could potentially avoid this by saving the type info we need in the cache,
 	// although in general that wouldn't help much, since it's rare for Go's cache
 	// to miss on a package and for our cache to hit.
-	if err := tf.typecheck(files); err != nil {
+	if tf.pkg, tf.info, err = typecheck(files); err != nil {
 		return nil, err
 	}
 
-	// NOTE: curPkgCache.EmbeddedAliasFields is already filled by typecheck above.
-	// That's needed if loadPkgCache is a miss, as we need to save the map.
-	// If loadPkgCache is a hit, then it's still fine, as the map entries are the same.
-	if err := tf.loadPkgCache(files); err != nil {
+	if err := loadPkgCache(tf.pkg, files, tf.info); err != nil {
 		return nil, err
 	}
 
+	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
+	tf.fieldToStruct = computeFieldToStruct(tf.info)
 	if err := tf.prefillObjectMaps(files); err != nil {
 		return nil, err
 	}
@@ -1318,7 +1317,7 @@ func openCache() (*cache.Cache, error) {
 	return cache.Open(dir)
 }
 
-func (tf *transformer) loadPkgCache(files []*ast.File) error {
+func loadPkgCache(pkg *types.Package, files []*ast.File, info *types.Info) error {
 	fsCache, err := openCache()
 	if err != nil {
 		return err
@@ -1382,10 +1381,30 @@ func (tf *transformer) loadPkgCache(files []*ast.File) error {
 	}
 	log.Printf("%d cached output files loaded in %s", loaded, debugSince(startTime))
 
-	ssaProg := ssa.NewProgram(fset, 0)
+	// Fill EmbeddedAliasFields from the type info.
+	for name, obj := range info.Uses {
+		obj, ok := obj.(*types.TypeName)
+		if !ok || !obj.IsAlias() {
+			continue
+		}
+		vr, _ := info.Defs[name].(*types.Var)
+		if vr == nil || !vr.Embedded() {
+			continue
+		}
+		vrStr := recordedObjectString(vr)
+		if vrStr == "" {
+			continue
+		}
+		aliasTypeName := typeName{
+			PkgPath: obj.Pkg().Path(),
+			Name:    obj.Name(),
+		}
+		curPkgCache.EmbeddedAliasFields[vrStr] = aliasTypeName
+	}
 
-	// Create SSA packages for all imports.
-	// Order is not significant.
+	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
+	// Create SSA packages for all imports. Order is not significant.
+	ssaProg := ssa.NewProgram(fset, 0)
 	created := make(map[*types.Package]bool)
 	var createAll func(pkgs []*types.Package)
 	createAll = func(pkgs []*types.Package) {
@@ -1397,13 +1416,13 @@ func (tf *transformer) loadPkgCache(files []*ast.File) error {
 			}
 		}
 	}
-	createAll(tf.pkg.Imports())
+	createAll(pkg.Imports())
 
-	ssaPkg := ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
+	ssaPkg := ssaProg.CreatePackage(pkg, files, info, false)
 	ssaPkg.Build()
 
 	inspector := reflectInspector{
-		pkg:         tf.pkg,
+		pkg:         pkg,
 		checkedAPIs: make(map[string]bool),
 		result:      curPkgCache, // append the results
 	}
@@ -1487,17 +1506,13 @@ type transformer struct {
 	// as well as the strings the user wants to inject them with.
 	linkerVariableStrings map[*types.Var]string
 
-	// recordTypeDone helps avoid type cycles in recordType.
-	// We only need to track named types, as all cycles must use them.
-	recordTypeDone map[*types.Named]bool
-
 	// fieldToStruct helps locate struct types from any of their field
 	// objects. Useful when obfuscating field names.
 	fieldToStruct map[*types.Var]*types.Struct
 }
 
-func (tf *transformer) typecheck(files []*ast.File) error {
-	tf.info = &types.Info{
+func typecheck(files []*ast.File) (*types.Package, *types.Info, error) {
+	info := &types.Info{
 		Types:      make(map[ast.Expr]types.TypeAndValue),
 		Defs:       make(map[*ast.Ident]types.Object),
 		Uses:       make(map[*ast.Ident]types.Object),
@@ -1506,57 +1521,41 @@ func (tf *transformer) typecheck(files []*ast.File) error {
 		Selections: make(map[*ast.SelectorExpr]*types.Selection),
 		Instances:  make(map[*ast.Ident]types.Instance),
 	}
-	tf.recordTypeDone = make(map[*types.Named]bool)
-	tf.fieldToStruct = make(map[*types.Var]*types.Struct)
 	origTypesConfig := types.Config{Importer: origImporter}
-	pkg, err := origTypesConfig.Check(curPkg.ImportPath, fset, files, tf.info)
+	pkg, err := origTypesConfig.Check(curPkg.ImportPath, fset, files, info)
 	if err != nil {
-		return fmt.Errorf("typecheck error: %v", err)
+		return nil, nil, fmt.Errorf("typecheck error: %v", err)
 	}
-	tf.pkg = pkg
+	return pkg, info, err
+}
+
+func computeFieldToStruct(info *types.Info) map[*types.Var]*types.Struct {
+	done := make(map[*types.Named]bool)
+	fieldToStruct := make(map[*types.Var]*types.Struct)
 
 	// Run recordType on all types reachable via types.Info.
 	// A bit hacky, but I could not find an easier way to do this.
-	for _, obj := range tf.info.Defs {
+	for _, obj := range info.Uses {
 		if obj != nil {
-			tf.recordType(obj.Type(), nil)
+			recordType(obj.Type(), nil, done, fieldToStruct)
 		}
 	}
-	for name, obj := range tf.info.Uses {
-		if obj == nil {
-			continue
+	for _, obj := range info.Defs {
+		if obj != nil {
+			recordType(obj.Type(), nil, done, fieldToStruct)
 		}
-		tf.recordType(obj.Type(), nil)
-
-		// Record into EmbeddedAliasFields.
-		obj, ok := obj.(*types.TypeName)
-		if !ok || !obj.IsAlias() {
-			continue
-		}
-		vr, _ := tf.info.Defs[name].(*types.Var)
-		if vr == nil || !vr.Embedded() {
-			continue
-		}
-		vrStr := recordedObjectString(vr)
-		if vrStr == "" {
-			continue
-		}
-		aliasTypeName := typeName{
-			PkgPath: obj.Pkg().Path(),
-			Name:    obj.Name(),
-		}
-		curPkgCache.EmbeddedAliasFields[vrStr] = aliasTypeName
 	}
-	for _, tv := range tf.info.Types {
-		tf.recordType(tv.Type, nil)
+	for _, tv := range info.Types {
+		recordType(tv.Type, nil, done, fieldToStruct)
 	}
-	return nil
+	return fieldToStruct
 }
 
 // recordType visits every reachable type after typechecking a package.
-// Right now, all it does is fill the fieldToStruct field.
+// Right now, all it does is fill the fieldToStruct map.
 // Since types can be recursive, we need a map to avoid cycles.
-func (tf *transformer) recordType(used, origin types.Type) {
+// We only need to track named types as done, as all cycles must use them.
+func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStruct map[*types.Var]*types.Struct) {
 	if origin == nil {
 		origin = used
 	}
@@ -1568,13 +1567,13 @@ func (tf *transformer) recordType(used, origin types.Type) {
 		// We can edit this code in the future if we find an example,
 		// because we panic if a field is not in fieldToStruct.
 		if origin, ok := origin.(Container); ok {
-			tf.recordType(used.Elem(), origin.Elem())
+			recordType(used.Elem(), origin.Elem(), done, fieldToStruct)
 		}
 	case *types.Named:
-		if tf.recordTypeDone[used] {
+		if done[used] {
 			return
 		}
-		tf.recordTypeDone[used] = true
+		done[used] = true
 		// If we have a generic struct like
 		//
 		//	type Foo[T any] struct { Bar T }
@@ -1583,15 +1582,15 @@ func (tf *transformer) recordType(used, origin types.Type) {
 		// because otherwise different instances like "Bar int" and "Bar bool"
 		// will result in different hashes and the field names will break.
 		// Ensure we record the original generic struct, if there is one.
-		tf.recordType(used.Underlying(), used.Origin().Underlying())
+		recordType(used.Underlying(), used.Origin().Underlying(), done, fieldToStruct)
 	case *types.Struct:
 		origin := origin.(*types.Struct)
 		for i := 0; i < used.NumFields(); i++ {
 			field := used.Field(i)
-			tf.fieldToStruct[field] = origin
+			fieldToStruct[field] = origin
 
 			if field.Embedded() {
-				tf.recordType(field.Type(), origin.Field(i).Type())
+				recordType(field.Type(), origin.Field(i).Type(), done, fieldToStruct)
 			}
 		}
 	}
@@ -1849,7 +1848,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			// packages result in different obfuscated names.
 			strct := tf.fieldToStruct[obj]
 			if strct == nil {
-				panic("could not find for " + name)
+				panic("could not find struct for field " + name)
 			}
 			node.Name = hashWithStruct(strct, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
