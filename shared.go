@@ -397,12 +397,15 @@ func listPackage(path string) (*listedPackage, error) {
 
 	pkg, ok := sharedCache.ListedPackages[path]
 
-	// The runtime may list any package in std, even those it doesn't depend on.
-	// This is due to how it linkname-implements std packages,
+	// A std package may list any other package in std, even those it doesn't depend on.
+	// This is due to how runtime linkname-implements std packages,
 	// such as sync/atomic or reflect, without importing them in any way.
-	// If ListedPackages lacks such a package we fill it with "std".
-	// Note that this is also allowed for runtime sub-packages.
-	if curPkg.ImportPath == "runtime" || strings.HasPrefix(curPkg.ImportPath, "runtime/") {
+	// A few other cases don't involve runtime, like time/tzdata linknaming to time,
+	// but luckily those few cases are covered by runtimeLinknamed as well.
+	//
+	// If ListedPackages lacks such a package we fill it via runtimeLinknamed.
+	// TODO: can we instead add runtimeLinknamed to the top-level "go list" args?
+	if curPkg.Standard {
 		if ok {
 			return pkg, nil
 		}
@@ -429,7 +432,7 @@ func listPackage(path string) (*listedPackage, error) {
 		}
 		pkg, ok := sharedCache.ListedPackages[path]
 		if !ok {
-			panic(fmt.Sprintf("runtime listed a std package we can't find: %s", path))
+			panic(fmt.Sprintf("std listed another std package that we can't find: %s", path))
 		}
 		listedRuntimeLinknamed = true
 		log.Printf("listed %d missing runtime-linknamed packages in %s", len(missing), debugSince(startTime))
@@ -439,7 +442,7 @@ func listPackage(path string) (*listedPackage, error) {
 		return nil, fmt.Errorf("list %s: %w", path, ErrNotFound)
 	}
 
-	// Packages other than runtime can list any package,
+	// Packages outside std can list any package,
 	// as long as they depend on it directly or indirectly.
 	for _, dep := range curPkg.Deps {
 		if dep == pkg.ImportPath {

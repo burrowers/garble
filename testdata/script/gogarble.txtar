@@ -29,11 +29,13 @@ env GOGARBLE='*'
 # Plus, some packages like net make heavy use of complex features like Cgo.
 # Note that we won't obfuscate a few std packages just yet, mainly those around runtime.
 exec garble build std
+! stderr . # no warnings
 
 # Link a binary importing net/http, which will catch whether or not we
 # support ImportMap when linking.
 # Also ensure we are obfuscating low-level std packages.
 exec garble build -o=out ./stdimporter
+! stderr . # no warnings
 ! binsubstr out 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
 
 # The same low-level std packages appear in plain sight in regular builds.
