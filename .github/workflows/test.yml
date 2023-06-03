@@ -91,7 +91,7 @@ jobs:
     - uses: actions/checkout@v3
     - name: Install Go
       env:
-        GO_COMMIT: aeb0644bd33e67f24e2411a651ac9ff72ddc96b4 # 2023-05-19
+        GO_COMMIT: 363713223385476b87dc5f26d267df8c67d13006 # 2023-06-03
       run: |
         cd $HOME
         mkdir $HOME/gotip
