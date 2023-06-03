@@ -32,6 +32,8 @@ type sharedCacheType struct {
 	ExecPath          string   // absolute path to the garble binary being used
 	ForwardBuildFlags []string // build flags fed to the original "garble ..." command
 
+	CacheDir string // absolute path to the GARBLE_CACHE directory being used
+
 	// ListedPackages contains data obtained via 'go list -json -export -deps'.
 	// This allows us to obtain the non-obfuscated export data of all dependencies,
 	// useful for type checking of the packages as we obfuscate them.

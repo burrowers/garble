@@ -400,12 +400,15 @@ func mainErr(args []string) error {
 			if err := os.RemoveAll(os.Getenv("GARBLE_SHARED")); err != nil {
 				fmt.Fprintf(os.Stderr, "could not clean up GARBLE_SHARED: %v\n", err)
 			}
-			fsCache, err := openCache()
-			if err == nil {
-				err = fsCache.Trim()
-			}
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "could not trim GARBLE_CACHE: %v\n", err)
+			// skip the trim if we didn't even start a build
+			if sharedCache != nil {
+				fsCache, err := openCache()
+				if err == nil {
+					err = fsCache.Trim()
+				}
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "could not trim GARBLE_CACHE: %v\n", err)
+				}
 			}
 		}()
 		if err != nil {
@@ -455,7 +458,7 @@ func mainErr(args []string) error {
 
 		executablePath := args[0]
 		if tool == "link" {
-			modifiedLinkPath, unlock, err := linker.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedTempDir)
+			modifiedLinkPath, unlock, err := linker.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
 			if err != nil {
 				return fmt.Errorf("cannot get modified linker: %v", err)
 			}
@@ -541,6 +544,20 @@ This command wraps "go %s". Below is its help:
 	sharedCache.ExecPath, err = os.Executable()
 	if err != nil {
 		return nil, err
+	}
+
+	// Always an absolute directory; defaults to e.g. "~/.cache/garble".
+	if dir := os.Getenv("GARBLE_CACHE"); dir != "" {
+		sharedCache.CacheDir, err = filepath.Abs(dir)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		parentDir, err := os.UserCacheDir()
+		if err != nil {
+			return nil, err
+		}
+		sharedCache.CacheDir = filepath.Join(parentDir, "garble")
 	}
 
 	binaryBuildID, err := buildidOf(sharedCache.ExecPath)
@@ -1304,18 +1321,9 @@ func (c *pkgCache) CopyFrom(c2 pkgCache) {
 }
 
 func openCache() (*cache.Cache, error) {
-	dir := os.Getenv("GARBLE_CACHE") // e.g. "~/.cache/garble"
-	if dir == "" {
-		parentDir, err := os.UserCacheDir()
-		if err != nil {
-			return nil, err
-		}
-		dir = filepath.Join(parentDir, "garble")
-	}
 	// Use a subdirectory for the hashed build cache, to clarify what it is,
 	// and to allow us to have other directories or files later on without mixing.
-	dir = filepath.Join(dir, "build")
-
+	dir := filepath.Join(sharedCache.CacheDir, "build")
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return nil, err
 	}
