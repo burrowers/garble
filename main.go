@@ -913,7 +913,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	if err := loadPkgCache(tf.curPkg, tf.pkg, files, tf.info); err != nil {
+	if tf.curPkgCache, err = loadPkgCache(tf.curPkg, tf.pkg, files, tf.info); err != nil {
 		return nil, err
 	}
 
@@ -1283,15 +1283,6 @@ type pkgCache struct {
 	EmbeddedAliasFields map[objectString]typeName
 }
 
-var curPkgCache = pkgCache{
-	ReflectAPIs: map[funcFullName]map[int]bool{
-		"reflect.TypeOf":  {0: true},
-		"reflect.ValueOf": {0: true},
-	},
-	ReflectObjects:      map[objectString]struct{}{},
-	EmbeddedAliasFields: map[objectString]typeName{},
-}
-
 func openCache() (*cache.Cache, error) {
 	dir := os.Getenv("GARBLE_CACHE") // e.g. "~/.cache/garble"
 	if dir == "" {
@@ -1311,24 +1302,26 @@ func openCache() (*cache.Cache, error) {
 	return cache.Open(dir)
 }
 
-func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info) error {
+func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info) (pkgCache, error) {
 	fsCache, err := openCache()
 	if err != nil {
-		return err
+		return pkgCache{}, err
 	}
 	filename, _, err := fsCache.GetFile(lpkg.GarbleActionID)
 	// Already in the cache; load it directly.
 	if err == nil {
 		f, err := os.Open(filename)
 		if err != nil {
-			return err
+			return pkgCache{}, err
 		}
 		defer f.Close()
-		if err := gob.NewDecoder(f).Decode(&curPkgCache); err != nil {
-			return fmt.Errorf("gob decode: %w", err)
+		var loaded pkgCache
+		if err := gob.NewDecoder(f).Decode(&loaded); err != nil {
+			return pkgCache{}, fmt.Errorf("gob decode: %w", err)
 		}
-		return nil
+		return loaded, nil
 	}
+
 	// Not yet in the cache. Load the cache entries for all direct dependencies,
 	// build our cache entry, and write it to disk.
 	// Note that practically all errors from Cache.GetFile are a cache miss;
@@ -1339,6 +1332,14 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 	// then loading the gob files from both B and C is unnecessary;
 	// loading B's gob file would be enough. Is there an easy way to do that?
 	startTime := time.Now()
+	computed := pkgCache{
+		ReflectAPIs: map[funcFullName]map[int]bool{
+			"reflect.TypeOf":  {0: true},
+			"reflect.ValueOf": {0: true},
+		},
+		ReflectObjects:      map[objectString]struct{}{},
+		EmbeddedAliasFields: map[objectString]typeName{},
+	}
 	loaded := 0
 	for _, path := range lpkg.Imports {
 		if path == "C" {
@@ -1364,12 +1365,12 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 			}
 			defer f.Close()
 			// Decode appends new entries to the existing maps
-			if err := gob.NewDecoder(f).Decode(&curPkgCache); err != nil {
+			if err := gob.NewDecoder(f).Decode(&computed); err != nil {
 				return fmt.Errorf("gob decode: %w", err)
 			}
 			return nil
 		}(); err != nil {
-			return fmt.Errorf("cannot load cache entry for %s: %w", path, err)
+			return pkgCache{}, fmt.Errorf("cannot load cache entry for %s: %w", path, err)
 		}
 		loaded++
 	}
@@ -1393,7 +1394,7 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 			PkgPath: obj.Pkg().Path(),
 			Name:    obj.Name(),
 		}
-		curPkgCache.EmbeddedAliasFields[vrStr] = aliasTypeName
+		computed.EmbeddedAliasFields[vrStr] = aliasTypeName
 	}
 
 	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
@@ -1418,19 +1419,19 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 	inspector := reflectInspector{
 		pkg:         pkg,
 		checkedAPIs: make(map[string]bool),
-		result:      curPkgCache, // append the results
+		result:      computed, // append the results
 	}
 	inspector.recordReflection(ssaPkg)
 
 	// Unlikely that we could stream the gob encode, as cache.Put wants an io.ReadSeeker.
 	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(curPkgCache); err != nil {
-		return err
+	if err := gob.NewEncoder(&buf).Encode(computed); err != nil {
+		return pkgCache{}, err
 	}
 	if err := fsCache.PutBytes(lpkg.GarbleActionID, buf.Bytes()); err != nil {
-		return err
+		return pkgCache{}, err
 	}
-	return nil
+	return computed, nil
 }
 
 // cmd/bundle will include a go:generate directive in its output by default.
@@ -1492,6 +1493,9 @@ func computeLinkerVariableStrings(pkg *types.Package, files []*ast.File) (map[*t
 type transformer struct {
 	// curPkg holds basic information about the package being currently compiled or linked.
 	curPkg *listedPackage
+
+	// curPkgCache is the pkgCache for curPkg.
+	curPkgCache pkgCache
 
 	// The type-checking results; the package itself, and the Info struct.
 	pkg  *types.Package
@@ -1749,7 +1753,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			// Alternatively, if we don't have an alias, we still want to
 			// use the embedded type, not the field.
 			vrStr := recordedObjectString(vr)
-			aliasTypeName, ok := curPkgCache.EmbeddedAliasFields[vrStr]
+			aliasTypeName, ok := tf.curPkgCache.EmbeddedAliasFields[vrStr]
 			if ok {
 				pkg2 := tf.pkg
 				if path := aliasTypeName.PkgPath; pkg2.Path() != path {
@@ -1818,7 +1822,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		}
 
 		// The package that declared this object did not obfuscate it.
-		if usedForReflect(obj) {
+		if usedForReflect(tf.curPkgCache, obj) {
 			return true
 		}
 

@@ -375,7 +375,7 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 		if obj.Pkg() == nil || obj.Pkg() != ri.pkg {
 			return // not from the specified package
 		}
-		if usedForReflect(obj) {
+		if usedForReflect(ri.result, obj) {
 			return // prevent endless recursion
 		}
 		ri.recordUsedForReflect(obj)
@@ -454,11 +454,11 @@ func (ri *reflectInspector) recordUsedForReflect(obj types.Object) {
 	ri.result.ReflectObjects[objStr] = struct{}{}
 }
 
-func usedForReflect(obj types.Object) bool {
+func usedForReflect(cache pkgCache, obj types.Object) bool {
 	objStr := recordedObjectString(obj)
 	if objStr == "" {
 		return false
 	}
-	_, ok := curPkgCache.ReflectObjects[objStr]
+	_, ok := cache.ReflectObjects[objStr]
 	return ok
 }
