@@ -27,10 +27,8 @@ const (
 	TinyEnv        = "GARBLE_LINK_TINY"
 	EntryOffKeyEnv = "GARBLE_LINK_ENTRYOFF_KEY"
 
-	cacheDirName   = "garble"
-	versionExt     = ".version"
-	garbleCacheDir = "GARBLE_CACHE_DIR"
-	baseSrcSubdir  = "src"
+	versionExt    = ".version"
+	baseSrcSubdir = "src"
 )
 
 //go:embed patches/*/*.patch
@@ -137,25 +135,14 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 	return mod, nil
 }
 
-// TODO: put linker binaries into fsCache in the main package
-
-func cachePath() (string, error) {
-	var cacheDir string
-	if val, ok := os.LookupEnv(garbleCacheDir); ok {
-		cacheDir = val
-	} else {
-		userCacheDir, err := os.UserCacheDir()
-		if err != nil {
-			panic(fmt.Errorf("cannot retreive user cache directory: %v", err))
-		}
-		cacheDir = userCacheDir
-	}
-
-	cacheDir = filepath.Join(cacheDir, cacheDirName)
+func cachePath(cacheDir string) (string, error) {
+	// Use a subdirectory to clarify what we're using it for.
+	// Name it "tool", like Go's pkg/tool, as we might want to rebuild
+	// other Go toolchain programs like the compiler or assembler in the future.
+	cacheDir = filepath.Join(cacheDir, "tool")
 	if err := os.MkdirAll(cacheDir, 0o777); err != nil {
 		return "", err
 	}
-
 	goExe := ""
 	if runtime.GOOS == "windows" {
 		goExe = ".exe"
@@ -226,7 +213,7 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 	return nil
 }
 
-func PatchLinker(goRoot, goVersion, tempDir string) (string, func(), error) {
+func PatchLinker(goRoot, goVersion, cacheDir, tempDir string) (string, func(), error) {
 	// rxVersion looks for a version like "go1.19" or "go1.20"
 	rxVersion := regexp.MustCompile(`go\d+\.\d+`)
 	majorGoVersion := rxVersion.FindString(goVersion)
@@ -236,7 +223,7 @@ func PatchLinker(goRoot, goVersion, tempDir string) (string, func(), error) {
 		panic(fmt.Errorf("cannot retrieve linker patches: %v", err))
 	}
 
-	outputLinkPath, err := cachePath()
+	outputLinkPath, err := cachePath(cacheDir)
 	if err != nil {
 		return "", nil, err
 	}

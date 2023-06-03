@@ -93,6 +93,10 @@ Note that the first call to `garble build` may be comparatively slow,
 as it has to obfuscate each package for the first time. This is akin to clearing
 `GOCACHE` with `go clean -cache` and running a `go build` from scratch.
 
+Garble also makes use of its own cache to reuse work, akin to Go's `GOCACHE`.
+It defaults to a directory under your user's cache directory,
+such as `~/.cache/garble`, and can be placed elsewhere by setting `GARBLE_CACHE`.
+
 ### Determinism and seeds
 
 Just like Go, garble builds are deterministic and reproducible in nature.
