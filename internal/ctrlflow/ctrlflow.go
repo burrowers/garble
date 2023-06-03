@@ -1,6 +1,7 @@
 package ctrlflow
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -45,13 +46,17 @@ func parseDirective(directive string) (map[string]string, bool) {
 
 type directiveParamMap map[string]string
 
-func (m directiveParamMap) GetInt(name string, def int) (int, error) {
+func (m directiveParamMap) GetInt(name string, def int) int {
 	rawVal, ok := m[name]
 	if !ok {
-		return def, nil
+		return def
 	}
 
-	return strconv.Atoi(rawVal)
+	val, err := strconv.Atoi(rawVal)
+	if err != nil {
+		panic(fmt.Errorf("invalid flag %s format: %v", name, err))
+	}
+	return val
 }
 
 func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfRand *mathrand.Rand) (newFile *ast.File, affectedFiles []*ast.File, err error) {
@@ -131,11 +136,9 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 	}
 
 	for idx, ssaFunc := range ssaFuncs {
-		passes, err := ssaParams[idx].GetInt("passes", 1)
-		if err != nil {
-			return nil, nil, err
-		}
-		for i := 0; i < passes; i++ {
+		params := ssaParams[idx]
+		addJunkBlocks(ssaFunc, params.GetInt("junk", 0), obfRand)
+		for i := 0; i < params.GetInt("passes", 1); i++ {
 			applyControlFlowFlattening(ssaFunc, obfRand)
 		}
 		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)
