@@ -383,15 +383,15 @@ var ErrNotFound = errors.New("not found")
 var ErrNotDependency = errors.New("not a dependency")
 
 // listPackage gets the listedPackage information for a certain package
-func listPackage(path string) (*listedPackage, error) {
-	if path == curPkg.ImportPath {
-		return curPkg, nil
+func listPackage(from *listedPackage, path string) (*listedPackage, error) {
+	if path == from.ImportPath {
+		return from, nil
 	}
 
 	// If the path is listed in the top-level ImportMap, use its mapping instead.
 	// This is a common scenario when dealing with vendored packages in GOROOT.
 	// The map is flat, so we don't need to recurse.
-	if path2 := curPkg.ImportMap[path]; path2 != "" {
+	if path2 := from.ImportMap[path]; path2 != "" {
 		path = path2
 	}
 
@@ -405,7 +405,7 @@ func listPackage(path string) (*listedPackage, error) {
 	//
 	// If ListedPackages lacks such a package we fill it via runtimeLinknamed.
 	// TODO: can we instead add runtimeLinknamed to the top-level "go list" args?
-	if curPkg.Standard {
+	if from.Standard {
 		if ok {
 			return pkg, nil
 		}
@@ -444,7 +444,7 @@ func listPackage(path string) (*listedPackage, error) {
 
 	// Packages outside std can list any package,
 	// as long as they depend on it directly or indirectly.
-	for _, dep := range curPkg.Deps {
+	for _, dep := range from.Deps {
 		if dep == pkg.ImportPath {
 			return pkg, nil
 		}
