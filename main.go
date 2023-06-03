@@ -36,6 +36,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rogpeppe/go-internal/cache"
+	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
@@ -887,21 +888,35 @@ func (tf *transformer) writeSourceFile(basename, obfuscated string, content []by
 	return dstPath, nil
 }
 
+// parseFiles parses a list of Go files.
+// It supports relative file paths, such as those found in listedPackage.CompiledGoFiles,
+// as long as dir is set to listedPackage.Dir.
+func parseFiles(dir string, paths []string) ([]*ast.File, error) {
+	var files []*ast.File
+	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(dir, path)
+		}
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution|parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, nil
+}
+
 func (tf *transformer) transformCompile(args []string) ([]string, error) {
-	var err error
 	flags, paths := splitFlagsFromFiles(args, ".go")
 
 	// We will force the linker to drop DWARF via -w, so don't spend time
 	// generating it.
 	flags = append(flags, "-dwarf=false")
 
-	var files []*ast.File
-	for _, path := range paths {
-		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution|parser.ParseComments)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, file)
+	// The Go file paths given to the compiler are always absolute paths.
+	files, err := parseFiles("", paths)
+	if err != nil {
+		return nil, err
 	}
 
 	// Even if loadPkgCache below finds a direct cache hit,
@@ -1253,10 +1268,9 @@ type (
 	}
 )
 
-// pkgCache contains information that will be stored in fsCache.
-// Note that pkgCache gets loaded from all direct package dependencies,
-// and gets filled while obfuscating the current package, so it ends up
-// containing entries for the current package and its transitive dependencies.
+// pkgCache contains information about a package that will be stored in fsCache.
+// Note that pkgCache is "deep", containing information about all packages
+// which are transitive dependencies as well.
 type pkgCache struct {
 	// ReflectAPIs is a static record of what std APIs use reflection on their
 	// parameters, so we can avoid obfuscating types used with them.
@@ -1281,6 +1295,12 @@ type pkgCache struct {
 	// In that way, the type alias is obfuscated as a form of named type,
 	// bearing in mind that it may be owned by a different package.
 	EmbeddedAliasFields map[objectString]typeName
+}
+
+func (c *pkgCache) CopyFrom(c2 pkgCache) {
+	maps.Copy(c.ReflectAPIs, c2.ReflectAPIs)
+	maps.Copy(c.ReflectObjects, c2.ReflectObjects)
+	maps.Copy(c.EmbeddedAliasFields, c2.EmbeddedAliasFields)
 }
 
 func openCache() (*cache.Cache, error) {
@@ -1321,7 +1341,10 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 		}
 		return loaded, nil
 	}
+	return computePkgCache(fsCache, lpkg, pkg, files, info)
+}
 
+func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info) (pkgCache, error) {
 	// Not yet in the cache. Load the cache entries for all direct dependencies,
 	// build our cache entry, and write it to disk.
 	// Note that practically all errors from Cache.GetFile are a cache miss;
@@ -1331,7 +1354,6 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 	// TODO: if A (curPkg) imports B and C, and B also imports C,
 	// then loading the gob files from both B and C is unnecessary;
 	// loading B's gob file would be enough. Is there an easy way to do that?
-	startTime := time.Now()
 	computed := pkgCache{
 		ReflectAPIs: map[funcFullName]map[int]bool{
 			"reflect.TypeOf":  {0: true},
@@ -1340,41 +1362,55 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 		ReflectObjects:      map[objectString]struct{}{},
 		EmbeddedAliasFields: map[objectString]typeName{},
 	}
-	loaded := 0
-	for _, path := range lpkg.Imports {
-		if path == "C" {
-			// `go list -json` shows "C" in Imports but not Deps. A bug?
+	for _, imp := range lpkg.Imports {
+		if imp == "C" {
+			// `go list -json` shows "C" in Imports but not Deps.
+			// See https://go.dev/issue/60453.
 			continue
 		}
-		pkg, err := listPackage(lpkg, path)
+		// Shadowing lpkg ensures we don't use the wrong listedPackage below.
+		lpkg, err := listPackage(lpkg, imp)
 		if err != nil {
 			panic(err) // shouldn't happen
 		}
-		if pkg.BuildID == "" {
+		if lpkg.BuildID == "" {
 			continue // nothing to load
 		}
-		// this function literal is used for the deferred close
-		if err := func() error {
-			filename, _, err := fsCache.GetFile(pkg.GarbleActionID)
+		if err := func() error { // function literal for the deferred close
+			if filename, _, err := fsCache.GetFile(lpkg.GarbleActionID); err == nil {
+				// Cache hit; append new entries to computed.
+				f, err := os.Open(filename)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				if err := gob.NewDecoder(f).Decode(&computed); err != nil {
+					return fmt.Errorf("gob decode: %w", err)
+				}
+				return nil
+			}
+			// Missing or corrupted entry in the cache for a dependency.
+			// Could happen if GARBLE_CACHE was emptied but GOCACHE was not.
+			// Compute it, which can recurse if many entries are missing.
+			files, err := parseFiles(lpkg.Dir, lpkg.CompiledGoFiles)
 			if err != nil {
 				return err
 			}
-			f, err := os.Open(filename)
+			origImporter := importerForPkg(lpkg)
+			pkg, info, err := typecheck(lpkg.ImportPath, files, origImporter)
 			if err != nil {
 				return err
 			}
-			defer f.Close()
-			// Decode appends new entries to the existing maps
-			if err := gob.NewDecoder(f).Decode(&computed); err != nil {
-				return fmt.Errorf("gob decode: %w", err)
+			computedImp, err := computePkgCache(fsCache, lpkg, pkg, files, info)
+			if err != nil {
+				return err
 			}
+			computed.CopyFrom(computedImp)
 			return nil
 		}(); err != nil {
-			return pkgCache{}, fmt.Errorf("cannot load cache entry for %s: %w", path, err)
+			return pkgCache{}, fmt.Errorf("pkgCache load for %s: %w", imp, err)
 		}
-		loaded++
 	}
-	log.Printf("%d cached output files loaded in %s", loaded, debugSince(startTime))
 
 	// Fill EmbeddedAliasFields from the type info.
 	for name, obj := range info.Uses {

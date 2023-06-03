@@ -8,11 +8,9 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/types"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -77,19 +75,9 @@ One can reverse a captured panic stack trace as follows:
 		// Package paths are obfuscated, too.
 		addHashedWithPackage(lpkg.ImportPath)
 
-		var files []*ast.File
-		for _, goFile := range lpkg.CompiledGoFiles {
-			// Direct Go files may be relative paths like "foo.go".
-			// Compiled Go files, such as those generated from cgo,
-			// may be absolute paths inside the Go build cache.
-			if !filepath.IsAbs(goFile) {
-				goFile = filepath.Join(lpkg.Dir, goFile)
-			}
-			file, err := parser.ParseFile(fset, goFile, nil, parser.SkipObjectResolution)
-			if err != nil {
-				return fmt.Errorf("go parse: %w", err)
-			}
-			files = append(files, file)
+		files, err := parseFiles(lpkg.Dir, lpkg.CompiledGoFiles)
+		if err != nil {
+			return err
 		}
 		origImporter := importerForPkg(lpkg)
 		_, info, err := typecheck(lpkg.ImportPath, files, origImporter)
