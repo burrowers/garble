@@ -43,9 +43,9 @@ func parseDirective(directive string) (map[string]string, bool) {
 	return m, true
 }
 
-type ssaParamMap map[string]string
+type directiveParamMap map[string]string
 
-func (m ssaParamMap) GetInt(name string, def int) (int, error) {
+func (m directiveParamMap) GetInt(name string, def int) (int, error) {
 	rawVal, ok := m[name]
 	if !ok {
 		return def, nil
@@ -56,7 +56,7 @@ func (m ssaParamMap) GetInt(name string, def int) (int, error) {
 
 func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfRand *mathrand.Rand) (newFile *ast.File, affectedFiles []*ast.File, err error) {
 	var ssaFuncs []*ssa.Function
-	var ssaParams []ssaParamMap
+	var ssaParams []directiveParamMap
 
 	for _, file := range files {
 		affected := false
