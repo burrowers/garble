@@ -70,8 +70,6 @@ One can reverse a captured panic stack trace as follows:
 		if !lpkg.ToObfuscate {
 			continue
 		}
-		curPkg = lpkg
-
 		addHashedWithPackage := func(str string) {
 			replaces = append(replaces, hashWithPackage(lpkg, str), str)
 		}
@@ -93,7 +91,8 @@ One can reverse a captured panic stack trace as follows:
 			}
 			files = append(files, file)
 		}
-		_, info, err := typecheck(files)
+		origImporter := importerForPkg(lpkg)
+		_, info, err := typecheck(lpkg.ImportPath, files, origImporter)
 		if err != nil {
 			return err
 		}
