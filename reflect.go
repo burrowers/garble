@@ -369,9 +369,6 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 	switch t := t.(type) {
 	case *types.Named:
 		obj := t.Obj()
-
-		// TODO: the transformer is only needed in this function, there is
-		// probably a way to do this with only the ssa information.
 		if obj.Pkg() == nil || obj.Pkg() != ri.pkg {
 			return // not from the specified package
 		}
