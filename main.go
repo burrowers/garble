@@ -1102,6 +1102,13 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		pkgPath := newName[:pkgSplit]
 		pkgSplit++ // skip over the dot
 
+		if strings.HasSuffix(pkgPath, "_test") {
+			// runtime uses a go:linkname to metrics_test;
+			// we don't need this to work for now on regular builds,
+			// though we might need to rethink this if we want "go test std" to work.
+			continue
+		}
+
 		var err error
 		lpkg, err = listPackage(tf.curPkg, pkgPath)
 		if err == nil {
