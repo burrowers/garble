@@ -952,7 +952,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
 	tf.fieldToStruct = computeFieldToStruct(tf.info)
 	if flagLiterals {
-		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg, files); err != nil {
+		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg); err != nil {
 			return nil, err
 		}
 	}
@@ -1466,7 +1466,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 // computeLinkerVariableStrings iterates over the -ldflags arguments,
 // filling a map with all the string values set via the linker's -X flag.
 // TODO: can we put this in sharedCache, using objectString as a key?
-func computeLinkerVariableStrings(pkg *types.Package, files []*ast.File) (map[*types.Var]string, error) {
+func computeLinkerVariableStrings(pkg *types.Package) (map[*types.Var]string, error) {
 	linkerVariableStrings := make(map[*types.Var]string)
 
 	// TODO: this is a linker flag that affects how we obfuscate a package at
@@ -1823,9 +1823,9 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			}
 		case "embed":
 			// FS is detected by the compiler for //go:embed.
-			// TODO: We probably want a conditional, otherwise we're not
-			// obfuscating the embed package at all.
-			return name == "FS"
+			if name == "FS" {
+				return true
+			}
 		case "reflect":
 			switch name {
 			// Per the linker's deadcode.go docs,
