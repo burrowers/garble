@@ -42,6 +42,7 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
+	"mvdan.cc/garble/internal/ctrlflow"
 
 	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
@@ -55,6 +56,8 @@ var (
 	flagDebug    bool
 	flagDebugDir string
 	flagSeed     seedFlag
+	// TODO(pagran): temporarily mimicry as a flag
+	flagControlFlow = os.Getenv("GARBLE_EXPERIMENTAL_CONTROLFLOW") == "1"
 )
 
 func init() {
@@ -936,6 +939,14 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
+	// Literal and control flow obfuscation uses math/rand, so seed it deterministically.
+	randSeed := tf.curPkg.GarbleActionID[:]
+	if flagSeed.present() {
+		randSeed = flagSeed.bytes
+	}
+	// log.Printf("seeding math/rand with %x\n", randSeed)
+	tf.obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
+
 	// Even if loadPkgCache below finds a direct cache hit,
 	// other parts of garble still need type information to obfuscate.
 	// We could potentially avoid this by saving the type info we need in the cache,
@@ -945,7 +956,28 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	if tf.curPkgCache, err = loadPkgCache(tf.curPkg, tf.pkg, files, tf.info); err != nil {
+	var ssaPkg *ssa.Package
+	if flagControlFlow {
+		ssaPkg = ssaBuildPkg(tf.pkg, files, tf.info)
+
+		newFile, affectedFiles, err := ctrlflow.Obfuscate(fset, ssaPkg, files, tf.obfRand)
+		if err != nil {
+			return nil, err
+		}
+
+		if newFile != nil {
+			files = append(files, newFile)
+			paths = append(paths, ctrlflow.FileName)
+			for _, file := range affectedFiles {
+				tf.useAllImports(file)
+			}
+			if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if tf.curPkgCache, err = loadPkgCache(tf.curPkg, tf.pkg, files, tf.info, ssaPkg); err != nil {
 		return nil, err
 	}
 
@@ -962,14 +994,6 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Literal obfuscation uses math/rand, so seed it deterministically.
-	randSeed := tf.curPkg.GarbleActionID[:]
-	if flagSeed.present() {
-		randSeed = flagSeed.bytes
-	}
-	// log.Printf("seeding math/rand with %x\n", randSeed)
-	tf.obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
 
 	// If this is a package to obfuscate, swap the -p flag with the new package path.
 	// We don't if it's the main package, as that just uses "-p main".
@@ -1306,6 +1330,27 @@ func (c *pkgCache) CopyFrom(c2 pkgCache) {
 	maps.Copy(c.EmbeddedAliasFields, c2.EmbeddedAliasFields)
 }
 
+func ssaBuildPkg(pkg *types.Package, files []*ast.File, info *types.Info) *ssa.Package {
+	// Create SSA packages for all imports. Order is not significant.
+	ssaProg := ssa.NewProgram(fset, 0)
+	created := make(map[*types.Package]bool)
+	var createAll func(pkgs []*types.Package)
+	createAll = func(pkgs []*types.Package) {
+		for _, p := range pkgs {
+			if !created[p] {
+				created[p] = true
+				ssaProg.CreatePackage(p, nil, nil, true)
+				createAll(p.Imports())
+			}
+		}
+	}
+	createAll(pkg.Imports())
+
+	ssaPkg := ssaProg.CreatePackage(pkg, files, info, false)
+	ssaPkg.Build()
+	return ssaPkg
+}
+
 func openCache() (*cache.Cache, error) {
 	// Use a subdirectory for the hashed build cache, to clarify what it is,
 	// and to allow us to have other directories or files later on without mixing.
@@ -1316,7 +1361,7 @@ func openCache() (*cache.Cache, error) {
 	return cache.Open(dir)
 }
 
-func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info) (pkgCache, error) {
+func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info, ssaPkg *ssa.Package) (pkgCache, error) {
 	fsCache, err := openCache()
 	if err != nil {
 		return pkgCache{}, err
@@ -1335,10 +1380,10 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 		}
 		return loaded, nil
 	}
-	return computePkgCache(fsCache, lpkg, pkg, files, info)
+	return computePkgCache(fsCache, lpkg, pkg, files, info, ssaPkg)
 }
 
-func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info) (pkgCache, error) {
+func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info, ssaPkg *ssa.Package) (pkgCache, error) {
 	// Not yet in the cache. Load the cache entries for all direct dependencies,
 	// build our cache entry, and write it to disk.
 	// Note that practically all errors from Cache.GetFile are a cache miss;
@@ -1395,7 +1440,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			if err != nil {
 				return err
 			}
-			computedImp, err := computePkgCache(fsCache, lpkg, pkg, files, info)
+			computedImp, err := computePkgCache(fsCache, lpkg, pkg, files, info, ssaPkg)
 			if err != nil {
 				return err
 			}
@@ -1428,28 +1473,13 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 	}
 
 	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
-	// Create SSA packages for all imports. Order is not significant.
-	ssaProg := ssa.NewProgram(fset, 0)
-	created := make(map[*types.Package]bool)
-	var createAll func(pkgs []*types.Package)
-	createAll = func(pkgs []*types.Package) {
-		for _, p := range pkgs {
-			if !created[p] {
-				created[p] = true
-				ssaProg.CreatePackage(p, nil, nil, true)
-				createAll(p.Imports())
-			}
-		}
-	}
-	createAll(pkg.Imports())
-
-	ssaPkg := ssaProg.CreatePackage(pkg, files, info, false)
-	ssaPkg.Build()
-
 	inspector := reflectInspector{
 		pkg:         pkg,
 		checkedAPIs: make(map[string]bool),
 		result:      computed, // append the results
+	}
+	if ssaPkg == nil {
+		ssaPkg = ssaBuildPkg(pkg, files, info)
 	}
 	inspector.recordReflection(ssaPkg)
 
@@ -1551,6 +1581,8 @@ type transformer struct {
 	// of packages, without any obfuscation. This is helpful to make
 	// decisions on how to obfuscate our input code.
 	origImporter importerWithMap
+
+	usedAllImportsFiles map[*ast.File]bool
 }
 
 func typecheck(pkgPath string, files []*ast.File, origImporter importerWithMap) (*types.Package, *types.Info, error) {
@@ -1656,6 +1688,13 @@ func isSafeForInstanceType(typ types.Type) bool {
 }
 
 func (tf *transformer) useAllImports(file *ast.File) {
+	if tf.usedAllImportsFiles == nil {
+		tf.usedAllImportsFiles = make(map[*ast.File]bool)
+	} else if ok := tf.usedAllImportsFiles[file]; ok {
+		return
+	}
+	tf.usedAllImportsFiles[file] = true
+
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
 			continue
