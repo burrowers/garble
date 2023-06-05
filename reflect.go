@@ -10,37 +10,55 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
+type reflectInspector struct {
+	pkg *types.Package
+
+	checkedAPIs map[string]bool
+
+	result pkgCache
+}
+
 // Record all instances of reflection use, and don't obfuscate types which are used in reflection.
-func (tf *transformer) recordReflection(ssaPkg *ssa.Package) {
+func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 	if reflectSkipPkg[ssaPkg.Pkg.Path()] {
 		return
 	}
 
-	lenPrevKnownReflectAPIs := len(cachedOutput.KnownReflectAPIs)
+	lenPrevReflectAPIs := len(ri.result.ReflectAPIs)
 
 	// find all unchecked APIs to add them to checkedAPIs after the pass
 	notCheckedAPIs := make(map[string]bool)
-	for _, knownAPI := range maps.Keys(cachedOutput.KnownReflectAPIs) {
-		if !tf.reflectCheckedAPIs[knownAPI] {
+	for _, knownAPI := range maps.Keys(ri.result.ReflectAPIs) {
+		if !ri.checkedAPIs[knownAPI] {
 			notCheckedAPIs[knownAPI] = true
 		}
 	}
 
-	tf.ignoreReflectedTypes(ssaPkg)
+	ri.ignoreReflectedTypes(ssaPkg)
 
 	// all previously unchecked APIs have now been checked add them to checkedAPIs,
 	// to avoid checking them twice
-	maps.Copy(tf.reflectCheckedAPIs, notCheckedAPIs)
+	maps.Copy(ri.checkedAPIs, notCheckedAPIs)
 
 	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
-	if len(cachedOutput.KnownReflectAPIs) > lenPrevKnownReflectAPIs {
-		tf.recordReflection(ssaPkg)
+	if len(ri.result.ReflectAPIs) > lenPrevReflectAPIs {
+		ri.recordReflection(ssaPkg)
 	}
 }
 
 // find all functions, methods and interface declarations of a package and record their
 // reflection use
-func (tf *transformer) ignoreReflectedTypes(ssaPkg *ssa.Package) {
+func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
+	// Some packages reach into reflect internals, like go-spew.
+	// It's not particularly right of them to do that,
+	// and it's entirely unsupported, but try to accomodate for now.
+	// At least it's enough to leave the rtype and Value types intact.
+	if ri.pkg.Path() == "reflect" {
+		scope := ri.pkg.Scope()
+		ri.recursivelyRecordUsedForReflect(scope.Lookup("rtype").Type())
+		ri.recursivelyRecordUsedForReflect(scope.Lookup("Value").Type())
+	}
+
 	for _, memb := range ssaPkg.Members {
 		switch x := memb.(type) {
 		case *ssa.Type:
@@ -52,11 +70,11 @@ func (tf *transformer) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 					at := mset.At(i)
 
 					if m := ssaPkg.Prog.MethodValue(at); m != nil {
-						tf.checkFunction(m)
+						ri.checkFunction(m)
 					} else {
 						m := at.Obj().(*types.Func)
 						// handle interface declarations
-						tf.checkInterfaceMethod(m)
+						ri.checkInterfaceMethod(m)
 					}
 
 				}
@@ -73,7 +91,7 @@ func (tf *transformer) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 			// these not only include top level functions, but also synthetic
 			// functions like the initialization of global variables
 
-			tf.checkFunction(x)
+			ri.checkFunction(x)
 		}
 	}
 }
@@ -85,7 +103,7 @@ func (tf *transformer) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 // and treat them like a parameter which is actually used in reflection.
 //
 // See "UnnamedStructMethod" in the reflect.txtar test for an example.
-func (tf *transformer) checkMethodSignature(reflectParams map[int]bool, sig *types.Signature) {
+func (ri *reflectInspector) checkMethodSignature(reflectParams map[int]bool, sig *types.Signature) {
 	if sig.Recv() == nil {
 		return
 	}
@@ -114,31 +132,31 @@ func (tf *transformer) checkMethodSignature(reflectParams map[int]bool, sig *typ
 
 		if ignore {
 			reflectParams[i] = true
-			tf.recursivelyRecordAsNotObfuscated(param.Type())
+			ri.recursivelyRecordUsedForReflect(param.Type())
 		}
 	}
 }
 
 // Checks the signature of an interface method for potential reflection use.
-func (tf *transformer) checkInterfaceMethod(m *types.Func) {
+func (ri *reflectInspector) checkInterfaceMethod(m *types.Func) {
 	reflectParams := make(map[int]bool)
 
-	maps.Copy(reflectParams, cachedOutput.KnownReflectAPIs[m.FullName()])
+	maps.Copy(reflectParams, ri.result.ReflectAPIs[m.FullName()])
 
 	sig := m.Type().(*types.Signature)
 	if m.Exported() {
-		tf.checkMethodSignature(reflectParams, sig)
+		ri.checkMethodSignature(reflectParams, sig)
 	}
 
 	if len(reflectParams) > 0 {
-		cachedOutput.KnownReflectAPIs[m.FullName()] = reflectParams
+		ri.result.ReflectAPIs[m.FullName()] = reflectParams
 
-		/* fmt.Printf("cachedOutput.KnownReflectAPIs: %v\n", cachedOutput.KnownReflectAPIs) */
+		/* fmt.Printf("curPkgCache.ReflectAPIs: %v\n", curPkgCache.ReflectAPIs) */
 	}
 }
 
 // Checks all callsites in a function declaration for use of reflection.
-func (tf *transformer) checkFunction(fun *ssa.Function) {
+func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 	/* 	if fun != nil && fun.Synthetic != "loaded from gc object file" {
 		// fun.WriteTo crashes otherwise
 		fun.WriteTo(os.Stdout)
@@ -148,10 +166,10 @@ func (tf *transformer) checkFunction(fun *ssa.Function) {
 
 	reflectParams := make(map[int]bool)
 	if f != nil {
-		maps.Copy(reflectParams, cachedOutput.KnownReflectAPIs[f.FullName()])
+		maps.Copy(reflectParams, ri.result.ReflectAPIs[f.FullName()])
 
 		if f.Exported() {
-			tf.checkMethodSignature(reflectParams, fun.Signature)
+			ri.checkMethodSignature(reflectParams, fun.Signature)
 		}
 	}
 
@@ -171,7 +189,7 @@ func (tf *transformer) checkFunction(fun *ssa.Function) {
 				callName = call.Call.Method.FullName()
 			}
 
-			if tf.reflectCheckedAPIs[callName] {
+			if ri.checkedAPIs[callName] {
 				// only check apis which were not already checked
 				continue
 			}
@@ -179,7 +197,7 @@ func (tf *transformer) checkFunction(fun *ssa.Function) {
 			/* fmt.Printf("callName: %v\n", callName) */
 
 			// record each call argument passed to a function parameter which is used in reflection
-			knownParams := cachedOutput.KnownReflectAPIs[callName]
+			knownParams := ri.result.ReflectAPIs[callName]
 			for knownParam := range knownParams {
 				if len(call.Call.Args) <= knownParam {
 					continue
@@ -190,7 +208,7 @@ func (tf *transformer) checkFunction(fun *ssa.Function) {
 				/* fmt.Printf("flagging arg: %v\n", arg) */
 
 				visited := make(map[ssa.Value]bool)
-				reflectedParam := tf.recordArgReflected(arg, visited)
+				reflectedParam := ri.recordArgReflected(arg, visited)
 				if reflectedParam == nil {
 					continue
 				}
@@ -208,16 +226,16 @@ func (tf *transformer) checkFunction(fun *ssa.Function) {
 	}
 
 	if len(reflectParams) > 0 {
-		cachedOutput.KnownReflectAPIs[f.FullName()] = reflectParams
+		ri.result.ReflectAPIs[f.FullName()] = reflectParams
 
-		/* fmt.Printf("cachedOutput.KnownReflectAPIs: %v\n", cachedOutput.KnownReflectAPIs) */
+		/* fmt.Printf("curPkgCache.ReflectAPIs: %v\n", curPkgCache.ReflectAPIs) */
 	}
 }
 
 // recordArgReflected finds the type(s) of a function argument, which is being used in reflection
 // and excludes these types from obfuscation
 // It also checks if this argument has any relation to a function paramter and returns it if found.
-func (tf *transformer) recordArgReflected(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
+func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 	// make sure we visit every val only once, otherwise there will be infinite recursion
 	if visited[val] {
 		return nil
@@ -230,26 +248,26 @@ func (tf *transformer) recordArgReflected(val ssa.Value, visited map[ssa.Value]b
 	case *ssa.IndexAddr:
 		for _, ref := range *val.Referrers() {
 			if store, ok := ref.(*ssa.Store); ok {
-				tf.recordArgReflected(store.Val, visited)
+				ri.recordArgReflected(store.Val, visited)
 			}
 		}
-		return tf.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(val.X, visited)
 	case *ssa.Slice:
-		return tf.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(val.X, visited)
 	case *ssa.MakeInterface:
-		return tf.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(val.X, visited)
 	case *ssa.UnOp:
-		return tf.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(val.X, visited)
 	case *ssa.FieldAddr:
-		return tf.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(val.X, visited)
 
 	case *ssa.Alloc:
 		/* fmt.Printf("recording val %v \n", *val.Referrers()) */
-		tf.recursivelyRecordAsNotObfuscated(val.Type())
+		ri.recursivelyRecordUsedForReflect(val.Type())
 
 		for _, ref := range *val.Referrers() {
 			if idx, ok := ref.(*ssa.IndexAddr); ok {
-				tf.recordArgReflected(idx, visited)
+				ri.recordArgReflected(idx, visited)
 			}
 		}
 
@@ -260,9 +278,9 @@ func (tf *transformer) recordArgReflected(val ssa.Value, visited map[ssa.Value]b
 		return relatedParam(val, visited)
 
 	case *ssa.Const:
-		tf.recursivelyRecordAsNotObfuscated(val.Type())
+		ri.recursivelyRecordUsedForReflect(val.Type())
 	case *ssa.Global:
-		tf.recursivelyRecordAsNotObfuscated(val.Type())
+		ri.recursivelyRecordUsedForReflect(val.Type())
 
 		// TODO: this might need similar logic to *ssa.Alloc, however
 		// reassigning a function param to a global variable and then reflecting
@@ -271,7 +289,7 @@ func (tf *transformer) recordArgReflected(val ssa.Value, visited map[ssa.Value]b
 		// this only finds the parameters who want to be found,
 		// otherwise relatedParam is used for more in depth analysis
 
-		tf.recursivelyRecordAsNotObfuscated(val.Type())
+		ri.recursivelyRecordUsedForReflect(val.Type())
 		return val
 	}
 
@@ -341,29 +359,26 @@ func relatedParam(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 	return nil
 }
 
-// recursivelyRecordAsNotObfuscated calls recordAsNotObfuscated on any named
+// recursivelyRecordUsedForReflect calls recordUsedForReflect on any named
 // types and fields under typ.
 //
 // Only the names declared in the current package are recorded. This is to ensure
 // that reflection detection only happens within the package declaring a type.
 // Detecting it in downstream packages could result in inconsistencies.
-func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
+func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 	switch t := t.(type) {
 	case *types.Named:
 		obj := t.Obj()
-
-		// TODO: the transformer is only needed in this function, there is
-		// probably a way to do this with only the ssa information.
-		if obj.Pkg() == nil || obj.Pkg() != tf.pkg {
+		if obj.Pkg() == nil || obj.Pkg() != ri.pkg {
 			return // not from the specified package
 		}
-		if recordedAsNotObfuscated(obj) {
+		if usedForReflect(ri.result, obj) {
 			return // prevent endless recursion
 		}
-		recordAsNotObfuscated(obj)
+		ri.recordUsedForReflect(obj)
 
 		// Record the underlying type, too.
-		tf.recursivelyRecordAsNotObfuscated(t.Underlying())
+		ri.recursivelyRecordUsedForReflect(t.Underlying())
 
 	case *types.Struct:
 		for i := 0; i < t.NumFields(); i++ {
@@ -372,19 +387,19 @@ func (tf *transformer) recursivelyRecordAsNotObfuscated(t types.Type) {
 			// This check is similar to the one in *types.Named.
 			// It's necessary for unnamed struct types,
 			// as they aren't named but still have named fields.
-			if field.Pkg() == nil || field.Pkg() != tf.pkg {
+			if field.Pkg() == nil || field.Pkg() != ri.pkg {
 				return // not from the specified package
 			}
 
 			// Record the field itself, too.
-			recordAsNotObfuscated(field)
+			ri.recordUsedForReflect(field)
 
-			tf.recursivelyRecordAsNotObfuscated(field.Type())
+			ri.recursivelyRecordUsedForReflect(field.Type())
 		}
 
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
-		tf.recursivelyRecordAsNotObfuscated(t.Elem())
+		ri.recursivelyRecordUsedForReflect(t.Elem())
 	}
 }
 
@@ -421,16 +436,11 @@ func recordedObjectString(obj types.Object) objectString {
 	return pkg.Path() + "." + obj.Name()
 }
 
-// recordAsNotObfuscated records all the objects whose names we cannot obfuscate.
-// An object is any named entity, such as a declared variable or type.
-//
-// As of June 2022, this only records types which are used in reflection.
-// TODO(mvdan): If this is still the case in a year's time,
-// we should probably rename "not obfuscated" and "cannot obfuscate" to be
-// directly about reflection, e.g. "used in reflection".
-func recordAsNotObfuscated(obj types.Object) {
-	if obj.Pkg().Path() != curPkg.ImportPath {
-		panic("called recordedAsNotObfuscated with a foreign object")
+// recordUsedForReflect records the objects whose names we cannot obfuscate due to reflection.
+// We currently record named types and fields.
+func (ri *reflectInspector) recordUsedForReflect(obj types.Object) {
+	if obj.Pkg().Path() != ri.pkg.Path() {
+		panic("called recordUsedForReflect with a foreign object")
 	}
 	objStr := recordedObjectString(obj)
 	if objStr == "" {
@@ -438,14 +448,14 @@ func recordAsNotObfuscated(obj types.Object) {
 		// do we need to record it at all?
 		return
 	}
-	cachedOutput.KnownCannotObfuscate[objStr] = struct{}{}
+	ri.result.ReflectObjects[objStr] = struct{}{}
 }
 
-func recordedAsNotObfuscated(obj types.Object) bool {
+func usedForReflect(cache pkgCache, obj types.Object) bool {
 	objStr := recordedObjectString(obj)
 	if objStr == "" {
 		return false
 	}
-	_, ok := cachedOutput.KnownCannotObfuscate[objStr]
+	_, ok := cache.ReflectObjects[objStr]
 	return ok
 }

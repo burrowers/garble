@@ -8,11 +8,9 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/types"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -70,8 +68,6 @@ One can reverse a captured panic stack trace as follows:
 		if !lpkg.ToObfuscate {
 			continue
 		}
-		curPkg = lpkg
-
 		addHashedWithPackage := func(str string) {
 			replaces = append(replaces, hashWithPackage(lpkg, str), str)
 		}
@@ -79,24 +75,16 @@ One can reverse a captured panic stack trace as follows:
 		// Package paths are obfuscated, too.
 		addHashedWithPackage(lpkg.ImportPath)
 
-		var files []*ast.File
-		for _, goFile := range lpkg.CompiledGoFiles {
-			// Direct Go files may be relative paths like "foo.go".
-			// Compiled Go files, such as those generated from cgo,
-			// may be absolute paths inside the Go build cache.
-			if !filepath.IsAbs(goFile) {
-				goFile = filepath.Join(lpkg.Dir, goFile)
-			}
-			file, err := parser.ParseFile(fset, goFile, nil, parser.SkipObjectResolution)
-			if err != nil {
-				return fmt.Errorf("go parse: %w", err)
-			}
-			files = append(files, file)
-		}
-		tf := &transformer{}
-		if err := tf.typecheck(files); err != nil {
+		files, err := parseFiles(lpkg.Dir, lpkg.CompiledGoFiles)
+		if err != nil {
 			return err
 		}
+		origImporter := importerForPkg(lpkg)
+		_, info, err := typecheck(lpkg.ImportPath, files, origImporter)
+		if err != nil {
+			return err
+		}
+		fieldToStruct := computeFieldToStruct(info)
 		for i, file := range files {
 			goFile := lpkg.CompiledGoFiles[i]
 			ast.Inspect(file, func(node ast.Node) bool {
@@ -110,13 +98,13 @@ One can reverse a captured panic stack trace as follows:
 					addHashedWithPackage(node.Name.Name)
 				case *ast.Field:
 					for _, name := range node.Names {
-						obj, _ := tf.info.ObjectOf(name).(*types.Var)
+						obj, _ := info.ObjectOf(name).(*types.Var)
 						if obj == nil || !obj.IsField() {
 							continue
 						}
-						strct := tf.fieldToStruct[obj]
+						strct := fieldToStruct[obj]
 						if strct == nil {
-							panic("could not find for " + name.Name)
+							panic("could not find struct for field " + name.Name)
 						}
 						replaces = append(replaces, hashWithStruct(strct, name.Name), name.Name)
 					}

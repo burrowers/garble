@@ -12,7 +12,7 @@ runtime_and_deps=$(go list -deps runtime)
 # This resulting list is what we need to "go list" when obfuscating the runtime,
 # as they are the packages that we may be missing.
 runtime_linknamed=$(comm -23 <(
-	sed -rn 's@//go:linkname .* ([^.]*)\.[^.]*@\1@p' "${goroot}"/src/runtime/*.go | grep -vE '^main|^runtime\.' | sort -u
+	sed -rn 's@//go:linkname .* ([^.]*)\.[^.]*@\1@p' "${goroot}"/src/runtime/*.go | grep -vE '^main|^runtime\.|_test$' | sort -u
 ) <(
 	# Note that we assume this is constant across platforms.
 	go list -deps runtime | sort -u

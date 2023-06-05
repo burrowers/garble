@@ -101,11 +101,9 @@ func TestScript(t *testing.T) {
 				// coverage. Otherwise, the coverage info might be incomplete.
 				env.Setenv("GOCACHE", filepath.Join(tempCacheDir, "go-cache"))
 				env.Setenv("GARBLE_CACHE", filepath.Join(tempCacheDir, "garble-cache"))
-				env.Setenv("GARBLE_CACHE_DIR", filepath.Join(tempCacheDir, "garble-cache-2"))
 			} else {
 				// GOCACHE is initialized by gotooltest to use the host's cache.
 				env.Setenv("GARBLE_CACHE", filepath.Join(hostCacheDir, "garble"))
-				env.Setenv("GARBLE_CACHE_DIR", hostCacheDir)
 			}
 			return nil
 		},

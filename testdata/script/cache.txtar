@@ -17,12 +17,9 @@ rm garble-cache
 # level1c has the garble build cached with all files available.
 exec garble build ./level1c
 
-# TODO: this test now fails due to our fragile caching.
-! exec garble build
-stderr 'cannot load cache entry for test/main/level1b'
-# exec garble build
-# exec ./main
-# cmp stderr main.stderr
+exec garble build
+exec ./main
+cmp stderr main.stderr
 
 # verify with regular Go.
 go build

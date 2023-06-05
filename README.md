@@ -9,7 +9,9 @@ Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.20 or later.
 The tool also supports `garble test` to run tests with obfuscated code,
 `garble run` to obfuscate and execute simple programs,
 and `garble reverse` to de-obfuscate text such as stack traces.
-See `garble -h` for up to date usage information.
+Run `garble -h` to see all available commands and flags.
+
+You can also use `go install mvdan.cc/garble@master` to install the latest development version.
 
 ### Purpose
 
@@ -92,6 +94,10 @@ at a time. This allows Garble to fully support Go's build cache; incremental
 Note that the first call to `garble build` may be comparatively slow,
 as it has to obfuscate each package for the first time. This is akin to clearing
 `GOCACHE` with `go clean -cache` and running a `go build` from scratch.
+
+Garble also makes use of its own cache to reuse work, akin to Go's `GOCACHE`.
+It defaults to a directory under your user's cache directory,
+such as `~/.cache/garble`, and can be placed elsewhere by setting `GARBLE_CACHE`.
 
 ### Determinism and seeds
 

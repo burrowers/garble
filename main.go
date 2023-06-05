@@ -36,13 +36,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/rogpeppe/go-internal/cache"
+	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
 
-	"mvdan.cc/garble/internal/ctrlflow"
 	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
 )
@@ -55,8 +55,6 @@ var (
 	flagDebug    bool
 	flagDebugDir string
 	flagSeed     seedFlag
-	// TODO(pagran): temporarily mimicry as a flag
-	flagControlFlow = os.Getenv("GARBLE_EXPERIMENTAL_CONTROLFLOW") == "1"
 )
 
 func init() {
@@ -145,43 +143,40 @@ For more information, see https://github.com/burrowers/garble.
 func main() { os.Exit(main1()) }
 
 var (
-	fset          = token.NewFileSet()
+	// Presumably OK to share fset across packages.
+	fset = token.NewFileSet()
+
 	sharedTempDir = os.Getenv("GARBLE_SHARED")
 	parentWorkDir = os.Getenv("GARBLE_PARENT_WORK")
-
-	// origImporter is a go/types importer which uses the original versions
-	// of packages, without any obfuscation. This is helpful to make
-	// decisions on how to obfuscate our input code.
-	origImporter = importerWithMap(importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
-		pkg, err := listPackage(path)
-		if err != nil {
-			return nil, err
-		}
-		return os.Open(pkg.Export)
-	}).(types.ImporterFrom).ImportFrom)
-
-	// Basic information about the package being currently compiled or linked.
-	curPkg *listedPackage
-
-	// obfRand is initialized by transformCompile and used during obfuscation.
-	// It is left nil at init time, so that we only use it after it has been
-	// properly initialized with a deterministic seed.
-	// It must only be used for deterministic obfuscation;
-	// if it is used for any other purpose, we may lose determinism.
-	obfRand *mathrand.Rand
 )
 
-type importerWithMap func(path, dir string, mode types.ImportMode) (*types.Package, error)
+type importerWithMap struct {
+	importMap  map[string]string
+	importFrom func(path, dir string, mode types.ImportMode) (*types.Package, error)
+}
 
-func (fn importerWithMap) Import(path string) (*types.Package, error) {
+func (im importerWithMap) Import(path string) (*types.Package, error) {
 	panic("should never be called")
 }
 
-func (fn importerWithMap) ImportFrom(path, dir string, mode types.ImportMode) (*types.Package, error) {
-	if path2 := curPkg.ImportMap[path]; path2 != "" {
+func (im importerWithMap) ImportFrom(path, dir string, mode types.ImportMode) (*types.Package, error) {
+	if path2 := im.importMap[path]; path2 != "" {
 		path = path2
 	}
-	return fn(path, dir, mode)
+	return im.importFrom(path, dir, mode)
+}
+
+func importerForPkg(lpkg *listedPackage) importerWithMap {
+	return importerWithMap{
+		importFrom: importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+			pkg, err := listPackage(lpkg, path)
+			if err != nil {
+				return nil, err
+			}
+			return os.Open(pkg.Export)
+		}).(types.ImporterFrom).ImportFrom,
+		importMap: lpkg.ImportMap,
+	}
 }
 
 // uniqueLineWriter sits underneath log.SetOutput to deduplicate log lines.
@@ -405,12 +400,15 @@ func mainErr(args []string) error {
 			if err := os.RemoveAll(os.Getenv("GARBLE_SHARED")); err != nil {
 				fmt.Fprintf(os.Stderr, "could not clean up GARBLE_SHARED: %v\n", err)
 			}
-			fsCache, err := openCache()
-			if err == nil {
-				err = fsCache.Trim()
-			}
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "could not trim GARBLE_CACHE: %v\n", err)
+			// skip the trim if we didn't even start a build
+			if sharedCache != nil {
+				fsCache, err := openCache()
+				if err == nil {
+					err = fsCache.Trim()
+				}
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "could not trim GARBLE_CACHE: %v\n", err)
+				}
 			}
 		}()
 		if err != nil {
@@ -426,7 +424,7 @@ func mainErr(args []string) error {
 		if runtime.GOOS == "windows" {
 			tool = strings.TrimSuffix(tool, ".exe")
 		}
-		transform := transformFuncs[tool]
+		transform := transformMethods[tool]
 		transformed := args[1:]
 		if transform != nil {
 			startTime := time.Now()
@@ -441,15 +439,16 @@ func mainErr(args []string) error {
 			if len(args) == 2 && args[1] == "-V=full" {
 				return alterToolVersion(tool, args)
 			}
-
+			var tf transformer
 			toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
-			curPkg = sharedCache.ListedPackages[toolexecImportPath]
-			if curPkg == nil {
+			tf.curPkg = sharedCache.ListedPackages[toolexecImportPath]
+			if tf.curPkg == nil {
 				return fmt.Errorf("TOOLEXEC_IMPORTPATH not found in listed packages: %s", toolexecImportPath)
 			}
+			tf.origImporter = importerForPkg(tf.curPkg)
 
 			var err error
-			if transformed, err = transform(transformed); err != nil {
+			if transformed, err = transform(&tf, transformed); err != nil {
 				return err
 			}
 			log.Printf("transformed args for %s in %s: %s", tool, debugSince(startTime), strings.Join(transformed, " "))
@@ -459,7 +458,7 @@ func mainErr(args []string) error {
 
 		executablePath := args[0]
 		if tool == "link" {
-			modifiedLinkPath, unlock, err := linker.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedTempDir)
+			modifiedLinkPath, unlock, err := linker.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
 			if err != nil {
 				return fmt.Errorf("cannot get modified linker: %v", err)
 			}
@@ -547,6 +546,20 @@ This command wraps "go %s". Below is its help:
 		return nil, err
 	}
 
+	// Always an absolute directory; defaults to e.g. "~/.cache/garble".
+	if dir := os.Getenv("GARBLE_CACHE"); dir != "" {
+		sharedCache.CacheDir, err = filepath.Abs(dir)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		parentDir, err := os.UserCacheDir()
+		if err != nil {
+			return nil, err
+		}
+		sharedCache.CacheDir = filepath.Join(parentDir, "garble")
+	}
+
 	binaryBuildID, err := buildidOf(sharedCache.ExecPath)
 	if err != nil {
 		return nil, err
@@ -621,18 +634,18 @@ This command wraps "go %s". Below is its help:
 	return exec.Command("go", goArgs...), nil
 }
 
-var transformFuncs = map[string]func([]string) ([]string, error){
-	"asm":     transformAsm,
-	"compile": transformCompile,
-	"link":    transformLink,
+var transformMethods = map[string]func(*transformer, []string) ([]string, error){
+	"asm":     (*transformer).transformAsm,
+	"compile": (*transformer).transformCompile,
+	"link":    (*transformer).transformLink,
 }
 
-func transformAsm(args []string) ([]string, error) {
+func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	flags, paths := splitFlagsFromFiles(args, ".s")
 
 	// When assembling, the import path can make its way into the output object file.
-	if curPkg.Name != "main" && curPkg.ToObfuscate {
-		flags = flagSetValue(flags, "-p", curPkg.obfuscatedImportPath())
+	if tf.curPkg.Name != "main" && tf.curPkg.ToObfuscate {
+		flags = flagSetValue(flags, "-p", tf.curPkg.obfuscatedImportPath())
 	}
 
 	flags = alterTrimpath(flags)
@@ -644,8 +657,8 @@ func transformAsm(args []string) ([]string, error) {
 	newPaths := make([]string, 0, len(paths))
 	if !slices.Contains(args, "-gensymabis") {
 		for _, path := range paths {
-			name := hashWithPackage(curPkg, filepath.Base(path)) + ".s"
-			pkgDir := filepath.Join(sharedTempDir, curPkg.obfuscatedImportPath())
+			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
+			pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedImportPath())
 			newPath := filepath.Join(pkgDir, name)
 			newPaths = append(newPaths, newPath)
 		}
@@ -692,7 +705,7 @@ func transformAsm(args []string) ([]string, error) {
 					} else if err != nil {
 						return nil, err
 					}
-					replaceAsmNames(&includeBuf, content)
+					tf.replaceAsmNames(&includeBuf, content)
 
 					// For now, we replace `foo.h` or `dir/foo.h` with `garbled_foo.h`.
 					// The different name ensures we don't use the unobfuscated file.
@@ -701,7 +714,7 @@ func transformAsm(args []string) ([]string, error) {
 					basename := filepath.Base(path)
 					newPath = "garbled_" + basename
 
-					if _, err := writeSourceFile(basename, newPath, includeBuf.Bytes()); err != nil {
+					if _, err := tf.writeSourceFile(basename, newPath, includeBuf.Bytes()); err != nil {
 						return nil, err
 					}
 					newHeaderPaths[path] = newPath
@@ -716,7 +729,7 @@ func transformAsm(args []string) ([]string, error) {
 			line, comment, hasComment := strings.Cut(line, "//")
 
 			// Anything else is regular assembly; replace the names.
-			replaceAsmNames(&buf, []byte(line))
+			tf.replaceAsmNames(&buf, []byte(line))
 
 			if hasComment {
 				buf.WriteString("//")
@@ -732,8 +745,8 @@ func transformAsm(args []string) ([]string, error) {
 		// directory, as assembly files do not support `/*line` directives.
 		// TODO(mvdan): per cmd/asm/internal/lex, they do support `#line`.
 		basename := filepath.Base(path)
-		newName := hashWithPackage(curPkg, basename) + ".s"
-		if path, err := writeSourceFile(basename, newName, buf.Bytes()); err != nil {
+		newName := hashWithPackage(tf.curPkg, basename) + ".s"
+		if path, err := tf.writeSourceFile(basename, newName, buf.Bytes()); err != nil {
 			return nil, err
 		} else {
 			newPaths = append(newPaths, path)
@@ -744,7 +757,7 @@ func transformAsm(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
-func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
+func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	// We need to replace all function references with their obfuscated name
 	// counterparts.
 	// Luckily, all func names in Go assembly files are immediately followed
@@ -809,14 +822,14 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		// If the name was qualified, fetch the package, and write the
 		// obfuscated import path if needed.
 		// Note that we don't obfuscate the package path "main".
-		lpkg := curPkg
+		lpkg := tf.curPkg
 		if asmPkgPath != "" && asmPkgPath != "main" {
-			if asmPkgPath != curPkg.Name {
+			if asmPkgPath != tf.curPkg.Name {
 				goPkgPath := asmPkgPath
 				goPkgPath = strings.ReplaceAll(goPkgPath, string(asmPeriod), string(goPeriod))
 				goPkgPath = strings.ReplaceAll(goPkgPath, string(asmSlash), string(goSlash))
 				var err error
-				lpkg, err = listPackage(goPkgPath)
+				lpkg, err = listPackage(tf.curPkg, goPkgPath)
 				if err != nil {
 					panic(err) // shouldn't happen
 				}
@@ -850,7 +863,7 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		if lpkg.ToObfuscate && !compilerIntrinsicsFuncs[lpkg.ImportPath+"."+name] {
 			newName := hashWithPackage(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
-				log.Printf("asm name %q hashed with %x to %q", name, curPkg.GarbleActionID, newName)
+				log.Printf("asm name %q hashed with %x to %q", name, tf.curPkg.GarbleActionID, newName)
 			}
 			buf.WriteString(newName)
 		} else {
@@ -864,12 +877,12 @@ func replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 //
 // Note that the file is created under a directory tree following curPkg's
 // import path, mimicking how files are laid out in modules and GOROOT.
-func writeSourceFile(basename, obfuscated string, content []byte) (string, error) {
+func (tf *transformer) writeSourceFile(basename, obfuscated string, content []byte) (string, error) {
 	// Uncomment for some quick debugging. Do not delete.
 	// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, basename, content)
 
 	if flagDebugDir != "" {
-		pkgDir := filepath.Join(flagDebugDir, filepath.FromSlash(curPkg.ImportPath))
+		pkgDir := filepath.Join(flagDebugDir, filepath.FromSlash(tf.curPkg.ImportPath))
 		if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 			return "", err
 		}
@@ -881,7 +894,7 @@ func writeSourceFile(basename, obfuscated string, content []byte) (string, error
 	// We use the obfuscated import path to hold the temporary files.
 	// Assembly files do not support line directives to set positions,
 	// so the only way to not leak the import path is to replace it.
-	pkgDir := filepath.Join(sharedTempDir, curPkg.obfuscatedImportPath())
+	pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedImportPath())
 	if err := os.MkdirAll(pkgDir, 0o777); err != nil {
 		return "", err
 	}
@@ -892,83 +905,79 @@ func writeSourceFile(basename, obfuscated string, content []byte) (string, error
 	return dstPath, nil
 }
 
-func transformCompile(args []string) ([]string, error) {
-	var err error
-	flags, paths := splitFlagsFromFiles(args, ".go")
-
-	// We will force the linker to drop DWARF via -w, so don't spend time
-	// generating it.
-	flags = append(flags, "-dwarf=false")
-
+// parseFiles parses a list of Go files.
+// It supports relative file paths, such as those found in listedPackage.CompiledGoFiles,
+// as long as dir is set to listedPackage.Dir.
+func parseFiles(dir string, paths []string) ([]*ast.File, error) {
 	var files []*ast.File
 	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(dir, path)
+		}
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution|parser.ParseComments)
 		if err != nil {
 			return nil, err
 		}
 		files = append(files, file)
 	}
-	tf := &transformer{}
+	return files, nil
+}
 
-	// Even if loadCachedOutput below finds a direct cache hit,
+func (tf *transformer) transformCompile(args []string) ([]string, error) {
+	flags, paths := splitFlagsFromFiles(args, ".go")
+
+	// We will force the linker to drop DWARF via -w, so don't spend time
+	// generating it.
+	flags = append(flags, "-dwarf=false")
+
+	// The Go file paths given to the compiler are always absolute paths.
+	files, err := parseFiles("", paths)
+	if err != nil {
+		return nil, err
+	}
+
+	// Even if loadPkgCache below finds a direct cache hit,
 	// other parts of garble still need type information to obfuscate.
 	// We could potentially avoid this by saving the type info we need in the cache,
 	// although in general that wouldn't help much, since it's rare for Go's cache
 	// to miss on a package and for our cache to hit.
-	if err := tf.typecheck(files); err != nil {
+	if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter); err != nil {
 		return nil, err
 	}
 
-	// NOTE: cachedOutput.KnownEmbeddedAliasFields is already filled by typecheck above.
-	// That's needed if loadCachedOutput is a miss, as we need to save the map.
-	// If loadCachedOutput is a hit, then it's still fine, as the map entries are the same.
-	if err := tf.loadCachedOutput(files); err != nil {
+	if tf.curPkgCache, err = loadPkgCache(tf.curPkg, tf.pkg, files, tf.info); err != nil {
+		return nil, err
+	}
+
+	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
+	tf.fieldToStruct = computeFieldToStruct(tf.info)
+	if flagLiterals {
+		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg); err != nil {
+			return nil, err
+		}
+	}
+
+	flags = alterTrimpath(flags)
+	newImportCfg, err := tf.processImportCfg(flags)
+	if err != nil {
 		return nil, err
 	}
 
 	// Literal obfuscation uses math/rand, so seed it deterministically.
-	randSeed := curPkg.GarbleActionID[:]
+	randSeed := tf.curPkg.GarbleActionID[:]
 	if flagSeed.present() {
 		randSeed = flagSeed.bytes
 	}
 	// log.Printf("seeding math/rand with %x\n", randSeed)
-	obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
-
-	if flagControlFlow {
-		newFile, affectedFiles, err := ctrlflow.Obfuscate(fset, tf.ssaPkg, files, obfRand)
-		if err != nil {
-			return nil, err
-		}
-
-		if newFile != nil {
-			files = append(files, newFile)
-			paths = append(paths, ctrlflow.FileName)
-			for _, file := range affectedFiles {
-				tf.useAllImports(file)
-			}
-			if err := tf.typecheck(files); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	if err := tf.prefillObjectMaps(files); err != nil {
-		return nil, err
-	}
-
-	flags = alterTrimpath(flags)
-	newImportCfg, err := processImportCfg(flags)
-	if err != nil {
-		return nil, err
-	}
+	tf.obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
 
 	// If this is a package to obfuscate, swap the -p flag with the new package path.
 	// We don't if it's the main package, as that just uses "-p main".
 	// We only set newPkgPath if we're obfuscating the import path,
 	// to replace the original package name in the package clause below.
 	newPkgPath := ""
-	if curPkg.Name != "main" && curPkg.ToObfuscate {
-		newPkgPath = curPkg.obfuscatedImportPath()
+	if tf.curPkg.Name != "main" && tf.curPkg.ToObfuscate {
+		newPkgPath = tf.curPkg.obfuscatedImportPath()
 		flags = flagSetValue(flags, "-p", newPkgPath)
 	}
 
@@ -977,7 +986,7 @@ func transformCompile(args []string) ([]string, error) {
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
 		log.Printf("obfuscating %s", basename)
-		if curPkg.ImportPath == "runtime" {
+		if tf.curPkg.ImportPath == "runtime" {
 			if flagTiny {
 				// strip unneeded runtime code
 				stripRuntime(basename, file)
@@ -988,45 +997,24 @@ func transformCompile(args []string) ([]string, error) {
 				updateEntryOffset(file, entryOffKey())
 			}
 		}
-		tf.handleDirectives(file.Comments)
+		tf.transformDirectives(file.Comments)
 		file = tf.transformGoFile(file)
 		// newPkgPath might be the original ImportPath in some edge cases like
 		// compilerIntrinsics; we don't want to use slashes in package names.
 		// TODO: when we do away with those edge cases, only check the string is
 		// non-empty.
-		if newPkgPath != "" && newPkgPath != curPkg.ImportPath {
+		if newPkgPath != "" && newPkgPath != tf.curPkg.ImportPath {
 			file.Name.Name = newPkgPath
 		}
 
-		src, err := printFile(file)
+		src, err := printFile(tf.curPkg, file)
 		if err != nil {
 			return nil, err
-		}
-		// It is possible to end up in an edge case where two instances of the
-		// same package have different Action IDs, but their obfuscation and
-		// builds produce exactly the same results.
-		// In such an edge case, Go's build cache is smart enough for the second
-		// instance to reuse the first's build artifact.
-		// However, garble's caching via garbleExportFile is not as smart,
-		// as we base the location of these files purely based on Action IDs.
-		// Thus, the incremental build can fail to find garble's cached file.
-		// To sidestep this bug entirely, ensure that different action IDs never
-		// produce the same cached output when building with garble.
-		// Note that this edge case tends to happen when a -seed is provided,
-		// as then a package's Action ID is not used as an obfuscation seed.
-		// TODO(mvdan): replace this workaround with an actual fix if we can.
-		// This workaround is presumably worse on the build cache,
-		// as we end up with extra near-duplicate cached artifacts.
-		// TODO: can we remove this now with the better caching?
-		if i == 0 {
-			src = append(src, fmt.Sprintf(
-				"\nvar garbleActionID = %q\n", encodeBuildIDHash(curPkg.GarbleActionID),
-			)...)
 		}
 
 		// We hide Go source filenames via "//line" directives,
 		// so there is no need to use obfuscated filenames here.
-		if path, err := writeSourceFile(basename, basename, src); err != nil {
+		if path, err := tf.writeSourceFile(basename, basename, src); err != nil {
 			return nil, err
 		} else {
 			newPaths = append(newPaths, path)
@@ -1037,12 +1025,9 @@ func transformCompile(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
-// handleDirectives looks at all the comments in a file containing build
-// directives, and does the necessary for the obfuscation process to work.
-//
-// Right now, this means recording what local names are used with go:linkname,
-// and rewriting those directives to use obfuscated name from other packages.
-func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
+// transformDirectives rewrites //go:linkname toolchain directives in comments
+// to replace names with their obfuscated versions.
+func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) {
 	for _, group := range comments {
 		for _, comment := range group.List {
 			if !strings.HasPrefix(comment.Text, "//go:linkname ") {
@@ -1081,8 +1066,8 @@ func (tf *transformer) handleDirectives(comments []*ast.CommentGroup) {
 
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
 	// obfuscate the local name, if the current package is obfuscated
-	if curPkg.ToObfuscate && !compilerIntrinsicsFuncs[curPkg.ImportPath+"."+localName] {
-		localName = hashWithPackage(curPkg, localName)
+	if tf.curPkg.ToObfuscate && !compilerIntrinsicsFuncs[tf.curPkg.ImportPath+"."+localName] {
+		localName = hashWithPackage(tf.curPkg, localName)
 	}
 	if newName == "" {
 		return localName, ""
@@ -1117,8 +1102,15 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		pkgPath := newName[:pkgSplit]
 		pkgSplit++ // skip over the dot
 
+		if strings.HasSuffix(pkgPath, "_test") {
+			// runtime uses a go:linkname to metrics_test;
+			// we don't need this to work for now on regular builds,
+			// though we might need to rethink this if we want "go test std" to work.
+			continue
+		}
+
 		var err error
-		lpkg, err = listPackage(pkgPath)
+		lpkg, err = listPackage(tf.curPkg, pkgPath)
 		if err == nil {
 			foreignName = newName[pkgSplit:]
 			break
@@ -1178,7 +1170,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 // processImportCfg parses the importcfg file passed to a compile or link step.
 // It also builds a new importcfg file to account for obfuscated import paths.
-func processImportCfg(flags []string) (newImportCfg string, _ error) {
+func (tf *transformer) processImportCfg(flags []string) (newImportCfg string, _ error) {
 	importCfg := flagValue(flags, "-importcfg")
 	if importCfg == "" {
 		return "", fmt.Errorf("could not find -importcfg argument")
@@ -1224,7 +1216,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	}
 	for _, pair := range importmaps {
 		beforePath, afterPath := pair[0], pair[1]
-		lpkg, err := listPackage(beforePath)
+		lpkg, err := listPackage(tf.curPkg, beforePath)
 		if err != nil {
 			panic(err) // shouldn't happen
 		}
@@ -1241,7 +1233,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 	}
 	for _, pair := range packagefiles {
 		impPath, pkgfile := pair[0], pair[1]
-		lpkg, err := listPackage(impPath)
+		lpkg, err := listPackage(tf.curPkg, impPath)
 		if err != nil {
 			// TODO: it's unclear why an importcfg can include an import path
 			// that's not a dependency in an edge case with "go test ./...".
@@ -1249,7 +1241,7 @@ func processImportCfg(flags []string) (newImportCfg string, _ error) {
 			// For now, spot the pattern and avoid the unnecessary error;
 			// the dependency is unused, so the packagefile line is redundant.
 			// This still triggers as of go1.20.
-			if strings.HasSuffix(curPkg.ImportPath, ".test]") && strings.HasPrefix(curPkg.ImportPath, impPath) {
+			if strings.HasSuffix(tf.curPkg.ImportPath, ".test]") && strings.HasPrefix(tf.curPkg.ImportPath, impPath) {
 				continue
 			}
 			panic(err) // shouldn't happen
@@ -1279,82 +1271,74 @@ type (
 	}
 )
 
-// TODO: read-write globals like these should probably be inside transformer
-
-// cachedOutput contains information that will be stored in fsCache.
-// Note that cachedOutput gets loaded from all direct package dependencies,
-// and gets filled while obfuscating the current package, so it ends up
-// containing entries for the current package and its transitive dependencies.
-var cachedOutput = struct {
-	// KnownReflectAPIs is a static record of what std APIs use reflection on their
+// pkgCache contains information about a package that will be stored in fsCache.
+// Note that pkgCache is "deep", containing information about all packages
+// which are transitive dependencies as well.
+type pkgCache struct {
+	// ReflectAPIs is a static record of what std APIs use reflection on their
 	// parameters, so we can avoid obfuscating types used with them.
 	//
 	// TODO: we're not including fmt.Printf, as it would have many false positives,
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
-	KnownReflectAPIs map[funcFullName]map[int]bool
+	ReflectAPIs map[funcFullName]map[int]bool
 
-	// KnownCannotObfuscate is filled with the fully qualified names from each
-	// package that we cannot obfuscate.
+	// ReflectObjects is filled with the fully qualified names from each
+	// package that we cannot obfuscate due to reflection.
+	// The included objects are named types and their fields,
+	// since it is those names being obfuscated that could break the use of reflect.
+	//
 	// This record is necessary for knowing what names from imported packages
 	// weren't obfuscated, so we can obfuscate their local uses accordingly.
-	KnownCannotObfuscate map[objectString]struct{}
+	ReflectObjects map[objectString]struct{}
 
-	// KnownEmbeddedAliasFields records which embedded fields use a type alias.
+	// EmbeddedAliasFields records which embedded fields use a type alias.
 	// They are the only instance where a type alias matters for obfuscation,
 	// because the embedded field name is derived from the type alias itself,
 	// and not the type that the alias points to.
 	// In that way, the type alias is obfuscated as a form of named type,
 	// bearing in mind that it may be owned by a different package.
-	KnownEmbeddedAliasFields map[objectString]typeName
-}{
-	KnownReflectAPIs: map[funcFullName]map[int]bool{
-		"reflect.TypeOf":  {0: true},
-		"reflect.ValueOf": {0: true},
-	},
-	KnownCannotObfuscate:     map[objectString]struct{}{},
-	KnownEmbeddedAliasFields: map[objectString]typeName{},
+	EmbeddedAliasFields map[objectString]typeName
+}
+
+func (c *pkgCache) CopyFrom(c2 pkgCache) {
+	maps.Copy(c.ReflectAPIs, c2.ReflectAPIs)
+	maps.Copy(c.ReflectObjects, c2.ReflectObjects)
+	maps.Copy(c.EmbeddedAliasFields, c2.EmbeddedAliasFields)
 }
 
 func openCache() (*cache.Cache, error) {
-	dir := os.Getenv("GARBLE_CACHE") // e.g. "~/.cache/garble"
-	if dir == "" {
-		parentDir, err := os.UserCacheDir()
-		if err != nil {
-			return nil, err
-		}
-		dir = filepath.Join(parentDir, "garble")
-	}
 	// Use a subdirectory for the hashed build cache, to clarify what it is,
 	// and to allow us to have other directories or files later on without mixing.
-	dir = filepath.Join(dir, "build")
-
+	dir := filepath.Join(sharedCache.CacheDir, "build")
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return nil, err
 	}
 	return cache.Open(dir)
 }
 
-func (tf *transformer) loadCachedOutput(files []*ast.File) error {
+func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info) (pkgCache, error) {
 	fsCache, err := openCache()
 	if err != nil {
-		return err
+		return pkgCache{}, err
 	}
-
-	if !flagControlFlow { // TODO(pagran): remove this after ssa2ast integration
-		filename, _, err := fsCache.GetFile(curPkg.GarbleActionID)
-		// Already in the cache; load it directly.
-		if err == nil {
-			f, err := os.Open(filename)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
-				return fmt.Errorf("gob decode: %w", err)
-			}
-			return nil
+	filename, _, err := fsCache.GetFile(lpkg.GarbleActionID)
+	// Already in the cache; load it directly.
+	if err == nil {
+		f, err := os.Open(filename)
+		if err != nil {
+			return pkgCache{}, err
 		}
+		defer f.Close()
+		var loaded pkgCache
+		if err := gob.NewDecoder(f).Decode(&loaded); err != nil {
+			return pkgCache{}, fmt.Errorf("gob decode: %w", err)
+		}
+		return loaded, nil
 	}
+	return computePkgCache(fsCache, lpkg, pkg, files, info)
+}
+
+func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info) (pkgCache, error) {
 	// Not yet in the cache. Load the cache entries for all direct dependencies,
 	// build our cache entry, and write it to disk.
 	// Note that practically all errors from Cache.GetFile are a cache miss;
@@ -1364,47 +1348,88 @@ func (tf *transformer) loadCachedOutput(files []*ast.File) error {
 	// TODO: if A (curPkg) imports B and C, and B also imports C,
 	// then loading the gob files from both B and C is unnecessary;
 	// loading B's gob file would be enough. Is there an easy way to do that?
-	startTime := time.Now()
-	loaded := 0
-	for _, path := range curPkg.Imports {
-		if path == "C" {
-			// `go list -json` shows "C" in Imports but not Deps. A bug?
+	computed := pkgCache{
+		ReflectAPIs: map[funcFullName]map[int]bool{
+			"reflect.TypeOf":  {0: true},
+			"reflect.ValueOf": {0: true},
+		},
+		ReflectObjects:      map[objectString]struct{}{},
+		EmbeddedAliasFields: map[objectString]typeName{},
+	}
+	for _, imp := range lpkg.Imports {
+		if imp == "C" {
+			// `go list -json` shows "C" in Imports but not Deps.
+			// See https://go.dev/issue/60453.
 			continue
 		}
-		pkg, err := listPackage(path)
+		// Shadowing lpkg ensures we don't use the wrong listedPackage below.
+		lpkg, err := listPackage(lpkg, imp)
 		if err != nil {
 			panic(err) // shouldn't happen
 		}
-		if pkg.BuildID == "" {
+		if lpkg.BuildID == "" {
 			continue // nothing to load
 		}
-		// this function literal is used for the deferred close
-		if err := func() error {
-			filename, _, err := fsCache.GetFile(pkg.GarbleActionID)
+		if err := func() error { // function literal for the deferred close
+			if filename, _, err := fsCache.GetFile(lpkg.GarbleActionID); err == nil {
+				// Cache hit; append new entries to computed.
+				f, err := os.Open(filename)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				if err := gob.NewDecoder(f).Decode(&computed); err != nil {
+					return fmt.Errorf("gob decode: %w", err)
+				}
+				return nil
+			}
+			// Missing or corrupted entry in the cache for a dependency.
+			// Could happen if GARBLE_CACHE was emptied but GOCACHE was not.
+			// Compute it, which can recurse if many entries are missing.
+			files, err := parseFiles(lpkg.Dir, lpkg.CompiledGoFiles)
 			if err != nil {
 				return err
 			}
-			f, err := os.Open(filename)
+			origImporter := importerForPkg(lpkg)
+			pkg, info, err := typecheck(lpkg.ImportPath, files, origImporter)
 			if err != nil {
 				return err
 			}
-			defer f.Close()
-			// Decode appends new entries to the existing maps
-			if err := gob.NewDecoder(f).Decode(&cachedOutput); err != nil {
-				return fmt.Errorf("gob decode: %w", err)
+			computedImp, err := computePkgCache(fsCache, lpkg, pkg, files, info)
+			if err != nil {
+				return err
 			}
+			computed.CopyFrom(computedImp)
 			return nil
 		}(); err != nil {
-			return fmt.Errorf("cannot load cache entry for %s: %w", path, err)
+			return pkgCache{}, fmt.Errorf("pkgCache load for %s: %w", imp, err)
 		}
-		loaded++
 	}
-	log.Printf("%d cached output files loaded in %s", loaded, debugSince(startTime))
 
+	// Fill EmbeddedAliasFields from the type info.
+	for name, obj := range info.Uses {
+		obj, ok := obj.(*types.TypeName)
+		if !ok || !obj.IsAlias() {
+			continue
+		}
+		vr, _ := info.Defs[name].(*types.Var)
+		if vr == nil || !vr.Embedded() {
+			continue
+		}
+		vrStr := recordedObjectString(vr)
+		if vrStr == "" {
+			continue
+		}
+		aliasTypeName := typeName{
+			PkgPath: obj.Pkg().Path(),
+			Name:    obj.Name(),
+		}
+		computed.EmbeddedAliasFields[vrStr] = aliasTypeName
+	}
+
+	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
+	// Create SSA packages for all imports. Order is not significant.
 	ssaProg := ssa.NewProgram(fset, 0)
-
-	// Create SSA packages for all imports.
-	// Order is not significant.
 	created := make(map[*types.Package]bool)
 	var createAll func(pkgs []*types.Package)
 	createAll = func(pkgs []*types.Package) {
@@ -1416,23 +1441,27 @@ func (tf *transformer) loadCachedOutput(files []*ast.File) error {
 			}
 		}
 	}
-	createAll(tf.pkg.Imports())
+	createAll(pkg.Imports())
 
-	tf.ssaPkg = ssaProg.CreatePackage(tf.pkg, files, tf.info, false)
-	tf.ssaPkg.Build()
+	ssaPkg := ssaProg.CreatePackage(pkg, files, info, false)
+	ssaPkg.Build()
 
-	tf.reflectCheckedAPIs = make(map[string]bool)
-	tf.recordReflection(tf.ssaPkg)
+	inspector := reflectInspector{
+		pkg:         pkg,
+		checkedAPIs: make(map[string]bool),
+		result:      computed, // append the results
+	}
+	inspector.recordReflection(ssaPkg)
 
 	// Unlikely that we could stream the gob encode, as cache.Put wants an io.ReadSeeker.
 	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(cachedOutput); err != nil {
-		return err
+	if err := gob.NewEncoder(&buf).Encode(computed); err != nil {
+		return pkgCache{}, err
 	}
-	if err := fsCache.PutBytes(curPkg.GarbleActionID, buf.Bytes()); err != nil {
-		return err
+	if err := fsCache.PutBytes(lpkg.GarbleActionID, buf.Bytes()); err != nil {
+		return pkgCache{}, err
 	}
-	return nil
+	return computed, nil
 }
 
 // cmd/bundle will include a go:generate directive in its output by default.
@@ -1441,12 +1470,11 @@ func (tf *transformer) loadCachedOutput(files []*ast.File) error {
 //go:generate go run golang.org/x/tools/cmd/bundle@v0.5.0 -o cmdgo_quoted.go -prefix cmdgoQuoted cmd/internal/quoted
 //go:generate sed -i /go:generate/d cmdgo_quoted.go
 
-// prefillObjectMaps collects objects which should not be obfuscated,
-// such as those used as arguments to reflect.TypeOf or reflect.ValueOf.
-// Since we obfuscate one package at a time, we only detect those if the type
-// definition and the reflect usage are both in the same package.
-func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
-	tf.linkerVariableStrings = make(map[*types.Var]string)
+// computeLinkerVariableStrings iterates over the -ldflags arguments,
+// filling a map with all the string values set via the linker's -X flag.
+// TODO: can we put this in sharedCache, using objectString as a key?
+func computeLinkerVariableStrings(pkg *types.Package) (map[*types.Var]string, error) {
+	linkerVariableStrings := make(map[*types.Var]string)
 
 	// TODO: this is a linker flag that affects how we obfuscate a package at
 	// compile time. Note that, if the user changes ldflags, then Go may only
@@ -1463,7 +1491,7 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 	// or to force including -ldflags into the build cache key.
 	ldflags, err := cmdgoQuotedSplit(flagValue(sharedCache.ForwardBuildFlags, "-ldflags"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	flagValueIter(ldflags, "-X", func(val string) {
 		// val is in the form of "foo.com/bar.name=value".
@@ -1477,46 +1505,56 @@ func (tf *transformer) prefillObjectMaps(files []*ast.File) error {
 		path, name := fullName[:i], fullName[i+1:]
 
 		// -X represents the main package as "main", not its import path.
-		if path != curPkg.ImportPath && (path != "main" || curPkg.Name != "main") {
+		if path != pkg.Path() && (path != "main" || pkg.Name() != "main") {
 			return // not the current package
 		}
 
-		obj, _ := tf.pkg.Scope().Lookup(name).(*types.Var)
+		obj, _ := pkg.Scope().Lookup(name).(*types.Var)
 		if obj == nil {
 			return // no such variable; skip
 		}
-		tf.linkerVariableStrings[obj] = stringValue
+		linkerVariableStrings[obj] = stringValue
 	})
-	return nil
+	return linkerVariableStrings, nil
 }
 
 // transformer holds all the information and state necessary to obfuscate a
 // single Go package.
 type transformer struct {
+	// curPkg holds basic information about the package being currently compiled or linked.
+	curPkg *listedPackage
+
+	// curPkgCache is the pkgCache for curPkg.
+	curPkgCache pkgCache
+
 	// The type-checking results; the package itself, and the Info struct.
 	pkg  *types.Package
 	info *types.Info
 
-	// linkerVariableStrings is also initialized by prefillObjectMaps.
-	// It records objects for variables used in -ldflags=-X flags,
+	// linkerVariableStrings records objects for variables used in -ldflags=-X flags,
 	// as well as the strings the user wants to inject them with.
+	// Used when obfuscating literals, so that we obfuscate the injected value.
 	linkerVariableStrings map[*types.Var]string
-
-	// recordTypeDone helps avoid type cycles in recordType.
-	// We only need to track named types, as all cycles must use them.
-	recordTypeDone map[*types.Named]bool
 
 	// fieldToStruct helps locate struct types from any of their field
 	// objects. Useful when obfuscating field names.
 	fieldToStruct map[*types.Var]*types.Struct
 
-	reflectCheckedAPIs  map[string]bool
-	ssaPkg              *ssa.Package
-	usedAllImportsFiles map[*ast.File]bool
+	// obfRand is initialized by transformCompile and used during obfuscation.
+	// It is left nil at init time, so that we only use it after it has been
+	// properly initialized with a deterministic seed.
+	// It must only be used for deterministic obfuscation;
+	// if it is used for any other purpose, we may lose determinism.
+	obfRand *mathrand.Rand
+
+	// origImporter is a go/types importer which uses the original versions
+	// of packages, without any obfuscation. This is helpful to make
+	// decisions on how to obfuscate our input code.
+	origImporter importerWithMap
 }
 
-func (tf *transformer) typecheck(files []*ast.File) error {
-	tf.info = &types.Info{
+func typecheck(pkgPath string, files []*ast.File, origImporter importerWithMap) (*types.Package, *types.Info, error) {
+	info := &types.Info{
 		Types:      make(map[ast.Expr]types.TypeAndValue),
 		Defs:       make(map[*ast.Ident]types.Object),
 		Uses:       make(map[*ast.Ident]types.Object),
@@ -1525,57 +1563,41 @@ func (tf *transformer) typecheck(files []*ast.File) error {
 		Selections: make(map[*ast.SelectorExpr]*types.Selection),
 		Instances:  make(map[*ast.Ident]types.Instance),
 	}
-	tf.recordTypeDone = make(map[*types.Named]bool)
-	tf.fieldToStruct = make(map[*types.Var]*types.Struct)
 	origTypesConfig := types.Config{Importer: origImporter}
-	pkg, err := origTypesConfig.Check(curPkg.ImportPath, fset, files, tf.info)
+	pkg, err := origTypesConfig.Check(pkgPath, fset, files, info)
 	if err != nil {
-		return fmt.Errorf("typecheck error: %v", err)
+		return nil, nil, fmt.Errorf("typecheck error: %v", err)
 	}
-	tf.pkg = pkg
+	return pkg, info, err
+}
+
+func computeFieldToStruct(info *types.Info) map[*types.Var]*types.Struct {
+	done := make(map[*types.Named]bool)
+	fieldToStruct := make(map[*types.Var]*types.Struct)
 
 	// Run recordType on all types reachable via types.Info.
 	// A bit hacky, but I could not find an easier way to do this.
-	for _, obj := range tf.info.Defs {
+	for _, obj := range info.Uses {
 		if obj != nil {
-			tf.recordType(obj.Type(), nil)
+			recordType(obj.Type(), nil, done, fieldToStruct)
 		}
 	}
-	for name, obj := range tf.info.Uses {
-		if obj == nil {
-			continue
+	for _, obj := range info.Defs {
+		if obj != nil {
+			recordType(obj.Type(), nil, done, fieldToStruct)
 		}
-		tf.recordType(obj.Type(), nil)
-
-		// Record into KnownEmbeddedAliasFields.
-		obj, ok := obj.(*types.TypeName)
-		if !ok || !obj.IsAlias() {
-			continue
-		}
-		vr, _ := tf.info.Defs[name].(*types.Var)
-		if vr == nil || !vr.Embedded() {
-			continue
-		}
-		vrStr := recordedObjectString(vr)
-		if vrStr == "" {
-			continue
-		}
-		aliasTypeName := typeName{
-			PkgPath: obj.Pkg().Path(),
-			Name:    obj.Name(),
-		}
-		cachedOutput.KnownEmbeddedAliasFields[vrStr] = aliasTypeName
 	}
-	for _, tv := range tf.info.Types {
-		tf.recordType(tv.Type, nil)
+	for _, tv := range info.Types {
+		recordType(tv.Type, nil, done, fieldToStruct)
 	}
-	return nil
+	return fieldToStruct
 }
 
 // recordType visits every reachable type after typechecking a package.
-// Right now, all it does is fill the fieldToStruct field.
+// Right now, all it does is fill the fieldToStruct map.
 // Since types can be recursive, we need a map to avoid cycles.
-func (tf *transformer) recordType(used, origin types.Type) {
+// We only need to track named types as done, as all cycles must use them.
+func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStruct map[*types.Var]*types.Struct) {
 	if origin == nil {
 		origin = used
 	}
@@ -1587,13 +1609,13 @@ func (tf *transformer) recordType(used, origin types.Type) {
 		// We can edit this code in the future if we find an example,
 		// because we panic if a field is not in fieldToStruct.
 		if origin, ok := origin.(Container); ok {
-			tf.recordType(used.Elem(), origin.Elem())
+			recordType(used.Elem(), origin.Elem(), done, fieldToStruct)
 		}
 	case *types.Named:
-		if tf.recordTypeDone[used] {
+		if done[used] {
 			return
 		}
-		tf.recordTypeDone[used] = true
+		done[used] = true
 		// If we have a generic struct like
 		//
 		//	type Foo[T any] struct { Bar T }
@@ -1602,15 +1624,15 @@ func (tf *transformer) recordType(used, origin types.Type) {
 		// because otherwise different instances like "Bar int" and "Bar bool"
 		// will result in different hashes and the field names will break.
 		// Ensure we record the original generic struct, if there is one.
-		tf.recordType(used.Underlying(), used.Origin().Underlying())
+		recordType(used.Underlying(), used.Origin().Underlying(), done, fieldToStruct)
 	case *types.Struct:
 		origin := origin.(*types.Struct)
 		for i := 0; i < used.NumFields(); i++ {
 			field := used.Field(i)
-			tf.fieldToStruct[field] = origin
+			fieldToStruct[field] = origin
 
 			if field.Embedded() {
-				tf.recordType(field.Type(), origin.Field(i).Type())
+				recordType(field.Type(), origin.Field(i).Type(), done, fieldToStruct)
 			}
 		}
 	}
@@ -1634,14 +1656,6 @@ func isSafeForInstanceType(typ types.Type) bool {
 }
 
 func (tf *transformer) useAllImports(file *ast.File) {
-	if tf.usedAllImportsFiles == nil {
-		tf.usedAllImportsFiles = make(map[*ast.File]bool)
-	} else if ok := tf.usedAllImportsFiles[file]; ok {
-		return
-	}
-
-	tf.usedAllImportsFiles[file] = true
-
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
 			continue
@@ -1717,8 +1731,8 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// We can't obfuscate literals in the runtime and its dependencies,
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
-	if flagLiterals && curPkg.ToObfuscate {
-		file = literals.Obfuscate(obfRand, file, tf.info, tf.linkerVariableStrings)
+	if flagLiterals && tf.curPkg.ToObfuscate {
+		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
 		tf.useAllImports(file)
@@ -1769,7 +1783,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			// Alternatively, if we don't have an alias, we still want to
 			// use the embedded type, not the field.
 			vrStr := recordedObjectString(vr)
-			aliasTypeName, ok := cachedOutput.KnownEmbeddedAliasFields[vrStr]
+			aliasTypeName, ok := tf.curPkgCache.EmbeddedAliasFields[vrStr]
 			if ok {
 				pkg2 := tf.pkg
 				if path := aliasTypeName.PkgPath; pkg2.Path() != path {
@@ -1778,17 +1792,17 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 					// because some of the packages under there are incomplete.
 					// ImportFrom will cache complete imports, anyway.
 					var err error
-					pkg2, err = origImporter.ImportFrom(path, parentWorkDir, 0)
+					pkg2, err = tf.origImporter.ImportFrom(path, parentWorkDir, 0)
 					if err != nil {
 						panic(err)
 					}
 				}
 				tname, ok := pkg2.Scope().Lookup(aliasTypeName.Name).(*types.TypeName)
 				if !ok {
-					panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
+					panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
 				}
 				if !tname.IsAlias() {
-					panic(fmt.Sprintf("KnownEmbeddedAliasFields pointed %q to a non-alias type %q", vrStr, aliasTypeName))
+					panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a non-alias type %q", vrStr, aliasTypeName))
 				}
 				obj = tname
 			} else {
@@ -1807,6 +1821,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		// TODO: We match by object name here, which is actually imprecise.
 		// For example, in package embed we match the type FS, but we would also
 		// match any field or method named FS.
+		// Can we instead use an object map like ReflectObjects?
 		path := pkg.Path()
 		switch path {
 		case "sync/atomic", "runtime/internal/atomic":
@@ -1815,21 +1830,14 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			}
 		case "embed":
 			// FS is detected by the compiler for //go:embed.
-			// TODO: We probably want a conditional, otherwise we're not
-			// obfuscating the embed package at all.
-			return name == "FS"
+			if name == "FS" {
+				return true
+			}
 		case "reflect":
 			switch name {
 			// Per the linker's deadcode.go docs,
 			// the Method and MethodByName methods are what drive the logic.
 			case "Method", "MethodByName":
-				return true
-			// Some packages reach into reflect internals, like go-spew.
-			// It's not particularly right of them to do that,
-			// and it's entirely unsupported, but try to accomodate for now.
-			// At least it's enough to leave the rtype and Value types intact.
-			case "rtype", "Value":
-				tf.recursivelyRecordAsNotObfuscated(obj.Type())
 				return true
 			}
 		case "crypto/x509/pkix":
@@ -1844,11 +1852,11 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		}
 
 		// The package that declared this object did not obfuscate it.
-		if recordedAsNotObfuscated(obj) {
+		if usedForReflect(tf.curPkgCache, obj) {
 			return true
 		}
 
-		lpkg, err := listPackage(path)
+		lpkg, err := listPackage(tf.curPkg, path)
 		if err != nil {
 			panic(err) // shouldn't happen
 		}
@@ -1882,7 +1890,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			// packages result in different obfuscated names.
 			strct := tf.fieldToStruct[obj]
 			if strct == nil {
-				panic("could not find for " + name)
+				panic("could not find struct for field " + name)
 			}
 			node.Name = hashWithStruct(strct, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
@@ -1937,7 +1945,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		// Replace the import path with its obfuscated version.
 		// If the import was unnamed, give it the name of the
 		// original package name, to keep references working.
-		lpkg, err := listPackage(path)
+		lpkg, err := listPackage(tf.curPkg, path)
 		if err != nil {
 			panic(err) // should never happen
 		}
@@ -1991,12 +1999,12 @@ func isTestSignature(sign *types.Signature) bool {
 	return obj != nil && obj.Pkg().Path() == "testing" && obj.Name() == "T"
 }
 
-func transformLink(args []string) ([]string, error) {
+func (tf *transformer) transformLink(args []string) ([]string, error) {
 	// We can't split by the ".a" extension, because cached object files
 	// lack any extension.
 	flags, args := splitFlagsFromArgs(args)
 
-	newImportCfg, err := processImportCfg(flags)
+	newImportCfg, err := tf.processImportCfg(flags)
 	if err != nil {
 		return nil, err
 	}
@@ -2021,7 +2029,7 @@ func transformLink(args []string) ([]string, error) {
 		// If the package path is "main", it's the current top-level
 		// package we are linking.
 		// Otherwise, find it in the cache.
-		lpkg := curPkg
+		lpkg := tf.curPkg
 		if path != "main" {
 			lpkg = sharedCache.ListedPackages[path]
 		}

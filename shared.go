@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 )
 
 //go:generate ./scripts/gen-go-std-tables.sh
@@ -31,6 +32,8 @@ import (
 type sharedCacheType struct {
 	ExecPath          string   // absolute path to the garble binary being used
 	ForwardBuildFlags []string // build flags fed to the original "garble ..." command
+
+	CacheDir string // absolute path to the GARBLE_CACHE directory being used
 
 	// ListedPackages contains data obtained via 'go list -json -export -deps'.
 	// This allows us to obtain the non-obfuscated export data of all dependencies,
@@ -109,9 +112,6 @@ func createExclusive(name string) (*os.File, error) {
 	return os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
 }
 
-// TODO(mvdan): consider using proper atomic file writes.
-// Or possibly even "lockedfile", mimicking cmd/go.
-
 func writeFileExclusive(name string, data []byte) error {
 	f, err := createExclusive(name)
 	if err != nil {
@@ -152,12 +152,10 @@ type listedPackage struct {
 
 	Dir             string
 	CompiledGoFiles []string
+	IgnoredGoFiles  []string
 	Imports         []string
 
-	Incomplete bool
-	// These two exist to report package loading errors to the user.
-	Error      *packageError
-	DepsErrors []*packageError
+	Error *packageError // to report package loading errors to the user
 
 	// The fields below are not part of 'go list', but are still reused
 	// between garble processes. Use "Garble" as a prefix to ensure no
@@ -175,6 +173,7 @@ type listedPackage struct {
 }
 
 type packageError struct {
+	Pos string
 	Err string
 }
 
@@ -255,58 +254,30 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 	if sharedCache.ListedPackages == nil {
 		sharedCache.ListedPackages = make(map[string]*listedPackage)
 	}
-	var pkgErrors []string
+	var pkgErrors strings.Builder
 	for dec.More() {
 		var pkg listedPackage
 		if err := dec.Decode(&pkg); err != nil {
 			return err
 		}
 
-		// Sometimes cmd/go sets Error without setting Incomplete per the docs.
-		// TODO: remove the workaround once https://go.dev/issue/57724 is fixed.
-		if pkg.Error != nil || pkg.DepsErrors != nil {
-			pkg.Incomplete = true
-		}
-
 		if perr := pkg.Error; perr != nil {
-			switch {
-			// All errors in non-std packages are fatal,
-			// but only some errors in std packages are.
-			case strings.Contains(pkg.ImportPath, "."):
-				fallthrough
-			default:
-				// Error messages sometimes include a trailing newline.
-				pkgErrors = append(pkgErrors, strings.TrimSpace(perr.Err))
-
-			// Some packages in runtimeLinknamed are OS-specific,
-			// like crypto/internal/boring/fipstls, so "no Go files"
-			// for the current OS can be ignored safely as an error.
-			case pkg.Standard && strings.Contains(perr.Err, "build constraints exclude all Go files"):
-			// Some packages in runtimeLinknamed are recent,
-			// like "arena", so older Go versions that we support
-			// do not yet have them and that's OK.
-			// Note that pkg.Standard is false for them.
-			// Note that Go 1.21 is swapping "GOROOT" for "std".
-			// TODO(mvdan): We try to list test packages like runtime/metrics_test, which always fail.
-			case strings.Contains(perr.Err, "is not in GOROOT"):
-			case strings.Contains(perr.Err, "is not in std"):
-			case strings.Contains(perr.Err, "cannot find package"):
-			}
-		}
-		if len(pkg.DepsErrors) > 0 {
-			for i, derr := range pkg.DepsErrors {
-				// When an error in DepsErrors starts with a "# pkg/path" line,
-				// it's an error that we're already printing via that package's Error field.
-				// Otherwise, the error is that we couldn't find that package at all,
-				// so we do need to print it here as that package won't be listed.
-				if i == 0 {
-					if strings.HasPrefix(derr.Err, "# ") {
-						break
-					}
-					pkgErrors = append(pkgErrors, "# "+pkg.ImportPath)
+			if pkg.Standard && len(pkg.CompiledGoFiles) == 0 && len(pkg.IgnoredGoFiles) > 0 {
+				// Some packages in runtimeLinknamed need a build tag to be importable,
+				// like crypto/internal/boring/fipstls with boringcrypto,
+				// so any pkg.Error should be ignored when the build tag isn't set.
+			} else if pkg.ImportPath == "maps" && semver.Compare(sharedCache.GoVersionSemver, "v1.21") < 0 {
+				// "maps" was added in Go 1.21, so Go 1.20 runs into a "not found" error.
+			} else {
+				if pkgErrors.Len() > 0 {
+					pkgErrors.WriteString("\n")
+				}
+				if perr.Pos != "" {
+					pkgErrors.WriteString(perr.Pos)
+					pkgErrors.WriteString(": ")
 				}
 				// Error messages sometimes include a trailing newline.
-				pkgErrors = append(pkgErrors, strings.TrimSpace(derr.Err))
+				pkgErrors.WriteString(strings.TrimRight(perr.Err, "\n"))
 			}
 		}
 
@@ -330,8 +301,8 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("go list error: %v:\nargs: %q\n%s", err, args, stderr.Bytes())
 	}
-	if len(pkgErrors) > 0 {
-		return errors.New(strings.Join(pkgErrors, "\n"))
+	if pkgErrors.Len() > 0 {
+		return errors.New(pkgErrors.String())
 	}
 
 	anyToObfuscate := false
@@ -346,11 +317,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 			// "unknown pc" crashes on windows in the cgo test otherwise.
 			path == "runtime/cgo":
 
-		// We can't obfuscate packages which weren't loaded.
-		// This can happen since we ignore some pkg.Error messages above.
-		case pkg.Incomplete:
-
-		// No point in obfuscating empty packages.
+		// No point in obfuscating empty packages, like OS-specific ones that don't match.
 		case len(pkg.CompiledGoFiles) == 0:
 
 		// Test main packages like "foo/bar.test" are always obfuscated,
@@ -383,26 +350,29 @@ var ErrNotFound = errors.New("not found")
 var ErrNotDependency = errors.New("not a dependency")
 
 // listPackage gets the listedPackage information for a certain package
-func listPackage(path string) (*listedPackage, error) {
-	if path == curPkg.ImportPath {
-		return curPkg, nil
+func listPackage(from *listedPackage, path string) (*listedPackage, error) {
+	if path == from.ImportPath {
+		return from, nil
 	}
 
 	// If the path is listed in the top-level ImportMap, use its mapping instead.
 	// This is a common scenario when dealing with vendored packages in GOROOT.
 	// The map is flat, so we don't need to recurse.
-	if path2 := curPkg.ImportMap[path]; path2 != "" {
+	if path2 := from.ImportMap[path]; path2 != "" {
 		path = path2
 	}
 
 	pkg, ok := sharedCache.ListedPackages[path]
 
-	// The runtime may list any package in std, even those it doesn't depend on.
-	// This is due to how it linkname-implements std packages,
+	// A std package may list any other package in std, even those it doesn't depend on.
+	// This is due to how runtime linkname-implements std packages,
 	// such as sync/atomic or reflect, without importing them in any way.
-	// If ListedPackages lacks such a package we fill it with "std".
-	// Note that this is also allowed for runtime sub-packages.
-	if curPkg.ImportPath == "runtime" || strings.HasPrefix(curPkg.ImportPath, "runtime/") {
+	// A few other cases don't involve runtime, like time/tzdata linknaming to time,
+	// but luckily those few cases are covered by runtimeLinknamed as well.
+	//
+	// If ListedPackages lacks such a package we fill it via runtimeLinknamed.
+	// TODO: can we instead add runtimeLinknamed to the top-level "go list" args?
+	if from.Standard {
 		if ok {
 			return pkg, nil
 		}
@@ -429,7 +399,7 @@ func listPackage(path string) (*listedPackage, error) {
 		}
 		pkg, ok := sharedCache.ListedPackages[path]
 		if !ok {
-			panic(fmt.Sprintf("runtime listed a std package we can't find: %s", path))
+			panic(fmt.Sprintf("std listed another std package that we can't find: %s", path))
 		}
 		listedRuntimeLinknamed = true
 		log.Printf("listed %d missing runtime-linknamed packages in %s", len(missing), debugSince(startTime))
@@ -439,9 +409,9 @@ func listPackage(path string) (*listedPackage, error) {
 		return nil, fmt.Errorf("list %s: %w", path, ErrNotFound)
 	}
 
-	// Packages other than runtime can list any package,
+	// Packages outside std can list any package,
 	// as long as they depend on it directly or indirectly.
-	for _, dep := range curPkg.Deps {
+	for _, dep := range from.Deps {
 		if dep == pkg.ImportPath {
 			return pkg, nil
 		}
