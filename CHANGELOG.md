@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.10.0] - 2023-06-??
+## [v0.10.0] - 2023-06-05
 
 This release drops support for Go 1.19, continues support for Go 1.20,
 and adds initial support for the upcoming Go 1.21.
