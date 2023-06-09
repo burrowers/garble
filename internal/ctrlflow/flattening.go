@@ -1,7 +1,6 @@
 package ctrlflow
 
 import (
-	"go/constant"
 	"go/token"
 	"go/types"
 	mathrand "math/rand"
@@ -14,29 +13,13 @@ type blockMapping struct {
 	Fake, Target *ssa.BasicBlock
 }
 
-//go:linkname setPhiType golang.org/x/tools/go/ssa.(*register).setType
-func setPhiType(*ssa.Phi, types.Type)
-
-//go:linkname setBinOpType golang.org/x/tools/go/ssa.(*register).setType
-func setBinOpType(*ssa.BinOp, types.Type)
-
-//go:linkname setBinOpBlock golang.org/x/tools/go/ssa.(*anInstruction).setBlock
-func setBinOpBlock(*ssa.BinOp, *ssa.BasicBlock)
-
-//go:linkname setIfBlock golang.org/x/tools/go/ssa.(*anInstruction).setBlock
-func setIfBlock(*ssa.If, *ssa.BasicBlock)
-
-func makeSsaInt(i int) *ssa.Const {
-	return ssa.NewConst(constant.MakeInt64(int64(i)), types.Typ[types.Int])
-}
-
 func applyControlFlowFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 	if len(ssaFunc.Blocks) < 3 {
 		return
 	}
 
 	phiInstr := &ssa.Phi{Comment: "ctrflow.phi"}
-	setPhiType(phiInstr, types.Typ[types.Int])
+	setType(phiInstr, types.Typ[types.Int])
 
 	entryBlock := &ssa.BasicBlock{
 		Comment: "ctrflow.entry",
@@ -92,7 +75,7 @@ func applyControlFlowFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 		obfuscatedBlocks = append(obfuscatedBlocks, m.Fake)
 
 		cond := &ssa.BinOp{X: phiInstr, Op: token.EQL, Y: makeSsaInt(phiIdxs[i])}
-		setBinOpType(cond, types.Typ[types.Bool])
+		setType(cond, types.Typ[types.Bool])
 
 		*phiInstr.Referrers() = append(*phiInstr.Referrers(), cond)
 
@@ -104,8 +87,8 @@ func applyControlFlowFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 			Succs:  []*ssa.BasicBlock{m.Target, nil}, // false branch fulfilled in next iteration or linked to real entry block
 		}
 
-		setBinOpBlock(cond, ifBlock)
-		setIfBlock(ifInstr, ifBlock)
+		setBlock(cond, ifBlock)
+		setBlock(ifInstr, ifBlock)
 		entriesBlocks = append(entriesBlocks, ifBlock)
 
 		if i == 0 {
