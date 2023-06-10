@@ -14,7 +14,7 @@ type blockMapping struct {
 	Fake, Target *ssa.BasicBlock
 }
 
-func applyControlFlowFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
+func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 	if len(ssaFunc.Blocks) < 3 {
 		return
 	}
@@ -146,4 +146,49 @@ func addJunkBlocks(ssaFunc *ssa.Function, count int, obfRand *mathrand.Rand) {
 		ssaFunc.Blocks = append(ssaFunc.Blocks, fakeBlock)
 		candidates = append(candidates, fakeBlock)
 	}
+}
+
+func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
+	var targetBlock *ssa.BasicBlock
+	for _, block := range ssaFunc.Blocks {
+		if targetBlock == nil || len(block.Instrs) > len(targetBlock.Instrs) {
+			targetBlock = block
+		}
+	}
+
+	const minInstrCount = 1 + 3 // 1 exit instruction + 3 any instruction
+	if targetBlock == nil || len(targetBlock.Instrs) <= minInstrCount {
+		return
+	}
+
+	splitIdx := 1 + obfRand.Intn(len(targetBlock.Instrs)-2)
+
+	firstPart := make([]ssa.Instruction, splitIdx+1)
+	copy(firstPart, targetBlock.Instrs)
+	firstPart[len(firstPart)-1] = &ssa.Jump{}
+
+	secondPart := targetBlock.Instrs[splitIdx:]
+	targetBlock.Instrs = firstPart
+
+	newBlock := &ssa.BasicBlock{
+		Comment: "ctrflow.split." + strconv.Itoa(targetBlock.Index),
+		Instrs:  secondPart,
+		Preds:   []*ssa.BasicBlock{targetBlock},
+		Succs:   targetBlock.Succs,
+	}
+	for _, instr := range newBlock.Instrs {
+		setBlock(instr, newBlock)
+	}
+
+	// Fix preds for ssa.Phi working
+	for _, succ := range targetBlock.Succs {
+		for i, pred := range succ.Preds {
+			if pred == targetBlock {
+				succ.Preds[i] = newBlock
+			}
+		}
+	}
+
+	ssaFunc.Blocks = append(ssaFunc.Blocks, newBlock)
+	targetBlock.Succs = []*ssa.BasicBlock{newBlock}
 }

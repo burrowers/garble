@@ -20,9 +20,8 @@ func setUnexportableField(objRaw interface{}, name string, valRaw interface{}) {
 		panic("invalid field: " + name)
 	}
 
-	reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).
-		Elem().
-		Set(reflect.ValueOf(valRaw))
+	fakeStruct := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr()))
+	fakeStruct.Elem().Set(reflect.ValueOf(valRaw))
 }
 
 func setBlock(instr ssa.Instruction, block *ssa.BasicBlock) {

@@ -137,9 +137,14 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
-		addJunkBlocks(ssaFunc, params.GetInt("junk", 0), obfRand)
+		for i := 0; i < params.GetInt("split", 0); i++ {
+			applySplitting(ssaFunc, obfRand)
+		}
+		if junkCount := params.GetInt("junk", 0); junkCount > 0 {
+			addJunkBlocks(ssaFunc, junkCount, obfRand)
+		}
 		for i := 0; i < params.GetInt("passes", 1); i++ {
-			applyControlFlowFlattening(ssaFunc, obfRand)
+			applyFlattening(ssaFunc, obfRand)
 		}
 		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)
 		if err != nil {
