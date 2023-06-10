@@ -248,6 +248,6 @@ func (tc *typeConverter) Convert(t types.Type) (ast.Expr, error) {
 		}
 		return unionExpr, nil
 	default:
-		return nil, fmt.Errorf("type %v: %w", typ, UnsupportedErr)
+		return nil, fmt.Errorf("type %v: %w", typ, ErrUnsupported)
 	}
 }

@@ -16,7 +16,7 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-var UnsupportedErr = errors.New("unsupported")
+var ErrUnsupported = errors.New("unsupported")
 
 type NameType int
 
@@ -132,7 +132,7 @@ func constToAst(val constant.Value) (ast.Expr, error) {
 	case constant.Float:
 		return &ast.BasicLit{Kind: token.FLOAT, Value: val.String()}, nil
 	default:
-		return nil, fmt.Errorf("contant %v: %w", val, UnsupportedErr)
+		return nil, fmt.Errorf("contant %v: %w", val, ErrUnsupported)
 	}
 }
 
@@ -287,11 +287,11 @@ func (fc *funcConverter) getThunkMethodCall(val *ssa.Function) (ast.Expr, error)
 	}
 	thunkType, ok := val.Object().Type().Underlying().(*types.Signature)
 	if !ok {
-		return nil, fmt.Errorf("unsupported thunk type: %w", UnsupportedErr)
+		return nil, fmt.Errorf("unsupported thunk type: %w", ErrUnsupported)
 	}
 	recvVar := thunkType.Recv()
 	if recvVar == nil {
-		return nil, fmt.Errorf("unsupported non method thunk: %w", UnsupportedErr)
+		return nil, fmt.Errorf("unsupported non method thunk: %w", ErrUnsupported)
 	}
 
 	thunkTypeAst, err := fc.tc.Convert(recvVar.Type())
@@ -812,7 +812,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					commStmt = ah.AssignStmt(ast.NewIdent(valName), &ast.UnaryExpr{Op: token.ARROW, X: chanExpr})
 					recvIndex++
 				default:
-					return fmt.Errorf("not suuported select chan dir %d: %w", state.Dir, UnsupportedErr)
+					return fmt.Errorf("not suuported select chan dir %d: %w", state.Dir, ErrUnsupported)
 				}
 
 				stmts = append(stmts, &ast.CommClause{
@@ -922,7 +922,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			}
 			if i.CommaOk {
 				if i.Op != token.ARROW {
-					return fmt.Errorf("unary operator %s in %v: %w", i.Op, instr, UnsupportedErr)
+					return fmt.Errorf("unary operator %s in %v: %w", i.Op, instr, ErrUnsupported)
 				}
 
 				valName, valType, valHasRefs := fc.tupleVarNameAndType(i, 0)
@@ -954,7 +954,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				return err
 			}
 			if anonFuncName == nil {
-				return fmt.Errorf("make closure for non anon func %s: %w", anonFunc.Name(), UnsupportedErr)
+				return fmt.Errorf("make closure for non anon func %s: %w", anonFunc.Name(), ErrUnsupported)
 			}
 
 			callExpr := &ast.CallExpr{Fun: anonFuncName}
@@ -971,7 +971,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			// ignored
 			continue
 		default:
-			return fmt.Errorf("instruction %v: %w", instr, UnsupportedErr)
+			return fmt.Errorf("instruction %v: %w", instr, ErrUnsupported)
 		}
 
 		if stmt != nil {
@@ -1015,7 +1015,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 		}
 		astBlock.Exit = &ast.ExprStmt{X: ah.CallExprByName("panic", panicArgExpr)}
 	default:
-		return fmt.Errorf("exit instruction %v: %w", exit, UnsupportedErr)
+		return fmt.Errorf("exit instruction %v: %w", exit, ErrUnsupported)
 	}
 
 	return nil
@@ -1145,7 +1145,7 @@ func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, erro
 
 func (fc *funcConverter) convert(ssaFunc *ssa.Function) (*ast.FuncDecl, error) {
 	if ssaFunc.Signature.TypeParams() != nil || ssaFunc.Signature.RecvTypeParams() != nil {
-		return nil, UnsupportedErr
+		return nil, ErrUnsupported
 	}
 
 	funcDecl, err := fc.convertSignatureToFuncDecl(ssaFunc.Name(), ssaFunc.Signature)
