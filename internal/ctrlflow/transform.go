@@ -148,7 +148,7 @@ func addJunkBlocks(ssaFunc *ssa.Function, count int, obfRand *mathrand.Rand) {
 	}
 }
 
-func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
+func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) bool {
 	var targetBlock *ssa.BasicBlock
 	for _, block := range ssaFunc.Blocks {
 		if targetBlock == nil || len(block.Instrs) > len(targetBlock.Instrs) {
@@ -158,7 +158,7 @@ func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 
 	const minInstrCount = 1 + 3 // 1 exit instruction + 3 any instruction
 	if targetBlock == nil || len(targetBlock.Instrs) <= minInstrCount {
-		return
+		return false
 	}
 
 	splitIdx := 1 + obfRand.Intn(len(targetBlock.Instrs)-2)
@@ -191,4 +191,5 @@ func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 
 	ssaFunc.Blocks = append(ssaFunc.Blocks, newBlock)
 	targetBlock.Succs = []*ssa.BasicBlock{newBlock}
+	return true
 }

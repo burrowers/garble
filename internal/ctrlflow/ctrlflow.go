@@ -138,7 +138,9 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
 		for i := 0; i < params.GetInt("split", 0); i++ {
-			applySplitting(ssaFunc, obfRand)
+			if !applySplitting(ssaFunc, obfRand) {
+				break
+			}
 		}
 		if junkCount := params.GetInt("junk", 0); junkCount > 0 {
 			addJunkBlocks(ssaFunc, junkCount, obfRand)
