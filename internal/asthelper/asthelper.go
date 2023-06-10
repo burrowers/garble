@@ -85,3 +85,39 @@ func DataToByteSlice(data []byte) *ast.CallExpr {
 		Args: []ast.Expr{StringLit(string(data))},
 	}
 }
+
+// SelectExpr "x.sel"
+func SelectExpr(x ast.Expr, sel *ast.Ident) *ast.SelectorExpr {
+	return &ast.SelectorExpr{
+		X:   x,
+		Sel: sel,
+	}
+}
+
+// AssignDefineStmt "Lhs := Rhs"
+func AssignDefineStmt(Lhs ast.Expr, Rhs ast.Expr) *ast.AssignStmt {
+	return &ast.AssignStmt{
+		Lhs: []ast.Expr{Lhs},
+		Tok: token.DEFINE,
+		Rhs: []ast.Expr{Rhs},
+	}
+}
+
+// CallExprByName "fun(args...)"
+func CallExprByName(fun string, args ...ast.Expr) *ast.CallExpr {
+	return CallExpr(ast.NewIdent(fun), args...)
+}
+
+// AssignStmt "Lhs = Rhs"
+func AssignStmt(Lhs ast.Expr, Rhs ast.Expr) *ast.AssignStmt {
+	return &ast.AssignStmt{
+		Lhs: []ast.Expr{Lhs},
+		Tok: token.ASSIGN,
+		Rhs: []ast.Expr{Rhs},
+	}
+}
+
+// IndexExprByExpr "xExpr[indexExpr]"
+func IndexExprByExpr(xExpr, indexExpr ast.Expr) *ast.IndexExpr {
+	return &ast.IndexExpr{X: xExpr, Index: indexExpr}
+}
