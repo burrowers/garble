@@ -21,9 +21,30 @@ const (
 
 	directiveName = "//garble:controlflow"
 	importPrefix  = "___garble_import"
+
+	defaultSplit  = 0
+	defaultJunk   = 0
+	defaultPasses = 1
 )
 
-func parseDirective(directive string) (map[string]string, bool) {
+type directiveParamMap map[string]string
+
+func (m directiveParamMap) GetInt(name string, def int) int {
+	rawVal, ok := m[name]
+	if !ok {
+		return def
+	}
+
+	val, err := strconv.Atoi(rawVal)
+	if err != nil {
+		panic(fmt.Errorf("invalid flag %s format: %v", name, err))
+	}
+	return val
+}
+
+// parseDirective parses a directive string and returns a map of directive parameters.
+// Each parameter should be in the form "key=value" or "key"
+func parseDirective(directive string) (directiveParamMap, bool) {
 	if !strings.HasPrefix(directive, directiveName) {
 		return nil, false
 	}
@@ -44,21 +65,16 @@ func parseDirective(directive string) (map[string]string, bool) {
 	return m, true
 }
 
-type directiveParamMap map[string]string
-
-func (m directiveParamMap) GetInt(name string, def int) int {
-	rawVal, ok := m[name]
-	if !ok {
-		return def
-	}
-
-	val, err := strconv.Atoi(rawVal)
-	if err != nil {
-		panic(fmt.Errorf("invalid flag %s format: %v", name, err))
-	}
-	return val
-}
-
+// Obfuscate obfuscates control flow of all methods with directive using control flattening.
+// All obfuscated methods are removed from the original file and moved to the new one.
+// Obfuscation can be customized by passing parameters from the directive, example:
+//
+// //garble:controlflow passes=1 junk=0 split=0
+// func someMethod() {}
+//
+// passes - controls number of passes of control flow flattening. Have exponential complexity and more than 3 passes are not recommended in most cases.
+// junk - controls how many junk jumps are added. It does not affect final binary by itself, but together with flattening linearly increases complexity.
+// split - controls number of times largest block must be splitted. Together with flattening improves obfuscation of long blocks without branches.
 func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfRand *mathrand.Rand) (newFile *ast.File, affectedFiles []*ast.File, err error) {
 	var ssaFuncs []*ssa.Function
 	var ssaParams []directiveParamMap
@@ -117,10 +133,10 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		Package: token.Pos(fset.Base()),
 		Name:    ast.NewIdent(files[0].Name.Name),
 	}
-	fset.AddFile(FileName, int(newFile.Package), 1)
+	fset.AddFile(FileName, int(newFile.Package), 1) // required for correct printer output
 
 	funcConfig := ssa2ast.DefaultConfig()
-	imports := make(map[string]string)
+	imports := make(map[string]string) // TODO: indirect imports turned into direct currently brake build process
 	funcConfig.ImportNameResolver = func(pkg *types.Package) *ast.Ident {
 		if pkg == nil || pkg.Path() == ssaPkg.Pkg.Path() {
 			return nil
@@ -137,17 +153,19 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
-		for i := 0; i < params.GetInt("split", 0); i++ {
+		for i := 0; i < params.GetInt("split", defaultSplit); i++ {
 			if !applySplitting(ssaFunc, obfRand) {
-				break
+				break // no more candidates for splitting
 			}
 		}
-		if junkCount := params.GetInt("junk", 0); junkCount > 0 {
+		if junkCount := params.GetInt("junk", defaultJunk); junkCount > 0 {
 			addJunkBlocks(ssaFunc, junkCount, obfRand)
 		}
-		for i := 0; i < params.GetInt("passes", 1); i++ {
+		for i := 0; i < params.GetInt("passes", defaultPasses); i++ {
 			applyFlattening(ssaFunc, obfRand)
 		}
+
+		fixBlockIndexes(ssaFunc)
 		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)
 		if err != nil {
 			return nil, nil, err

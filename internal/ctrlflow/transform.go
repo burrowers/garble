@@ -14,6 +14,8 @@ type blockMapping struct {
 	Fake, Target *ssa.BasicBlock
 }
 
+// applyFlattening adds a dispatcher block and uses ssa.Phi to redirect all ssa.Jump and ssa.If to the dispatcher,
+// additionally shuffle all blocks
 func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 	if len(ssaFunc.Blocks) < 3 {
 		return
@@ -64,7 +66,7 @@ func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 
 	phiIdxs := obfRand.Perm(len(blocksMapping))
 	for i := range phiIdxs {
-		phiIdxs[i]++
+		phiIdxs[i]++ // 0 reserved for real entry block
 	}
 
 	var entriesBlocks []*ssa.BasicBlock
@@ -114,11 +116,9 @@ func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 		obfuscatedBlocks[i], obfuscatedBlocks[j] = obfuscatedBlocks[j], obfuscatedBlocks[i]
 	})
 	ssaFunc.Blocks = append([]*ssa.BasicBlock{entryBlock}, obfuscatedBlocks...)
-	for i, block := range ssaFunc.Blocks {
-		block.Index = i
-	}
 }
 
+// addJunkBlocks adds junk jumps into random blocks. Can create chains of junk jumps.
 func addJunkBlocks(ssaFunc *ssa.Function, count int, obfRand *mathrand.Rand) {
 	if count == 0 {
 		return
@@ -148,6 +148,8 @@ func addJunkBlocks(ssaFunc *ssa.Function, count int, obfRand *mathrand.Rand) {
 	}
 }
 
+// applySplitting splits biggest block into 2 parts of random size.
+// Returns false if no block large enough for splitting is found
 func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) bool {
 	var targetBlock *ssa.BasicBlock
 	for _, block := range ssaFunc.Blocks {
@@ -192,4 +194,10 @@ func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) bool {
 	ssaFunc.Blocks = append(ssaFunc.Blocks, newBlock)
 	targetBlock.Succs = []*ssa.BasicBlock{newBlock}
 	return true
+}
+
+func fixBlockIndexes(ssaFunc *ssa.Function) {
+	for i, block := range ssaFunc.Blocks {
+		block.Index = i
+	}
 }
