@@ -5,7 +5,6 @@ import (
 	"go/types"
 	mathrand "math/rand"
 	"strconv"
-	_ "unsafe"
 
 	"golang.org/x/tools/go/ssa"
 )
