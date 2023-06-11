@@ -189,7 +189,6 @@ func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) bool {
 	setBlockParent(newBlock, ssaFunc)
 	for _, instr := range newBlock.Instrs {
 		setBlock(instr, newBlock)
-		instr.Parent()
 	}
 
 	// Fix preds for ssa.Phi working
