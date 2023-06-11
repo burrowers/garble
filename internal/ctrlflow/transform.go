@@ -27,14 +27,17 @@ func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 		Comment: "ctrflow.entry",
 		Instrs:  []ssa.Instruction{phiInstr},
 	}
+	setBlockParent(entryBlock, ssaFunc)
 
 	makeJumpBlock := func(from *ssa.BasicBlock) *ssa.BasicBlock {
-		return &ssa.BasicBlock{
+		jumpBlock := &ssa.BasicBlock{
 			Comment: "ctrflow.jump",
 			Instrs:  []ssa.Instruction{&ssa.Jump{}},
 			Preds:   []*ssa.BasicBlock{from},
 			Succs:   []*ssa.BasicBlock{entryBlock},
 		}
+		setBlockParent(jumpBlock, ssaFunc)
+		return jumpBlock
 	}
 
 	// map for track fake block -> real block jump
@@ -88,6 +91,7 @@ func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 			Instrs: []ssa.Instruction{cond, ifInstr},
 			Succs:  []*ssa.BasicBlock{m.Target, nil}, // false branch fulfilled in next iteration or linked to real entry block
 		}
+		setBlockParent(ifBlock, ssaFunc)
 
 		setBlock(cond, ifBlock)
 		setBlock(ifInstr, ifBlock)
@@ -129,6 +133,10 @@ func addJunkBlocks(ssaFunc *ssa.Function, count int, obfRand *mathrand.Rand) {
 		}
 	}
 
+	if len(candidates) == 0 {
+		return
+	}
+
 	for i := 0; i < count; i++ {
 		targetBlock := candidates[obfRand.Intn(len(candidates))]
 		succsIdx := obfRand.Intn(len(targetBlock.Succs))
@@ -140,6 +148,7 @@ func addJunkBlocks(ssaFunc *ssa.Function, count int, obfRand *mathrand.Rand) {
 			Preds:   []*ssa.BasicBlock{targetBlock},
 			Succs:   []*ssa.BasicBlock{succs},
 		}
+		setBlockParent(fakeBlock, ssaFunc)
 		targetBlock.Succs[succsIdx] = fakeBlock
 
 		ssaFunc.Blocks = append(ssaFunc.Blocks, fakeBlock)
@@ -177,8 +186,10 @@ func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) bool {
 		Preds:   []*ssa.BasicBlock{targetBlock},
 		Succs:   targetBlock.Succs,
 	}
+	setBlockParent(newBlock, ssaFunc)
 	for _, instr := range newBlock.Instrs {
 		setBlock(instr, newBlock)
+		instr.Parent()
 	}
 
 	// Fix preds for ssa.Phi working

@@ -153,19 +153,31 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
-		for i := 0; i < params.GetInt("split", defaultSplit); i++ {
-			if !applySplitting(ssaFunc, obfRand) {
-				break // no more candidates for splitting
+
+		split := params.GetInt("split", defaultSplit)
+		junkCount := params.GetInt("junk", defaultJunk)
+		passes := params.GetInt("passes", defaultPasses)
+
+		applyObfuscation := func(ssaFunc *ssa.Function) {
+			for i := 0; i < split; i++ {
+				if !applySplitting(ssaFunc, obfRand) {
+					break // no more candidates for splitting
+				}
 			}
-		}
-		if junkCount := params.GetInt("junk", defaultJunk); junkCount > 0 {
-			addJunkBlocks(ssaFunc, junkCount, obfRand)
-		}
-		for i := 0; i < params.GetInt("passes", defaultPasses); i++ {
-			applyFlattening(ssaFunc, obfRand)
+			if junkCount > 0 {
+				addJunkBlocks(ssaFunc, junkCount, obfRand)
+			}
+			for i := 0; i < passes; i++ {
+				applyFlattening(ssaFunc, obfRand)
+			}
+			fixBlockIndexes(ssaFunc)
 		}
 
-		fixBlockIndexes(ssaFunc)
+		applyObfuscation(ssaFunc)
+		for _, anonFunc := range ssaFunc.AnonFuncs {
+			applyObfuscation(anonFunc)
+		}
+
 		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)
 		if err != nil {
 			return nil, nil, err

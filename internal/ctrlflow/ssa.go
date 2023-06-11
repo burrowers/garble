@@ -24,6 +24,10 @@ func setUnexportableField(objRaw interface{}, name string, valRaw interface{}) {
 	fakeStruct.Elem().Set(reflect.ValueOf(valRaw))
 }
 
+func setBlockParent(block *ssa.BasicBlock, ssaFunc *ssa.Function) {
+	setUnexportableField(block, "parent", ssaFunc)
+}
+
 func setBlock(instr ssa.Instruction, block *ssa.BasicBlock) {
 	setUnexportableField(instr, "block", block)
 }
