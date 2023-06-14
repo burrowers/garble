@@ -33,6 +33,8 @@ modules=(
 	github.com/andybalholm/brotli v1.0.4
 
 	# TODO: consider github.com/mattn/go-sqlite3 to cover a DB and more cgo
+
+	github.com/aws/aws-sdk-go-v2 v1.18.1
 )
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
