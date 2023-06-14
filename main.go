@@ -1440,7 +1440,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			if err != nil {
 				return err
 			}
-			computedImp, err := computePkgCache(fsCache, lpkg, pkg, files, info, ssaPkg)
+			computedImp, err := computePkgCache(fsCache, lpkg, pkg, files, info, nil)
 			if err != nil {
 				return err
 			}
@@ -1582,6 +1582,8 @@ type transformer struct {
 	// decisions on how to obfuscate our input code.
 	origImporter importerWithMap
 
+	// usedAllImportsFiles is used to prevent multiple calls of tf.useAllImports function on one file
+	// in case of simultaneously applied control flow and literals obfuscation
 	usedAllImportsFiles map[*ast.File]bool
 }
 
