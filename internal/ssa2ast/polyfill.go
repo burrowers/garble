@@ -42,111 +42,58 @@ func makeMapIteratorPolyfill(tc *typeConverter, mapType *types.Map) (ast.Expr, t
 	*/
 	return &ast.FuncLit{
 		Type: &ast.FuncType{
-			Params: &ast.FieldList{
-				List: []*ast.Field{
-					{
-						Names: []*ast.Ident{
-							{
-								Name: "m",
-							},
-						},
-						Type: &ast.MapType{
-							Key:   keyTypeExpr,
-							Value: valueTypeExpr,
-						},
-					},
+			Params: &ast.FieldList{List: []*ast.Field{{
+				Names: []*ast.Ident{{Name: "m"}},
+				Type: &ast.MapType{
+					Key:   keyTypeExpr,
+					Value: valueTypeExpr,
 				},
-			},
-			Results: &ast.FieldList{
-				List: []*ast.Field{
-					{
-						Type: &ast.FuncType{
-							Params: &ast.FieldList{},
-							Results: &ast.FieldList{
-								List: []*ast.Field{
-									{
-										Type: &ast.Ident{
-											Name: "bool",
-										},
-									},
-									{
-										Type: keyTypeExpr,
-									},
-									{
-										Type: valueTypeExpr,
-									},
-								},
-							},
-						},
-					},
+			}}},
+			Results: &ast.FieldList{List: []*ast.Field{{
+				Type: &ast.FuncType{
+					Params: &ast.FieldList{},
+					Results: &ast.FieldList{List: []*ast.Field{
+						{Type: &ast.Ident{Name: "bool"}},
+						{Type: keyTypeExpr},
+						{Type: valueTypeExpr},
+					}},
 				},
-			},
+			}}},
 		},
 		Body: &ast.BlockStmt{
 			List: []ast.Stmt{
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{
-						&ast.Ident{
-							Name: "keys",
-						},
-					},
+					Lhs: []ast.Expr{&ast.Ident{Name: "keys"}},
 					Tok: token.DEFINE,
 					Rhs: []ast.Expr{
 						&ast.CallExpr{
-							Fun: &ast.Ident{
-								Name: "make",
-							},
+							Fun: &ast.Ident{Name: "make"},
 							Args: []ast.Expr{
-								&ast.ArrayType{
-									Elt: keyTypeExpr,
-								},
-								&ast.BasicLit{
-									Kind:  token.INT,
-									Value: "0",
-								},
+								&ast.ArrayType{Elt: keyTypeExpr},
+								&ast.BasicLit{Kind: token.INT, Value: "0"},
 								&ast.CallExpr{
-									Fun: &ast.Ident{
-										Name: "len",
-									},
-									Args: []ast.Expr{
-										&ast.Ident{
-											Name: "m",
-										},
-									},
+									Fun:  &ast.Ident{Name: "len"},
+									Args: []ast.Expr{&ast.Ident{Name: "m"}},
 								},
 							},
 						},
 					},
 				},
 				&ast.RangeStmt{
-					Key: &ast.Ident{
-						Name: "k",
-					},
+					Key: &ast.Ident{Name: "k"},
 					Tok: token.DEFINE,
-					X: &ast.Ident{
-						Name: "m",
-					},
+					X:   &ast.Ident{Name: "m"},
 					Body: &ast.BlockStmt{
 						List: []ast.Stmt{
 							&ast.AssignStmt{
-								Lhs: []ast.Expr{
-									&ast.Ident{
-										Name: "keys",
-									},
-								},
+								Lhs: []ast.Expr{&ast.Ident{Name: "keys"}},
 								Tok: token.ASSIGN,
 								Rhs: []ast.Expr{
 									&ast.CallExpr{
-										Fun: &ast.Ident{
-											Name: "append",
-										},
+										Fun: &ast.Ident{Name: "append"},
 										Args: []ast.Expr{
-											&ast.Ident{
-												Name: "keys",
-											},
-											&ast.Ident{
-												Name: "k",
-											},
+											&ast.Ident{Name: "keys"},
+											&ast.Ident{Name: "k"},
 										},
 									},
 								},
@@ -155,133 +102,74 @@ func makeMapIteratorPolyfill(tc *typeConverter, mapType *types.Map) (ast.Expr, t
 					},
 				},
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{
-						&ast.Ident{
-							Name: "i",
-						},
-					},
+					Lhs: []ast.Expr{&ast.Ident{Name: "i"}},
 					Tok: token.DEFINE,
-					Rhs: []ast.Expr{
-						&ast.BasicLit{
-							Kind:  token.INT,
-							Value: "0",
-						},
-					},
+					Rhs: []ast.Expr{&ast.BasicLit{Kind: token.INT, Value: "0"}},
 				},
-				&ast.ReturnStmt{
-					Results: []ast.Expr{
-						&ast.FuncLit{
-							Type: &ast.FuncType{
-								Params: &ast.FieldList{},
-								Results: &ast.FieldList{
-									List: []*ast.Field{
-										{
-											Names: []*ast.Ident{
-												{
-													Name: "ok",
-												},
-											},
-											Type: &ast.Ident{
-												Name: "bool",
-											},
-										},
-										{
-											Names: []*ast.Ident{
-												{
-													Name: "k",
-												},
-											},
-											Type: keyTypeExpr,
-										},
-										{
-											Names: []*ast.Ident{
-												{
-													Name: "r",
-												},
-											},
-											Type: valueTypeExpr,
+				&ast.ReturnStmt{Results: []ast.Expr{
+					&ast.FuncLit{
+						Type: &ast.FuncType{
+							Params: &ast.FieldList{},
+							Results: &ast.FieldList{List: []*ast.Field{
+								{
+									Names: []*ast.Ident{{Name: "ok"}},
+									Type:  &ast.Ident{Name: "bool"},
+								},
+								{
+									Names: []*ast.Ident{{Name: "k"}},
+									Type:  keyTypeExpr,
+								},
+								{
+									Names: []*ast.Ident{{Name: "r"}},
+									Type:  valueTypeExpr,
+								},
+							}},
+						},
+						Body: &ast.BlockStmt{
+							List: []ast.Stmt{
+								&ast.IfStmt{
+									Cond: &ast.BinaryExpr{
+										X:  &ast.Ident{Name: "i"},
+										Op: token.LSS,
+										Y: &ast.CallExpr{
+											Fun:  &ast.Ident{Name: "len"},
+											Args: []ast.Expr{&ast.Ident{Name: "keys"}},
 										},
 									},
-								},
-							},
-							Body: &ast.BlockStmt{
-								List: []ast.Stmt{
-									&ast.IfStmt{
-										Cond: &ast.BinaryExpr{
-											X: &ast.Ident{
-												Name: "i",
+									Body: &ast.BlockStmt{List: []ast.Stmt{
+										&ast.AssignStmt{
+											Lhs: []ast.Expr{&ast.Ident{Name: "k"}},
+											Tok: token.ASSIGN,
+											Rhs: []ast.Expr{&ast.IndexExpr{
+												X:     &ast.Ident{Name: "keys"},
+												Index: &ast.Ident{Name: "i"},
+											}},
+										},
+										&ast.AssignStmt{
+											Lhs: []ast.Expr{
+												&ast.Ident{Name: "ok"},
+												&ast.Ident{Name: "r"},
 											},
-											Op: token.LSS,
-											Y: &ast.CallExpr{
-												Fun: &ast.Ident{
-													Name: "len",
-												},
-												Args: []ast.Expr{
-													&ast.Ident{
-														Name: "keys",
-													},
+											Tok: token.ASSIGN,
+											Rhs: []ast.Expr{
+												&ast.Ident{Name: "true"},
+												&ast.IndexExpr{
+													X:     &ast.Ident{Name: "m"},
+													Index: &ast.Ident{Name: "k"},
 												},
 											},
 										},
-										Body: &ast.BlockStmt{
-											List: []ast.Stmt{
-												&ast.AssignStmt{
-													Lhs: []ast.Expr{
-														&ast.Ident{
-															Name: "k",
-														},
-													},
-													Tok: token.ASSIGN,
-													Rhs: []ast.Expr{
-														&ast.IndexExpr{
-															X: &ast.Ident{
-																Name: "keys",
-															},
-															Index: &ast.Ident{
-																Name: "i",
-															},
-														},
-													},
-												},
-												&ast.AssignStmt{
-													Lhs: []ast.Expr{
-														&ast.Ident{
-															Name: "ok",
-														},
-														&ast.Ident{
-															Name: "r",
-														},
-													},
-													Tok: token.ASSIGN,
-													Rhs: []ast.Expr{
-														&ast.Ident{
-															Name: "true",
-														},
-														&ast.IndexExpr{
-															X: &ast.Ident{
-																Name: "m",
-															},
-															Index: &ast.Ident{
-																Name: "k",
-															},
-														},
-													},
-												},
-												&ast.IncDecStmt{
-													X: &ast.Ident{
-														Name: "i",
-													},
-													Tok: token.INC,
-												},
-											},
+										&ast.IncDecStmt{
+											X:   &ast.Ident{Name: "i"},
+											Tok: token.INC,
 										},
-									},
-									&ast.ReturnStmt{},
+									}},
 								},
+								&ast.ReturnStmt{},
 							},
 						},
 					},
-				},
+				}},
 			},
 		},
 	}, nextType, nil
