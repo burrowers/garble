@@ -17,10 +17,9 @@ import (
 )
 
 const (
-	FileName = "GARBLE_controlflow.go"
-
-	directiveName = "//garble:controlflow"
-	importPrefix  = "___garble_import"
+	mergedFileName = "GARBLE_controlflow.go"
+	directiveName  = "//garble:controlflow"
+	importPrefix   = "___garble_import"
 
 	defaultSplit  = 0
 	defaultJunk   = 0
@@ -65,8 +64,8 @@ func parseDirective(directive string) (directiveParamMap, bool) {
 	return m, true
 }
 
-// Obfuscate obfuscates control flow of all methods with directive using control flattening.
-// All obfuscated methods are removed from the original file and moved to the new one.
+// Obfuscate obfuscates control flow of all functions with directive using control flattening.
+// All obfuscated functions are removed from the original file and moved to the new one.
 // Obfuscation can be customized by passing parameters from the directive, example:
 //
 // //garble:controlflow passes=1 junk=0 split=0
@@ -75,20 +74,16 @@ func parseDirective(directive string) (directiveParamMap, bool) {
 // passes - controls number of passes of control flow flattening. Have exponential complexity and more than 3 passes are not recommended in most cases.
 // junk - controls how many junk jumps are added. It does not affect final binary by itself, but together with flattening linearly increases complexity.
 // split - controls number of times largest block must be splitted. Together with flattening improves obfuscation of long blocks without branches.
-func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfRand *mathrand.Rand) (newFile *ast.File, affectedFiles []*ast.File, err error) {
+func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfRand *mathrand.Rand) (newFileName string, newFile *ast.File, affectedFiles []*ast.File, err error) {
 	var ssaFuncs []*ssa.Function
 	var ssaParams []directiveParamMap
 
 	for _, file := range files {
 		affected := false
-		ast.Inspect(file, func(node ast.Node) bool {
-			if _, ok := node.(*ast.File); ok {
-				return true
-			}
-
-			funcDecl, ok := node.(*ast.FuncDecl)
+		for _, decl := range file.Decls {
+			funcDecl, ok := decl.(*ast.FuncDecl)
 			if !ok || funcDecl.Doc == nil {
-				return false
+				continue
 			}
 
 			for _, comment := range funcDecl.Doc.List {
@@ -117,8 +112,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 
 				break
 			}
-			return false
-		})
+		}
 
 		if affected {
 			affectedFiles = append(affectedFiles, file)
@@ -133,7 +127,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		Package: token.Pos(fset.Base()),
 		Name:    ast.NewIdent(files[0].Name.Name),
 	}
-	fset.AddFile(FileName, int(newFile.Package), 1) // required for correct printer output
+	fset.AddFile(mergedFileName, int(newFile.Package), 1) // required for correct printer output
 
 	funcConfig := ssa2ast.DefaultConfig()
 	imports := make(map[string]string) // TODO: indirect imports turned into direct currently brake build process
@@ -180,10 +174,11 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 
 		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)
 		if err != nil {
-			return nil, nil, err
+			return "", nil, nil, err
 		}
 		newFile.Decls = append(newFile.Decls, astFunc)
 	}
 
+	newFileName = mergedFileName
 	return
 }

@@ -91,8 +91,8 @@ type exampleStruct struct {
 }
 `
 
-func Test_typeToExpr(t *testing.T) {
-	f, _, info, _ := mustParseFile(typesSrc)
+func TestTypeToExpr(t *testing.T) {
+	f, _, info, _ := mustParseAndTypeCheckFile(typesSrc)
 	name, structAst := findStruct(f, "exampleStruct")
 	obj := info.Defs[name]
 	fc := &typeConverter{resolver: defaultImportNameResolver}

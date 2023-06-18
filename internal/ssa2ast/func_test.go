@@ -50,10 +50,10 @@ func genericFuncSignature[T interface{ interface{} | ~int64 | bool }, X interfac
 }
 `
 
-func Test_convertSignature(t *testing.T) {
+func TestConvertSignature(t *testing.T) {
 	conv := newFuncConverter(DefaultConfig())
 
-	f, _, info, _ := mustParseFile(sigSrc)
+	f, _, info, _ := mustParseAndTypeCheckFile(sigSrc)
 	for _, funcName := range []string{"plainStructFunc", "plainStructAnonFunc", "genericStructFunc", "plainFuncSignature", "genericFuncSignature"} {
 		funcDecl := findFunc(f, funcName)
 		funcDecl.Body = nil
@@ -342,7 +342,7 @@ func typeOps() {
 	_, _ = discard.Write([]byte("test"))
 }`
 
-func Test_Convert(t *testing.T) {
+func TestConvert(t *testing.T) {
 	runGoFile := func(f string) string {
 		cmd := exec.Command("go", "run", f)
 		out, err := cmd.CombinedOutput()
@@ -358,7 +358,7 @@ func Test_Convert(t *testing.T) {
 	}
 
 	originalOut := runGoFile(testFile)
-	file, fset, _, _ := mustParseFile(mainSrc)
+	file, fset, _, _ := mustParseAndTypeCheckFile(mainSrc)
 	ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{file}, 0)
 	if err != nil {
 		t.Fatal(err)

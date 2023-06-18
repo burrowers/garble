@@ -960,14 +960,14 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	if flagControlFlow {
 		ssaPkg = ssaBuildPkg(tf.pkg, files, tf.info)
 
-		newFile, affectedFiles, err := ctrlflow.Obfuscate(fset, ssaPkg, files, tf.obfRand)
+		newFileName, newFile, affectedFiles, err := ctrlflow.Obfuscate(fset, ssaPkg, files, tf.obfRand)
 		if err != nil {
 			return nil, err
 		}
 
 		if newFile != nil {
 			files = append(files, newFile)
-			paths = append(paths, ctrlflow.FileName)
+			paths = append(paths, newFileName)
 			for _, file := range affectedFiles {
 				tf.useAllImports(file)
 			}

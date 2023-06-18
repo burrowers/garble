@@ -23,8 +23,12 @@ type NameType int
 type ImportNameResolver func(pkg *types.Package) *ast.Ident
 
 type ConverterConfig struct {
+	// ImportNameResolver function to get the actual import name.
+	// Because converting works at function level, only the caller knows actual name of the import.
 	ImportNameResolver ImportNameResolver
-	NamePrefix         string
+
+	// NamePrefix prefix added to all new local variables. Must be reasonably unique
+	NamePrefix string
 }
 
 func DefaultConfig() *ConverterConfig {
@@ -211,8 +215,9 @@ func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, 
 
 			hasRecv := val.Signature.Recv() != nil
 			methodName := ast.NewIdent(val.Name())
-			// TODO: review this
 			if val.TypeParams().Len() != 0 {
+				// TODO: to convert a call of a generic function it is enough to cut method name,
+				// but in the future when implementing converting generic functions this code must be rewritten
 				methodName.Name = methodName.Name[:strings.IndexRune(methodName.Name, '[')]
 			}
 
@@ -1094,8 +1099,6 @@ func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, erro
 
 	if len(f.Vars) > 0 {
 		groupedVar := make(map[types.Type][]string)
-
-		// TODO: rewrite algo
 		for varName, varType := range f.Vars {
 			exists := false
 			for groupedType, names := range groupedVar {

@@ -9,7 +9,8 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func setUnexportableField(objRaw interface{}, name string, valRaw interface{}) {
+// setUnexportedField is used to modify unexported fields of ssa api structures.
+func setUnexportedField(objRaw interface{}, name string, valRaw interface{}) {
 	obj := reflect.ValueOf(objRaw)
 	for obj.Kind() == reflect.Pointer || obj.Kind() == reflect.Interface {
 		obj = obj.Elem()
@@ -25,15 +26,15 @@ func setUnexportableField(objRaw interface{}, name string, valRaw interface{}) {
 }
 
 func setBlockParent(block *ssa.BasicBlock, ssaFunc *ssa.Function) {
-	setUnexportableField(block, "parent", ssaFunc)
+	setUnexportedField(block, "parent", ssaFunc)
 }
 
 func setBlock(instr ssa.Instruction, block *ssa.BasicBlock) {
-	setUnexportableField(instr, "block", block)
+	setUnexportedField(instr, "block", block)
 }
 
 func setType(instr ssa.Instruction, typ types.Type) {
-	setUnexportableField(instr, "typ", typ)
+	setUnexportedField(instr, "typ", typ)
 }
 
 func makeSsaInt(i int) *ssa.Const {

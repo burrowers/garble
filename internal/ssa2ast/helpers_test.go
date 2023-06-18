@@ -37,26 +37,17 @@ func findStruct(file *ast.File, structName string) (name *ast.Ident, structType 
 	return
 }
 
-func findFunc(file *ast.File, funcName string) (funcDecl *ast.FuncDecl) {
-	ast.Inspect(file, func(node ast.Node) bool {
-		if funcDecl != nil {
-			return false
+func findFunc(file *ast.File, funcName string) *ast.FuncDecl {
+	for _, decl := range file.Decls {
+		fDecl, ok := decl.(*ast.FuncDecl)
+		if ok && fDecl.Name.Name == funcName {
+			return fDecl
 		}
-
-		fDecl, ok := node.(*ast.FuncDecl)
-		if !ok || fDecl.Name.Name != funcName {
-			return true
-		}
-		funcDecl = fDecl
-		return true
-	})
-	if funcDecl == nil {
-		panic(funcName + " not found")
 	}
-	return
+	panic(funcName + " not found")
 }
 
-func mustParseFile(src string) (*ast.File, *token.FileSet, *types.Info, *types.Package) {
+func mustParseAndTypeCheckFile(src string) (*ast.File, *token.FileSet, *types.Info, *types.Package) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "a.go", src, 0)
 	if err != nil {
