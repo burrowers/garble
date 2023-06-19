@@ -153,6 +153,8 @@ var (
 	parentWorkDir = os.Getenv("GARBLE_PARENT_WORK")
 )
 
+const actionGraphFileName = "action-graph.json"
+
 type importerWithMap struct {
 	importMap  map[string]string
 	importFrom func(path, dir string, mode types.ImportMode) (*types.Package, error)
@@ -620,6 +622,9 @@ This command wraps "go %s". Below is its help:
 	toolexecFlag.WriteString(" toolexec")
 	goArgs = append(goArgs, toolexecFlag.String())
 
+	if flagControlFlow {
+		goArgs = append(goArgs, "-debug-actiongraph", filepath.Join(sharedTempDir, actionGraphFileName))
+	}
 	if flagDebugDir != "" {
 		// In case the user deletes the debug directory,
 		// and a previous build is cached,
@@ -956,7 +961,10 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	var ssaPkg *ssa.Package
+	var (
+		ssaPkg       *ssa.Package
+		requiredPkgs []string
+	)
 	if flagControlFlow {
 		ssaPkg = ssaBuildPkg(tf.pkg, files, tf.info)
 
@@ -974,6 +982,14 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter); err != nil {
 				return nil, err
 			}
+
+			for _, imp := range newFile.Imports {
+				path, err := strconv.Unquote(imp.Path.Value)
+				if err != nil {
+					panic(err) // should never happen
+				}
+				requiredPkgs = append(requiredPkgs, path)
+			}
 		}
 	}
 
@@ -990,7 +1006,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	}
 
 	flags = alterTrimpath(flags)
-	newImportCfg, err := tf.processImportCfg(flags)
+	newImportCfg, err := tf.processImportCfg(flags, requiredPkgs)
 	if err != nil {
 		return nil, err
 	}
@@ -1194,7 +1210,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 // processImportCfg parses the importcfg file passed to a compile or link step.
 // It also builds a new importcfg file to account for obfuscated import paths.
-func (tf *transformer) processImportCfg(flags []string) (newImportCfg string, _ error) {
+func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (newImportCfg string, _ error) {
 	importCfg := flagValue(flags, "-importcfg")
 	if importCfg == "" {
 		return "", fmt.Errorf("could not find -importcfg argument")
@@ -1205,6 +1221,15 @@ func (tf *transformer) processImportCfg(flags []string) (newImportCfg string, _ 
 	}
 
 	var packagefiles, importmaps [][2]string
+
+	// using for track required but not imported packages
+	var requiredPkgsMap map[string]bool
+	if requiredPkgs != nil {
+		requiredPkgsMap = make(map[string]bool)
+		for _, pkg := range requiredPkgs {
+			requiredPkgsMap[pkg] = true
+		}
+	}
 
 	for _, line := range strings.Split(string(data), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -1227,6 +1252,7 @@ func (tf *transformer) processImportCfg(flags []string) (newImportCfg string, _ 
 				continue
 			}
 			packagefiles = append(packagefiles, [2]string{importPath, objectPath})
+			delete(requiredPkgsMap, importPath)
 		}
 	}
 
@@ -1255,6 +1281,45 @@ func (tf *transformer) processImportCfg(flags []string) (newImportCfg string, _ 
 		}
 		fmt.Fprintf(newCfg, "importmap %s=%s\n", beforePath, afterPath)
 	}
+
+	if len(requiredPkgsMap) > 0 {
+		f, err := os.Open(filepath.Join(sharedTempDir, actionGraphFileName))
+		if err != nil {
+			return "", fmt.Errorf("cannot open action graph file: %v", err)
+		}
+		defer f.Close()
+
+		var actions []struct {
+			Mode    string
+			Package string
+			Objdir  string
+		}
+		if err := json.NewDecoder(f).Decode(&actions); err != nil {
+			return "", fmt.Errorf("cannot parse action graph file: %v", err)
+		}
+
+		// theoretically action graph can be long, to optimise it process it in one pass
+		// with an early exit when all the required imports are found
+		for _, action := range actions {
+			if action.Mode != "build" {
+				continue
+			}
+			if ok := requiredPkgsMap[action.Package]; !ok {
+				continue
+			}
+
+			packagefiles = append(packagefiles, [2]string{action.Package, filepath.Join(action.Objdir, "_pkg_.a")}) // file name hardcoded in compiler
+			delete(requiredPkgsMap, action.Package)
+			if len(requiredPkgsMap) == 0 {
+				break
+			}
+		}
+
+		if len(requiredPkgsMap) > 0 {
+			return "", fmt.Errorf("cannot resolve required packages from action graph file: %v", requiredPkgs)
+		}
+	}
+
 	for _, pair := range packagefiles {
 		impPath, pkgfile := pair[0], pair[1]
 		lpkg, err := listPackage(tf.curPkg, impPath)
@@ -2045,7 +2110,7 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 	// lack any extension.
 	flags, args := splitFlagsFromArgs(args)
 
-	newImportCfg, err := tf.processImportCfg(flags)
+	newImportCfg, err := tf.processImportCfg(flags, nil)
 	if err != nil {
 		return nil, err
 	}
