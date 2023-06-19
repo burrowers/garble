@@ -114,28 +114,27 @@ func (tc *typeConverter) Convert(t types.Type) (ast.Expr, error) {
 			namedExpr = ast.NewIdent(obj.Name())
 		}
 
-		if typeParams := typ.TypeArgs(); typeParams != nil && typeParams.Len() > 0 {
-			if typeParams.Len() == 1 {
-				typeParamExpr, err := tc.Convert(typeParams.At(0))
-				if err != nil {
-					return nil, err
-				}
-				namedExpr = &ast.IndexExpr{X: namedExpr, Index: typeParamExpr}
-			} else {
-				genericExpr := &ast.IndexListExpr{X: namedExpr}
-				for i := 0; i < typeParams.Len(); i++ {
-					typeArgs := typeParams.At(i)
-					typeParamExpr, err := tc.Convert(typeArgs)
-					if err != nil {
-						return nil, err
-					}
-					genericExpr.Indices = append(genericExpr.Indices, typeParamExpr)
-				}
-				namedExpr = genericExpr
-			}
-
+		typeParams := typ.TypeArgs()
+		if typeParams == nil || typeParams.Len() == 0 {
+			return namedExpr, nil
 		}
-		return namedExpr, nil
+		if typeParams.Len() == 1 {
+			typeParamExpr, err := tc.Convert(typeParams.At(0))
+			if err != nil {
+				return nil, err
+			}
+			return &ast.IndexExpr{X: namedExpr, Index: typeParamExpr}, nil
+		}
+		genericExpr := &ast.IndexListExpr{X: namedExpr}
+		for i := 0; i < typeParams.Len(); i++ {
+			typeArgs := typeParams.At(i)
+			typeParamExpr, err := tc.Convert(typeArgs)
+			if err != nil {
+				return nil, err
+			}
+			genericExpr.Indices = append(genericExpr.Indices, typeParamExpr)
+		}
+		return genericExpr, nil
 	case *types.Pointer:
 		expr, err := tc.Convert(typ.Elem())
 		if err != nil {
@@ -144,8 +143,7 @@ func (tc *typeConverter) Convert(t types.Type) (ast.Expr, error) {
 		return &ast.StarExpr{X: expr}, nil
 	case *types.Signature:
 		funcSigExpr := &ast.FuncType{Params: &ast.FieldList{}}
-		sigParams := typ.Params()
-		if sigParams != nil {
+		if sigParams := typ.Params(); sigParams != nil {
 			for i := 0; i < sigParams.Len(); i++ {
 				param := sigParams.At(i)
 
@@ -172,8 +170,7 @@ func (tc *typeConverter) Convert(t types.Type) (ast.Expr, error) {
 				funcSigExpr.Params.List = append(funcSigExpr.Params.List, f)
 			}
 		}
-		sigResults := typ.Results()
-		if sigResults != nil {
+		if sigResults := typ.Results(); sigResults != nil {
 			funcSigExpr.Results = &ast.FieldList{}
 			for i := 0; i < sigResults.Len(); i++ {
 				result := sigResults.At(i)
@@ -189,8 +186,7 @@ func (tc *typeConverter) Convert(t types.Type) (ast.Expr, error) {
 				funcSigExpr.Results.List = append(funcSigExpr.Results.List, f)
 			}
 		}
-		typeParams := typ.TypeParams()
-		if typeParams != nil {
+		if typeParams := typ.TypeParams(); typeParams != nil {
 			funcSigExpr.TypeParams = &ast.FieldList{}
 			for i := 0; i < typeParams.Len(); i++ {
 				typeParam := typeParams.At(i)

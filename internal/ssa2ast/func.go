@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/constant"
 	"go/token"
 	"go/types"
 	"sort"
@@ -125,21 +124,6 @@ func isStringType(typ types.Type) bool {
 	return types.Identical(typ, types.Typ[types.String]) || types.Identical(typ, types.Typ[types.UntypedString])
 }
 
-func constToAst(val constant.Value) (ast.Expr, error) {
-	switch val.Kind() {
-	case constant.Bool:
-		return ast.NewIdent(val.ExactString()), nil
-	case constant.String:
-		return &ast.BasicLit{Kind: token.STRING, Value: val.ExactString()}, nil
-	case constant.Int:
-		return &ast.BasicLit{Kind: token.INT, Value: val.ExactString()}, nil
-	case constant.Float:
-		return &ast.BasicLit{Kind: token.FLOAT, Value: val.String()}, nil
-	default:
-		return nil, fmt.Errorf("contant %v: %w", val, ErrUnsupported)
-	}
-}
-
 func getFieldName(tp types.Type, index int) (string, error) {
 	if pt, ok := tp.(*types.Pointer); ok {
 		tp = pt.Elem()
@@ -221,22 +205,21 @@ func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, 
 				methodName.Name = methodName.Name[:strings.IndexRune(methodName.Name, '[')]
 			}
 
-			if !hasRecv {
-				if val.Pkg != nil {
-					if pkgIdent := fc.importNameResolver(val.Pkg.Pkg); pkgIdent != nil {
-						callExpr.Fun = ah.SelectExpr(pkgIdent, methodName)
-						break
-					}
-				}
-
-				callExpr.Fun = methodName
-			} else {
+			if hasRecv {
 				argsOffset = 1
 				recvExpr, err := fc.convertSsaValue(callCommon.Args[0])
 				if err != nil {
 					return nil, err
 				}
 				callExpr.Fun = ah.SelectExpr(recvExpr, methodName)
+			} else {
+				if val.Pkg != nil {
+					if pkgIdent := fc.importNameResolver(val.Pkg.Pkg); pkgIdent != nil {
+						callExpr.Fun = ah.SelectExpr(pkgIdent, methodName)
+						break
+					}
+				}
+				callExpr.Fun = methodName
 			}
 		case *ssa.Builtin:
 			name := val.Name()
@@ -365,11 +348,7 @@ func (fc *funcConverter) ssaValue(ssaValue ssa.Value, explicitNil bool) (ast.Exp
 				return constExpr, nil
 			}
 		} else {
-			tmpConstExpr, err := constToAst(val.Value)
-			if err != nil {
-				return nil, err
-			}
-			constExpr = tmpConstExpr
+			constExpr = ah.ConstToAst(val.Value)
 		}
 
 		if basicType, ok := val.Type().(*types.Basic); ok {
@@ -407,23 +386,26 @@ func (fc *funcConverter) tupleVarName(val ssa.Value, idx int) string {
 func (fc *funcConverter) tupleVarNameAndType(reg ssa.Value, idx int) (name string, typ types.Type, hasRefs bool) {
 	tupleType := reg.Type().(*types.Tuple)
 	typ = tupleType.At(idx).Type()
-	if refs := reg.Referrers(); refs != nil {
-		for _, instr := range *refs {
-			extractInstr, ok := instr.(*ssa.Extract)
-			if !ok {
-				continue
-			}
-			if extractInstr.Index == idx {
-				hasRefs = true
-				break
-			}
+	name = "_"
+
+	refs := reg.Referrers()
+	if refs == nil {
+		return
+	}
+
+	for _, instr := range *refs {
+		extractInstr, ok := instr.(*ssa.Extract)
+		if !ok {
+			continue
+		}
+		if extractInstr.Index == idx {
+			hasRefs = true
+			break
 		}
 	}
 
 	if hasRefs {
 		name = fc.tupleVarName(reg, idx)
-	} else {
-		name = "_"
 	}
 	return
 }
@@ -489,135 +471,135 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 
 	for _, instr := range ssaBlock.Instrs[:len(ssaBlock.Instrs)-1] {
 		var stmt ast.Stmt
-		switch i := instr.(type) {
+		switch instr := instr.(type) {
 		case *ssa.Alloc:
-			varType := i.Type().Underlying().(*types.Pointer).Elem()
+			varType := instr.Type().Underlying().(*types.Pointer).Elem()
 			varExpr, err := fc.tc.Convert(varType)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, ah.CallExprByName("new", varExpr))
+			stmt = defineVar(instr, ah.CallExprByName("new", varExpr))
 		case *ssa.BinOp:
-			xExpr, err := fc.convertSsaValueNonExplicitNil(i.X)
+			xExpr, err := fc.convertSsaValueNonExplicitNil(instr.X)
 			if err != nil {
 				return err
 			}
 
 			var yExpr ast.Expr
 			// Handle special case: if nil == nil
-			if isNilValue(i.X) && isNilValue(i.Y) {
-				yExpr, err = fc.convertSsaValue(i.Y)
+			if isNilValue(instr.X) && isNilValue(instr.Y) {
+				yExpr, err = fc.convertSsaValue(instr.Y)
 			} else {
-				yExpr, err = fc.convertSsaValueNonExplicitNil(i.Y)
+				yExpr, err = fc.convertSsaValueNonExplicitNil(instr.Y)
 			}
 			if err != nil {
 				return err
 			}
 
-			stmt = defineVar(i, &ast.BinaryExpr{
+			stmt = defineVar(instr, &ast.BinaryExpr{
 				X:  xExpr,
-				Op: i.Op,
+				Op: instr.Op,
 				Y:  yExpr,
 			})
 		case *ssa.Call:
-			callFunExpr, err := fc.convertCall(i.Call)
+			callFunExpr, err := fc.convertCall(instr.Call)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, callFunExpr)
+			stmt = defineVar(instr, callFunExpr)
 		case *ssa.ChangeInterface:
-			castExpr, err := fc.castCallExpr(i.Type(), i.X)
+			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, castExpr)
+			stmt = defineVar(instr, castExpr)
 		case *ssa.ChangeType:
-			castExpr, err := fc.castCallExpr(i.Type(), i.X)
+			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, castExpr)
+			stmt = defineVar(instr, castExpr)
 		case *ssa.Convert:
-			castExpr, err := fc.castCallExpr(i.Type(), i.X)
+			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, castExpr)
+			stmt = defineVar(instr, castExpr)
 		case *ssa.Defer:
-			callExpr, err := fc.convertCall(i.Call)
+			callExpr, err := fc.convertCall(instr.Call)
 			if err != nil {
 				return err
 			}
 			stmt = &ast.DeferStmt{Call: callExpr}
 		case *ssa.Extract:
-			name := fc.tupleVarName(i.Tuple, i.Index)
-			stmt = defineVar(i, ast.NewIdent(name))
+			name := fc.tupleVarName(instr.Tuple, instr.Index)
+			stmt = defineVar(instr, ast.NewIdent(name))
 		case *ssa.Field:
-			xExpr, err := fc.convertSsaValue(i.X)
+			xExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
 
-			fieldName, err := getFieldName(i.X.Type(), i.Field)
+			fieldName, err := getFieldName(instr.X.Type(), instr.Field)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, ah.SelectExpr(xExpr, ast.NewIdent(fieldName)))
+			stmt = defineVar(instr, ah.SelectExpr(xExpr, ast.NewIdent(fieldName)))
 		case *ssa.FieldAddr:
-			xExpr, err := fc.convertSsaValue(i.X)
+			xExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
 
-			fieldName, err := getFieldName(i.X.Type(), i.Field)
+			fieldName, err := getFieldName(instr.X.Type(), instr.Field)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, &ast.UnaryExpr{
+			stmt = defineVar(instr, &ast.UnaryExpr{
 				Op: token.AND,
 				X:  ah.SelectExpr(xExpr, ast.NewIdent(fieldName)),
 			})
 		case *ssa.Go:
-			callExpr, err := fc.convertCall(i.Call)
+			callExpr, err := fc.convertCall(instr.Call)
 			if err != nil {
 				return err
 			}
 			stmt = &ast.GoStmt{Call: callExpr}
 		case *ssa.Index:
-			xExpr, err := fc.convertSsaValue(i.X)
+			xExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
-			indexExpr, err := fc.convertSsaValue(i.Index)
+			indexExpr, err := fc.convertSsaValue(instr.Index)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, ah.IndexExprByExpr(xExpr, indexExpr))
+			stmt = defineVar(instr, ah.IndexExprByExpr(xExpr, indexExpr))
 		case *ssa.IndexAddr:
-			xExpr, err := fc.convertSsaValue(i.X)
+			xExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
-			indexExpr, err := fc.convertSsaValue(i.Index)
+			indexExpr, err := fc.convertSsaValue(instr.Index)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, &ast.UnaryExpr{Op: token.AND, X: ah.IndexExprByExpr(xExpr, indexExpr)})
+			stmt = defineVar(instr, &ast.UnaryExpr{Op: token.AND, X: ah.IndexExprByExpr(xExpr, indexExpr)})
 		case *ssa.Lookup:
-			mapExpr, err := fc.convertSsaValue(i.X)
+			mapExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
 
-			indexExpr, err := fc.convertSsaValue(i.Index)
+			indexExpr, err := fc.convertSsaValue(instr.Index)
 			if err != nil {
 				return err
 			}
 
 			mapIndexExpr := ah.IndexExprByExpr(mapExpr, indexExpr)
-			if i.CommaOk {
-				valName, valType, valHasRefs := fc.tupleVarNameAndType(i, 0)
-				okName, okType, okHasRefs := fc.tupleVarNameAndType(i, 1)
+			if instr.CommaOk {
+				valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 0)
+				okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
 
 				if valHasRefs {
 					astFunc.Vars[valName] = valType
@@ -632,74 +614,74 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					Rhs: []ast.Expr{mapIndexExpr},
 				}
 			} else {
-				stmt = defineVar(i, mapIndexExpr)
+				stmt = defineVar(instr, mapIndexExpr)
 			}
 		case *ssa.MakeChan:
-			chanExpr, err := fc.tc.Convert(i.Type())
+			chanExpr, err := fc.tc.Convert(instr.Type())
 			if err != nil {
 				return err
 			}
 			makeExpr := ah.CallExprByName("make", chanExpr)
-			if i.Size != nil {
-				reserveExpr, err := fc.convertSsaValue(i.Size)
+			if instr.Size != nil {
+				reserveExpr, err := fc.convertSsaValue(instr.Size)
 				if err != nil {
 					return err
 				}
 				makeExpr.Args = append(makeExpr.Args, reserveExpr)
 			}
-			stmt = defineVar(i, makeExpr)
+			stmt = defineVar(instr, makeExpr)
 		case *ssa.MakeInterface:
-			castExpr, err := fc.castCallExpr(i.Type(), i.X)
+			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, castExpr)
+			stmt = defineVar(instr, castExpr)
 		case *ssa.MakeMap:
-			mapExpr, err := fc.tc.Convert(i.Type())
+			mapExpr, err := fc.tc.Convert(instr.Type())
 			if err != nil {
 				return err
 			}
 			makeExpr := ah.CallExprByName("make", mapExpr)
-			if i.Reserve != nil {
-				reserveExpr, err := fc.convertSsaValue(i.Reserve)
+			if instr.Reserve != nil {
+				reserveExpr, err := fc.convertSsaValue(instr.Reserve)
 				if err != nil {
 					return err
 				}
 				makeExpr.Args = append(makeExpr.Args, reserveExpr)
 			}
-			stmt = defineVar(i, makeExpr)
+			stmt = defineVar(instr, makeExpr)
 		case *ssa.MakeSlice:
-			sliceExpr, err := fc.tc.Convert(i.Type())
+			sliceExpr, err := fc.tc.Convert(instr.Type())
 			if err != nil {
 				return err
 			}
-			lenExpr, err := fc.convertSsaValue(i.Len)
+			lenExpr, err := fc.convertSsaValue(instr.Len)
 			if err != nil {
 				return err
 			}
-			capExpr, err := fc.convertSsaValue(i.Cap)
+			capExpr, err := fc.convertSsaValue(instr.Cap)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, ah.CallExprByName("make", sliceExpr, lenExpr, capExpr))
+			stmt = defineVar(instr, ah.CallExprByName("make", sliceExpr, lenExpr, capExpr))
 		case *ssa.MapUpdate:
-			mapExpr, err := fc.convertSsaValue(i.Map)
+			mapExpr, err := fc.convertSsaValue(instr.Map)
 			if err != nil {
 				return err
 			}
-			keyExpr, err := fc.convertSsaValue(i.Key)
+			keyExpr, err := fc.convertSsaValue(instr.Key)
 			if err != nil {
 				return err
 			}
-			valueExpr, err := fc.convertSsaValue(i.Value)
+			valueExpr, err := fc.convertSsaValue(instr.Value)
 			if err != nil {
 				return err
 			}
 			stmt = ah.AssignStmt(ah.IndexExprByExpr(mapExpr, keyExpr), valueExpr)
 		case *ssa.Next:
-			okName, okType, okHasRefs := fc.tupleVarNameAndType(i, 0)
-			keyName, keyType, keyHasRefs := fc.tupleVarNameAndType(i, 1)
-			valName, valType, valHasRefs := fc.tupleVarNameAndType(i, 2)
+			okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 0)
+			keyName, keyType, keyHasRefs := fc.tupleVarNameAndType(instr, 1)
+			valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 2)
 			if okHasRefs {
 				astFunc.Vars[okName] = okType
 			}
@@ -710,9 +692,9 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				astFunc.Vars[valName] = valType
 			}
 
-			if i.IsString {
-				idxName := fc.tupleVarName(i.Iter, 0)
-				iterValName := fc.tupleVarName(i.Iter, 1)
+			if instr.IsString {
+				idxName := fc.tupleVarName(instr.Iter, 0)
+				iterValName := fc.tupleVarName(instr.Iter, 1)
 
 				stmt = ah.BlockStmt(
 					ah.AssignStmt(ast.NewIdent(okName), &ast.BinaryExpr{
@@ -736,14 +718,14 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				stmt = &ast.AssignStmt{
 					Lhs: []ast.Expr{ast.NewIdent(okName), ast.NewIdent(keyName), ast.NewIdent(valName)},
 					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{ah.CallExprByName(fc.getVarName(i.Iter))},
+					Rhs: []ast.Expr{ah.CallExprByName(fc.getVarName(instr.Iter))},
 				}
 			}
 		case *ssa.Phi:
-			phiName := fc.getVarName(i)
-			astFunc.Vars[phiName] = i.Type()
+			phiName := fc.getVarName(instr)
+			astFunc.Vars[phiName] = instr.Type()
 
-			for predIdx, edge := range i.Edges {
+			for predIdx, edge := range instr.Edges {
 				edgeExpr, err := fc.convertSsaValue(edge)
 				if err != nil {
 					return err
@@ -753,13 +735,13 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				astFunc.Blocks[blockIdx].Phi = append(astFunc.Blocks[blockIdx].Phi, ah.AssignStmt(ast.NewIdent(phiName), edgeExpr))
 			}
 		case *ssa.Range:
-			xExpr, err := fc.convertSsaValue(i.X)
+			xExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
-			if isStringType(i.X.Type()) {
-				idxName := fc.tupleVarName(i, 0)
-				valName := fc.tupleVarName(i, 1)
+			if isStringType(instr.X.Type()) {
+				idxName := fc.tupleVarName(instr, 0)
+				valName := fc.tupleVarName(instr, 1)
 
 				astFunc.Vars[idxName] = types.Typ[types.Int]
 				astFunc.Vars[valName] = types.NewSlice(types.Typ[types.Rune])
@@ -773,18 +755,18 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					},
 				}
 			} else {
-				makeIterExpr, nextType, err := makeMapIteratorPolyfill(fc.tc, i.X.Type().(*types.Map))
+				makeIterExpr, nextType, err := makeMapIteratorPolyfill(fc.tc, instr.X.Type().(*types.Map))
 				if err != nil {
 					return err
 				}
 
-				stmt = defineTypedVar(i, nextType, ah.CallExpr(makeIterExpr, xExpr))
+				stmt = defineTypedVar(instr, nextType, ah.CallExpr(makeIterExpr, xExpr))
 			}
 		case *ssa.Select:
 			const reservedTupleIdx = 2
 
-			indexName, indexType, indexHasRefs := fc.tupleVarNameAndType(i, 0)
-			okName, okType, okHasRefs := fc.tupleVarNameAndType(i, 1)
+			indexName, indexType, indexHasRefs := fc.tupleVarNameAndType(instr, 0)
+			okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
 			if indexHasRefs {
 				astFunc.Vars[indexName] = indexType
 			}
@@ -795,7 +777,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			var stmts []ast.Stmt
 
 			recvIndex := 0
-			for idx, state := range i.States {
+			for idx, state := range instr.States {
 				chanExpr, err := fc.convertSsaValue(state.Chan)
 				if err != nil {
 					return err
@@ -810,14 +792,14 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					}
 					commStmt = &ast.SendStmt{Chan: chanExpr, Value: valueExpr}
 				case types.RecvOnly:
-					valName, valType, valHasRefs := fc.tupleVarNameAndType(i, reservedTupleIdx+recvIndex)
+					valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, reservedTupleIdx+recvIndex)
 					if valHasRefs {
 						astFunc.Vars[valName] = valType
 					}
 					commStmt = ah.AssignStmt(ast.NewIdent(valName), &ast.UnaryExpr{Op: token.ARROW, X: chanExpr})
 					recvIndex++
 				default:
-					return fmt.Errorf("not suuported select chan dir %d: %w", state.Dir, ErrUnsupported)
+					return fmt.Errorf("not supported select chan dir %d: %w", state.Dir, ErrUnsupported)
 				}
 
 				stmts = append(stmts, &ast.CommClause{
@@ -828,17 +810,17 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				})
 			}
 
-			if !i.Blocking {
-				stmts = append(stmts, &ast.CommClause{Body: []ast.Stmt{ah.AssignStmt(ast.NewIdent(indexName), ah.IntLit(len(i.States)))}})
+			if !instr.Blocking {
+				stmts = append(stmts, &ast.CommClause{Body: []ast.Stmt{ah.AssignStmt(ast.NewIdent(indexName), ah.IntLit(len(instr.States)))}})
 			}
 
 			stmt = &ast.SelectStmt{Body: ah.BlockStmt(stmts...)}
 		case *ssa.Send:
-			chanExpr, err := fc.convertSsaValue(i.Chan)
+			chanExpr, err := fc.convertSsaValue(instr.Chan)
 			if err != nil {
 				return err
 			}
-			valExpr, err := fc.convertSsaValue(i.X)
+			valExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
@@ -847,64 +829,64 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				Value: valExpr,
 			}
 		case *ssa.Slice:
-			valExpr, err := fc.convertSsaValue(i.X)
+			valExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
 			sliceExpr := &ast.SliceExpr{X: valExpr}
-			if i.Low != nil {
-				sliceExpr.Low, err = fc.convertSsaValue(i.Low)
+			if instr.Low != nil {
+				sliceExpr.Low, err = fc.convertSsaValue(instr.Low)
 				if err != nil {
 					return err
 				}
 			}
-			if i.High != nil {
-				sliceExpr.High, err = fc.convertSsaValue(i.High)
+			if instr.High != nil {
+				sliceExpr.High, err = fc.convertSsaValue(instr.High)
 				if err != nil {
 					return err
 				}
 			}
-			if i.Max != nil {
-				sliceExpr.Max, err = fc.convertSsaValue(i.Max)
+			if instr.Max != nil {
+				sliceExpr.Max, err = fc.convertSsaValue(instr.Max)
 				if err != nil {
 					return err
 				}
 			}
-			stmt = defineVar(i, sliceExpr)
+			stmt = defineVar(instr, sliceExpr)
 		case *ssa.SliceToArrayPointer:
-			castExpr, err := fc.tc.Convert(i.Type())
+			castExpr, err := fc.tc.Convert(instr.Type())
 			if err != nil {
 				return err
 			}
-			xExpr, err := fc.convertSsaValue(i.X)
+			xExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(i, ah.CallExpr(&ast.ParenExpr{X: castExpr}, xExpr))
+			stmt = defineVar(instr, ah.CallExpr(&ast.ParenExpr{X: castExpr}, xExpr))
 		case *ssa.Store:
-			addrExpr, err := fc.convertSsaValue(i.Addr)
+			addrExpr, err := fc.convertSsaValue(instr.Addr)
 			if err != nil {
 				return err
 			}
-			valExpr, err := fc.convertSsaValue(i.Val)
+			valExpr, err := fc.convertSsaValue(instr.Val)
 			if err != nil {
 				return err
 			}
 			stmt = ah.AssignStmt(&ast.StarExpr{X: addrExpr}, valExpr)
 		case *ssa.TypeAssert:
-			valExpr, err := fc.convertSsaValue(i.X)
+			valExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
 
-			assertTypeExpr, err := fc.tc.Convert(i.AssertedType)
+			assertTypeExpr, err := fc.tc.Convert(instr.AssertedType)
 			if err != nil {
 				return err
 			}
 
-			if i.CommaOk {
-				valName, valType, valHasRefs := fc.tupleVarNameAndType(i, 0)
-				okName, okType, okHasRefs := fc.tupleVarNameAndType(i, 1)
+			if instr.CommaOk {
+				valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 0)
+				okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
 				if valHasRefs {
 					astFunc.Vars[valName] = valType
 				}
@@ -918,20 +900,20 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					Rhs: []ast.Expr{&ast.TypeAssertExpr{X: valExpr, Type: assertTypeExpr}},
 				}
 			} else {
-				stmt = defineVar(i, &ast.TypeAssertExpr{X: valExpr, Type: assertTypeExpr})
+				stmt = defineVar(instr, &ast.TypeAssertExpr{X: valExpr, Type: assertTypeExpr})
 			}
 		case *ssa.UnOp:
-			valExpr, err := fc.convertSsaValue(i.X)
+			valExpr, err := fc.convertSsaValue(instr.X)
 			if err != nil {
 				return err
 			}
-			if i.CommaOk {
-				if i.Op != token.ARROW {
-					return fmt.Errorf("unary operator %s in %v: %w", i.Op, instr, ErrUnsupported)
+			if instr.CommaOk {
+				if instr.Op != token.ARROW {
+					return fmt.Errorf("unary operator %s in %v: %w", instr.Op, instr, ErrUnsupported)
 				}
 
-				valName, valType, valHasRefs := fc.tupleVarNameAndType(i, 0)
-				okName, okType, okHasRefs := fc.tupleVarNameAndType(i, 1)
+				valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 0)
+				okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
 				if valHasRefs {
 					astFunc.Vars[valName] = valType
 				}
@@ -947,13 +929,13 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 						X:  valExpr,
 					}},
 				}
-			} else if i.Op == token.MUL {
-				stmt = defineVar(i, &ast.StarExpr{X: valExpr})
+			} else if instr.Op == token.MUL {
+				stmt = defineVar(instr, &ast.StarExpr{X: valExpr})
 			} else {
-				stmt = defineVar(i, &ast.UnaryExpr{Op: i.Op, X: valExpr})
+				stmt = defineVar(instr, &ast.UnaryExpr{Op: instr.Op, X: valExpr})
 			}
 		case *ssa.MakeClosure:
-			anonFunc := i.Fn.(*ssa.Function)
+			anonFunc := instr.Fn.(*ssa.Function)
 			anonFuncName, err := fc.getAnonFunctionName(anonFunc)
 			if err != nil {
 				return err
@@ -963,7 +945,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			}
 
 			callExpr := &ast.CallExpr{Fun: anonFuncName}
-			for _, freeVar := range i.Bindings {
+			for _, freeVar := range instr.Bindings {
 				varExr, err := fc.convertSsaValue(freeVar)
 				if err != nil {
 					return err
@@ -971,7 +953,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				callExpr.Args = append(callExpr.Args, varExr)
 			}
 
-			stmt = defineVar(i, callExpr)
+			stmt = defineVar(instr, callExpr)
 		case *ssa.RunDefers, *ssa.DebugRef:
 			// ignored
 			continue

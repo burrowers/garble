@@ -6,6 +6,7 @@ package asthelper
 import (
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"strconv"
 )
@@ -120,4 +121,21 @@ func AssignStmt(Lhs ast.Expr, Rhs ast.Expr) *ast.AssignStmt {
 // IndexExprByExpr "xExpr[indexExpr]"
 func IndexExprByExpr(xExpr, indexExpr ast.Expr) *ast.IndexExpr {
 	return &ast.IndexExpr{X: xExpr, Index: indexExpr}
+}
+
+func ConstToAst(val constant.Value) ast.Expr {
+	switch val.Kind() {
+	case constant.Bool:
+		return ast.NewIdent(val.ExactString())
+	case constant.String:
+		return &ast.BasicLit{Kind: token.STRING, Value: val.ExactString()}
+	case constant.Int:
+		return &ast.BasicLit{Kind: token.INT, Value: val.ExactString()}
+	case constant.Float:
+		return &ast.BasicLit{Kind: token.FLOAT, Value: val.String()}
+	case constant.Complex:
+		return CallExprByName("complex", ConstToAst(constant.Real(val)), ConstToAst(constant.Imag(val)))
+	default:
+		panic("unreachable")
+	}
 }
