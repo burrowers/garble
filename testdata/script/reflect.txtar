@@ -116,7 +116,7 @@ func main() {
 	printfWithoutPackage("%#v\n", variadic)
 
 	testx509()
-    testGoSpew()
+	testGoSpew()
 
 	// Very complex reflection used by gorm
 	user := StatUser{}
@@ -177,7 +177,7 @@ type FmtType struct {
 
 // copied from github.com/davecgh/go-spew, which reaches into reflect's internals
 func testGoSpew() {
-    flagValOffset := func() uintptr {
+	flagValOffset := func() uintptr {
 		field, ok := reflect.TypeOf(reflect.Value{}).FieldByName("flag")
 		if !ok {
 			panic("reflect.Value has no flag field")
