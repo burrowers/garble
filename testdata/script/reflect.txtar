@@ -29,6 +29,7 @@ import (
 	"math/big"
 	"os"
 	"reflect"
+	"unsafe"
 	"strings"
 	"text/template"
 
@@ -115,7 +116,7 @@ func main() {
 	printfWithoutPackage("%#v\n", variadic)
 
 	testx509()
-
+    testGoSpew()
 
 	// Very complex reflection used by gorm
 	user := StatUser{}
@@ -175,13 +176,54 @@ type FmtType struct {
 }
 
 // copied from github.com/davecgh/go-spew, which reaches into reflect's internals
-var _ = func() uintptr {
-	field, ok := reflect.TypeOf(reflect.Value{}).FieldByName("flag")
-	if !ok {
-		panic("reflect.Value has no flag field")
+func testGoSpew() {
+    flagValOffset := func() uintptr {
+		field, ok := reflect.TypeOf(reflect.Value{}).FieldByName("flag")
+		if !ok {
+			panic("reflect.Value has no flag field")
+		}
+		return field.Offset
+	}()
+
+	type flag uintptr
+	flagField := func(v *reflect.Value) *flag {
+		return (*flag)(unsafe.Pointer(uintptr(unsafe.Pointer(v)) + flagValOffset))
 	}
-	return field.Offset
-}()
+
+	type t0 int
+	var t struct {
+		A t0
+		t0
+		a t0
+	}
+	vA := reflect.ValueOf(t).FieldByName("A")
+	va := reflect.ValueOf(t).FieldByName("a")
+	vt0 := reflect.ValueOf(t).FieldByName("t0")
+	flagvA := *flagField(&vA)
+	flagva := *flagField(&va)
+	flagvt0 := *flagField(&vt0)
+
+	if flagvA&flagva&flagvt0 == 0 {
+		panic("reflect.Value read-only flag has changed semantics")
+	}
+
+	type T0 int
+	var T struct {
+		A T0
+		T0
+		a T0
+	}
+	vA = reflect.ValueOf(T).FieldByName("A")
+	va = reflect.ValueOf(T).FieldByName("a")
+	vt0 = reflect.ValueOf(T).FieldByName("T0")
+	flagvA = *flagField(&vA)
+	flagva = *flagField(&va)
+	flagvt0 = *flagField(&vt0)
+
+	if flagvA&flagva&flagvt0 == 0 {
+		panic("reflect.Value read-only flag has changed semantics")
+	}
+}
 
 // encoding/x509 uses encoding/asn1, which uses reflect.
 // In one place it depends on field names; that used to be broken by garble.

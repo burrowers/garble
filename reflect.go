@@ -406,6 +406,12 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 // TODO: consider caching recordedObjectString via a map,
 // if that shows an improvement in our benchmark
 func recordedObjectString(obj types.Object) objectString {
+	getObjStr := func(pkg *types.Package, obj types.Object) string {
+		pos := fset.Position(obj.Pos())
+		return fmt.Sprintf("%s.%s - %s:%d", pkg.Path(), obj.Name(),
+			filepath.Base(pos.Filename), pos.Line)
+	}
+
 	pkg := obj.Pkg()
 	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
 		// For exported fields, "pkgpath.Field" is not unique,
@@ -422,14 +428,29 @@ func recordedObjectString(obj types.Object) objectString {
 		// Also note that the compiler's object files include filenames and line
 		// numbers, but not column numbers nor byte offsets.
 		// TODO(mvdan): give this another think, and add tests involving anon types.
-		pos := fset.Position(obj.Pos())
-		return fmt.Sprintf("%s.%s - %s:%d", pkg.Path(), obj.Name(),
-			filepath.Base(pos.Filename), pos.Line)
+		return getObjStr(pkg, obj)
 	}
 	// Names which are not at the top level cannot be imported,
 	// so we don't need to record them either.
+	// (except for type which is used in embedded structs, we don't want to obfuscate this type if using with reflection)
 	// Note that this doesn't apply to fields, which are never top-level.
 	if pkg.Scope() != obj.Parent() {
+		// check if obj is a type of embedded struct by lookup it's scope
+		if _, ok := obj.(*types.TypeName); ok {
+			scope := obj.Parent()
+			for _, objName := range scope.Names() {
+				otherObj := scope.Lookup(objName)
+				if structType, ok := otherObj.Type().(*types.Struct); ok {
+					for i := 0; i < structType.NumFields(); i++ {
+						field := structType.Field(i)
+						if field.Name() == obj.Name() && field.Embedded() {
+							return getObjStr(pkg, obj)
+						}
+					}
+				}
+			}
+		}
+
 		return ""
 	}
 	// For top-level exported names, "pkgpath.Name" is unique.
