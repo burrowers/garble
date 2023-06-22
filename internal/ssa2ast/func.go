@@ -395,17 +395,11 @@ func (fc *funcConverter) tupleVarNameAndType(reg ssa.Value, idx int) (name strin
 
 	for _, instr := range *refs {
 		extractInstr, ok := instr.(*ssa.Extract)
-		if !ok {
-			continue
-		}
-		if extractInstr.Index == idx {
+		if ok && extractInstr.Index == idx {
 			hasRefs = true
-			break
+			name = fc.tupleVarName(reg, idx)
+			return
 		}
-	}
-
-	if hasRefs {
-		name = fc.tupleVarName(reg, idx)
 	}
 	return
 }
@@ -1079,37 +1073,37 @@ func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, erro
 		}
 	}
 
-	if len(f.Vars) > 0 {
-		groupedVar := make(map[types.Type][]string)
-		for varName, varType := range f.Vars {
-			exists := false
-			for groupedType, names := range groupedVar {
-				if types.Identical(varType, groupedType) {
-					groupedVar[groupedType] = append(names, varName)
-					exists = true
-					break
-				}
-			}
-			if !exists {
-				groupedVar[varType] = []string{varName}
+	groupedVar := make(map[types.Type][]string)
+	for varName, varType := range f.Vars {
+		exists := false
+		for groupedType, names := range groupedVar {
+			if types.Identical(varType, groupedType) {
+				groupedVar[groupedType] = append(names, varName)
+				exists = true
+				break
 			}
 		}
-		var specs []ast.Spec
-		for varType, varNames := range groupedVar {
-			typeExpr, err := fc.tc.Convert(varType)
-			if err != nil {
-				return nil, err
-			}
-			spec := &ast.ValueSpec{
-				Type: typeExpr,
-			}
+		if !exists {
+			groupedVar[varType] = []string{varName}
+		}
+	}
+	var specs []ast.Spec
+	for varType, varNames := range groupedVar {
+		typeExpr, err := fc.tc.Convert(varType)
+		if err != nil {
+			return nil, err
+		}
+		spec := &ast.ValueSpec{
+			Type: typeExpr,
+		}
 
-			sort.Strings(varNames)
-			for _, name := range varNames {
-				spec.Names = append(spec.Names, ast.NewIdent(name))
-			}
-			specs = append(specs, spec)
+		sort.Strings(varNames)
+		for _, name := range varNames {
+			spec.Names = append(spec.Names, ast.NewIdent(name))
 		}
+		specs = append(specs, spec)
+	}
+	if len(specs) > 0 {
 		stmts = append(stmts, &ast.DeclStmt{Decl: &ast.GenDecl{
 			Tok:   token.VAR,
 			Specs: specs,
