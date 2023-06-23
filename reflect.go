@@ -440,28 +440,29 @@ func (ri *reflectInspector) recordUsedForReflect(obj types.Object) {
 
 	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
 		ri.result.ReflectObjects[recordedObjectString(obj)] = struct{}{}
+		// record the local embedded type
+		if obj.Embedded() {
+			embeddedType := obj.Type()
+			switch embeddedType := embeddedType.(type) {
+			case *types.Named:
+				embeddedObj := embeddedType.Obj()
+				if embeddedObj.Pkg().Scope() == embeddedObj.Parent() {
+					// not local type
+					return
+				}
+				if embeddedObj.Pkg() == nil || embeddedObj.Pkg() != ri.pkg {
+					// not from the specified package
+					return
+				}
+
+				ri.result.ReflectObjects[recordedObjectString(embeddedObj)] = struct{}{}
+			}
+		}
 		return
 	}
 
-	// we don't need to record the local type names which are not embedded in struct
+	// we don't need to record the local type names
 	if obj.Pkg().Scope() != obj.Parent() {
-		// check if obj is a type of embedded struct by lookup it's scope
-		if _, ok := obj.(*types.TypeName); ok {
-			scope := obj.Parent()
-			for _, objName := range scope.Names() {
-				otherObj := scope.Lookup(objName)
-				if structType, ok := otherObj.Type().(*types.Struct); ok {
-					for i := 0; i < structType.NumFields(); i++ {
-						field := structType.Field(i)
-						if field.Name() == obj.Name() && field.Embedded() {
-							ri.result.ReflectObjects[recordedObjectString(obj)] = struct{}{}
-							return
-						}
-					}
-				}
-			}
-		}
-
 		return
 	}
 
