@@ -1,19 +1,18 @@
 #!/bin/bash
 
-if
-	grep \
-		--recursive \
-		--files-with-matches \
-		--binary \
-		--binary-files=without-match \
-		--max-count=1 \
-		--exclude-dir="\.git" \
-		$'\r' \
-		.
-then
-	# TODO exit status should be number of files with wrong endings found
-	echo -e "Found at least a file with CRLF endings."
-	exit 1
+file_count=$(grep \
+	--recursive \
+	--files-with-matches \
+	--binary \
+	--binary-files=without-match \
+	--max-count=1 \
+	--exclude-dir="\.git" \
+	$'\r' \
+	. | wc -l)
+
+if [[ $file_count -gt 0 ]]; then
+	echo -e "Found $file_count file(s) with CRLF endings."
+	exit "$file_count"
 fi
 
 echo -e "No files with CRLF endings found."
