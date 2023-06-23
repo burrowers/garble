@@ -440,24 +440,29 @@ func (ri *reflectInspector) recordUsedForReflect(obj types.Object) {
 
 	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
 		ri.result.ReflectObjects[recordedObjectString(obj)] = struct{}{}
-		// record the local embedded type
-		if obj.Embedded() {
-			embeddedType := obj.Type()
-			switch embeddedType := embeddedType.(type) {
-			case *types.Named:
-				embeddedObj := embeddedType.Obj()
-				if embeddedObj.Pkg().Scope() == embeddedObj.Parent() {
-					// not local type
-					return
-				}
-				if embeddedObj.Pkg() == nil || embeddedObj.Pkg() != ri.pkg {
-					// not from the specified package
-					return
-				}
 
-				ri.result.ReflectObjects[recordedObjectString(embeddedObj)] = struct{}{}
-			}
+		if !obj.Embedded() {
+			return
 		}
+
+		embeddedType, ok := obj.Type().(*types.Named)
+		if !ok {
+			return
+		}
+
+		embeddedObj := embeddedType.Obj()
+		if embeddedObj.Pkg().Scope() == embeddedObj.Parent() {
+			// not local type
+			return
+		}
+
+		if embeddedObj.Pkg() == nil || embeddedObj.Pkg() != ri.pkg {
+			// not from the specified package
+			return
+		}
+
+		ri.result.ReflectObjects[recordedObjectString(embeddedObj)] = struct{}{}
+
 		return
 	}
 
