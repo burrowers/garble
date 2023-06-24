@@ -105,6 +105,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 				log.Printf("detected function for controlflow %s (params: %v)", funcDecl.Name.Name, params)
 
 				// Remove inplace function from original file
+				// TODO: implement a complete function removal
 				funcDecl.Name = ast.NewIdent("_")
 				funcDecl.Body = ah.BlockStmt()
 				funcDecl.Recv = nil
