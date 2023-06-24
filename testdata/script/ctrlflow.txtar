@@ -34,7 +34,7 @@ import (
 	"hash/crc32"
 )
 
-//garble:controlflow passes=1 junk=10 split=10
+//garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10
 func main() {
 	// Reference to the unexported interface triggers creation of a new interface
 	// with a list of all functions of the private interface

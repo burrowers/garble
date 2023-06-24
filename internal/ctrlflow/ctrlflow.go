@@ -21,9 +21,9 @@ const (
 	directiveName  = "//garble:controlflow"
 	importPrefix   = "___garble_import"
 
-	defaultSplit  = 0
-	defaultJunk   = 0
-	defaultPasses = 1
+	defaultBlockSplits   = 0
+	defaultJunkJumps     = 0
+	defaultFlattenPasses = 1
 )
 
 type directiveParamMap map[string]string
@@ -72,9 +72,9 @@ func parseDirective(directive string) (directiveParamMap, bool) {
 // //garble:controlflow passes=1 junk=0 split=0
 // func someMethod() {}
 //
-// passes - controls number of passes of control flow flattening. Have exponential complexity and more than 3 passes are not recommended in most cases.
-// junk - controls how many junk jumps are added. It does not affect final binary by itself, but together with flattening linearly increases complexity.
-// split - controls number of times largest block must be splitted. Together with flattening improves obfuscation of long blocks without branches.
+// flatten_passes	 - controls number of passes of control flow flattening. Have exponential complexity and more than 3 passes are not recommended in most cases.
+// junk_jumps - controls how many junk jumps are added. It does not affect final binary by itself, but together with flattening linearly increases complexity.
+// block_splits - controls number of times largest block must be splitted. Together with flattening improves obfuscation of long blocks without branches.
 func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfRand *mathrand.Rand) (newFileName string, newFile *ast.File, affectedFiles []*ast.File, err error) {
 	var ssaFuncs []*ssa.Function
 	var ssaParams []directiveParamMap
@@ -149,9 +149,9 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
 
-		split := params.GetInt("split", defaultSplit)
-		junkCount := params.GetInt("junk", defaultJunk)
-		passes := params.GetInt("passes", defaultPasses)
+		split := params.GetInt("block_splits", defaultBlockSplits)
+		junkCount := params.GetInt("junk_jumps", defaultJunkJumps)
+		passes := params.GetInt("flatten_passes", defaultFlattenPasses)
 
 		applyObfuscation := func(ssaFunc *ssa.Function) {
 			for i := 0; i < split; i++ {
