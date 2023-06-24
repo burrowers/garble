@@ -10,7 +10,7 @@ import (
 )
 
 // setUnexportedField is used to modify unexported fields of ssa api structures.
-// TODO:
+// TODO: find an alternative way to access private fields or raise a feature request upstream
 func setUnexportedField(objRaw interface{}, name string, valRaw interface{}) {
 	obj := reflect.ValueOf(objRaw)
 	for obj.Kind() == reflect.Pointer || obj.Kind() == reflect.Interface {

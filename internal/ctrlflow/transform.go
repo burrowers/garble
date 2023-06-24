@@ -60,7 +60,7 @@ func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 			block.Succs[0] = fakeTblock
 			block.Succs[1] = fakeFblock
 		case *ssa.Return, *ssa.Panic:
-			continue
+			// control flow flattening is not applicable
 		default:
 			panic("unreachable")
 		}
