@@ -56,7 +56,7 @@ var (
 	flagDebug    bool
 	flagDebugDir string
 	flagSeed     seedFlag
-	// TODO(pagran): temporarily mimicry as a flag
+	// TODO(pagran): in the future, when control flow obfuscation will be stable migrate to flag
 	flagControlFlow = os.Getenv("GARBLE_EXPERIMENTAL_CONTROLFLOW") == "1"
 )
 
@@ -1223,11 +1223,11 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 	var packagefiles, importmaps [][2]string
 
 	// using for track required but not imported packages
-	var requiredPkgsMap map[string]bool
+	var newIndirectImports map[string]bool
 	if requiredPkgs != nil {
-		requiredPkgsMap = make(map[string]bool)
+		newIndirectImports = make(map[string]bool)
 		for _, pkg := range requiredPkgs {
-			requiredPkgsMap[pkg] = true
+			newIndirectImports[pkg] = true
 		}
 	}
 
@@ -1252,7 +1252,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 				continue
 			}
 			packagefiles = append(packagefiles, [2]string{importPath, objectPath})
-			delete(requiredPkgsMap, importPath)
+			delete(newIndirectImports, importPath)
 		}
 	}
 
@@ -1282,7 +1282,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 		fmt.Fprintf(newCfg, "importmap %s=%s\n", beforePath, afterPath)
 	}
 
-	if len(requiredPkgsMap) > 0 {
+	if len(newIndirectImports) > 0 {
 		f, err := os.Open(filepath.Join(sharedTempDir, actionGraphFileName))
 		if err != nil {
 			return "", fmt.Errorf("cannot open action graph file: %v", err)
@@ -1304,18 +1304,18 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 			if action.Mode != "build" {
 				continue
 			}
-			if ok := requiredPkgsMap[action.Package]; !ok {
+			if ok := newIndirectImports[action.Package]; !ok {
 				continue
 			}
 
 			packagefiles = append(packagefiles, [2]string{action.Package, filepath.Join(action.Objdir, "_pkg_.a")}) // file name hardcoded in compiler
-			delete(requiredPkgsMap, action.Package)
-			if len(requiredPkgsMap) == 0 {
+			delete(newIndirectImports, action.Package)
+			if len(newIndirectImports) == 0 {
 				break
 			}
 		}
 
-		if len(requiredPkgsMap) > 0 {
+		if len(newIndirectImports) > 0 {
 			return "", fmt.Errorf("cannot resolve required packages from action graph file: %v", requiredPkgs)
 		}
 	}

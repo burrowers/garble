@@ -167,7 +167,7 @@ func (fc *funcConverter) getAnonFunctionName(val *ssa.Function) (*ast.Ident, err
 	}
 	anonFuncIdx := slices.Index(parent.AnonFuncs, val)
 	if anonFuncIdx < 0 {
-		return nil, fmt.Errorf("anon func %s for call not found", val.Name())
+		return nil, fmt.Errorf("anon func %q for call not found", val.Name())
 	}
 	return ast.NewIdent(fc.getAnonFuncName(anonFuncIdx)), nil
 }
@@ -903,7 +903,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			}
 			if instr.CommaOk {
 				if instr.Op != token.ARROW {
-					return fmt.Errorf("unary operator %s in %v: %w", instr.Op, instr, ErrUnsupported)
+					return fmt.Errorf("unary operator %q in %v: %w", instr.Op, instr, ErrUnsupported)
 				}
 
 				valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 0)
@@ -935,7 +935,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				return err
 			}
 			if anonFuncName == nil {
-				return fmt.Errorf("make closure for non anon func %s: %w", anonFunc.Name(), ErrUnsupported)
+				return fmt.Errorf("make closure for non anon func %q: %w", anonFunc.Name(), ErrUnsupported)
 			}
 
 			callExpr := &ast.CallExpr{Fun: anonFuncName}

@@ -44,21 +44,22 @@ func (m directiveParamMap) GetInt(name string, def int) int {
 // parseDirective parses a directive string and returns a map of directive parameters.
 // Each parameter should be in the form "key=value" or "key"
 func parseDirective(directive string) (directiveParamMap, bool) {
-	if !strings.HasPrefix(directive, directiveName) {
+	fieldsStr, ok := strings.CutPrefix(directive, directiveName)
+	if !ok {
 		return nil, false
 	}
 
-	fields := strings.Fields(directive)
-	if len(fields) <= 1 {
+	fields := strings.Fields(fieldsStr)
+	if len(fields) == 0 {
 		return nil, true
 	}
 	m := make(map[string]string)
-	for _, v := range fields[1:] {
-		params := strings.SplitN(v, "=", 2)
-		if len(params) == 2 {
-			m[params[0]] = params[1]
+	for _, v := range fields {
+		key, value, ok := strings.Cut(v, "=")
+		if ok {
+			m[key] = value
 		} else {
-			m[params[0]] = ""
+			m[key] = ""
 		}
 	}
 	return m, true
