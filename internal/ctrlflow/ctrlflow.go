@@ -69,7 +69,7 @@ func parseDirective(directive string) (directiveParamMap, bool) {
 // All obfuscated functions are removed from the original file and moved to the new one.
 // Obfuscation can be customized by passing parameters from the directive, example:
 //
-// //garble:controlflow passes=1 junk=0 split=0
+// //garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0
 // func someMethod() {}
 //
 // flatten_passes	 - controls number of passes of control flow flattening. Have exponential complexity and more than 3 passes are not recommended in most cases.
