@@ -166,7 +166,7 @@ func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) bool {
 		}
 	}
 
-	const minInstrCount = 1 + 3 // 1 exit instruction + 3 any instruction
+	const minInstrCount = 1 + 2 // 1 exit instruction + 2 any instruction
 	if targetBlock == nil || len(targetBlock.Instrs) <= minInstrCount {
 		return false
 	}
