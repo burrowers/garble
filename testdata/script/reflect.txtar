@@ -140,6 +140,30 @@ func main() {
 	// Ensure the types are kept in the binary. Use an anonymous type too.
 	_ = fmt.Sprintf("%#v", EmbeddingObfuscated{})
 	_ = fmt.Sprintf("%#v", struct{ExportedLocalObfuscated}{})
+
+	// reflection can see all type names, even local ones, so they cannot be obfuscated.
+	{
+		type TypeOfNamedField struct    { NamedReflectionField int }
+		type TypeOfEmbeddedField struct { EmbeddedReflectionField int }
+		type TypeOfParent struct {
+			ReflectionField TypeOfNamedField
+			TypeOfEmbeddedField
+		}
+		t := reflect.TypeOf(TypeOfParent{})
+		fmt.Println("TypeOfParent's own name:", t.Name())
+		namedField, _ := t.FieldByName("ReflectionField")
+		namedFieldField, _ := namedField.Type.FieldByName("NamedReflectionField")
+		fmt.Println("TypeOfParent named:",
+			namedField.Type.Name(),
+			namedFieldField.Name,
+		)
+		embedField, _ := t.FieldByName("TypeOfEmbeddedField")
+		embedFieldField, _ := embedField.Type.FieldByName("EmbeddedReflectionField")
+		fmt.Println("TypeOfParent embedded:",
+			embedField.Type.Name(),
+			embedFieldField.Name,
+		)
+	}
 }
 
 type EmbeddingIndirect struct {
@@ -448,3 +472,6 @@ VariadicReflection{ReflectionField:"variadic"}
 *main.StatUser
 *main.StatCompUser
 struct { UnnamedStructField string }
+TypeOfParent's own name: TypeOfParent
+TypeOfParent named: TypeOfNamedField NamedReflectionField
+TypeOfParent embedded: TypeOfEmbeddedField EmbeddedReflectionField
