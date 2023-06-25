@@ -356,7 +356,7 @@ func mainErr(args []string) error {
 
 		// Until https://github.com/golang/go/issues/50603 is implemented,
 		// manually construct something like a pseudo-version.
-		// TODO: remove when this code is dead, hopefully in Go 1.21.
+		// TODO: remove when this code is dead, hopefully in Go 1.22.
 		if mod.Version == "(devel)" {
 			var vcsTime time.Time
 			var vcsRevision string
@@ -2107,6 +2107,7 @@ var forwardBuildFlags = map[string]bool{
 	"-buildmode":     true,
 	"-compiler":      true,
 	"-cover":         true,
+	"-covermode":     true,
 	"-coverpkg":      true,
 	"-gccgoflags":    true,
 	"-gcflags":       true,
@@ -2149,6 +2150,7 @@ var booleanFlags = map[string]bool{
 	"-benchmem": true,
 	"-c":        true,
 	"-failfast": true,
+	"-fullpath": true,
 	"-json":     true,
 	"-short":    true,
 }
