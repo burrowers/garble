@@ -72,7 +72,7 @@ func parseDirective(directive string) (directiveParamMap, bool) {
 // //garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0
 // func someMethod() {}
 //
-// flatten_passes	 - controls number of passes of control flow flattening. Have exponential complexity and more than 3 passes are not recommended in most cases.
+// flatten_passes - controls number of passes of control flow flattening. Have exponential complexity and more than 3 passes are not recommended in most cases.
 // junk_jumps - controls how many junk jumps are added. It does not affect final binary by itself, but together with flattening linearly increases complexity.
 // block_splits - controls number of times largest block must be splitted. Together with flattening improves obfuscation of long blocks without branches.
 func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfRand *mathrand.Rand) (newFileName string, newFile *ast.File, affectedFiles []*ast.File, err error) {
