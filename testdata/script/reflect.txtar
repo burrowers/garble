@@ -2,7 +2,7 @@ exec garble build
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField'
+! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField' 'LocalObfuscated'
 binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect'
 
 [short] stop # no need to verify this with -short
@@ -128,6 +128,18 @@ func main() {
 
 	x := UnnamedStructInterface(importedpkg.ReflectUnnamedStruct(0))
 	x.UnnamedStructMethod(struct{ UnnamedStructField string }{UnnamedStructField: "field value"})
+
+	// Local names not used in reflection should not be in the final binary,
+	// even if they are embedded in a struct and become a field name.
+	type unexportedLocalObfuscated struct { LocalObfuscatedA int }
+	type ExportedLocalObfuscated struct { LocalObfuscatedB int }
+	type EmbeddingObfuscated struct {
+		unexportedLocalObfuscated
+		ExportedLocalObfuscated
+	}
+	// Ensure the types are kept in the binary. Use an anonymous type too.
+	_ = fmt.Sprintf("%#v", EmbeddingObfuscated{})
+	_ = fmt.Sprintf("%#v", struct{ExportedLocalObfuscated}{})
 }
 
 type EmbeddingIndirect struct {
