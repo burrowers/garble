@@ -42,6 +42,7 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
+	"mvdan.cc/garble/internal/ctrlflow"
 
 	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
@@ -55,6 +56,8 @@ var (
 	flagDebug    bool
 	flagDebugDir string
 	flagSeed     seedFlag
+	// TODO(pagran): in the future, when control flow obfuscation will be stable migrate to flag
+	flagControlFlow = os.Getenv("GARBLE_EXPERIMENTAL_CONTROLFLOW") == "1"
 )
 
 func init() {
@@ -149,6 +152,8 @@ var (
 	sharedTempDir = os.Getenv("GARBLE_SHARED")
 	parentWorkDir = os.Getenv("GARBLE_PARENT_WORK")
 )
+
+const actionGraphFileName = "action-graph.json"
 
 type importerWithMap struct {
 	importMap  map[string]string
@@ -617,6 +622,9 @@ This command wraps "go %s". Below is its help:
 	toolexecFlag.WriteString(" toolexec")
 	goArgs = append(goArgs, toolexecFlag.String())
 
+	if flagControlFlow {
+		goArgs = append(goArgs, "-debug-actiongraph", filepath.Join(sharedTempDir, actionGraphFileName))
+	}
 	if flagDebugDir != "" {
 		// In case the user deletes the debug directory,
 		// and a previous build is cached,
@@ -936,6 +944,14 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
+	// Literal and control flow obfuscation uses math/rand, so seed it deterministically.
+	randSeed := tf.curPkg.GarbleActionID[:]
+	if flagSeed.present() {
+		randSeed = flagSeed.bytes
+	}
+	// log.Printf("seeding math/rand with %x\n", randSeed)
+	tf.obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
+
 	// Even if loadPkgCache below finds a direct cache hit,
 	// other parts of garble still need type information to obfuscate.
 	// We could potentially avoid this by saving the type info we need in the cache,
@@ -945,7 +961,39 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	if tf.curPkgCache, err = loadPkgCache(tf.curPkg, tf.pkg, files, tf.info); err != nil {
+	var (
+		ssaPkg       *ssa.Package
+		requiredPkgs []string
+	)
+	if flagControlFlow {
+		ssaPkg = ssaBuildPkg(tf.pkg, files, tf.info)
+
+		newFileName, newFile, affectedFiles, err := ctrlflow.Obfuscate(fset, ssaPkg, files, tf.obfRand)
+		if err != nil {
+			return nil, err
+		}
+
+		if newFile != nil {
+			files = append(files, newFile)
+			paths = append(paths, newFileName)
+			for _, file := range affectedFiles {
+				tf.useAllImports(file)
+			}
+			if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter); err != nil {
+				return nil, err
+			}
+
+			for _, imp := range newFile.Imports {
+				path, err := strconv.Unquote(imp.Path.Value)
+				if err != nil {
+					panic(err) // should never happen
+				}
+				requiredPkgs = append(requiredPkgs, path)
+			}
+		}
+	}
+
+	if tf.curPkgCache, err = loadPkgCache(tf.curPkg, tf.pkg, files, tf.info, ssaPkg); err != nil {
 		return nil, err
 	}
 
@@ -958,18 +1006,10 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	}
 
 	flags = alterTrimpath(flags)
-	newImportCfg, err := tf.processImportCfg(flags)
+	newImportCfg, err := tf.processImportCfg(flags, requiredPkgs)
 	if err != nil {
 		return nil, err
 	}
-
-	// Literal obfuscation uses math/rand, so seed it deterministically.
-	randSeed := tf.curPkg.GarbleActionID[:]
-	if flagSeed.present() {
-		randSeed = flagSeed.bytes
-	}
-	// log.Printf("seeding math/rand with %x\n", randSeed)
-	tf.obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
 
 	// If this is a package to obfuscate, swap the -p flag with the new package path.
 	// We don't if it's the main package, as that just uses "-p main".
@@ -1170,7 +1210,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 // processImportCfg parses the importcfg file passed to a compile or link step.
 // It also builds a new importcfg file to account for obfuscated import paths.
-func (tf *transformer) processImportCfg(flags []string) (newImportCfg string, _ error) {
+func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (newImportCfg string, _ error) {
 	importCfg := flagValue(flags, "-importcfg")
 	if importCfg == "" {
 		return "", fmt.Errorf("could not find -importcfg argument")
@@ -1181,6 +1221,15 @@ func (tf *transformer) processImportCfg(flags []string) (newImportCfg string, _ 
 	}
 
 	var packagefiles, importmaps [][2]string
+
+	// using for track required but not imported packages
+	var newIndirectImports map[string]bool
+	if requiredPkgs != nil {
+		newIndirectImports = make(map[string]bool)
+		for _, pkg := range requiredPkgs {
+			newIndirectImports[pkg] = true
+		}
+	}
 
 	for _, line := range strings.Split(string(data), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -1203,6 +1252,7 @@ func (tf *transformer) processImportCfg(flags []string) (newImportCfg string, _ 
 				continue
 			}
 			packagefiles = append(packagefiles, [2]string{importPath, objectPath})
+			delete(newIndirectImports, importPath)
 		}
 	}
 
@@ -1231,6 +1281,45 @@ func (tf *transformer) processImportCfg(flags []string) (newImportCfg string, _ 
 		}
 		fmt.Fprintf(newCfg, "importmap %s=%s\n", beforePath, afterPath)
 	}
+
+	if len(newIndirectImports) > 0 {
+		f, err := os.Open(filepath.Join(sharedTempDir, actionGraphFileName))
+		if err != nil {
+			return "", fmt.Errorf("cannot open action graph file: %v", err)
+		}
+		defer f.Close()
+
+		var actions []struct {
+			Mode    string
+			Package string
+			Objdir  string
+		}
+		if err := json.NewDecoder(f).Decode(&actions); err != nil {
+			return "", fmt.Errorf("cannot parse action graph file: %v", err)
+		}
+
+		// theoretically action graph can be long, to optimise it process it in one pass
+		// with an early exit when all the required imports are found
+		for _, action := range actions {
+			if action.Mode != "build" {
+				continue
+			}
+			if ok := newIndirectImports[action.Package]; !ok {
+				continue
+			}
+
+			packagefiles = append(packagefiles, [2]string{action.Package, filepath.Join(action.Objdir, "_pkg_.a")}) // file name hardcoded in compiler
+			delete(newIndirectImports, action.Package)
+			if len(newIndirectImports) == 0 {
+				break
+			}
+		}
+
+		if len(newIndirectImports) > 0 {
+			return "", fmt.Errorf("cannot resolve required packages from action graph file: %v", requiredPkgs)
+		}
+	}
+
 	for _, pair := range packagefiles {
 		impPath, pkgfile := pair[0], pair[1]
 		lpkg, err := listPackage(tf.curPkg, impPath)
@@ -1306,6 +1395,27 @@ func (c *pkgCache) CopyFrom(c2 pkgCache) {
 	maps.Copy(c.EmbeddedAliasFields, c2.EmbeddedAliasFields)
 }
 
+func ssaBuildPkg(pkg *types.Package, files []*ast.File, info *types.Info) *ssa.Package {
+	// Create SSA packages for all imports. Order is not significant.
+	ssaProg := ssa.NewProgram(fset, 0)
+	created := make(map[*types.Package]bool)
+	var createAll func(pkgs []*types.Package)
+	createAll = func(pkgs []*types.Package) {
+		for _, p := range pkgs {
+			if !created[p] {
+				created[p] = true
+				ssaProg.CreatePackage(p, nil, nil, true)
+				createAll(p.Imports())
+			}
+		}
+	}
+	createAll(pkg.Imports())
+
+	ssaPkg := ssaProg.CreatePackage(pkg, files, info, false)
+	ssaPkg.Build()
+	return ssaPkg
+}
+
 func openCache() (*cache.Cache, error) {
 	// Use a subdirectory for the hashed build cache, to clarify what it is,
 	// and to allow us to have other directories or files later on without mixing.
@@ -1316,7 +1426,7 @@ func openCache() (*cache.Cache, error) {
 	return cache.Open(dir)
 }
 
-func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info) (pkgCache, error) {
+func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info, ssaPkg *ssa.Package) (pkgCache, error) {
 	fsCache, err := openCache()
 	if err != nil {
 		return pkgCache{}, err
@@ -1335,10 +1445,10 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 		}
 		return loaded, nil
 	}
-	return computePkgCache(fsCache, lpkg, pkg, files, info)
+	return computePkgCache(fsCache, lpkg, pkg, files, info, ssaPkg)
 }
 
-func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info) (pkgCache, error) {
+func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info, ssaPkg *ssa.Package) (pkgCache, error) {
 	// Not yet in the cache. Load the cache entries for all direct dependencies,
 	// build our cache entry, and write it to disk.
 	// Note that practically all errors from Cache.GetFile are a cache miss;
@@ -1395,7 +1505,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			if err != nil {
 				return err
 			}
-			computedImp, err := computePkgCache(fsCache, lpkg, pkg, files, info)
+			computedImp, err := computePkgCache(fsCache, lpkg, pkg, files, info, nil)
 			if err != nil {
 				return err
 			}
@@ -1428,28 +1538,13 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 	}
 
 	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
-	// Create SSA packages for all imports. Order is not significant.
-	ssaProg := ssa.NewProgram(fset, 0)
-	created := make(map[*types.Package]bool)
-	var createAll func(pkgs []*types.Package)
-	createAll = func(pkgs []*types.Package) {
-		for _, p := range pkgs {
-			if !created[p] {
-				created[p] = true
-				ssaProg.CreatePackage(p, nil, nil, true)
-				createAll(p.Imports())
-			}
-		}
-	}
-	createAll(pkg.Imports())
-
-	ssaPkg := ssaProg.CreatePackage(pkg, files, info, false)
-	ssaPkg.Build()
-
 	inspector := reflectInspector{
 		pkg:         pkg,
 		checkedAPIs: make(map[string]bool),
 		result:      computed, // append the results
+	}
+	if ssaPkg == nil {
+		ssaPkg = ssaBuildPkg(pkg, files, info)
 	}
 	inspector.recordReflection(ssaPkg)
 
@@ -1551,6 +1646,10 @@ type transformer struct {
 	// of packages, without any obfuscation. This is helpful to make
 	// decisions on how to obfuscate our input code.
 	origImporter importerWithMap
+
+	// usedAllImportsFiles is used to prevent multiple calls of tf.useAllImports function on one file
+	// in case of simultaneously applied control flow and literals obfuscation
+	usedAllImportsFiles map[*ast.File]bool
 }
 
 func typecheck(pkgPath string, files []*ast.File, origImporter importerWithMap) (*types.Package, *types.Info, error) {
@@ -1656,6 +1755,13 @@ func isSafeForInstanceType(typ types.Type) bool {
 }
 
 func (tf *transformer) useAllImports(file *ast.File) {
+	if tf.usedAllImportsFiles == nil {
+		tf.usedAllImportsFiles = make(map[*ast.File]bool)
+	} else if ok := tf.usedAllImportsFiles[file]; ok {
+		return
+	}
+	tf.usedAllImportsFiles[file] = true
+
 	for _, imp := range file.Imports {
 		if imp.Name != nil && imp.Name.Name == "_" {
 			continue
@@ -2004,7 +2110,7 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 	// lack any extension.
 	flags, args := splitFlagsFromArgs(args)
 
-	newImportCfg, err := tf.processImportCfg(flags)
+	newImportCfg, err := tf.processImportCfg(flags, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,68 @@
+env GARBLE_EXPERIMENTAL_CONTROLFLOW=1
+exec garble -literals -debugdir=debug -seed=0002deadbeef build -o=main$exe
+exec ./main
+cmp stderr main.stderr
+
+# simple check to ensure that control flow will work. Must be a minimum of 10 goto's
+grep 'goto _s2a_l10' $WORK/debug/test/main/GARBLE_controlflow.go
+
+# obfuscated function must be removed from original file
+! grep 'main\(\)' $WORK/debug/test/main/garble_main.go
+# original file must contains empty function
+grep '\_\(\)' $WORK/debug/test/main/garble_main.go
+
+# switch must be simplified
+! grep switch $WORK/debug/test/main/GARBLE_controlflow.go
+
+# obfuscated file must contains interface for unexported interface emulation
+grep 'GoString\(\) string' $WORK/debug/test/main/GARBLE_controlflow.go
+grep 'String\(\) string' $WORK/debug/test/main/GARBLE_controlflow.go
+
+# control flow obfuscation should work correctly with literals obfuscation
+! binsubstr main$exe 'correct name'
+
+-- go.mod --
+module test/main
+
+go 1.20
+-- garble_main.go --
+package main
+
+import (
+	"encoding/binary"
+	"encoding/hex"
+	"hash/crc32"
+)
+
+//garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10
+func main() {
+	// Reference to the unexported interface triggers creation of a new interface
+	// with a list of all functions of the private interface
+	endian := binary.LittleEndian
+	println(endian.String())
+	println(endian.GoString())
+	println(endian.Uint16([]byte{0, 1}))
+
+	// Switch statement should be simplified to if statements
+	switch endian.String() {
+	case "LittleEndian":
+		println("correct name")
+	default:
+		panic("unreachable")
+	}
+
+	// Indirect import "hash" package
+	hash := crc32.New(crc32.IEEETable)
+	hash.Write([]byte("1"))
+	hash.Write([]byte("2"))
+	hash.Write([]byte("3"))
+
+	println(hex.EncodeToString(hash.Sum(nil)))
+}
+
+-- main.stderr --
+LittleEndian
+binary.LittleEndian
+256
+correct name
+884863d2
