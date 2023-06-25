@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.10.1] - 2023-06-25
+
+This bugfix release continues support for Go 1.20 and the upcoming 1.21,
+and features:
+
+* Avoid obfuscating local types used for reflection, like in `go-spew` - #765
+
 ## [v0.10.0] - 2023-06-05
 
 This release drops support for Go 1.19, continues support for Go 1.20,
@@ -234,6 +241,8 @@ Known bugs:
 
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
+
+[v0.10.1]: https://github.com/burrowers/garble/releases/tag/v0.10.1
 
 [v0.10.0]: https://github.com/burrowers/garble/releases/tag/v0.10.0
 [#641]: https://github.com/burrowers/garble/pull/641
