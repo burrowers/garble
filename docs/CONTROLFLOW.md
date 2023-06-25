@@ -315,5 +315,5 @@ With all parameter values equal to 0 number of blocks: `8`
 
 ### Caveats
 
-* Obfuscation breaks the lazy iteration over maps. See: [ssa2ast/polyfill.go](internal/ssa2ast/polyfill.go)
+* Obfuscation breaks the lazy iteration over maps. See: [ssa2ast/polyfill.go](../internal/ssa2ast/polyfill.go)
 * Generic functions not supported
