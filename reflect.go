@@ -406,28 +406,33 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 // TODO: consider caching recordedObjectString via a map,
 // if that shows an improvement in our benchmark
 func recordedObjectString(obj types.Object) objectString {
-	// For exported fields, "pkgpath.Field" is not unique,
-	// because two exported top-level types could share "Field".
+	pkg := obj.Pkg()
+	// Names which are not at the package level still need to avoid obfuscation in some cases:
 	//
-	// Moreover, note that not all fields belong to named struct types;
-	// an API could be exposing:
-	//
-	//   var usedInReflection = struct{Field string}
+	// 1. Field names on global types, which can be reached via reflection.
+	// 2. Field names on anonymous types can also be reached via reflection.
+	// 3. Local named types can be embedded in a local struct, becoming a field name as well.
 	//
 	// For now, a hack: assume that packages don't declare the same field
 	// more than once in the same line. This works in practice, but one
 	// could craft Go code to break this assumption.
 	// Also note that the compiler's object files include filenames and line
 	// numbers, but not column numbers nor byte offsets.
-	// TODO(mvdan): give this another think, and add tests involving anon types.
-	// Note that fields are never top-level.
-	pkg := obj.Pkg()
 	if pkg.Scope() != obj.Parent() {
+		switch obj := obj.(type) {
+		case *types.Var: // struct fields; cases 1 and 2 above
+			if !obj.IsField() {
+				return "" // local variables don't need to be recorded
+			}
+		case *types.TypeName: // local named types; case 3 above
+		default:
+			return "" // other objects (labels, consts, etc) don't need to be recorded
+		}
 		pos := fset.Position(obj.Pos())
 		return fmt.Sprintf("%s.%s - %s:%d", pkg.Path(), obj.Name(),
 			filepath.Base(pos.Filename), pos.Line)
 	}
-	// For top-level exported names, "pkgpath.Name" is unique.
+	// For top-level names, "pkgpath.Name" is unique.
 	return pkg.Path() + "." + obj.Name()
 }
 
@@ -437,44 +442,20 @@ func (ri *reflectInspector) recordUsedForReflect(obj types.Object) {
 	if obj.Pkg().Path() != ri.pkg.Path() {
 		panic("called recordUsedForReflect with a foreign object")
 	}
-
-	if obj, ok := obj.(*types.Var); ok && obj.IsField() {
-		ri.result.ReflectObjects[recordedObjectString(obj)] = struct{}{}
-
-		if !obj.Embedded() {
-			return
-		}
-
-		embeddedType, ok := obj.Type().(*types.Named)
-		if !ok {
-			return
-		}
-
-		embeddedObj := embeddedType.Obj()
-		if embeddedObj.Pkg().Scope() == embeddedObj.Parent() {
-			// not local type
-			return
-		}
-
-		if embeddedObj.Pkg() == nil || embeddedObj.Pkg() != ri.pkg {
-			// not from the specified package
-			return
-		}
-
-		ri.result.ReflectObjects[recordedObjectString(embeddedObj)] = struct{}{}
-
+	objStr := recordedObjectString(obj)
+	if objStr == "" {
+		// If the object can't be described via a qualified string,
+		// do we need to record it at all?
 		return
 	}
-
-	// we don't need to record the local type names
-	if obj.Pkg().Scope() != obj.Parent() {
-		return
-	}
-
-	ri.result.ReflectObjects[recordedObjectString(obj)] = struct{}{}
+	ri.result.ReflectObjects[objStr] = struct{}{}
 }
 
 func usedForReflect(cache pkgCache, obj types.Object) bool {
-	_, ok := cache.ReflectObjects[recordedObjectString(obj)]
+	objStr := recordedObjectString(obj)
+	if objStr == "" {
+		return false
+	}
+	_, ok := cache.ReflectObjects[objStr]
 	return ok
 }
