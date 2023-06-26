@@ -83,7 +83,7 @@ Similarly, `garble reverse` is generally not useful in this mode.
 
 ### Control flow obfuscation
 
-Read more: [CONTROLFLOW.md](docs/CONTROLFLOW.md)
+See: [CONTROLFLOW.md](docs/CONTROLFLOW.md)
 
 ### Speed
 

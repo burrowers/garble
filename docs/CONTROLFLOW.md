@@ -1,6 +1,6 @@
 # Control Flow Obfuscation
 
-> **Feature is experimental**. To activate it, set environment variable `GARBLE_EXPERIMENTAL_CONTROLFLOW=1`
+> **This feature is experimental**. To enable it, set the environment variable `GARBLE_EXPERIMENTAL_CONTROLFLOW=1`
 
 ### Mechanism
 
@@ -17,17 +17,19 @@ Control flow obfuscation works in several stages:
 ### Example usage
 
 ```go
-//garble:controlflow flatten_passes=1 junk_jumps=1 block_splits=1
+
+// Obfuscate with defaults parameters
+//garble:controlflow
 func main() {
-	println("Hellow world!")
+	println("Hello world!")
 }
 ```
 
 ### Parameter explanation
 
-> Unlike other garble features (which just work), we recommend that you understand how parameters affect control flow obfuscation and what caveats exists.
+> Unlike other garble features (which just work), we recommend that you understand how parameters affect control flow obfuscation which caveats.
 
-> Code snippets below without name obfuscation for better readability.
+> Code snippets below without name obfuscation, for better readability.
 
 #### Block splitting
 
@@ -36,7 +38,7 @@ Param: `block_splits` (default: `0`)
 > Warning: this param affects resulting binary only when used in combination with [flattening](#control-flow-flattening)
 
 
-Block splitting `block_splits` times splits largest block into 2 parts of random size. If there is no suitable block (number of ssa instructions in block is less than 3) work stops without errors.
+Block splitting splits the largest block into 2 parts of random size, this is done `block_splits` times at most. If there is no more suitable block to split (number of ssa instructions in block is less than 3), splitting stops.
 
 This param is very useful if your code has few branches (`if`, `switch` etc.).
 
@@ -44,7 +46,7 @@ Input:
 ```go
 package main
 
-// Note that the block_splits value is very large, so code blocks are splitted into the smallest possible blocks.
+// Note that the block_splits value is very large, so code blocks are split into the smallest possible blocks.
 //garble:controlflow flatten_passes=0 junk_jumps=0 block_splits=1024
 func main() {
 	println("1")
@@ -94,7 +96,7 @@ Param: `junk_jumps` (default: `0`)
 
 > Warning: this param affects resulting binary only when used in combination with [flattening](#control-flow-flattening)
 
-Junk jumps adds `junk_jumps` times to random blocks junk jump, can make a chain of jumps. This function is useful for linearly increasing function complexity.
+Junk jumps adds jumps to random blocks `junk_jumps` times, these inserted jumps can also form a chain. This param is useful for linearly increasing the functions complexity.
 
 Input:
 ```go
@@ -154,10 +156,10 @@ _s2a_l7:
 Param: `flatten_passes` (default: `1`)
 
 
-This function completely flattens the control flow `flatten_passes` times, which makes analysing the logic of the function very difficult
+This parameter completely [flattens the control flow](https://github.com/obfuscator-llvm/obfuscator/wiki/Control-Flow-Flattening) `flatten_passes` times, which makes analysing the logic of the function very difficult
 This is the most important parameter without which the other parameters have no effect on the resulting binary.
 
-> Warning: Unlike junk jumps, this parameter increases control flow complexity non-linearly. In most cases we do not recommend specifying a value greater than 3. Check [Benchmarks](#complexity-benchmark)
+> Warning: Unlike junk jumps, this parameter increases control flow complexity non-linearly. In most cases we do not recommend specifying a value greater than 3. Check [Benchmark](#complexity-benchmark)
 
 
 Input:
@@ -280,36 +282,58 @@ func sort(arr []int) []int {
 }
 ```
 
-With all parameter values equal to 0 number of blocks: `8`
+Before obfuscation this function has `8` blocks.
 
-| block_splits | blocks |
-|--------------|--------|
-| 0            | 8      |
-| 1            | 9      |
-| 2            | 10     |
-| 10           | 18     |
-| 100          | 21     |
-| 1000         | 21     |
-
-
-| junk_jumps | blocks |
-|------------|--------|
-| 0          | 8      |
-| 1          | 9      |
-| 2          | 10     |
-| 10         | 18     |
-| 100        | 108    |
-| 1000       | 1008   |
-
-
-| flatten_passes | blocks |
-|----------------|--------|
-| 0              | 8      |
-| 1              | 32     |
-| 2              | 123    |
-| 3              | 486    |
-| 4              | 1937   |
-| 5              | 7740   |
+| flatten_passes | block_splits | junk_jumps | block_count |
+|----------------|--------------|------------|-------------|
+| 1              | 0            | 0          | 32          |
+| 1              | 10           | 0          | 62          |
+| 1              | 100          | 0          | 95          |
+| 1              | 1024         | 0          | 95          |
+| 1              | 0            | 10         | 62          |
+| 1              | 10           | 10         | 92          |
+| 1              | 100          | 10         | 125         |
+| 1              | 1024         | 10         | 125         |
+| 1              | 0            | 100        | 332         |
+| 1              | 10           | 100        | 362         |
+| 1              | 100          | 100        | 395         |
+| 1              | 1024         | 100        | 395         |
+| 2              | 0            | 0          | 123         |
+| 2              | 10           | 0          | 233         |
+| 2              | 100          | 0          | 354         |
+| 2              | 1024         | 0          | 354         |
+| 2              | 0            | 10         | 233         |
+| 2              | 10           | 10         | 343         |
+| 2              | 100          | 10         | 464         |
+| 2              | 1024         | 10         | 464         |
+| 2              | 0            | 100        | 1223        |
+| 2              | 10           | 100        | 1333        |
+| 2              | 100          | 100        | 1454        |
+| 2              | 1024         | 100        | 1454        |
+| 3              | 0            | 0          | 486         |
+| 3              | 10           | 0          | 916         |
+| 3              | 100          | 0          | 1389        |
+| 3              | 1024         | 0          | 1389        |
+| 3              | 0            | 10         | 916         |
+| 3              | 10           | 10         | 1346        |
+| 3              | 100          | 10         | 1819        |
+| 3              | 1024         | 10         | 1819        |
+| 3              | 0            | 100        | 4786        |
+| 3              | 10           | 100        | 5216        |
+| 3              | 100          | 100        | 5689        |
+| 3              | 1024         | 100        | 5689        |
+| 4              | 0            | 0          | 1937        |
+| 4              | 10           | 0          | 3647        |
+| 4              | 100          | 0          | 5528        |
+| 4              | 1024         | 0          | 5528        |
+| 4              | 0            | 10         | 3647        |
+| 4              | 10           | 10         | 5357        |
+| 4              | 100          | 10         | 7238        |
+| 4              | 1024         | 10         | 7238        |
+| 4              | 0            | 100        | 19037       |
+| 4              | 10           | 100        | 20747       |
+| 4              | 100          | 100        | 22628       |
+| 4              | 1024         | 100        | 22628       |
 
 
 
