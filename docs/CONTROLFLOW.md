@@ -17,7 +17,6 @@ Control flow obfuscation works in several stages:
 ### Example usage
 
 ```go
-
 // Obfuscate with defaults parameters
 //garble:controlflow
 func main() {
@@ -33,12 +32,12 @@ func main() {
 
 #### Block splitting
 
-Param: `block_splits` (default: `0`)
+Parameter: `block_splits` (default: `0`)
 
 > Warning: this param affects resulting binary only when used in combination with [flattening](#control-flow-flattening)
 
 
-Block splitting splits the largest block into 2 parts of random size, this is done `block_splits` times at most. If there is no more suitable block to split (number of ssa instructions in block is less than 3), splitting stops.
+Block splitting splits the largest SSA block into 2 parts of random size, this is done `block_splits` times at most. If there is no more suitable block to split (number of ssa instructions in block is less than 3), splitting stops.
 
 This param is very useful if your code has few branches (`if`, `switch` etc.).
 
@@ -92,7 +91,7 @@ _s2a_l4:
 
 #### Junk jumps
 
-Param: `junk_jumps` (default: `0`)
+Parameter: `junk_jumps` (default: `0`)
 
 > Warning: this param affects resulting binary only when used in combination with [flattening](#control-flow-flattening)
 
@@ -153,7 +152,7 @@ _s2a_l7:
 
 #### Control flow flattening
 
-Param: `flatten_passes` (default: `1`)
+Parameter: `flatten_passes` (default: `1`)
 
 
 This parameter completely [flattens the control flow](https://github.com/obfuscator-llvm/obfuscator/wiki/Control-Flow-Flattening) `flatten_passes` times, which makes analysing the logic of the function very difficult
@@ -264,9 +263,14 @@ _s2a_l12:
 }
 ```
 
+### Caveats
+
+* Obfuscation breaks the lazy iteration over maps. See: [ssa2ast/polyfill.go](../internal/ssa2ast/polyfill.go)
+* Generic functions not supported
+
 ### Complexity benchmark
 
-By complexity, means number of blocks.
+We approximate complexity by counting the number of blocks.
 
 Analysed function:
 ```go
@@ -334,10 +338,3 @@ Before obfuscation this function has `8` blocks.
 | 4              | 10           | 100        | 20747       |
 | 4              | 100          | 100        | 22628       |
 | 4              | 1024         | 100        | 22628       |
-
-
-
-### Caveats
-
-* Obfuscation breaks the lazy iteration over maps. See: [ssa2ast/polyfill.go](../internal/ssa2ast/polyfill.go)
-* Generic functions not supported
