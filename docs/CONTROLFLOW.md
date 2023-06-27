@@ -27,7 +27,7 @@ func main() {
 
 ### Parameter explanation
 
-> Unlike other garble features (which just work), we recommend that you understand how parameters affect control flow obfuscation which caveats.
+> Unlike other garble features (which just work), we recommend that you understand how parameters affect control flow obfuscation and which caveats exist.
 
 > Code snippets below without name obfuscation, for better readability.
 
