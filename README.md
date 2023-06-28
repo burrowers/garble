@@ -81,6 +81,10 @@ exit the entire program without printing a stack trace, and source code
 positions and many names are removed.
 Similarly, `garble reverse` is generally not useful in this mode.
 
+### Control flow obfuscation
+
+See: [CONTROLFLOW.md](docs/CONTROLFLOW.md)
+
 ### Speed
 
 `garble build` should take about twice as long as `go build`, as it needs to
