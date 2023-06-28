@@ -6,7 +6,9 @@ import (
 	"go/token"
 	"go/types"
 	"log"
+	"math"
 	mathrand "math/rand"
+	"os"
 	"strconv"
 	"strings"
 
@@ -24,19 +26,30 @@ const (
 	defaultBlockSplits   = 0
 	defaultJunkJumps     = 0
 	defaultFlattenPasses = 1
+
+	maxBlockSplits   = math.MaxInt32
+	maxJunkJumps     = 256
+	maxFlattenPasses = 4
 )
 
 type directiveParamMap map[string]string
 
-func (m directiveParamMap) GetInt(name string, def int) int {
+func (m directiveParamMap) GetInt(name string, def, max int) int {
 	rawVal, ok := m[name]
 	if !ok {
 		return def
 	}
 
+	if rawVal == "max" {
+		return max
+	}
+
 	val, err := strconv.Atoi(rawVal)
 	if err != nil {
-		panic(fmt.Errorf("invalid flag %s format: %v", name, err))
+		panic(fmt.Errorf("invalid flag %q format: %v", name, err))
+	}
+	if val > max {
+		panic(fmt.Errorf("too big flag %q value: %d (max: %d)", name, val, max))
 	}
 	return val
 }
@@ -150,12 +163,15 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
 
-		split := params.GetInt("block_splits", defaultBlockSplits)
-		junkCount := params.GetInt("junk_jumps", defaultJunkJumps)
-		passes := params.GetInt("flatten_passes", defaultFlattenPasses)
+		split := params.GetInt("block_splits", defaultBlockSplits, maxBlockSplits)
+		junkCount := params.GetInt("junk_jumps", defaultJunkJumps, maxJunkJumps)
+		passes := params.GetInt("flatten_passes", defaultFlattenPasses, maxFlattenPasses)
+		if passes == 0 {
+			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
+		}
 
 		applyObfuscation := func(ssaFunc *ssa.Function) {
-			for i := 0; i < split; i++ {
+			for i := 0; split == -1 || i < split; i++ {
 				if !applySplitting(ssaFunc, obfRand) {
 					break // no more candidates for splitting
 				}
