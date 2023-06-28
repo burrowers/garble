@@ -171,7 +171,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		}
 
 		applyObfuscation := func(ssaFunc *ssa.Function) {
-			for i := 0; split == -1 || i < split; i++ {
+			for i := 0; i < split; i++ {
 				if !applySplitting(ssaFunc, obfRand) {
 					break // no more candidates for splitting
 				}
