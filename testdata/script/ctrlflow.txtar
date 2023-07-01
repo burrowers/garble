@@ -1,5 +1,8 @@
 env GARBLE_EXPERIMENTAL_CONTROLFLOW=1
 exec garble -literals -debugdir=debug -seed=0002deadbeef build -o=main$exe
+
+stderr '"test/main.func1" function has no effect on the resulting binary'
+
 exec ./main
 cmp stderr main.stderr
 
@@ -33,6 +36,9 @@ import (
 	"encoding/hex"
 	"hash/crc32"
 )
+
+//garble:controlflow flatten_passes=0 junk_jumps=max block_splits=max
+func func1() {}
 
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10
 func main() {

@@ -22,6 +22,13 @@ Control flow obfuscation works in several stages:
 func main() {
 	println("Hello world!")
 }
+
+
+// Obfuscate with maximum parameters
+//garble:controlflow block_splits=max junk_jumps=max flatten_passes=max
+func main() {
+    println("Hello world!")
+}
 ```
 
 ### Parameter explanation
@@ -45,8 +52,8 @@ Input:
 ```go
 package main
 
-// Note that the block_splits value is very large, so code blocks are split into the smallest possible blocks.
-//garble:controlflow flatten_passes=0 junk_jumps=0 block_splits=1024
+// Note that the block_splits value is "max", so code blocks are split into the smallest possible blocks.
+//garble:controlflow flatten_passes=0 junk_jumps=0 block_splits=max
 func main() {
 	println("1")
 	println("2")
@@ -91,7 +98,7 @@ _s2a_l4:
 
 #### Junk jumps
 
-Parameter: `junk_jumps` (default: `0`)
+Parameter: `junk_jumps` (default: `0`, maximum: `1024`)
 
 > Warning: this param affects resulting binary only when used in combination with [flattening](#control-flow-flattening)
 
@@ -152,7 +159,7 @@ _s2a_l7:
 
 #### Control flow flattening
 
-Parameter: `flatten_passes` (default: `1`)
+Parameter: `flatten_passes` (default: `1`, maximum: `4`)
 
 
 This parameter completely [flattens the control flow](https://github.com/obfuscator-llvm/obfuscator/wiki/Control-Flow-Flattening) `flatten_passes` times, which makes analysing the logic of the function very difficult
