@@ -89,6 +89,7 @@ func main() {
 	chanOps()
 	flowOps()
 	typeOps()
+	genericFunc()
 }
 
 func makeSprintf(tag string) func(vals ...interface{}) {
@@ -340,7 +341,32 @@ func typeOps() {
 		sprintf(discard) // Trigger phi block
 	}
 	_, _ = discard.Write([]byte("test"))
-}`
+}
+
+func sumIntsOrFloats[K comparable, V int64 | float64](m map[K]V) V {
+    var s V
+    for _, v := range m {
+        s += v
+    }
+    return s
+}
+
+func genericFunc() {
+	sprintf := makeSprintf("genericFunc")
+	
+	ints := map[string]int64{
+		"first": 34,
+		"second": 12,
+	}
+	sprintf(sumIntsOrFloats[string, int64](ints))
+	
+	floats := map[string]float64{
+		"first": 34.1,
+		"second": 12.1,
+    }
+	sprintf(sumIntsOrFloats(floats))
+}
+`
 
 func TestConvert(t *testing.T) {
 	runGoFile := func(f string) string {
