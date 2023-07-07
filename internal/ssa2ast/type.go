@@ -65,6 +65,8 @@ func (tc *typeConverter) Convert(t types.Type) (ast.Expr, error) {
 			}
 			methods.List = append(methods.List, &ast.Field{Type: embeddedExpr})
 		}
+
+		// Special case, handle "comparable" interface itself
 		if !hasComparable && typ.IsComparable() {
 			methods.List = append(methods.List, &ast.Field{Type: ast.NewIdent("comparable")})
 		}

@@ -216,10 +216,15 @@ func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, 
 				callExpr.Fun = methodName
 			}
 			if typeArgs := val.TypeArgs(); len(typeArgs) > 0 {
+				// Generic methods are called in a monomorphic view (e.g. "someMethod[int string]"),
+				// so to get the original name, delete everything starting from "[" inclusive.
 				methodName.Name = methodName.Name[:strings.IndexRune(methodName.Name, '[')]
 				genericCallExpr := &ast.IndexListExpr{
 					X: callExpr.Fun,
 				}
+
+				// For better readability of generated code and to avoid ambiguities,
+				// we explicitly specify generic method types (e.g. "someMethod[int, string](0, "str")")
 				for _, typArg := range typeArgs {
 					typeExpr, err := fc.tc.Convert(typArg)
 					if err != nil {
