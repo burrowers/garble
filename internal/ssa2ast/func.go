@@ -218,7 +218,7 @@ func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, 
 			if typeArgs := val.TypeArgs(); len(typeArgs) > 0 {
 				// Generic methods are called in a monomorphic view (e.g. "someMethod[int string]"),
 				// so to get the original name, delete everything starting from "[" inclusive.
-				methodName.Name = methodName.Name[:strings.IndexRune(methodName.Name, '[')]
+				methodName.Name, _, _ = strings.Cut(methodName.Name, "[")
 				genericCallExpr := &ast.IndexListExpr{
 					X: callExpr.Fun,
 				}
