@@ -199,12 +199,6 @@ func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, 
 
 			hasRecv := val.Signature.Recv() != nil
 			methodName := ast.NewIdent(val.Name())
-			if val.TypeParams().Len() != 0 {
-				// TODO: to convert a call of a generic function it is enough to cut method name,
-				// but in the future when implementing converting generic functions this code must be rewritten
-				methodName.Name = methodName.Name[:strings.IndexRune(methodName.Name, '[')]
-			}
-
 			if hasRecv {
 				argsOffset = 1
 				recvExpr, err := fc.convertSsaValue(callCommon.Args[0])
@@ -220,6 +214,25 @@ func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, 
 					}
 				}
 				callExpr.Fun = methodName
+			}
+			if typeArgs := val.TypeArgs(); len(typeArgs) > 0 {
+				// Generic methods are called in a monomorphic view (e.g. "someMethod[int string]"),
+				// so to get the original name, delete everything starting from "[" inclusive.
+				methodName.Name, _, _ = strings.Cut(methodName.Name, "[")
+				genericCallExpr := &ast.IndexListExpr{
+					X: callExpr.Fun,
+				}
+
+				// For better readability of generated code and to avoid ambiguities,
+				// we explicitly specify generic method types (e.g. "someMethod[int, string](0, "str")")
+				for _, typArg := range typeArgs {
+					typeExpr, err := fc.tc.Convert(typArg)
+					if err != nil {
+						return nil, err
+					}
+					genericCallExpr.Indices = append(genericCallExpr.Indices, typeExpr)
+				}
+				callExpr.Fun = genericCallExpr
 			}
 		case *ssa.Builtin:
 			name := val.Name()
@@ -1123,10 +1136,6 @@ func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, erro
 }
 
 func (fc *funcConverter) convert(ssaFunc *ssa.Function) (*ast.FuncDecl, error) {
-	if ssaFunc.Signature.TypeParams() != nil || ssaFunc.Signature.RecvTypeParams() != nil {
-		return nil, ErrUnsupported
-	}
-
 	funcDecl, err := fc.convertSignatureToFuncDecl(ssaFunc.Name(), ssaFunc.Signature)
 	if err != nil {
 		return nil, err

@@ -53,13 +53,22 @@ func (tc *typeConverter) Convert(t types.Type) (ast.Expr, error) {
 		return chanExpr, nil
 	case *types.Interface:
 		methods := &ast.FieldList{}
+		hasComparable := false
 		for i := 0; i < typ.NumEmbeddeds(); i++ {
 			embeddedType := typ.EmbeddedType(i)
+			if namedType, ok := embeddedType.(*types.Named); ok && namedType.String() == "comparable" {
+				hasComparable = true
+			}
 			embeddedExpr, err := tc.Convert(embeddedType)
 			if err != nil {
 				return nil, err
 			}
 			methods.List = append(methods.List, &ast.Field{Type: embeddedExpr})
+		}
+
+		// Special case, handle "comparable" interface itself
+		if !hasComparable && typ.IsComparable() {
+			methods.List = append(methods.List, &ast.Field{Type: ast.NewIdent("comparable")})
 		}
 		for i := 0; i < typ.NumExplicitMethods(); i++ {
 			method := typ.ExplicitMethod(i)

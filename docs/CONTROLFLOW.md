@@ -273,7 +273,6 @@ _s2a_l12:
 ### Caveats
 
 * Obfuscation breaks the lazy iteration over maps. See: [ssa2ast/polyfill.go](../internal/ssa2ast/polyfill.go)
-* Generic functions not supported
 
 ### Complexity benchmark
 
