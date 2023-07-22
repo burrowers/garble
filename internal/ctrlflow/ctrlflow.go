@@ -145,7 +145,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 	fset.AddFile(mergedFileName, int(newFile.Package), 1) // required for correct printer output
 
 	funcConfig := ssa2ast.DefaultConfig()
-	imports := make(map[string]string) // TODO: indirect imports turned into direct currently brake build process
+	imports := make(map[string]string)
 	funcConfig.ImportNameResolver = func(pkg *types.Package) *ast.Ident {
 		if pkg == nil || pkg.Path() == ssaPkg.Pkg.Path() {
 			return nil
