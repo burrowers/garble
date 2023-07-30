@@ -54,6 +54,19 @@ func (m directiveParamMap) GetInt(name string, def, max int) int {
 	return val
 }
 
+func (m directiveParamMap) StringSlice(name string) []string {
+	rawVal, ok := m[name]
+	if !ok {
+		return nil
+	}
+
+	slice := strings.Split(rawVal, ",")
+	if len(slice) == 0 {
+		return nil
+	}
+	return slice
+}
+
 // parseDirective parses a directive string and returns a map of directive parameters.
 // Each parameter should be in the form "key=value" or "key"
 func parseDirective(directive string) (directiveParamMap, bool) {
@@ -169,8 +182,9 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		if passes == 0 {
 			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
 		}
+		hardening := newDispatcherHardening(params.StringSlice("flatten_hardening"))
 
-		applyObfuscation := func(ssaFunc *ssa.Function) {
+		applyObfuscation := func(ssaFunc *ssa.Function) []dispatcherInfo {
 			for i := 0; i < split; i++ {
 				if !applySplitting(ssaFunc, obfRand) {
 					break // no more candidates for splitting
@@ -179,20 +193,46 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			if junkCount > 0 {
 				addJunkBlocks(ssaFunc, junkCount, obfRand)
 			}
+			var dispatchers []dispatcherInfo
 			for i := 0; i < passes; i++ {
-				applyFlattening(ssaFunc, obfRand)
+				if info := applyFlattening(ssaFunc, obfRand); info != nil {
+					dispatchers = append(dispatchers, info)
+				}
 			}
 			fixBlockIndexes(ssaFunc)
+			return dispatchers
 		}
 
-		applyObfuscation(ssaFunc)
+		dispatchers := applyObfuscation(ssaFunc)
 		for _, anonFunc := range ssaFunc.AnonFuncs {
-			applyObfuscation(anonFunc)
+			dispatchers = append(dispatchers, applyObfuscation(anonFunc)...)
+		}
+
+		// Because of ssa package api limitations, implementation of hardening for control flow flattening dispatcher
+		// is implemented during converting by replacing key values with obfuscated ast expressions
+		var prologues []ast.Stmt
+		if len(dispatchers) > 0 && hardening != nil {
+			ssaRemap := make(map[ssa.Value]ast.Expr)
+			for _, dispatcher := range dispatchers {
+				decl, stmt := hardening.Apply(dispatcher, ssaRemap, obfRand)
+				if decl != nil {
+					newFile.Decls = append(newFile.Decls, decl)
+				}
+				if stmt != nil {
+					prologues = append(prologues, stmt)
+				}
+			}
+			funcConfig.SsaValueRemap = ssaRemap
+		} else {
+			funcConfig.SsaValueRemap = nil
 		}
 
 		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)
 		if err != nil {
 			return "", nil, nil, err
+		}
+		if len(prologues) > 0 {
+			astFunc.Body.List = append(prologues, astFunc.Body.List...)
 		}
 		newFile.Decls = append(newFile.Decls, astFunc)
 	}

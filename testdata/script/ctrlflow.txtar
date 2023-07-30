@@ -14,15 +14,18 @@ grep 'goto _s2a_l10' $WORK/debug/test/main/GARBLE_controlflow.go
 # original file must contains empty function
 grep '\_\(\)' $WORK/debug/test/main/garble_main.go
 
-# switch must be simplified
-! grep switch $WORK/debug/test/main/GARBLE_controlflow.go
-
 # obfuscated file must contains interface for unexported interface emulation
 grep 'GoString\(\) string' $WORK/debug/test/main/GARBLE_controlflow.go
 grep 'String\(\) string' $WORK/debug/test/main/GARBLE_controlflow.go
 
 # control flow obfuscation should work correctly with literals obfuscation
 ! binsubstr main$exe 'correct name'
+
+
+# check xor hardening
+grep '\(\w+ \^ \d+\)' $WORK/debug/test/main/GARBLE_controlflow.go
+# check delegate table hardening
+grep 'func\(int\) int' $WORK/debug/test/main/GARBLE_controlflow.go
 
 -- go.mod --
 module test/main
@@ -39,6 +42,41 @@ import (
 
 //garble:controlflow flatten_passes=0 junk_jumps=max block_splits=max
 func func1() {}
+
+//garble:controlflow flatten_passes=1 junk_jumps=max block_splits=max flatten_hardening=xor
+func xorHardeningTest(i int) int {
+    if i == 0 {
+        return 1
+    }
+    return i * 2;
+}
+
+//garble:controlflow flatten_passes=1 junk_jumps=max block_splits=max flatten_hardening=delegate_table
+func delegateHardeningTest(i int) int {
+    if i == 0 {
+        return 1
+    }
+    return i * 3;
+}
+
+//garble:controlflow flatten_passes=1 junk_jumps=max block_splits=max flatten_hardening=xor,delegate_table
+// Trigger multiple hardening using multiple anonymous functions
+func multiHardeningTest(i int) int {
+    notZero := func(i int) bool {
+       return i != 0
+    }
+    isZero := func(i int) bool {
+       return i == 0
+    }
+    multiply :=  func(i int) int {
+       return i * 4
+    }
+
+    if !notZero(i) && isZero(i) {
+        return 1
+    }
+    return multiply(i);
+}
 
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10
 func main() {
@@ -64,6 +102,10 @@ func main() {
 	hash.Write([]byte("3"))
 
 	println(hex.EncodeToString(hash.Sum(nil)))
+
+	println(xorHardeningTest(0))
+	println(delegateHardeningTest(0))
+	println(multiHardeningTest(0))
 }
 
 -- main.stderr --
@@ -72,3 +114,6 @@ binary.LittleEndian
 256
 correct name
 884863d2
+1
+1
+1

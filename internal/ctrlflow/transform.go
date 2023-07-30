@@ -13,11 +13,18 @@ type blockMapping struct {
 	Fake, Target *ssa.BasicBlock
 }
 
+type cfgInfo struct {
+	CompareVar ssa.Value
+	StoreVar   ssa.Value
+}
+
+type dispatcherInfo []cfgInfo
+
 // applyFlattening adds a dispatcher block and uses ssa.Phi to redirect all ssa.Jump and ssa.If to the dispatcher,
 // additionally shuffle all blocks
-func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
+func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) dispatcherInfo {
 	if len(ssaFunc.Blocks) < 3 {
-		return
+		return nil
 	}
 
 	phiInstr := &ssa.Phi{Comment: "ctrflow.phi"}
@@ -71,15 +78,20 @@ func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 		phiIdxs[i]++ // 0 reserved for real entry block
 	}
 
+	var info dispatcherInfo
+
 	var entriesBlocks []*ssa.BasicBlock
 	obfuscatedBlocks := ssaFunc.Blocks
 	for i, m := range blocksMapping {
 		entryBlock.Preds = append(entryBlock.Preds, m.Fake)
-		phiInstr.Edges = append(phiInstr.Edges, makeSsaInt(phiIdxs[i]))
+		val := phiIdxs[i]
+		cfg := cfgInfo{StoreVar: makeSsaInt(val), CompareVar: makeSsaInt(val)}
+		info = append(info, cfg)
 
+		phiInstr.Edges = append(phiInstr.Edges, cfg.StoreVar)
 		obfuscatedBlocks = append(obfuscatedBlocks, m.Fake)
 
-		cond := &ssa.BinOp{X: phiInstr, Op: token.EQL, Y: makeSsaInt(phiIdxs[i])}
+		cond := &ssa.BinOp{X: phiInstr, Op: token.EQL, Y: cfg.CompareVar}
 		setType(cond, types.Typ[types.Bool])
 
 		*phiInstr.Referrers() = append(*phiInstr.Referrers(), cond)
@@ -119,6 +131,7 @@ func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) {
 		obfuscatedBlocks[i], obfuscatedBlocks[j] = obfuscatedBlocks[j], obfuscatedBlocks[i]
 	})
 	ssaFunc.Blocks = append([]*ssa.BasicBlock{entryBlock}, obfuscatedBlocks...)
+	return info
 }
 
 // addJunkBlocks adds junk jumps into random blocks. Can create chains of junk jumps.

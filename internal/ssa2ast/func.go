@@ -28,6 +28,11 @@ type ConverterConfig struct {
 
 	// NamePrefix prefix added to all new local variables. Must be reasonably unique
 	NamePrefix string
+
+	// SsaValueRemap is used to replace ssa.Value with the specified ssa.Expr.
+	// Note: Replacing ssa.Expr does not guarantee the correctness of the generated code.
+	// When using it, strictly adhere to the value types.
+	SsaValueRemap map[ssa.Value]ast.Expr
 }
 
 func DefaultConfig() *ConverterConfig {
@@ -49,6 +54,7 @@ type funcConverter struct {
 	tc                 *typeConverter
 	namePrefix         string
 	valueNameMap       map[ssa.Value]string
+	ssaValueRemap      map[ssa.Value]ast.Expr
 }
 
 func Convert(ssaFunc *ssa.Function, cfg *ConverterConfig) (*ast.FuncDecl, error) {
@@ -61,6 +67,7 @@ func newFuncConverter(cfg *ConverterConfig) *funcConverter {
 		tc:                 &typeConverter{resolver: cfg.ImportNameResolver},
 		namePrefix:         cfg.NamePrefix,
 		valueNameMap:       make(map[ssa.Value]string),
+		ssaValueRemap:      cfg.SsaValueRemap,
 	}
 }
 
@@ -303,7 +310,15 @@ func (fc *funcConverter) getThunkMethodCall(val *ssa.Function) (ast.Expr, error)
 	return ah.SelectExpr(&ast.ParenExpr{X: thunkTypeAst}, trimmedName), nil
 }
 
-func (fc *funcConverter) ssaValue(ssaValue ssa.Value, explicitNil bool) (ast.Expr, error) {
+func (fc *funcConverter) ssaValue(ssaValue ssa.Value, explicitNil bool) (expr ast.Expr, err error) {
+	defer func() {
+		if err == nil && len(fc.ssaValueRemap) > 0 {
+			if newExpr, ok := fc.ssaValueRemap[ssaValue]; ok {
+				expr = newExpr
+			}
+		}
+	}()
+
 	switch val := ssaValue.(type) {
 	case *ssa.Builtin:
 		return ast.NewIdent(val.Name()), nil
