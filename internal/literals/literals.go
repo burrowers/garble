@@ -15,10 +15,10 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-// minSize is the lower bound limit, of the size of string-like literals
+// MinSize is the lower bound limit, of the size of string-like literals
 // which we will obfuscate. This is needed in order for binary size to stay relatively
 // moderate, this also decreases the likelihood for performance slowdowns.
-const minSize = 8
+const MinSize = 8
 
 // maxSize is the upper limit of the size of string-like literals
 // which we will obfuscate with any of the available obfuscators.
@@ -61,7 +61,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 
 		if typeAndValue.Type == types.Typ[types.String] && typeAndValue.Value != nil {
 			value := constant.StringVal(typeAndValue.Value)
-			if len(value) < minSize {
+			if len(value) < MinSize {
 				return true
 			}
 
@@ -119,7 +119,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 //
 // If the input node cannot be obfuscated nil is returned.
 func handleCompositeLiteral(obfRand *obfRand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
-	if len(node.Elts) < minSize {
+	if len(node.Elts) < MinSize {
 		return nil
 	}
 

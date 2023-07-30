@@ -87,6 +87,23 @@ func DataToByteSlice(data []byte) *ast.CallExpr {
 	}
 }
 
+// DataToArray turns a byte slice like []byte{1, 2, 3} into an AST
+// expression
+func DataToArray(data []byte) *ast.CompositeLit {
+	elts := make([]ast.Expr, len(data))
+	for i, b := range data {
+		elts[i] = IntLit(int(b))
+	}
+
+	return &ast.CompositeLit{
+		Type: &ast.ArrayType{
+			Len: IntLit(len(data)),
+			Elt: ast.NewIdent("byte"),
+		},
+		Elts: elts,
+	}
+}
+
 // SelectExpr "x.sel"
 func SelectExpr(x ast.Expr, sel *ast.Ident) *ast.SelectorExpr {
 	return &ast.SelectorExpr{
