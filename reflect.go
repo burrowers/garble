@@ -15,6 +15,8 @@ type reflectInspector struct {
 
 	checkedAPIs map[string]bool
 
+	propagatedStores map[*ssa.Store]bool
+
 	result pkgCache
 }
 
@@ -24,7 +26,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 		return
 	}
 
-	lenPrevReflectAPIs := len(ri.result.ReflectAPIs)
+	prevDone := len(ri.result.ReflectAPIs) + len(ri.propagatedStores)
 
 	// find all unchecked APIs to add them to checkedAPIs after the pass
 	notCheckedAPIs := make(map[string]bool)
@@ -41,8 +43,9 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 	maps.Copy(ri.checkedAPIs, notCheckedAPIs)
 
 	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
-	if len(ri.result.ReflectAPIs) > lenPrevReflectAPIs {
-		ri.recordReflection(ssaPkg)
+	newDone := len(ri.result.ReflectAPIs) + len(ri.propagatedStores)
+	if newDone > prevDone {
+		ri.recordReflection(ssaPkg) // TODO: avoid recursing
 	}
 }
 
@@ -157,10 +160,10 @@ func (ri *reflectInspector) checkInterfaceMethod(m *types.Func) {
 
 // Checks all callsites in a function declaration for use of reflection.
 func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
-	/* 	if fun != nil && fun.Synthetic != "loaded from gc object file" {
-		// fun.WriteTo crashes otherwise
-		fun.WriteTo(os.Stdout)
-	} */
+	// if fun != nil && fun.Synthetic != "loaded from gc object file" {
+	// 	// fun.WriteTo crashes otherwise
+	// 	fun.WriteTo(os.Stdout)
+	// }
 
 	f, _ := fun.Object().(*types.Func)
 
@@ -173,54 +176,59 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 		}
 	}
 
-	/* 	fmt.Printf("f: %v\n", f)
-	   	fmt.Printf("fun: %v\n", fun) */
+	// fmt.Printf("f: %v\n", f)
+	// fmt.Printf("fun: %v\n", fun)
 
 	for _, block := range fun.Blocks {
 		for _, inst := range block.Instrs {
-			/* 	fmt.Printf("inst: %v, t: %T\n", inst, inst) */
-			call, ok := inst.(*ssa.Call)
-			if !ok {
-				continue
-			}
+			// fmt.Printf("inst: %v, t: %T\n", inst, inst)
+			switch inst := inst.(type) {
+			case *ssa.Store:
+				if ri.propagatedStores[inst] {
+					break // already done
+				}
+				if storeAddrUsedForReflect(ri.result, inst.Addr.Type()) {
+					ri.recordArgReflected(inst.Val, make(map[ssa.Value]bool))
+					ri.propagatedStores[inst] = true
+				}
+			case *ssa.Call:
+				callName := inst.Call.Value.String()
+				if m := inst.Call.Method; m != nil {
+					callName = inst.Call.Method.FullName()
+				}
 
-			callName := call.Call.Value.String()
-			if m := call.Call.Method; m != nil {
-				callName = call.Call.Method.FullName()
-			}
-
-			if ri.checkedAPIs[callName] {
-				// only check apis which were not already checked
-				continue
-			}
-
-			/* fmt.Printf("callName: %v\n", callName) */
-
-			// record each call argument passed to a function parameter which is used in reflection
-			knownParams := ri.result.ReflectAPIs[callName]
-			for knownParam := range knownParams {
-				if len(call.Call.Args) <= knownParam {
+				if ri.checkedAPIs[callName] {
+					// only check apis which were not already checked
 					continue
 				}
 
-				arg := call.Call.Args[knownParam]
+				/* fmt.Printf("callName: %v\n", callName) */
 
-				/* fmt.Printf("flagging arg: %v\n", arg) */
+				// record each call argument passed to a function parameter which is used in reflection
+				knownParams := ri.result.ReflectAPIs[callName]
+				for knownParam := range knownParams {
+					if len(inst.Call.Args) <= knownParam {
+						continue
+					}
 
-				visited := make(map[ssa.Value]bool)
-				reflectedParam := ri.recordArgReflected(arg, visited)
-				if reflectedParam == nil {
-					continue
+					arg := inst.Call.Args[knownParam]
+
+					/* fmt.Printf("flagging arg: %v\n", arg) */
+
+					reflectedParam := ri.recordArgReflected(arg, make(map[ssa.Value]bool))
+					if reflectedParam == nil {
+						continue
+					}
+
+					pos := slices.Index(fun.Params, reflectedParam)
+					if pos < 0 {
+						continue
+					}
+
+					/* fmt.Printf("recorded param: %v func: %v\n", pos, fun) */
+
+					reflectParams[pos] = true
 				}
-
-				pos := slices.Index(fun.Params, reflectedParam)
-				if pos < 0 {
-					continue
-				}
-
-				/* fmt.Printf("recorded param: %v func: %v\n", pos, fun) */
-
-				reflectParams[pos] = true
 			}
 		}
 	}
@@ -458,4 +466,19 @@ func usedForReflect(cache pkgCache, obj types.Object) bool {
 	}
 	_, ok := cache.ReflectObjects[objStr]
 	return ok
+}
+
+// storeAddrUsedForReflect is only used in reflectInspector
+// to see if a [ssa.Store.Addr] has been marked as used by reflection.
+// We only mark named objects, so this function looks for a type's first struct field.
+func storeAddrUsedForReflect(cache pkgCache, typ types.Type) bool {
+	switch typ := typ.(type) {
+	case *types.Struct:
+		if typ.NumFields() > 0 {
+			return usedForReflect(cache, typ.Field(0))
+		}
+	case interface{ Elem() types.Type }:
+		return storeAddrUsedForReflect(cache, typ.Elem())
+	}
+	return false
 }

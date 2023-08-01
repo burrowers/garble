@@ -31,6 +31,7 @@ import (
 	"reflect"
 	"unsafe"
 	"strings"
+	"sync"
 	"text/template"
 
 	"test/main/importedpkg"
@@ -164,6 +165,12 @@ func main() {
 			embedFieldField.Name,
 		)
 	}
+
+	y := UnnamedStructFields{}
+	y.unexportedGoGoProto = new(struct {
+		mu           sync.Mutex
+		extensionMap map[int32]EncodingT
+	})
 }
 
 type EmbeddingIndirect struct {
@@ -334,6 +341,21 @@ type UnnamedStructInterface interface {
 	UnnamedStructMethod(struct{ UnnamedStructField string })
 }
 
+// Some projects declare types with unnamed struct fields,
+// and the entire type is used via reflection and cannot be obfuscated.
+// However, when assigning to these fields, the use of inline anonymous struct types
+// confused garble, and it did not obfuscate those inline structs as well.
+// That resulted in "cannot use X as Y value in assignment" build errors.
+
+var _ = reflect.TypeOf(UnnamedStructFields{})
+
+type UnnamedStructFields struct {
+	// As seen in github.com/gogo/protobuf/proto.
+	unexportedGoGoProto *struct {
+		mu           sync.Mutex
+		extensionMap map[int32]EncodingT
+	}
+}
 
 -- importedpkg/imported.go --
 package importedpkg

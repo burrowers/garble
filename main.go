@@ -1539,9 +1539,10 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 
 	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
 	inspector := reflectInspector{
-		pkg:         pkg,
-		checkedAPIs: make(map[string]bool),
-		result:      computed, // append the results
+		pkg:              pkg,
+		checkedAPIs:      make(map[string]bool),
+		propagatedStores: map[*ssa.Store]bool{},
+		result:           computed, // append the results
 	}
 	if ssaPkg == nil {
 		ssaPkg = ssaBuildPkg(pkg, files, info)
