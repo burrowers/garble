@@ -7,30 +7,30 @@ env PATH=${WORK}/.bin${:}${PATH}
 # An empty go version.
 env TOOLCHAIN_GOVERSION=''
 ! exec garble build
-stderr 'Go version is too old; please upgrade to Go 1\.20\.x or newer'
+stderr 'Go version is too old; please upgrade to Go 1\.21 or newer'
 
 # We should error on a devel version that's too old.
 # Note that they lacked the "goN.M-" prefix.
 env TOOLCHAIN_GOVERSION='devel +afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! exec garble build
-stderr 'Go version is too old; please upgrade to Go 1\.20\.x or newer'
+stderr 'Go version is too old; please upgrade to Go 1\.21 or newer'
 
 # Another form of old version; with an old "goN.M-" prefix.
 env TOOLCHAIN_GOVERSION='devel go1.15-afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! exec garble build
-stderr 'Go version "devel go1\.15-.*2020.*" is too old; please upgrade to Go 1\.20\.x'
+stderr 'Go version "devel go1\.15-.*2020.*" is too old; please upgrade to Go 1\.21'
 
 # A current devel version should be fine.
 # Note that we don't look at devel version timestamps.
-env GARBLE_TEST_GOVERSION='go1.20'
-env TOOLCHAIN_GOVERSION='devel go1.20-ad97d204f0 Sun Sep 12 16:46:58 2023 +0000'
+env GARBLE_TEST_GOVERSION='go1.21'
+env TOOLCHAIN_GOVERSION='devel go1.21-ad97d204f0 Sun Sep 12 16:46:58 2023 +0000'
 ! exec garble build
 stderr 'mocking the real build'
 
 # We should error on a stable version that's too old.
 env TOOLCHAIN_GOVERSION='go1.14'
 ! exec garble build
-stderr 'Go version "go1\.14" is too old; please upgrade to Go 1\.20\.x or newer'
+stderr 'Go version "go1\.14" is too old; please upgrade to Go 1\.21 or newer'
 
 # We should accept a future stable version.
 # Note that we need to bump the version of Go that supposedly built it, too.
