@@ -268,7 +268,7 @@ func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 func goVersionOK() bool {
 	const (
 		minGoVersionSemver = "v1.20.0"
-		suggestedGoVersion = "1.20.x"
+		suggestedGoVersion = "1.21"
 	)
 
 	// rxVersion looks for a version like "go1.2" or "go1.2.3"
