@@ -42,8 +42,8 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
-	"mvdan.cc/garble/internal/ctrlflow"
 
+	"mvdan.cc/garble/internal/ctrlflow"
 	"mvdan.cc/garble/internal/linker"
 	"mvdan.cc/garble/internal/literals"
 )
@@ -1038,6 +1038,32 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			}
 		}
 		tf.transformDirectives(file.Comments)
+		// Only obfuscate the literals here if the flag is on
+		// and if the package in question is to be obfuscated.
+		//
+		// We can't obfuscate literals in the runtime and its dependencies,
+		// because obfuscated literals sometimes escape to heap,
+		// and that's not allowed in the runtime itself.
+		if flagLiterals && tf.curPkg.ToObfuscate {
+			file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings)
+
+			// some imported constants might not be needed anymore, remove unnecessary imports
+			tf.useAllImports(file)
+		}
+
+		files[i] = file
+	}
+
+	if flagLiterals && tf.curPkg.ToObfuscate {
+		if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter); err != nil {
+			return nil, err
+		}
+	}
+
+	for i, file := range files {
+		basename := filepath.Base(paths[i])
+		log.Printf("obfuscating %s", basename)
+
 		file = tf.transformGoFile(file)
 		// newPkgPath might be the original ImportPath in some edge cases like
 		// compilerIntrinsics; we don't want to use slashes in package names.
@@ -1832,19 +1858,6 @@ func (tf *transformer) useAllImports(file *ast.File) {
 
 // transformGoFile obfuscates the provided Go syntax file.
 func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
-	// Only obfuscate the literals here if the flag is on
-	// and if the package in question is to be obfuscated.
-	//
-	// We can't obfuscate literals in the runtime and its dependencies,
-	// because obfuscated literals sometimes escape to heap,
-	// and that's not allowed in the runtime itself.
-	if flagLiterals && tf.curPkg.ToObfuscate {
-		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings)
-
-		// some imported constants might not be needed anymore, remove unnecessary imports
-		tf.useAllImports(file)
-	}
-
 	pre := func(cursor *astutil.Cursor) bool {
 		node, ok := cursor.Node().(*ast.Ident)
 		if !ok {
