@@ -182,7 +182,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		if passes == 0 {
 			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
 		}
-		hardening := newDispatcherHardening(params.StringSlice("flatten_hardening"))
+		flattenHardening := params.StringSlice("flatten_hardening")
 
 		applyObfuscation := func(ssaFunc *ssa.Function) []dispatcherInfo {
 			for i := 0; i < split; i++ {
@@ -211,7 +211,9 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		// Because of ssa package api limitations, implementation of hardening for control flow flattening dispatcher
 		// is implemented during converting by replacing key values with obfuscated ast expressions
 		var prologues []ast.Stmt
-		if len(dispatchers) > 0 && hardening != nil {
+		if len(flattenHardening) > 0 && len(dispatchers) > 0 {
+			hardening := newDispatcherHardening(flattenHardening)
+
 			ssaRemap := make(map[ssa.Value]ast.Expr)
 			for _, dispatcher := range dispatchers {
 				decl, stmt := hardening.Apply(dispatcher, ssaRemap, obfRand)

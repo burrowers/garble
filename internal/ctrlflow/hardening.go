@@ -19,10 +19,6 @@ var hardeningMap = map[string]dispatcherHardening{
 }
 
 func newDispatcherHardening(names []string) dispatcherHardening {
-	if len(names) == 0 {
-		return nil
-	}
-
 	hardenings := make([]dispatcherHardening, len(names))
 	for i, name := range names {
 		h, ok := hardeningMap[name]
