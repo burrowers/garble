@@ -306,7 +306,7 @@ func goVersionOK() bool {
 	if semver.Compare(builtVersionSemver, sharedCache.GoVersionSemver) < 0 {
 		fmt.Fprintf(os.Stderr, `
 garble was built with %q and is being used with %q; rebuild it with a command like:
-    garble install mvdan.cc/garble@latest
+    go install mvdan.cc/garble@latest
 `[1:], builtVersionFull, toolchainVersionFull)
 		return false
 	}
