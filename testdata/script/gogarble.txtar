@@ -46,6 +46,7 @@ binsubstr out_regular 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'sy
 # This is slow, but necessary to uncover bugs hidden by the build cache.
 # We also forcibly rebuild runtime on its own, given it used to be non-reproducible
 # due to its use of linknames pointing at std packages it doesn't depend upon.
+[darwin] skip 'see https://github.com/burrowers/garble/issues/609'
 env GOCACHE=${WORK}/gocache-empty
 exec garble build -a runtime
 exec garble build -o=out_rebuild ./stdimporter
