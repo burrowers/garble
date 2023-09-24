@@ -31,6 +31,15 @@ import (
 var proxyURL string
 
 func TestMain(m *testing.M) {
+	// If GORACE is unset, lower the default of atexit_sleep_ms=1000,
+	// since otherwise every execution of garble through the test binary
+	// would sleep for one second before exiting.
+	// Given how many times garble runs via toolexec, that is very slow!
+	// If GORACE is set, we assume that the caller knows what they are doing,
+	// and we don't try to replace or modify their flags.
+	if os.Getenv("GORACE") == "" {
+		os.Setenv("GORACE", "atexit_sleep_ms=10")
+	}
 	if os.Getenv("RUN_GARBLE_MAIN") == "true" {
 		os.Exit(main1())
 	}
