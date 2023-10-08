@@ -181,12 +181,11 @@ func buildidOf(path string) (string, error) {
 var (
 	// Hashed names are base64-encoded.
 	// Go names can only be letters, numbers, and underscores.
-	// This means we can use base64's URL encoding, minus '-'.
-	// Use the URL encoding, replacing '-' with a duplicate 'z'.
+	// This means we can use base64's URL encoding, minus '-',
+	// which is later replaced with a duplicate 'a'.
 	// Such a lossy encoding is fine, since we never decode hashes.
 	// We don't need padding either, as we take a short prefix anyway.
-	nameCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_z"
-	nameBase64  = base64.NewEncoding(nameCharset).WithPadding(base64.NoPadding)
+	nameBase64 = base64.URLEncoding.WithPadding(base64.NoPadding)
 
 	b64NameBuffer [12]byte // nameBase64.EncodedLen(neededSumBytes) = 12
 )
@@ -322,30 +321,35 @@ func hashWithCustomSalt(salt []byte, name string) string {
 	nameBase64.Encode(b64NameBuffer[:], sum[:neededSumBytes])
 	b64Name := b64NameBuffer[:hashLength]
 
-	// Even if we are hashing a package path, we still want the result to be
-	// a valid identifier, since we'll use it as the package name too.
+	// Even if we are hashing a package path, which is not an identifier,
+	// we still want the result to be a valid identifier,
+	// since we'll use it as the package name too.
 	if isDigit(b64Name[0]) {
 		// Turn "3foo" into "Dfoo".
 		// Similar to toLower, since uppercase letters go after digits
 		// in the ASCII table.
 		b64Name[0] += 'A' - '0'
 	}
-	// Keep the result equally exported or not, if it was an identifier.
-	if !token.IsIdentifier(name) {
-		return string(b64Name)
-	}
-	if token.IsExported(name) {
-		if b64Name[0] == '_' {
-			// Turn "_foo" into "Zfoo".
-			b64Name[0] = 'Z'
-		} else if isLower(b64Name[0]) {
-			// Turn "afoo" into "Afoo".
-			b64Name[0] = toUpper(b64Name[0])
+	for i, b := range b64Name {
+		if b == '-' { // URL encoding uses dashes, which aren't valid
+			b64Name[i] = 'a'
 		}
-	} else {
-		if isUpper(b64Name[0]) {
-			// Turn "Afoo" into "afoo".
-			b64Name[0] = toLower(b64Name[0])
+	}
+	// Valid identifiers should stay exported or unexported.
+	if token.IsIdentifier(name) {
+		if token.IsExported(name) {
+			if b64Name[0] == '_' {
+				// Turn "_foo" into "Zfoo".
+				b64Name[0] = 'Z'
+			} else if isLower(b64Name[0]) {
+				// Turn "afoo" into "Afoo".
+				b64Name[0] = toUpper(b64Name[0])
+			}
+		} else {
+			if isUpper(b64Name[0]) {
+				// Turn "Afoo" into "afoo".
+				b64Name[0] = toLower(b64Name[0])
+			}
 		}
 	}
 	return string(b64Name)
