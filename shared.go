@@ -267,7 +267,9 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 				// like crypto/internal/boring/fipstls with boringcrypto,
 				// so any pkg.Error should be ignored when the build tag isn't set.
 			} else if pkg.ImportPath == "maps" && semver.Compare(sharedCache.GoVersionSemver, "v1.21") < 0 {
-				// "maps" was added in Go 1.21, so Go 1.20 runs into a "not found" error.
+				// added in Go 1.21, so Go 1.20 runs into a "not found" error.
+			} else if pkg.ImportPath == "math/rand/v2" && semver.Compare(sharedCache.GoVersionSemver, "v1.22") < 0 {
+				// added in Go 1.22, so Go 1.21 runs into a "not found" error.
 			} else {
 				if pkgErrors.Len() > 0 {
 					pkgErrors.WriteString("\n")

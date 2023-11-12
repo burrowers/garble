@@ -49,6 +49,7 @@ done)
 }
 
 var compilerIntrinsicsFuncs = map[string]bool{
+	"runtime.mulUintptr": true, // Existed in Go 1.21; removed in Go 1.22.
 $(while read path name; do
 	echo "\"${path}.${name}\": true,"
 done <<<"${compiler_intrinsics_table}")
