@@ -106,7 +106,7 @@ One can reverse a captured panic stack trace as follows:
 						if strct == nil {
 							panic("could not find struct for field " + name.Name)
 						}
-						replaces = append(replaces, hashWithStruct(strct, name.Name), name.Name)
+						replaces = append(replaces, hashWithStruct(strct, obj), name.Name)
 					}
 
 				case *ast.CallExpr:
