@@ -267,7 +267,7 @@ func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
 func goVersionOK() bool {
 	const (
-		minGoVersionSemver = "v1.20.0"
+		minGoVersionSemver = "v1.21.0"
 		suggestedGoVersion = "1.21"
 	)
 
@@ -1329,7 +1329,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 			// See exporttest/*.go in testdata/scripts/test.txt.
 			// For now, spot the pattern and avoid the unnecessary error;
 			// the dependency is unused, so the packagefile line is redundant.
-			// This still triggers as of go1.20.
+			// This still triggers as of go1.21.
 			if strings.HasSuffix(tf.curPkg.ImportPath, ".test]") && strings.HasPrefix(tf.curPkg.ImportPath, impPath) {
 				continue
 			}
@@ -2195,7 +2195,7 @@ func alterTrimpath(flags []string) []string {
 	return flagSetValue(flags, "-trimpath", sharedTempDir+"=>;"+trimpath)
 }
 
-// forwardBuildFlags is obtained from 'go help build' as of Go 1.20.
+// forwardBuildFlags is obtained from 'go help build' as of Go 1.21.
 var forwardBuildFlags = map[string]bool{
 	// These shouldn't be used in nested cmd/go calls.
 	"-a": false,
@@ -2235,7 +2235,7 @@ var forwardBuildFlags = map[string]bool{
 	"-workfile":      true,
 }
 
-// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.20.
+// booleanFlags is obtained from 'go help build' and 'go help testflag' as of Go 1.21.
 var booleanFlags = map[string]bool{
 	// Shared build flags.
 	"-a":          true,

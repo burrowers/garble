@@ -53,8 +53,8 @@ type sharedCacheType struct {
 	// GoVersionSemver is a semver-compatible version of the Go toolchain
 	// currently being used, as reported by "go env GOVERSION".
 	// Note that the version of Go that built the garble binary might be newer.
-	// Also note that a devel version like "go1.21-231f290e51" is
-	// currently represented as "v1.21".
+	// Also note that a devel version like "go1.22-231f290e51" is
+	// currently represented as "v1.22".
 	GoVersionSemver string
 
 	// Filled directly from "go env".
@@ -266,8 +266,6 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 				// Some packages in runtimeLinknamed need a build tag to be importable,
 				// like crypto/internal/boring/fipstls with boringcrypto,
 				// so any pkg.Error should be ignored when the build tag isn't set.
-			} else if pkg.ImportPath == "maps" && semver.Compare(sharedCache.GoVersionSemver, "v1.21") < 0 {
-				// added in Go 1.21, so Go 1.20 runs into a "not found" error.
 			} else if pkg.ImportPath == "math/rand/v2" && semver.Compare(sharedCache.GoVersionSemver, "v1.22") < 0 {
 				// added in Go 1.22, so Go 1.21 runs into a "not found" error.
 			} else {

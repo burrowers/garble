@@ -78,8 +78,7 @@ stderr 'must precede command, like: garble -seed=random build \./pkg'
 stderr 'did you run.*instead of "garble \[command\]"'
 
 ! exec garble build badpackage
-[!go1.21] stderr 'package badpackage is not in GOROOT'
-[go1.21]  stderr 'package badpackage is not in std'
+stderr 'package badpackage is not in std'
 ! stdout .
 
 ! exec garble build ./badpackage
@@ -118,6 +117,6 @@ stderr 'usage: garble version'
 -- go.mod --
 module dummy
 
-go 1.20
+go 1.21
 -- dummy.go --
 package dummy

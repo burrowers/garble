@@ -11,7 +11,7 @@ cmp stdout main.stdout
 -- go.mod --
 module test/main
 
-go 1.20
+go 1.21
 -- main.go --
 package main
 
