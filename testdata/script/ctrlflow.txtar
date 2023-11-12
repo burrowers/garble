@@ -30,7 +30,7 @@ grep 'func\(int\) int' $WORK/debug/test/main/GARBLE_controlflow.go
 -- go.mod --
 module test/main
 
-go 1.20
+go 1.21
 -- garble_main.go --
 package main
 

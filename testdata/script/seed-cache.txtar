@@ -32,7 +32,7 @@ cd ..
 -- mod1/go.mod --
 module test/main/mod1
 
-go 1.20
+go 1.21
 
 require gopkg.in/garbletest.v2 v2.999.0
 
@@ -52,7 +52,7 @@ func main() { garbletest.Test() }
 -- mod2/go.mod --
 module test/main/mod2
 
-go 1.20
+go 1.21
 
 require gopkg.in/garbletest.v2 v2.999.0
 

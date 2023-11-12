@@ -1,19 +1,14 @@
 ! exec garble build ./...
-[!go1.21] cmpenv stderr stderr-go1.20.golden
-[go1.21]  cmpenv stderr stderr-go1.21.golden
+cmpenv stderr stderr.golden
 
--- stderr-go1.20.golden --
-# test/main/broken
-broken${/}broken.go:5:16: cannot use 123 (untyped int constant) as string value in variable declaration
-imports_missing${/}imports.go:5:8: package test/main/missing is not in GOROOT (${GOROOT}${/}src${/}test${/}main${/}missing)
--- stderr-go1.21.golden --
+-- stderr.golden --
 # test/main/broken
 broken${/}broken.go:5:16: cannot use 123 (untyped int constant) as string value in variable declaration
 imports_missing${/}imports.go:5:8: package test/main/missing is not in std (${GOROOT}${/}src${/}test${/}main${/}missing)
 -- go.mod --
 module test/main
 
-go 1.20
+go 1.21
 -- broken/broken.go --
 package broken
 

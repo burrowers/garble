@@ -28,7 +28,7 @@ binsubstr main$exe 'unexportedVersion' 'ExportedUnset' 'v1.22.33' 'garble_replac
 -- go.mod --
 module domain.test/main
 
-go 1.20
+go 1.21
 -- main.go --
 package main
 

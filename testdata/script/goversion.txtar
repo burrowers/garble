@@ -40,45 +40,45 @@ env TOOLCHAIN_GOVERSION='go1.28.2'
 stderr 'mocking the real build'
 
 # We should accept custom devel strings.
-env TOOLCHAIN_GOVERSION='devel go1.20-somecustomversion'
+env TOOLCHAIN_GOVERSION='devel go1.22-somecustomversion'
 ! exec garble build
 stderr 'mocking the real build'
 
 # The current toolchain may be older than the one that built garble.
-env GARBLE_TEST_GOVERSION='go1.21'
-env TOOLCHAIN_GOVERSION='go1.20.3'
+env GARBLE_TEST_GOVERSION='go1.22'
+env TOOLCHAIN_GOVERSION='go1.21.3'
 ! exec garble build
 stderr 'mocking the real build'
 
 # The current toolchain may be equal to the one that built garble.
-env GARBLE_TEST_GOVERSION='devel go1.20-6673d5d701 Sun Mar 20 16:05:03 2023 +0000'
-env TOOLCHAIN_GOVERSION='devel go1.20-6673d5d701 Sun Mar 20 16:05:03 2023 +0000'
+env GARBLE_TEST_GOVERSION='devel go1.21-6673d5d701 Sun Mar 20 16:05:03 2023 +0000'
+env TOOLCHAIN_GOVERSION='devel go1.21-6673d5d701 Sun Mar 20 16:05:03 2023 +0000'
 ! exec garble build
 stderr 'mocking the real build'
 
 # The current toolchain must not be newer than the one that built garble.
 env GARBLE_TEST_GOVERSION='go1.18'
-env TOOLCHAIN_GOVERSION='go1.20.1'
+env TOOLCHAIN_GOVERSION='go1.21.1'
 ! exec garble build
-stderr 'garble was built with "go1\.18" and is being used with "go1\.20\.1"; rebuild '
+stderr 'garble was built with "go1\.18" and is being used with "go1\.21\.1"; rebuild '
 
 # We'll error even if the difference is a minor (bugfix) level.
 # In practice it probably wouldn't matter, but in theory it could still lead to tricky bugs.
-env GARBLE_TEST_GOVERSION='go1.20.11'
-env TOOLCHAIN_GOVERSION='go1.20.14'
+env GARBLE_TEST_GOVERSION='go1.21.11'
+env TOOLCHAIN_GOVERSION='go1.21.14'
 ! exec garble build
-stderr 'garble was built with "go1\.20\.11" and is being used with "go1\.20\.14"; rebuild '
+stderr 'garble was built with "go1\.21\.11" and is being used with "go1\.21\.14"; rebuild '
 
 # If garble builds itself and is then used, it won't know what version built it.
 # As a fallback, we drop the comparison against the toolchain's version.
 env GARBLE_TEST_GOVERSION='bogus version'
-env TOOLCHAIN_GOVERSION='go1.20.3'
+env TOOLCHAIN_GOVERSION='go1.21.3'
 ! exec garble build
 stderr 'mocking the real build'
 -- go.mod --
 module test/main
 
-go 1.20
+go 1.21
 -- main.go --
 package main
 

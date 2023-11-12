@@ -52,7 +52,7 @@ stdout 'package bar_test, func name: test/bar\.OriginalFuncName'
 -- go.mod --
 module test/bar
 
-go 1.20
+go 1.21
 -- bar.go --
 package bar
 
