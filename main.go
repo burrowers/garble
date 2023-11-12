@@ -266,6 +266,7 @@ type errJustExit int
 func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
 func goVersionOK() bool {
+	// TODO(mvdan): use go/version once we can require Go 1.22 or later: https://go.dev/issue/62039
 	const (
 		minGoVersionSemver = "v1.21.0"
 		suggestedGoVersion = "1.21"
@@ -1663,6 +1664,7 @@ func typecheck(pkgPath string, files []*ast.File, origImporter importerWithMap) 
 		Selections: make(map[*ast.SelectorExpr]*types.Selection),
 		Instances:  make(map[*ast.Ident]types.Instance),
 	}
+	// TODO(mvdan): we should probably set types.Config.GoVersion from go.mod
 	origTypesConfig := types.Config{Importer: origImporter}
 	pkg, err := origTypesConfig.Check(pkgPath, fset, files, info)
 	if err != nil {
