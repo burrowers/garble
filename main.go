@@ -2001,7 +2001,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			if strct == nil {
 				panic("could not find struct for field " + name)
 			}
-			node.Name = hashWithStruct(strct, name)
+			node.Name = hashWithStruct(strct, obj)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
 			}

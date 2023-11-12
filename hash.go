@@ -224,6 +224,9 @@ func entryOffKey() uint32 {
 }
 
 func hashWithPackage(pkg *listedPackage, name string) string {
+	// If the user provided us with an obfuscation seed,
+	// we use that with the package import path directly..
+	// Otherwise, we use GarbleActionID as a fallback salt.
 	if !flagSeed.present() {
 		return hashWithCustomSalt(pkg.GarbleActionID[:], name)
 	}
@@ -233,16 +236,72 @@ func hashWithPackage(pkg *listedPackage, name string) string {
 	return hashWithCustomSalt([]byte(pkg.ImportPath+"|"), name)
 }
 
-func hashWithStruct(strct *types.Struct, fieldName string) string {
-	// TODO: We should probably strip field tags here.
-	// Do we need to do anything else to make a
-	// struct type "canonical"?
-	fieldsSalt := []byte(strct.String())
-	if !flagSeed.present() {
-		withGarbleHash := addGarbleToHash(fieldsSalt)
-		fieldsSalt = withGarbleHash[:]
+// stripStructTags takes the bytes produced by [types.WriteType]
+// and removes any struct tags in-place, such as rewriting
+//
+//	struct{Foo int; Bar string "json:\"bar\""}
+//
+// into
+//
+//	struct{Foo int; Bar string}
+//
+// Note that, unlike most Go source, WriteType uses double quotes for tags.
+//
+// Reusing WriteType does require a second pass over its output here,
+// which we could save by implementing our own modified version of WriteType.
+// However, that would be a significant amount of code to maintain.
+func stripStructTags(p []byte) []byte {
+	i := 0
+	for i < len(p) {
+		b := p[i]
+		start := i - 1 // a struct tag is preceded by a space
+		i++
+		if b != '"' {
+			continue
+		}
+		// Find the closing double quote, skipping over escaped characters.
+		// Note that we should probably iterate over runes and not bytes,
+		// but this byte implementation is probably good enough in practice.
+		for {
+			b = p[i]
+			i++
+			if b == '\\' {
+				i++
+			} else if b == '"' {
+				break
+			}
+		}
+		end := i
+		// Remove the bytes between start and end,
+		// and reset i to start, since we just shortened p.
+		p = append(p[:start], p[end:]...)
+		i = start
 	}
-	return hashWithCustomSalt(fieldsSalt, fieldName)
+	return p
+}
+
+var typeIdentityBuf bytes.Buffer
+
+// hashWithStruct is separate from hashWithPackage since Go
+// allows converting between struct types across packages.
+// Hashing struct field names differently between packages would break that.
+//
+// We hash field names with the identity struct type as a salt
+// so that the same field name used in different struct types is obfuscated differently.
+// Note that "identity" means omitting struct tags since conversions ignore them.
+func hashWithStruct(strct *types.Struct, field *types.Var) string {
+	typeIdentityBuf.Reset()
+	types.WriteType(&typeIdentityBuf, strct, nil)
+	salt := stripStructTags(typeIdentityBuf.Bytes())
+
+	// If the user provided us with an obfuscation seed,
+	// we only use the identity struct type as a salt.
+	// Otherwise, we add garble's own inputs to the salt as a fallback.
+	if !flagSeed.present() {
+		withGarbleHash := addGarbleToHash(salt)
+		salt = withGarbleHash[:]
+	}
+	return hashWithCustomSalt(salt, field.Name())
 }
 
 // minHashLength and maxHashLength define the range for the number of base64

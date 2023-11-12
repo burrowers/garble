@@ -48,7 +48,9 @@ type StructUnnamed = struct {
 	Bar struct {
 		Nested *[]string
 	}
+	Named lib3.Named
 	lib3.StructEmbed
+	Tagged string // no field tag
 }
 
 var _ = lib1.Struct1(lib2.Struct2{})
@@ -69,7 +71,9 @@ type Struct1 struct {
 	Bar struct {
 		Nested *[]string
 	}
+	Named lib3.Named
 	lib3.StructEmbed
+	Tagged string `json:"tagged1"`
 }
 
 -- lib2/lib2.go --
@@ -82,10 +86,14 @@ type Struct2 struct {
 	Bar struct {
 		Nested *[]string
 	}
+	Named lib3.Named
 	lib3.StructEmbed
+	Tagged string `json:"tagged2"`
 }
 -- lib3/lib3.go --
 package lib3
+
+type Named int
 
 type StructEmbed struct {
 	Baz any
