@@ -244,6 +244,13 @@ var _ = embeddingAliasSameName{
 	Reader: nil,
 }
 
+type embeddingBuiltinAlias struct {
+	byte
+}
+
+var _ = embeddingBuiltinAlias{3}
+var _ = embeddingBuiltinAlias{byte: 3}
+
 -- external/external.go --
 package external
 
