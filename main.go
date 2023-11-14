@@ -1357,7 +1357,8 @@ type (
 	objectString = string // as per recordedObjectString
 
 	typeName struct {
-		PkgPath, Name string
+		PkgPath string // empty if builtin
+		Name    string
 	}
 )
 
@@ -1532,8 +1533,10 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			continue
 		}
 		aliasTypeName := typeName{
-			PkgPath: obj.Pkg().Path(),
-			Name:    obj.Name(),
+			Name: obj.Name(),
+		}
+		if pkg := obj.Pkg(); pkg != nil {
+			aliasTypeName.PkgPath = pkg.Path()
 		}
 		computed.EmbeddedAliasFields[vrStr] = aliasTypeName
 	}
@@ -1894,19 +1897,21 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			vrStr := recordedObjectString(vr)
 			aliasTypeName, ok := tf.curPkgCache.EmbeddedAliasFields[vrStr]
 			if ok {
-				pkg2 := tf.pkg
-				if path := aliasTypeName.PkgPath; pkg2.Path() != path {
+				aliasScope := tf.pkg.Scope()
+				if path := aliasTypeName.PkgPath; path == "" {
+					aliasScope = types.Universe
+				} else if path != tf.pkg.Path() {
 					// If the package is a dependency, import it.
 					// We can't grab the package via tf.pkg.Imports,
 					// because some of the packages under there are incomplete.
 					// ImportFrom will cache complete imports, anyway.
-					var err error
-					pkg2, err = tf.origImporter.ImportFrom(path, parentWorkDir, 0)
+					pkg2, err := tf.origImporter.ImportFrom(path, parentWorkDir, 0)
 					if err != nil {
 						panic(err)
 					}
+					aliasScope = pkg2.Scope()
 				}
-				tname, ok := pkg2.Scope().Lookup(aliasTypeName.Name).(*types.TypeName)
+				tname, ok := aliasScope.Lookup(aliasTypeName.Name).(*types.TypeName)
 				if !ok {
 					panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
 				}
