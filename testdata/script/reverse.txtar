@@ -23,13 +23,6 @@ cmp stdout reverse.stdout
 # Note that we rely on the unix-like TMPDIR env var name.
 [!windows] ! grepfiles ${TMPDIR} 'garble|importcfg|cache\.gob|\.go'
 
-! exec garble build ./build-error
-cp stderr build-error.stderr
-
-stdin build-error.stderr
-exec garble reverse ./build-error
-cmp stdout build-error-reverse.stdout
-
 [short] stop # no need to verify this with -short
 
 # Ensure that the reversed output matches the non-garbled output.
@@ -119,25 +112,6 @@ func printStackTrace(w io.Writer) error {
 	_, err := w.Write(stack)
 	return err
 }
--- build-error/error.go --
-package p
-
-import "reflect"
-
-// This program is especially crafted to work with "go build",
-// but fail with "garble build".
-// This is because we attempt to convert from two different struct types,
-// since only the anonymous one has its field name obfuscated.
-// This is useful, because we test that build errors can be reversed,
-// and it also includes a field name.
-
-type UnobfuscatedStruct struct {
-	SomeField int
-}
-
-var _ = reflect.TypeOf(UnobfuscatedStruct{})
-
-var _ = struct{SomeField int}(UnobfuscatedStruct{})
 -- reverse.stdout --
 lib filename: test/main/lib/long_lib.go
 
@@ -156,8 +130,3 @@ main.main(...)
 	test/main/long_main.go:11 +0x??
 
 main filename: test/main/long_main.go
--- build-error-reverse.stdout --
-# test/main/build-error
-test/main/build-error/error.go:18: cannot convert UnobfuscatedStruct{} (value of type UnobfuscatedStruct) to type struct{SomeField int}
-exit status 2
-exit status 1

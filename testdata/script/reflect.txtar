@@ -292,6 +292,59 @@ func testx509() {
 	}
 }
 
+type pingMsg struct {
+	Data string `sshtype:"192"`
+}
+
+type pongMsg struct {
+	Data string `sshtype:"193"`
+}
+
+// golang.org/x/crypto/ssh converts a reflected type to another type
+func testSSH() {
+	var msg = pingMsg{
+		Data: "data",
+	}
+	json.Marshal(msg)
+
+	_ = pongMsg(msg)
+}
+
+// variations similar to ssh
+type reflectedMsg struct {
+	Data string
+}
+
+type convertedMsg struct {
+	Data string
+}
+
+func reflectConvert() {
+	msg := reflectedMsg(convertedMsg{})
+	json.Marshal(msg)
+}
+
+type reflectedMsg2 struct {
+	Data string
+}
+
+type convertedMsg2 struct {
+	Data string
+}
+
+func unrelatedConvert() {
+	// only discoverable by rechecking the package
+	_ = convertedMsg2(reflectedMsg2{})
+}
+
+func reflectUnrelatedConv() {
+	var msg = reflectedMsg2{
+		Data: "data",
+	}
+	json.Marshal(msg)
+
+}
+
 
 type StatUser struct {
 	Id      int64 `gorm:"primaryKey"`

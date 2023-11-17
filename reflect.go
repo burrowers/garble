@@ -15,7 +15,7 @@ type reflectInspector struct {
 
 	checkedAPIs map[string]bool
 
-	propagatedStores map[*ssa.Store]bool
+	propagatedInstr map[ssa.Instruction]bool
 
 	result pkgCache
 }
@@ -26,7 +26,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 		return
 	}
 
-	prevDone := len(ri.result.ReflectAPIs) + len(ri.propagatedStores)
+	prevDone := len(ri.result.ReflectAPIs) + len(ri.result.ReflectObjects)
 
 	// find all unchecked APIs to add them to checkedAPIs after the pass
 	notCheckedAPIs := make(map[string]bool)
@@ -43,7 +43,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 	maps.Copy(ri.checkedAPIs, notCheckedAPIs)
 
 	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
-	newDone := len(ri.result.ReflectAPIs) + len(ri.propagatedStores)
+	newDone := len(ri.result.ReflectAPIs) + len(ri.result.ReflectObjects)
 	if newDone > prevDone {
 		ri.recordReflection(ssaPkg) // TODO: avoid recursing
 	}
@@ -181,15 +181,23 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 	for _, block := range fun.Blocks {
 		for _, inst := range block.Instrs {
+			if ri.propagatedInstr[inst] {
+				break // already done
+			}
+
 			// fmt.Printf("inst: %v, t: %T\n", inst, inst)
 			switch inst := inst.(type) {
 			case *ssa.Store:
-				if ri.propagatedStores[inst] {
-					break // already done
-				}
-				if storeAddrUsedForReflect(ri.result, inst.Addr.Type()) {
+				obj := typeToObj(inst.Addr.Type())
+				if usedForReflect(ri.result, obj) {
 					ri.recordArgReflected(inst.Val, make(map[ssa.Value]bool))
-					ri.propagatedStores[inst] = true
+					ri.propagatedInstr[inst] = true
+				}
+			case *ssa.ChangeType:
+				obj := typeToObj(inst.X.Type())
+				if usedForReflect(ri.result, obj) {
+					ri.recursivelyRecordUsedForReflect(inst.Type())
+					ri.propagatedInstr[inst] = true
 				}
 			case *ssa.Call:
 				callName := inst.Call.Value.String()
@@ -265,6 +273,11 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 	case *ssa.MakeInterface:
 		return ri.recordArgReflected(val.X, visited)
 	case *ssa.UnOp:
+		for _, ref := range *val.Referrers() {
+			if idx, ok := ref.(ssa.Value); ok {
+				ri.recordArgReflected(idx, visited)
+			}
+		}
 		return ri.recordArgReflected(val.X, visited)
 	case *ssa.FieldAddr:
 		return ri.recordArgReflected(val.X, visited)
@@ -274,7 +287,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		ri.recursivelyRecordUsedForReflect(val.Type())
 
 		for _, ref := range *val.Referrers() {
-			if idx, ok := ref.(*ssa.IndexAddr); ok {
+			if idx, ok := ref.(ssa.Value); ok {
 				ri.recordArgReflected(idx, visited)
 			}
 		}
@@ -285,6 +298,8 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		// check if the found alloc gets tainted by function parameters
 		return relatedParam(val, visited)
 
+	case *ssa.ChangeType:
+		ri.recursivelyRecordUsedForReflect(val.X.Type())
 	case *ssa.Const:
 		ri.recursivelyRecordUsedForReflect(val.Type())
 	case *ssa.Global:
@@ -414,7 +429,13 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 // TODO: consider caching recordedObjectString via a map,
 // if that shows an improvement in our benchmark
 func recordedObjectString(obj types.Object) objectString {
+	if obj == nil {
+		return ""
+	}
 	pkg := obj.Pkg()
+	if pkg == nil {
+		return ""
+	}
 	// Names which are not at the package level still need to avoid obfuscation in some cases:
 	//
 	// 1. Field names on global types, which can be reached via reflection.
@@ -468,17 +489,18 @@ func usedForReflect(cache pkgCache, obj types.Object) bool {
 	return ok
 }
 
-// storeAddrUsedForReflect is only used in reflectInspector
-// to see if a [ssa.Store.Addr] has been marked as used by reflection.
-// We only mark named objects, so this function looks for a type's first struct field.
-func storeAddrUsedForReflect(cache pkgCache, typ types.Type) bool {
-	switch typ := typ.(type) {
+// We only mark named objects, so this function looks for a named object
+// corresponding to a type.
+func typeToObj(typ types.Type) types.Object {
+	switch t := typ.(type) {
+	case *types.Named:
+		return t.Obj()
 	case *types.Struct:
-		if typ.NumFields() > 0 {
-			return usedForReflect(cache, typ.Field(0))
+		if t.NumFields() > 0 {
+			return t.Field(0)
 		}
 	case interface{ Elem() types.Type }:
-		return storeAddrUsedForReflect(cache, typ.Elem())
+		return typeToObj(t.Elem())
 	}
-	return false
+	return nil
 }
