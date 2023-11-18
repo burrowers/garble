@@ -12,7 +12,8 @@ Control flow obfuscation works in several stages:
 3) Applies [block splitting](#block-splitting)
 4) Generates [junk jumps](#junk-jumps)
 5) Applies [control flow flattening](#control-flow-flattening)
-6) Converts go/ssa back into go/ast
+6) Applies (if enabled) [control flow hardening](#control-flow-hardening)
+7) Converts go/ssa back into go/ast
 
 ### Example usage
 
@@ -268,6 +269,236 @@ _s2a_l12:
 		}
 	}
 }
+```
+
+#### Control flow hardening
+Parameter: `flatten_hardening` (default: empty, supported: `xor,delegate_table`)
+
+Dispatcher is the main and most vulnerable part of control flow flattening. By static analysis of the dispatcher, it is possible to reconstruct the original control flow ([example](https://research.openanalysis.net/angr/symbolic%20execution/deobfuscation/research/2022/03/26/angr_notes.html)). Hardening can be used to make this analysis more difficult by adding an extra layer of obfuscation and moving some of the computation to runtime
+
+Input:
+```go
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 flatten_hardening=xor,delegate_table
+func main() {
+    delegateTableExample := func() {
+        if true {
+            println("hello world")
+        } else {
+            println("not hello world")
+        }
+    }
+    xorHardeningExample := func() {
+        if true {
+            println("hello world")
+        } else {
+            println("not hello world")
+        }
+    }
+    xorHardeningExample()
+    delegateTableExample()
+}
+```
+
+
+```go
+var _garble2ec9r7n6t4d7f = (func(key [15]byte) [4]func(int) int {
+	return [4]func(int) int{func(i int) int {
+		return i ^ (int(key[9]) ^ 1471366412)
+	}, func(i int) int {
+		return i ^ (int(key[8]) ^ 2052585894)
+	}, func(i int) int {
+		return i ^ (int(key[5]) ^ 1379898839)
+	}, func(i int) int {
+		return i ^ (int(key[2]) ^ 1234113468)
+	}}
+})([15]byte{245, 119, 121, 218, 176, 22, 77, 231, 166, 128, 110, 108, 203, 187, 98})
+var _garble2qarm5eb1qi11 = func(secondKey [9]byte) int {
+	r := 1292978203
+	for _, b := range secondKey {
+		r ^= int(b)
+	}
+	return r
+}([9]byte{135, 182, 170, 227, 206, 227, 0, 35, 158})
+
+func main() {
+	_garble8q5qknh1tfib1 := _garble2qarm5eb1qi11
+	_s2a_anonFunc0 := func() {
+		var _s2a_0 int
+	_s2a_l0:
+		{
+			goto _s2a_l1
+		}
+	_s2a_l1:
+		{
+			_s2a_1 := _s2a_0 == 80824627
+			if _s2a_1 {
+				goto _s2a_l10
+			} else {
+				goto _s2a_l12
+			}
+		}
+	_s2a_l2:
+		{
+			_s2a_0 = _garble2ec9r7n6t4d7f[1](2122756147)
+			goto _s2a_l0
+		}
+	_s2a_l3:
+		{
+			_s2a_2 := _s2a_0 == 704161066
+			if _s2a_2 {
+				goto _s2a_l9
+			} else {
+				goto _s2a_l6
+			}
+		}
+	_s2a_l4:
+		{
+			_s2a_0 = _garble2ec9r7n6t4d7f[1](328288499)
+			goto _s2a_l0
+		}
+	_s2a_l5:
+		{
+			_s2a_0 = _garble2ec9r7n6t4d7f[1](1404001322)
+			goto _s2a_l0
+		}
+	_s2a_l6:
+		{
+			if true {
+				goto _s2a_l2
+			} else {
+				goto _s2a_l7
+			}
+		}
+	_s2a_l7:
+		{
+			_s2a_0 = _garble2ec9r7n6t4d7f[0](179434670)
+			goto _s2a_l0
+		}
+	_s2a_l8:
+		{
+			_s2a_3 := _s2a_0 == 1774629363
+			if _s2a_3 {
+				goto _s2a_l9
+			} else {
+				goto _s2a_l3
+			}
+		}
+	_s2a_l9:
+		{
+			return
+		}
+	_s2a_l10:
+		{
+			println("hello world")
+			goto _s2a_l4
+		}
+	_s2a_l11:
+		{
+			println("not hello world")
+			goto _s2a_l5
+		}
+	_s2a_l12:
+		{
+			_s2a_4 := _s2a_0 == 1560457506
+			if _s2a_4 {
+				goto _s2a_l11
+			} else {
+				goto _s2a_l8
+			}
+		}
+	}
+	_s2a_anonFunc1 := func() {
+		var _s2a_5 int
+	_s2a_l0:
+		{
+			goto _s2a_l7
+		}
+	_s2a_l1:
+		{
+			if true {
+				goto _s2a_l9
+			} else {
+				goto _s2a_l8
+			}
+		}
+	_s2a_l2:
+		{
+			return
+		}
+	_s2a_l3:
+		{
+			_s2a_6 := _s2a_5 == 2081682101
+			if _s2a_6 {
+				goto _s2a_l2
+			} else {
+				goto _s2a_l12
+			}
+		}
+	_s2a_l4:
+		{
+			_s2a_5 = (_garble8q5qknh1tfib1 ^ 822262342)
+			goto _s2a_l0
+		}
+	_s2a_l5:
+		{
+			_s2a_5 = (_garble8q5qknh1tfib1 ^ 1416961018)
+			goto _s2a_l0
+		}
+	_s2a_l6:
+		{
+			println("hello world")
+			goto _s2a_l4
+		}
+	_s2a_l7:
+		{
+			_s2a_7 := _s2a_5 == 1119315846
+			if _s2a_7 {
+				goto _s2a_l6
+			} else {
+				goto _s2a_l10
+			}
+		}
+	_s2a_l8:
+		{
+			_s2a_5 = (_garble8q5qknh1tfib1 ^ 2067918970)
+			goto _s2a_l0
+		}
+	_s2a_l9:
+		{
+			_s2a_5 = (_garble8q5qknh1tfib1 ^ 262549365)
+			goto _s2a_l0
+		}
+	_s2a_l10:
+		{
+			_s2a_8 := _s2a_5 == 911259785
+			if _s2a_8 {
+				goto _s2a_l11
+			} else {
+				goto _s2a_l3
+			}
+		}
+	_s2a_l11:
+		{
+			println("not hello world")
+			goto _s2a_l5
+		}
+	_s2a_l12:
+		{
+			_s2a_9 := _s2a_5 == 426005257
+			if _s2a_9 {
+				goto _s2a_l2
+			} else {
+				goto _s2a_l1
+			}
+		}
+	}
+	{
+		_s2a_anonFunc0()
+		_s2a_anonFunc1()
+		return
+	}
+}
+
 ```
 
 ### Caveats
