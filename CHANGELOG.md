@@ -1,5 +1,24 @@
 # Changelog
 
+## [v0.11.0] - 2023-11-?? (TODO)
+
+This release drops support for Go 1.20, continues support for Go 1.21,
+and adds initial support for the upcoming Go 1.22 (TODO).
+
+@lu4p and @mvdan improved the code using SSA to detect which types are used with reflection,
+which should fix a number of errors such as `cannot use T1 as T2` or `cannot convert T1 to T2`.
+See: [#685], [#763], [#782], [#785], [#807].
+
+@pagran added experimental support for control flow obfuscation,
+which should provide stronger obfuscation of function bodies when enabled.
+See the documentation at [docs/CONTROLFLOW.md](https://github.com/burrowers/garble/blob/master/docs/CONTROLFLOW.md).
+See [#462].
+
+A number of bugfixes are also included:
+
+* Avoid panicking on a struct embedding a builtin alias - [#798]
+* Strip struct field tags when hashing struct types for type identity - [#801]
+
 ## [v0.10.1] - 2023-06-25
 
 This bugfix release continues support for Go 1.20 and the upcoming 1.21,
@@ -241,6 +260,16 @@ Known bugs:
 
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
+
+[v0.11.0]: https://github.com/burrowers/garble/releases/tag/v0.11.0
+[#462]: https://github.com/burrowers/garble/issues/462
+[#685]: https://github.com/burrowers/garble/issues/685
+[#763]: https://github.com/burrowers/garble/issues/763
+[#782]: https://github.com/burrowers/garble/issues/782
+[#785]: https://github.com/burrowers/garble/issues/785
+[#798]: https://github.com/burrowers/garble/issues/798
+[#801]: https://github.com/burrowers/garble/issues/801
+[#807]: https://github.com/burrowers/garble/issues/807
 
 [v0.10.1]: https://github.com/burrowers/garble/releases/tag/v0.10.1
 
