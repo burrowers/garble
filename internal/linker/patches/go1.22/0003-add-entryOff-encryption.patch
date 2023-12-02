@@ -1,4 +1,4 @@
-From bd2adb2221c87bd80d4593473b2b45904dc8e8fc Mon Sep 17 00:00:00 2001
+From 49f31a321c5b2d082981428abbb5d53e244c4200 Mon Sep 17 00:00:00 2001
 From: pagran <pagran@protonmail.com>
 Date: Sat, 14 Jan 2023 21:36:16 +0100
 Subject: [PATCH 3/3] add entryOff encryption
@@ -8,10 +8,10 @@ Subject: [PATCH 3/3] add entryOff encryption
  1 file changed, 20 insertions(+)
 
 diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
-index ab13b15042..8e2fa09434 100644
+index 6bfa03da87..538cba32db 100644
 --- a/cmd/link/internal/ld/pcln.go
 +++ b/cmd/link/internal/ld/pcln.go
-@@ -790,6 +790,26 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
+@@ -803,6 +803,26 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
  			sb.SetUint32(ctxt.Arch, dataoff, uint32(ldr.SymValue(fdsym)-gofuncBase))
  		}
  	}
@@ -39,5 +39,5 @@ index ab13b15042..8e2fa09434 100644
  
  // pclntab initializes the pclntab symbol with
 -- 
-2.40.1
+2.43.0
 
