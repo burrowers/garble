@@ -120,10 +120,7 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 	cmd.Stdin = bytes.NewReader(bytes.Join(patches, []byte("\n")))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		if err, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("%v:\n%s", err, out)
-		}
-		return nil, err
+		return nil, fmt.Errorf("failed to 'git apply' patches: %v:\n%s", err, out)
 	}
 
 	// Running git without errors does not guarantee that all patches have been applied.
