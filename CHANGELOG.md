@@ -1,9 +1,9 @@
 # Changelog
 
-## [v0.11.0] - 2023-11-?? (TODO)
+## [v0.11.0] - 2023-12-02
 
 This release drops support for Go 1.20, continues support for Go 1.21,
-and adds initial support for the upcoming Go 1.22 (TODO).
+and adds initial support for the upcoming Go 1.22.
 
 @lu4p and @mvdan improved the code using SSA to detect which types are used with reflection,
 which should fix a number of errors such as `cannot use T1 as T2` or `cannot convert T1 to T2`.
