@@ -53,6 +53,29 @@ $ go1.17.1 download
 $ PATH=$(go1.17.1 env GOROOT)/bin:${PATH} garble build
 ```
 
+### Use cases
+
+A common question is why a code obfuscator is needed for Go, a compiled language.
+Go binaries include a surprising amount of information about the original source;
+even with debug information and symbol tables stripped, many names and positions
+remain in place for the sake of traces, reflection, and debugging.
+
+Some use cases for Go require sharing a Go binary with the end user.
+If the source code for the binary is private or requires a purchase,
+its obfuscation can help discourage reverse engineering.
+
+A similar use case is a Go library whose source is private or purchased.
+Since Go libraries cannot be imported in binary form, and Go plugins
+[have their shortcomings](https://github.com/golang/go/issues/19282),
+sharing obfuscated source code becomes an option.
+See [#369](https://github.com/burrowers/garble/issues/369).
+
+Obfuscation can also help with aspects entirely unrelated to licensing.
+For example, the `-tiny` flag can make binaries 15% smaller,
+similar to the [common practice in Android](https://developer.android.com/build/shrink-code#obfuscate) to reduce app sizes.
+Obfuscation has also helped some open source developers work around
+anti-virus scans incorrectly treating Go binaries as malware.
+
 ### Literal obfuscation
 
 Using the `-literals` flag causes literal expressions such as strings to be
