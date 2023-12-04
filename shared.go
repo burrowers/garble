@@ -387,7 +387,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 				// We already have it; skip.
 			case sharedCache.GoEnv.GOOS != "js" && linknamed == "syscall/js":
 				// GOOS-specific package.
-			case sharedCache.GoEnv.GOOS != "darwin" && linknamed == "crypto/x509/internal/macos":
+			case sharedCache.GoEnv.GOOS != "darwin" && sharedCache.GoEnv.GOOS != "ios" && linknamed == "crypto/x509/internal/macos":
 				// GOOS-specific package.
 			default:
 				missing = append(missing, linknamed)
