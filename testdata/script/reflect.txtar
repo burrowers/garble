@@ -24,6 +24,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -408,6 +409,58 @@ type UnnamedStructFields struct {
 		mu           sync.Mutex
 		extensionMap map[int32]EncodingT
 	}
+}
+
+func gobStruct() {
+	type gobAlias struct {
+		Security []map[string]struct {
+			List []string
+			Pad  bool
+		}
+	}
+	alias := gobAlias{}
+
+	gob.NewEncoder(os.Stdout).Encode(alias)
+
+	alias.Security = make([]map[string]struct {
+		List []string
+		Pad  bool
+	}, 0, len([]string{}))
+}
+
+func gobMap() {
+	type gobAlias struct {
+		Security map[string]struct {
+			List []string
+			Pad  bool
+		}
+	}
+	alias := gobAlias{}
+
+	gob.NewEncoder(os.Stdout).Encode(alias)
+
+	alias.Security = make(map[string]struct {
+		List []string
+		Pad  bool
+	}, len([]string{}))
+}
+
+func gobChan() {
+	type gobAlias struct {
+		Security chan struct {
+			List []string
+			Pad  bool
+		}
+	}
+
+	alias := gobAlias{}
+
+	gob.NewEncoder(os.Stdout).Encode(alias)
+
+	alias.Security = make(chan struct {
+		List []string
+		Pad  bool
+	}, len([]string{}))
 }
 
 -- importedpkg/imported.go --
