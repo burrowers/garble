@@ -300,7 +300,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 
 	case *ssa.ChangeType:
 		ri.recursivelyRecordUsedForReflect(val.X.Type())
-	case *ssa.Const:
+	case *ssa.MakeSlice, *ssa.MakeMap, *ssa.MakeChan, *ssa.Const:
 		ri.recursivelyRecordUsedForReflect(val.Type())
 	case *ssa.Global:
 		ri.recursivelyRecordUsedForReflect(val.Type())
