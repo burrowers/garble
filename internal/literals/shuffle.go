@@ -20,6 +20,22 @@ func (shuffle) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 	key := make([]byte, len(data))
 	obfRand.Read(key)
 
+	const (
+		minIdxKeySize = 2
+		maxIdxKeySize = 16
+	)
+
+	idxKeySize := minIdxKeySize
+	if tmp := obfRand.Intn(len(data)); tmp > idxKeySize {
+		idxKeySize = tmp
+	}
+	if idxKeySize > maxIdxKeySize {
+		idxKeySize = maxIdxKeySize
+	}
+
+	idxKey := make([]byte, idxKeySize)
+	obfRand.Read(idxKey)
+
 	fullData := make([]byte, len(data)+len(key))
 	operators := make([]token.Token, len(fullData))
 	for i := range operators {
@@ -39,10 +55,13 @@ func (shuffle) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 
 	args := []ast.Expr{ast.NewIdent("data")}
 	for i := range data {
+		keyIdx := obfRand.Intn(idxKeySize)
+		k := int(idxKey[keyIdx])
+
 		args = append(args, operatorToReversedBinaryExpr(
 			operators[i],
-			ah.IndexExpr("fullData", ah.IntLit(shuffledIdxs[i])),
-			ah.IndexExpr("fullData", ah.IntLit(shuffledIdxs[len(data)+i])),
+			ah.IndexExpr("fullData", &ast.BinaryExpr{X: ah.IntLit(shuffledIdxs[i] ^ k), Op: token.XOR, Y: ah.CallExprByName("int", ah.IndexExpr("idxKey", ah.IntLit(keyIdx)))}),
+			ah.IndexExpr("fullData", &ast.BinaryExpr{X: ah.IntLit(shuffledIdxs[len(data)+i] ^ k), Op: token.XOR, Y: ah.CallExprByName("int", ah.IndexExpr("idxKey", ah.IntLit(keyIdx)))}),
 		))
 	}
 
@@ -51,6 +70,11 @@ func (shuffle) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 			Lhs: []ast.Expr{ast.NewIdent("fullData")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.DataToByteSlice(shuffledFullData)},
+		},
+		&ast.AssignStmt{
+			Lhs: []ast.Expr{ast.NewIdent("idxKey")},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{ah.DataToByteSlice(idxKey)},
 		},
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("data")},

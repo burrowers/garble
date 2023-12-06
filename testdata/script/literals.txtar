@@ -46,9 +46,9 @@ grep '^\s+\w+ := \[\.{3}\](byte|uint16|uint32|uint64)\{[0-9\s,]+\}$' debug1/test
 # Split obfuscator. Detect decryptKey ^= i * counter
 grep '^\s+\w+ \^= \w+ \* \w+$' debug1/test/main/extra_literals.go
 
-# XorShuffle obfuscator. Detect data = append(data, x (^|-|+) y...).
+# XorShuffle obfuscator. Detect data = append(data, x[? ^ idxKey[?]] (^|-|+) y[? ^ idxKey[?]]...).
 # Note that the line obfuscator adds an inline comment before the call.
-grep '^\s+\w+ = .*\bappend\(\w+,(\s+\w+\[\d+\][\^\-+]\w+\[\d+\],?)+\)$' debug1/test/main/extra_literals.go
+grep '^(\s+)?\w+ = .*\bappend\(\w+,(\s+\w+\[\d+\^\s.+\][\^\-+]\w+\[\d+\^\s.+\],?)+\)$' debug1/test/main/extra_literals.go
 
 # XorSeed obfuscator. Detect type decFunc func(byte) decFunc
 grep '^\s+type \w+ func\(byte\) \w+$' debug1/test/main/extra_literals.go
