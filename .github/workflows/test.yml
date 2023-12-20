@@ -25,6 +25,7 @@ name: Test
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         go-version: [1.21.x, 1.22.0-rc.1]
         os: [ubuntu-latest, macos-latest, windows-latest]
