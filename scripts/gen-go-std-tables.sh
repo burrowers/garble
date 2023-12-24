@@ -43,6 +43,9 @@ var runtimeLinknamed = []string{
 $(for path in ${runtime_linknamed}; do
 	echo "\"${path}\"",
 done)
+	// Existed in Go 1.21; removed in Go 1.22.
+	"math/rand",
+	"net",
 }
 
 var compilerIntrinsicsPkgs = map[string]bool{
