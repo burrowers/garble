@@ -65,7 +65,7 @@ func main() {
 -- garble_main_amd64.s --
 #include "garble_define_amd64.h"
 
-#include "extra/garble_define2_amd64.h"
+#include "extra/garble_define2_amd64.h" // Inline: many·special∕asm·runes.
 
 // A comment may include many·special∕asm·runes and it's okay.
 //No space: many·special∕asm·runes.
