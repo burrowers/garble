@@ -63,7 +63,7 @@ import (
 )
 
 /*
-#include "separate.h"
+#include "separate.h" // inline comment
 
 static int privateAdd(int a, int b) {
 	return a + b;
