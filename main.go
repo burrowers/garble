@@ -1,6 +1,7 @@
 // Copyright (c) 2019, The Garble Authors.
 // See LICENSE for licensing information.
 
+// garble obfuscates Go code by wrapping the Go toolchain.
 package main
 
 import (
