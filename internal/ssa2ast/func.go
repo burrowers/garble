@@ -15,7 +15,11 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-var ErrUnsupported = errors.New("unsupported")
+var (
+	ErrUnsupported = errors.New("unsupported")
+
+	MarkerInstr = &ssa.Panic{}
+)
 
 type NameType int
 
@@ -33,6 +37,10 @@ type ConverterConfig struct {
 	// Note: Replacing ssa.Expr does not guarantee the correctness of the generated code.
 	// When using it, strictly adhere to the value types.
 	SsaValueRemap map[ssa.Value]ast.Expr
+
+	// MarkerInstrCallback is called every time a MarkerInstr instruction is encountered.
+	// Callback result is inserted into ast as is
+	MarkerInstrCallback func(vars map[string]types.Type) []ast.Stmt
 }
 
 func DefaultConfig() *ConverterConfig {
@@ -50,11 +58,12 @@ func defaultImportNameResolver(pkg *types.Package) *ast.Ident {
 }
 
 type funcConverter struct {
-	importNameResolver ImportNameResolver
-	tc                 *typeConverter
-	namePrefix         string
-	valueNameMap       map[ssa.Value]string
-	ssaValueRemap      map[ssa.Value]ast.Expr
+	importNameResolver  ImportNameResolver
+	tc                  *TypeConverter
+	namePrefix          string
+	valueNameMap        map[ssa.Value]string
+	ssaValueRemap       map[ssa.Value]ast.Expr
+	markerInstrCallback func(map[string]types.Type) []ast.Stmt
 }
 
 func Convert(ssaFunc *ssa.Function, cfg *ConverterConfig) (*ast.FuncDecl, error) {
@@ -63,11 +72,12 @@ func Convert(ssaFunc *ssa.Function, cfg *ConverterConfig) (*ast.FuncDecl, error)
 
 func newFuncConverter(cfg *ConverterConfig) *funcConverter {
 	return &funcConverter{
-		importNameResolver: cfg.ImportNameResolver,
-		tc:                 &typeConverter{resolver: cfg.ImportNameResolver},
-		namePrefix:         cfg.NamePrefix,
-		valueNameMap:       make(map[ssa.Value]string),
-		ssaValueRemap:      cfg.SsaValueRemap,
+		importNameResolver:  cfg.ImportNameResolver,
+		tc:                  &TypeConverter{resolver: cfg.ImportNameResolver},
+		namePrefix:          cfg.NamePrefix,
+		valueNameMap:        make(map[ssa.Value]string),
+		ssaValueRemap:       cfg.SsaValueRemap,
+		markerInstrCallback: cfg.MarkerInstrCallback,
 	}
 }
 
@@ -492,6 +502,14 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 	}
 
 	for _, instr := range ssaBlock.Instrs[:len(ssaBlock.Instrs)-1] {
+		if instr == MarkerInstr {
+			if fc.markerInstrCallback == nil {
+				panic("marker callback is nil")
+			}
+			astBlock.Body = append(astBlock.Body, nil)
+			continue
+		}
+
 		var stmt ast.Stmt
 		switch instr := instr.(type) {
 		case *ssa.Alloc:
@@ -1139,6 +1157,18 @@ func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, erro
 	}
 
 	for _, block := range f.Blocks {
+		if fc.markerInstrCallback != nil {
+			var newBody []ast.Stmt
+			for _, stmt := range block.Body {
+				if stmt != nil {
+					newBody = append(newBody, stmt)
+				} else {
+					newBody = append(newBody, fc.markerInstrCallback(f.Vars)...)
+				}
+			}
+			block.Body = newBody
+		}
+
 		blockStmts := &ast.BlockStmt{List: append(block.Body, block.Phi...)}
 		blockStmts.List = append(blockStmts.List, block.Exit)
 		if block.HasRefs {

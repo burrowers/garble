@@ -9,11 +9,15 @@ import (
 	"strconv"
 )
 
-type typeConverter struct {
+type TypeConverter struct {
 	resolver ImportNameResolver
 }
 
-func (tc *typeConverter) Convert(t types.Type) (ast.Expr, error) {
+func NewTypeConverted(resolver ImportNameResolver) *TypeConverter {
+	return &TypeConverter{resolver: resolver}
+}
+
+func (tc *TypeConverter) Convert(t types.Type) (ast.Expr, error) {
 	switch typ := t.(type) {
 	case *types.Array:
 		eltExpr, err := tc.Convert(typ.Elem())

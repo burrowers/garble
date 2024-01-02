@@ -6,7 +6,7 @@ import (
 	"go/types"
 )
 
-func makeMapIteratorPolyfill(tc *typeConverter, mapType *types.Map) (ast.Expr, types.Type, error) {
+func makeMapIteratorPolyfill(tc *TypeConverter, mapType *types.Map) (ast.Expr, types.Type, error) {
 	keyTypeExpr, err := tc.Convert(mapType.Key())
 	if err != nil {
 		return nil, nil, err
