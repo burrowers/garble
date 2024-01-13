@@ -18,6 +18,7 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
+// Test_generateTrashBlock tests correctness of generated trash code by generating and compiling a large number of statements
 func Test_generateTrashBlock(t *testing.T) {
 	const (
 		seed      = 7777

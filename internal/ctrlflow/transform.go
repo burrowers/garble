@@ -220,6 +220,12 @@ func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) bool {
 	return true
 }
 
+// randomAlwaysFalseCond generates two random int32 and a random compare operator that always returns false, examples:
+// 1350205738 <= 734900678
+// 1400381511 >= 1621623831
+// 2062290251 < 1908004916
+// 1228588894 > 1819094321
+// 2094727349 == 955574490
 func randomAlwaysFalseCond(obfRand *mathrand.Rand) (*ssa.Const, token.Token, *ssa.Const) {
 	tokens := []token.Token{token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ}
 

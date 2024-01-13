@@ -244,12 +244,11 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			funcConfig.SsaValueRemap = nil
 		}
 
+		funcConfig.MarkerInstrCallback = nil
 		if trashBlockCount > 0 {
 			funcConfig.MarkerInstrCallback = func(m map[string]types.Type) []ast.Stmt {
 				return trashGen.Generate(minTrashBlockStmts+obfRand.Intn(maxTrashBlockStmts-minTrashBlockStmts), m)
 			}
-		} else {
-			funcConfig.MarkerInstrCallback = nil
 		}
 
 		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)

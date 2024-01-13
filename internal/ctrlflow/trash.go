@@ -20,20 +20,36 @@ import (
 )
 
 const (
-	varProb        = 0.6
-	globalProb     = 0.4
-	assignVarProb  = 0.3
+	// varProb is a probability to use a local variable as a call parameter
+	// or for assigning to another local variable
+	varProb = 0.6
+	// globalProb is a probability to use a global variable as a call parameter
+	// or for assigning to local variable
+	globalProb = 0.4
+	// assignVarProb is a probability generation statement to assign random values to random variables
+	// instead of generating a method/function call.
+	assignVarProb = 0.3
+	// methodCallProb is a probability of using a method instead of a function
 	methodCallProb = 0.5
 
+	// minMethodsForType minimum number of methods in the type to use when generating calls
 	minMethodsForType = 2
-	maxStringLen      = 32
-	minVarsForAssign  = 2
-	maxAssignVars     = 4
+	// maxStringLen maximum length of generated trash string
+	maxStringLen = 32
+	// minVarsForAssign minimum amount of local variables for random assignment
+	minVarsForAssign = 2
+	// maxAssignVars maximum amount of local variables for random assignment
+	maxAssignVars = 4
+	// maxVariadicParams maximum number of parameters passed to variadic method/function
 	maxVariadicParams = 5
 
+	// limitFunctionCount maximum number of functions in 1 package
+	// that can be used to generate calls to functions
 	limitFunctionCount = 256
 )
 
+// stringEncoders array of functions converting an array of bytes into a string
+// used to generate more readable trash strings
 var stringEncoders = []func([]byte) string{
 	hex.EncodeToString,
 	base64.StdEncoding.EncodeToString,
@@ -42,13 +58,12 @@ var stringEncoders = []func([]byte) string{
 	base32.StdEncoding.EncodeToString,
 }
 
+// valueGenerators is a map containing trash value generators for basic types
 var valueGenerators = map[types.Type]func(rand *mathrand.Rand, targetType types.Type) ast.Expr{
 	types.Typ[types.Bool]: func(rand *mathrand.Rand, _ types.Type) ast.Expr {
-		var val string
+		val := "false"
 		if rand.Float32() > 0.5 {
 			val = "true"
-		} else {
-			val = "false"
 		}
 		return ast.NewIdent(val)
 	},
@@ -111,12 +126,10 @@ func isInternal(path string) bool {
 }
 
 func under(t types.Type) types.Type {
-	for {
-		if t == t.Underlying() {
-			return t
-		}
-		t = t.Underlying()
+	if t == t.Underlying() {
+		return t
 	}
+	return under(t.Underlying())
 }
 
 func deref(typ types.Type) types.Type {
@@ -126,17 +139,19 @@ func deref(typ types.Type) types.Type {
 	return typ
 }
 
+// canConvert checks if one type can be converted to another type
 func canConvert(from, to types.Type) bool {
 	i, isInterface := under(to).(*types.Interface)
-	if isInterface {
-		if ptr, ok := from.(*types.Pointer); ok {
-			from = ptr.Elem()
-		}
-		return types.Implements(from, i)
+	if !isInterface {
+		return types.ConvertibleTo(from, to)
 	}
-	return types.ConvertibleTo(from, to)
+	if ptr, ok := from.(*types.Pointer); ok {
+		from = ptr.Elem()
+	}
+	return types.Implements(from, i)
 }
 
+// isSupportedType checks that it is possible to generate a compatible value using valueGenerators
 func isSupportedType(v types.Type) bool {
 	for t := range valueGenerators {
 		if canConvert(t, v) {
@@ -156,6 +171,7 @@ func isGenericType(p types.Type) bool {
 	return false
 }
 
+// isSupportedSig checks that the function is not generic and all parameters can be generated using valueGenerators
 func isSupportedSig(m *types.Func) bool {
 	sig := m.Type().(*types.Signature)
 	if isGenericType(sig) {
@@ -208,6 +224,7 @@ func (d *definedVar) HasRefs() bool {
 	return d.External || d.Refs > 0
 }
 
+// initialize scans and writes all supported functions in all non-internal packages used in the program
 func (t *trashGenerator) initialize(ssaProg *ssa.Program) {
 	for _, p := range ssaProg.AllPackages() {
 		if isInternal(p.Pkg.Path()) || p.Pkg.Name() == "main" {
@@ -241,6 +258,7 @@ func (t *trashGenerator) initialize(ssaProg *ssa.Program) {
 	}
 }
 
+// convertExpr if it is not possible to directly assign one type to another, generates (<to>)(value) cast expression
 func (t *trashGenerator) convertExpr(from, to types.Type, expr ast.Expr) ast.Expr {
 	if types.AssignableTo(from, to) {
 		return expr
@@ -253,6 +271,7 @@ func (t *trashGenerator) convertExpr(from, to types.Type, expr ast.Expr) ast.Exp
 	return ah.CallExpr(&ast.ParenExpr{X: castExpr}, expr)
 }
 
+// chooseRandomVar returns a random local variable compatible with the passed type
 func (t *trashGenerator) chooseRandomVar(typ types.Type, vars map[string]*definedVar) ast.Expr {
 	var candidates []string
 	for name, d := range vars {
@@ -271,6 +290,7 @@ func (t *trashGenerator) chooseRandomVar(typ types.Type, vars map[string]*define
 	return t.convertExpr(targetVar.Type, typ, ast.NewIdent(targetVarName))
 }
 
+// chooseRandomGlobal returns a random global variable compatible with the passed type
 func (t *trashGenerator) chooseRandomGlobal(typ types.Type) ast.Expr {
 	var candidates []*types.Var
 	for _, global := range t.globals {
@@ -293,6 +313,7 @@ func (t *trashGenerator) chooseRandomGlobal(typ types.Type) ast.Expr {
 	return t.convertExpr(targetGlobal.Type(), typ, globalExpr)
 }
 
+// generateRandomConst generates a random constant compatible with the passed type
 func (t *trashGenerator) generateRandomConst(p types.Type, rand *mathrand.Rand) ast.Expr {
 	var candidates []types.Type
 	for typ := range valueGenerators {
@@ -310,6 +331,7 @@ func (t *trashGenerator) generateRandomConst(p types.Type, rand *mathrand.Rand) 
 	return t.convertExpr(generatorType, p, generator(rand, under(p)))
 }
 
+// generateRandomValue returns a random local or global variable or a constant value with regard to probabilities
 func (t *trashGenerator) generateRandomValue(typ types.Type, vars map[string]*definedVar) ast.Expr {
 	if t.rand.Float32() < varProb {
 		if expr := t.chooseRandomVar(typ, vars); expr != nil {
@@ -324,6 +346,7 @@ func (t *trashGenerator) generateRandomValue(typ types.Type, vars map[string]*de
 	return t.generateRandomConst(typ, t.rand)
 }
 
+// cacheMethods caches exported supported methods from passed local variables
 func (t *trashGenerator) cacheMethods(vars map[string]*definedVar) {
 	for _, d := range vars {
 		typ := deref(d.Type)
@@ -331,18 +354,14 @@ func (t *trashGenerator) cacheMethods(vars map[string]*definedVar) {
 			continue
 		}
 
+		type methodSet interface {
+			NumMethods() int
+			Method(i int) *types.Func
+		}
+
 		var methods []*types.Func
 		switch typ := typ.(type) {
-		case *types.Named:
-			for i := 0; i < typ.NumMethods(); i++ {
-				if m := typ.Method(i); token.IsExported(m.Name()) && isSupportedSig(m) {
-					methods = append(methods, m)
-					if len(methods) > limitFunctionCount {
-						break
-					}
-				}
-			}
-		case *types.Interface:
+		case methodSet:
 			for i := 0; i < typ.NumMethods(); i++ {
 				if m := typ.Method(i); token.IsExported(m.Name()) && isSupportedSig(m) {
 					methods = append(methods, m)
@@ -359,7 +378,8 @@ func (t *trashGenerator) cacheMethods(vars map[string]*definedVar) {
 	}
 }
 
-func (t *trashGenerator) chooseRandomMethod(vars map[string]*definedVar) (*types.Func, string) {
+// chooseRandomMethod returns the name of a random variable and a random method
+func (t *trashGenerator) chooseRandomMethod(vars map[string]*definedVar) (string, *types.Func) {
 	t.cacheMethods(vars)
 
 	groupedCandidates := make(map[types.Type][]string)
@@ -372,7 +392,7 @@ func (t *trashGenerator) chooseRandomMethod(vars map[string]*definedVar) (*types
 	}
 
 	if len(groupedCandidates) == 0 {
-		return nil, ""
+		return "", nil
 	}
 
 	candidateTypes := maps.Keys(groupedCandidates)
@@ -383,16 +403,23 @@ func (t *trashGenerator) chooseRandomMethod(vars map[string]*definedVar) (*types
 	vars[name].AddRef()
 
 	methods := t.methodCache[candidateType]
-	return methods[t.rand.Intn(len(methods))], name
+	return name, methods[t.rand.Intn(len(methods))]
 }
 
+// generateCall generates a random function or method call with random parameters and storing the call results in local variables
+// Example:
+//
+// _garblebfqv3dv0i98n4 := syscall.Getppid()
+// _garble5q5ot93l1arna, _garble7al9sqg518rmm := os.Create("I3BLXYDYB2TMSHB7F55K5IMHJBNAFOKKJRKZHRBR")
+// _, _ = _garble5q5ot93l1arna.Readdir(_garblebfqv3dv0i98n4)
+// _ = ___garble_import5.Appendf(([]byte)("y4FPLnz8"), _garble7al9sqg518rmm)
 func (t *trashGenerator) generateCall(vars map[string]*definedVar) ast.Stmt {
 	var (
-		targetFunc     *types.Func
 		targetRecvName string
+		targetFunc     *types.Func
 	)
 	if t.rand.Float32() < methodCallProb {
-		targetFunc, targetRecvName = t.chooseRandomMethod(vars)
+		targetRecvName, targetFunc = t.chooseRandomMethod(vars)
 	}
 
 	if targetFunc == nil {
@@ -456,6 +483,12 @@ func (t *trashGenerator) generateCall(vars map[string]*definedVar) ast.Stmt {
 	return assignStmt
 }
 
+// generateAssign generates assignments to random variables with trash values or another variables
+// Example:
+//
+// _garblekoc67okop1c1, _garble8qnl5l2r2qgf3, _garblebd5tafd3q10kg = (int)(_garble5l9i0jv62nmks), (int)(76), (int)(75)
+// _garbleffa48bbrevdfd = os.Stdout
+// _garblecneca0kqjdklo, _garble8n2j5a0p1ples = (int32)(44), (uint32)(33)
 func (t *trashGenerator) generateAssign(vars map[string]*definedVar) ast.Stmt {
 	var varNames []string
 	for name, d := range vars {
@@ -485,6 +518,17 @@ func (t *trashGenerator) generateAssign(vars map[string]*definedVar) ast.Stmt {
 	return assignStmt
 }
 
+// Generate generates complicated trash code containing calls to functions and methods and assignment of local variables
+// Example:
+//
+// _garble5q5ot93l1arna, _garble7al9sqg518rmm := os.Create("I3BLXYDYB2TMSHB7F55K5IMHJBNAFOKKJRKZHRBR")
+//
+//	_ = _garble5q5ot93l1arna.Close()
+//	v10, v9, v7 = (uint32)(v4), (uint16)(v5), (uint)(v3)
+//	v1, v13, _garble5q5ot93l1arna, v14 = v1, (float32)(v8), nil, (float64)(562704055)
+//	_ = os.Remove("QQEEH917VEIHK===")
+//	_garblecoq8aub6r0q3r, _garble77tl4pskm8ep3 := _garble5q5ot93l1arna.ReadAt(([]byte)("0HHBJP9CFSRDH1HF"), (int64)(v2))
+//	_garble66djp5lkdng61 := ___garble_import1.LoadUint32(nil)
 func (t *trashGenerator) Generate(statementCount int, externalVars map[string]types.Type) []ast.Stmt {
 	vars := make(map[string]*definedVar)
 	for name, typ := range externalVars {
