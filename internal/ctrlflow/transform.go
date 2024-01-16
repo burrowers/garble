@@ -1,12 +1,14 @@
 package ctrlflow
 
 import (
+	"go/constant"
 	"go/token"
 	"go/types"
 	mathrand "math/rand"
 	"strconv"
 
 	"golang.org/x/tools/go/ssa"
+	"mvdan.cc/garble/internal/ssa2ast"
 )
 
 type blockMapping struct {
@@ -216,6 +218,90 @@ func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) bool {
 	ssaFunc.Blocks = append(ssaFunc.Blocks, newBlock)
 	targetBlock.Succs = []*ssa.BasicBlock{newBlock}
 	return true
+}
+
+// randomAlwaysFalseCond generates two random int32 and a random compare operator that always returns false, examples:
+// 1350205738 <= 734900678
+// 1400381511 >= 1621623831
+// 2062290251 < 1908004916
+// 1228588894 > 1819094321
+// 2094727349 == 955574490
+func randomAlwaysFalseCond(obfRand *mathrand.Rand) (*ssa.Const, token.Token, *ssa.Const) {
+	tokens := []token.Token{token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ}
+
+	val1, val2 := constant.MakeInt64(int64(obfRand.Int31())), constant.MakeInt64(int64(obfRand.Int31()))
+
+	var candidates []token.Token
+	for _, t := range tokens {
+		if !constant.Compare(val1, t, val2) {
+			candidates = append(candidates, t)
+		}
+	}
+
+	return ssa.NewConst(val1, types.Typ[types.Int]), candidates[obfRand.Intn(len(candidates))], ssa.NewConst(val2, types.Typ[types.Int])
+}
+
+// addTrashBlockMarkers adds unreachable blocks with ssa2ast.MarkerInstr to further generate trash statements
+func addTrashBlockMarkers(ssaFunc *ssa.Function, count int, obfRand *mathrand.Rand) {
+	var candidates []*ssa.BasicBlock
+	for _, block := range ssaFunc.Blocks {
+		if len(block.Succs) > 0 {
+			candidates = append(candidates, block)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	for i := 0; i < count; i++ {
+		targetBlock := candidates[obfRand.Intn(len(candidates))]
+		succsIdx := obfRand.Intn(len(targetBlock.Succs))
+		succs := targetBlock.Succs[succsIdx]
+
+		val1, op, val2 := randomAlwaysFalseCond(obfRand)
+		phiInstr := &ssa.Phi{
+			Edges: []ssa.Value{val1},
+		}
+		setType(phiInstr, types.Typ[types.Int])
+
+		binOpInstr := &ssa.BinOp{
+			X:  phiInstr,
+			Op: op,
+			Y:  val2,
+		}
+		setType(binOpInstr, types.Typ[types.Bool])
+
+		jmpInstr := &ssa.If{Cond: binOpInstr}
+		*binOpInstr.Referrers() = append(*binOpInstr.Referrers(), jmpInstr)
+
+		trashBlock := &ssa.BasicBlock{
+			Comment: "ctrflow.trash." + strconv.Itoa(targetBlock.Index),
+			Instrs: []ssa.Instruction{
+				ssa2ast.MarkerInstr,
+				&ssa.Jump{},
+			},
+		}
+		setBlockParent(trashBlock, ssaFunc)
+
+		trashBlockDispatch := &ssa.BasicBlock{
+			Comment: "ctrflow.trash.cond." + strconv.Itoa(targetBlock.Index),
+			Instrs: []ssa.Instruction{
+				phiInstr,
+				binOpInstr,
+				jmpInstr,
+			},
+			Preds: []*ssa.BasicBlock{targetBlock},
+			Succs: []*ssa.BasicBlock{trashBlock, succs},
+		}
+		setBlockParent(trashBlockDispatch, ssaFunc)
+		targetBlock.Succs[succsIdx] = trashBlockDispatch
+
+		trashBlock.Preds = []*ssa.BasicBlock{trashBlockDispatch, trashBlock}
+		trashBlock.Succs = []*ssa.BasicBlock{trashBlock}
+
+		ssaFunc.Blocks = append(ssaFunc.Blocks, trashBlockDispatch, trashBlock)
+	}
 }
 
 func fixBlockIndexes(ssaFunc *ssa.Function) {

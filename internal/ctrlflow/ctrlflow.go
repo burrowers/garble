@@ -26,10 +26,15 @@ const (
 	defaultBlockSplits   = 0
 	defaultJunkJumps     = 0
 	defaultFlattenPasses = 1
+	defaultTrashBlocks   = 0
 
 	maxBlockSplits   = math.MaxInt32
 	maxJunkJumps     = 256
 	maxFlattenPasses = 4
+	maxTrashBlocks   = 1024
+
+	minTrashBlockStmts = 1
+	maxTrashBlockStmts = 32
 )
 
 type directiveParamMap map[string]string
@@ -173,6 +178,8 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		return ast.NewIdent(name)
 	}
 
+	var trashGen *trashGenerator
+
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
 
@@ -184,7 +191,15 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		}
 		flattenHardening := params.StringSlice("flatten_hardening")
 
+		trashBlockCount := params.GetInt("trash_blocks", defaultTrashBlocks, maxTrashBlocks)
+		if trashBlockCount > 0 && trashGen == nil {
+			trashGen = newTrashGenerator(ssaPkg.Prog, funcConfig.ImportNameResolver, obfRand)
+		}
+
 		applyObfuscation := func(ssaFunc *ssa.Function) []dispatcherInfo {
+			if trashBlockCount > 0 {
+				addTrashBlockMarkers(ssaFunc, trashBlockCount, obfRand)
+			}
 			for i := 0; i < split; i++ {
 				if !applySplitting(ssaFunc, obfRand) {
 					break // no more candidates for splitting
@@ -227,6 +242,13 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			funcConfig.SsaValueRemap = ssaRemap
 		} else {
 			funcConfig.SsaValueRemap = nil
+		}
+
+		funcConfig.MarkerInstrCallback = nil
+		if trashBlockCount > 0 {
+			funcConfig.MarkerInstrCallback = func(m map[string]types.Type) []ast.Stmt {
+				return trashGen.Generate(minTrashBlockStmts+obfRand.Intn(maxTrashBlockStmts-minTrashBlockStmts), m)
+			}
 		}
 
 		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)

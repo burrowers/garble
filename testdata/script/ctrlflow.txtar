@@ -78,7 +78,7 @@ func multiHardeningTest(i int) int {
     return multiply(i);
 }
 
-//garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10
+//garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
 	// Reference to the unexported interface triggers creation of a new interface
 	// with a list of all functions of the private interface
