@@ -41,7 +41,7 @@ func decodeBuildIDHash(str string) []byte {
 		panic(fmt.Sprintf("invalid hash %q: %v", str, err))
 	}
 	if len(h) != buildIDHashLength {
-		panic(fmt.Sprintf("decodeHash expects to result in a hash of length %d, got %d", buildIDHashLength, len(h)))
+		panic(fmt.Sprintf("decodeBuildIDHash expects to result in a hash of length %d, got %d", buildIDHashLength, len(h)))
 	}
 	return h
 }
