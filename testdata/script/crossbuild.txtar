@@ -18,6 +18,16 @@
 [arm] env GOARCH=arm64
 exec garble build -gcflags=math/bits=-d=ssa/intrinsics/debug=1
 stderr 'intrinsic substitution for Len64.*BitLen64'
+
+# As a last step, also test building for MacOS if we're not already on it.
+# We already cover Windows and Linux above, and MacOS is the other major OS.
+# The way it is implemented in the standard library, in particular with syscalls,
+# is different enough that it sometimes causes special bugs.
+[darwin] stop
+env GOOS=darwin
+env GOARCH=arm64
+exec garble build
+
 -- go.mod --
 module test/main
 

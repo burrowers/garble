@@ -188,6 +188,7 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	case "runtime", "reflect", "embed":
 		return p.ImportPath
 	}
+	// Intrinsics are matched by package import path as well.
 	if compilerIntrinsicsPkgs[p.ImportPath] {
 		return p.ImportPath
 	}
