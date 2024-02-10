@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.12.0] - 2024-02-??
+## [v0.12.0] - 2024-02-10
 
 This release continues support for Go 1.21 and includes fixes for Go 1.22,
 now that the final 1.22.0 release is out.
@@ -9,7 +9,6 @@ now that the final 1.22.0 release is out.
 fixing more `cannot use T1 as T2` errors when obfuscating types. See [#690].
 
 @pagran added a trash block generator to the control flow obfuscator.
-TODO: link to the docs once they are in master?
 See [#825].
 
 A number of bugfixes are also included:
@@ -278,6 +277,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[v0.12.0]: https://github.com/burrowers/garble/releases/tag/v0.12.0
 [#690]: https://github.com/burrowers/garble/issues/690
 [#812]: https://github.com/burrowers/garble/issues/812
 [#816]: https://github.com/burrowers/garble/pull/816
