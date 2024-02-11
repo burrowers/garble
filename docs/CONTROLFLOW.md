@@ -13,7 +13,8 @@ Control flow obfuscation works in several stages:
 4) Generates [junk jumps](#junk-jumps)
 5) Applies [control flow flattening](#control-flow-flattening)
 6) Applies (if enabled) [control flow hardening](#control-flow-hardening)
-7) Converts go/ssa back into go/ast
+7) Generates [trash blocks](#trash-blocks)
+8) Converts go/ssa back into go/ast
 
 ### Example usage
 
@@ -272,6 +273,7 @@ _s2a_l12:
 ```
 
 #### Control flow hardening
+
 Parameter: `flatten_hardening` (default: empty, supported: `xor,delegate_table`)
 
 Dispatcher is the main and most vulnerable part of control flow flattening. By static analysis of the dispatcher, it is possible to reconstruct the original control flow ([example](https://research.openanalysis.net/angr/symbolic%20execution/deobfuscation/research/2022/03/26/angr_notes.html)). Hardening can be used to make this analysis more difficult by adding an extra layer of obfuscation and moving some of the computation to runtime
@@ -299,6 +301,7 @@ func main() {
 }
 ```
 
+Result:
 
 ```go
 var _garble2ec9r7n6t4d7f = (func(key [15]byte) [4]func(int) int {
@@ -499,6 +502,95 @@ func main() {
 	}
 }
 
+```
+
+#### Trash blocks
+
+Parameter: `trash_blocks` (default: `0`, maximum: `1024`)
+
+> Warning: this param affects resulting binary only when used in combination with [flattening](#control-flow-flattening)
+
+Trash blocks generator generates blocks that will never be called. Trash blocks contain random function calls and random variable assignments. The purpose of this is to create a large number of references to different methods and local variables and in combination with other controlflow obfuscation parameters it helps to effectively hide the real code.
+
+The generator does not add new dependencies to the project, it uses only existing direct or indirect dependencies. In the following example, the `fmt` package implicitly imports the `io` and `os` packages
+Input:
+
+```go
+package main
+
+import "fmt"
+
+//garble:controlflow block_splits=0 junk_jumps=0 flatten_passes=0 trash_blocks=1
+func main() {
+	if true {
+		fmt.Println("hello world")
+	}
+}
+```
+
+Result:
+
+```go
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+)
+
+func main() {
+	var (
+		_s2a_4 int
+		_s2a_5 bool
+	)
+	{
+		if true {
+			goto _s2a_l1
+		} else {
+			goto _s2a_l2
+		}
+	}
+_s2a_l1:
+	{
+		_s2a_0 := new([1]interface {
+		})
+		_s2a_1 := &_s2a_0[(int)(0)]
+		_s2a_2 := (interface {
+		})("hello world")
+		*_s2a_1 = _s2a_2
+		_s2a_3 := _s2a_0[:]
+		_, _ = fmt.Println(_s2a_3...)
+		_s2a_4 = (int)(1375793722)
+		goto _s2a_l3
+	}
+_s2a_l2:
+	{
+		return
+	}
+_s2a_l3:
+	{
+		_s2a_5 = _s2a_4 == (int)(1414729372)
+		if _s2a_5 {
+			goto _s2a_l4
+		} else {
+			goto _s2a_l2
+		}
+	}
+_s2a_l4:
+	{
+		_s2a_5, _s2a_4 = true, _s2a_4
+		_garble1v7i062eba5j0, _ := fmt.Printf((string)(_s2a_4), _s2a_4, _s2a_5)
+		_garble27oahvink0hig, _ := fmt.Println(_garble1v7i062eba5j0)
+		_ = fmt.Errorf((string)(_garble27oahvink0hig), os.Stdout, 714272279, _garble27oahvink0hig, io.EOF)
+		_garble27oahvink0hig, _s2a_4, _garble1v7i062eba5j0, _s2a_5 = _s2a_4, (int)(77), _s2a_4, _s2a_5
+		_, _garble6oknljnlggutn := fmt.Printf((string)(_garble1v7i062eba5j0))
+		_, _garble8ne429queuq8n := fmt.Scanf((string)(751648516), os.Stdin, 0.17251639929485216, "UAN4E===")
+		_garble1qt8quedh1fo9, _ := fmt.Scanf((string)(_s2a_4), _garble8ne429queuq8n, _s2a_5, _garble6oknljnlggutn)
+		_, _ = fmt.Scanf((string)(_garble1qt8quedh1fo9))
+		goto _s2a_l4
+	}
+}
 ```
 
 ### Caveats
