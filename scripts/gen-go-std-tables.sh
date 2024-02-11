@@ -46,8 +46,8 @@ var runtimeLinknamed = []string{
 $(for path in ${runtime_linknamed}; do
 	echo "\"${path}\"",
 done)
-	// Existed in Go 1.21; removed in Go 1.22.
-	"math/rand",
+	// The net package linknames to the runtime, not the other way around.
+	// TODO: support this automatically via our script.
 	"net",
 }
 
@@ -58,7 +58,6 @@ done)
 }
 
 var compilerIntrinsicsFuncs = map[string]bool{
-	"runtime.mulUintptr": true, // Existed in Go 1.21; removed in Go 1.22.
 $(while read path name; do
 	echo "\"${path}.${name}\": true,"
 done <<<"${compiler_intrinsics_table}")
