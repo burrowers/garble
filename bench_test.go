@@ -70,7 +70,7 @@ func BenchmarkBuild(b *testing.B) {
 
 	b.ResetTimer()
 	b.StopTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		// First we do a fresh build, using empty cache directories,
 		// and the second does an incremental rebuild reusing the same cache directories.
 		goCache := filepath.Join(tdir, "go-cache")

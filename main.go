@@ -7,6 +7,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	cryptorand "crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
@@ -287,10 +288,7 @@ func goVersionOK() bool {
 
 	// Ensure that the version of Go that built the garble binary is equal or
 	// newer than cache.GoVersionSemver.
-	builtVersionFull := os.Getenv("GARBLE_TEST_GOVERSION")
-	if builtVersionFull == "" {
-		builtVersionFull = runtime.Version()
-	}
+	builtVersionFull := cmp.Or(os.Getenv("GARBLE_TEST_GOVERSION"), runtime.Version())
 	builtVersion := rxVersion.FindString(builtVersionFull)
 	if builtVersion == "" {
 		// If garble built itself, we don't know what Go version was used.
@@ -1727,7 +1725,7 @@ func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStru
 		recordType(used.Underlying(), used.Origin().Underlying(), done, fieldToStruct)
 	case *types.Struct:
 		origin := origin.(*types.Struct)
-		for i := 0; i < used.NumFields(); i++ {
+		for i := range used.NumFields() {
 			field := used.Field(i)
 			fieldToStruct[field] = origin
 
@@ -2383,9 +2381,6 @@ To install Go, see: https://go.dev/doc/install
 	if err := json.Unmarshal(out, &sharedCache.GoEnv); err != nil {
 		return fmt.Errorf(`cannot unmarshal from "go env -json": %w`, err)
 	}
-	sharedCache.GOGARBLE = os.Getenv("GOGARBLE")
-	if sharedCache.GOGARBLE == "" {
-		sharedCache.GOGARBLE = "*" // we default to obfuscating everything
-	}
+	sharedCache.GOGARBLE = cmp.Or(os.Getenv("GOGARBLE"), "*") // we default to obfuscating everything
 	return nil
 }
