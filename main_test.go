@@ -295,7 +295,7 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 	var statements []ast.Stmt
 
 	// Assignments which append 100 random small literals to x: `x += "the_small_random_literal"`
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		statements = append(
 			statements,
 			&ast.AssignStmt{
@@ -310,7 +310,7 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 	// We add huge literals to make sure we obfuscate them fast.
 	// 5 * 128KiB is large enough that it would take a very, very long time
 	// to obfuscate those literals if too complex obfuscators are used.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		statements = append(
 			statements,
 			&ast.AssignStmt{
@@ -421,7 +421,6 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			flags, args := splitFlagsFromArgs(test.args)
@@ -459,7 +458,6 @@ func TestFilterForwardBuildFlags(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			got, _ := filterForwardBuildFlags(test.flags)
@@ -488,7 +486,6 @@ func TestFlagValue(t *testing.T) {
 		{"StrEmpty", []string{"-buildid="}, "-buildid", ""},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			got := flagValue(test.flags, test.flagName)
