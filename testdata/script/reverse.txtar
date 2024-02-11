@@ -46,7 +46,7 @@ cmp stdout main-literals.stderr
 -- go.mod --
 module test/main
 
-go 1.21
+go 1.22
 -- long_main.go --
 package main
 
