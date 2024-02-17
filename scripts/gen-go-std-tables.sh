@@ -34,12 +34,6 @@ var runtimeAndDeps = map[string]bool{
 $(for path in ${runtime_and_deps}; do
 	echo "\"${path}\": true,"
 done)
-	// Not runtime dependencies, but still use tricks allowed by import path.
-	// TODO: collect directly from cmd/internal/objabi/pkgspecial.go,
-	// in this particular case from allowAsmABIPkgs.
-	"reflect": true,
-	"syscall": true,
-	"runtime/internal/startlinetest": true,
 }
 
 var runtimeLinknamed = []string{

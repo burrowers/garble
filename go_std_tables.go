@@ -20,12 +20,6 @@ var runtimeAndDeps = map[string]bool{
 	"runtime/internal/sys":     true,
 	"runtime/internal/syscall": true,
 	"runtime":                  true,
-	// Not runtime dependencies, but still use tricks allowed by import path.
-	// TODO: collect directly from cmd/internal/objabi/pkgspecial.go,
-	// in this particular case from allowAsmABIPkgs.
-	"reflect":                        true,
-	"syscall":                        true,
-	"runtime/internal/startlinetest": true,
 }
 
 var runtimeLinknamed = []string{

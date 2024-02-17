@@ -33,6 +33,9 @@ modules=(
 	github.com/andybalholm/brotli v1.0.4
 
 	# TODO: consider github.com/mattn/go-sqlite3 to cover a DB and more cgo
+
+	# TODO: add x/net and x/unix as they include hacks like go:linkname
+	# or copying syscall types.
 )
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
