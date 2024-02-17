@@ -61,6 +61,21 @@ func main() {
 	fmt.Println(T("foo"))
 	fmt.Println(T("foo").unexportedMethod())
 }
+
+-- main_linux.go --
+package main
+
+import "syscall"
+
+// golang.org/x/sys/unix has a copy of syscall.Rlimit and converts with it.
+// Note that syscall.Rlimit is only declared in some unix GOOSes.
+type Rlimit2 struct {
+	Cur uint64
+	Max uint64
+}
+
+var _ = (*syscall.Rlimit)(new(Rlimit2))
+
 -- lib1/lib1.go --
 package lib1
 
