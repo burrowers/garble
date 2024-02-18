@@ -200,7 +200,7 @@ func (w *uniqueLineWriter) Write(p []byte) (n int, err error) {
 		panic("unexpected use of uniqueLineWriter with -debug unset")
 	}
 	if bytes.Count(p, []byte("\n")) != 1 {
-		panic(fmt.Sprintf("log write wasn't just one line: %q", p))
+		return 0, fmt.Errorf("log write wasn't just one line: %q", p)
 	}
 	if w.seen[string(p)] {
 		return len(p), nil
@@ -1262,7 +1262,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 		beforePath, afterPath := pair[0], pair[1]
 		lpkg, err := listPackage(tf.curPkg, beforePath)
 		if err != nil {
-			panic(err) // shouldn't happen
+			return "", err
 		}
 		if lpkg.ToObfuscate {
 			// Note that beforePath is not the canonical path.
@@ -1327,7 +1327,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 			if strings.HasSuffix(tf.curPkg.ImportPath, ".test]") && strings.HasPrefix(tf.curPkg.ImportPath, impPath) {
 				continue
 			}
-			panic(err) // shouldn't happen
+			return "", err
 		}
 		if lpkg.Name != "main" {
 			impPath = lpkg.obfuscatedImportPath()
@@ -1470,7 +1470,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		// Shadowing lpkg ensures we don't use the wrong listedPackage below.
 		lpkg, err := listPackage(lpkg, imp)
 		if err != nil {
-			panic(err) // shouldn't happen
+			return computed, err
 		}
 		if lpkg.BuildID == "" {
 			continue // nothing to load

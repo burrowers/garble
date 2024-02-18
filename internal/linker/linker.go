@@ -217,7 +217,7 @@ func PatchLinker(goRoot, goVersion, cacheDir, tempDir string) (string, func(), e
 
 	patchesVer, modFiles, patches, err := loadLinkerPatches(majorGoVersion)
 	if err != nil {
-		panic(fmt.Errorf("cannot retrieve linker patches: %v", err))
+		return "", nil, fmt.Errorf("cannot retrieve linker patches: %v", err)
 	}
 
 	outputLinkPath, err := cachePath(cacheDir)
