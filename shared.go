@@ -379,7 +379,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 			return pkg, nil
 		}
 		if listedRuntimeLinknamed {
-			panic(fmt.Sprintf("package %q still missing after go list call", path))
+			return nil, fmt.Errorf("package %q still missing after go list call", path)
 		}
 		startTime := time.Now()
 		missing := make([]string, 0, len(runtimeLinknamed))
@@ -397,11 +397,11 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 		}
 		// We don't need any information about their dependencies, in this case.
 		if err := appendListedPackages(missing, false); err != nil {
-			panic(err) // should never happen
+			return nil, fmt.Errorf("failed to load missing runtime-linknamed packages: %v", err)
 		}
 		pkg, ok := sharedCache.ListedPackages[path]
 		if !ok {
-			panic(fmt.Sprintf("std listed another std package that we can't find: %s", path))
+			return nil, fmt.Errorf("std listed another std package that we can't find: %s", path)
 		}
 		listedRuntimeLinknamed = true
 		log.Printf("listed %d missing runtime-linknamed packages in %s", len(missing), debugSince(startTime))
