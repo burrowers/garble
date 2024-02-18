@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.12.1] - 2024-02-18
+
+This bugfix release fixes a regression in v0.12.0 that broke `x/sys/unix`.
+See #830.
+
 ## [v0.12.0] - 2024-02-10
 
 This release continues support for Go 1.21 and includes fixes for Go 1.22,
@@ -276,6 +281,8 @@ Known bugs:
 
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
+
+[v0.12.1]: https://github.com/burrowers/garble/releases/tag/v0.12.1
 
 [v0.12.0]: https://github.com/burrowers/garble/releases/tag/v0.12.0
 [#690]: https://github.com/burrowers/garble/issues/690
