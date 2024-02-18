@@ -268,7 +268,10 @@ type errJustExit int
 func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
 func goVersionOK() bool {
-	const minGoVersion = "go1.22"
+	const (
+		minGoVersion = "go1.22" // the first major version we support
+		maxGoVersion = "go1.23" // the first major version we don't support
+	)
 
 	// rxVersion looks for a version like "go1.2" or "go1.2.3" in `go env GOVERSION`.
 	rxVersion := regexp.MustCompile(`go\d+\.\d+(?:\.\d+)?`)
@@ -283,6 +286,10 @@ func goVersionOK() bool {
 
 	if version.Compare(sharedCache.GoVersion, minGoVersion) < 0 {
 		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to %s or newer\n", toolchainVersionFull, minGoVersion)
+		return false
+	}
+	if version.Compare(sharedCache.GoVersion, maxGoVersion) >= 0 {
+		fmt.Fprintf(os.Stderr, "Go version %q is too new; Go linker patches aren't available for %s or later yet\n", toolchainVersionFull, maxGoVersion)
 		return false
 	}
 
