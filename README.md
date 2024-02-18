@@ -172,6 +172,11 @@ to document the current shortcomings of this tool.
    var _ = reflect.TypeOf(Message{})
    ```
 
+* Go programs [are initialized](https://go.dev/ref/spec#Program_initialization) one package at a time,
+  where imported packages are always initialized before their importers,
+  and otherwise they are initialized in the lexical order of their import paths.
+  Since garble obfuscates import paths, this lexical order may change arbitrarily.
+
 * Go plugins are not currently supported; see [#87](https://github.com/burrowers/garble/issues/87).
 * Garble requires `git` to patch the linker. That can be avoided once go-gitdiff supports [non-strict patches](https://github.com/bluekeyes/go-gitdiff/issues/30). 
 
