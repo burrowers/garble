@@ -1773,13 +1773,8 @@ func (tf *transformer) useAllImports(file *ast.File) {
 			continue
 		}
 
-		// Simple import has no ast.Ident and is stored in Implicits separately.
-		pkgObj := tf.info.Implicits[imp]
-		if pkgObj == nil {
-			pkgObj = tf.info.Defs[imp.Name] // renamed or dot import
-		}
-
-		pkgScope := pkgObj.(*types.PkgName).Imported().Scope()
+		pkgName := tf.info.PkgNameOf(imp)
+		pkgScope := pkgName.Imported().Scope()
 		var nameObj types.Object
 		for _, name := range pkgScope.Names() {
 			if obj := pkgScope.Lookup(name); obj.Exported() && isSafeForInstanceType(obj.Type()) {
@@ -1800,7 +1795,7 @@ func (tf *transformer) useAllImports(file *ast.File) {
 		switch {
 		case imp.Name == nil: // import "pkg/path"
 			nameExpr = &ast.SelectorExpr{
-				X:   ast.NewIdent(pkgObj.Name()),
+				X:   ast.NewIdent(pkgName.Name()),
 				Sel: nameIdent,
 			}
 		case imp.Name.Name != ".": // import path2 "pkg/path"
