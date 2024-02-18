@@ -32,15 +32,15 @@ env TOOLCHAIN_GOVERSION='go1.14'
 ! exec garble build
 stderr 'Go version "go1\.14" is too old; please upgrade to go1\.22 or newer'
 
-# We should accept a future stable version.
+# We should reject a future stable version, as we don't have linker patches yet.
 # Note that we need to bump the version of Go that supposedly built it, too.
 env GARBLE_TEST_GOVERSION='go1.28.2'
 env TOOLCHAIN_GOVERSION='go1.28.2'
 ! exec garble build
-stderr 'mocking the real build'
+stderr 'Go version "go1\.28\.2" is too new; Go linker patches aren''t available for go1\.23 or later yet'
 
 # We should accept custom devel strings.
-env TOOLCHAIN_GOVERSION='devel go1.23-somecustomversion'
+env TOOLCHAIN_GOVERSION='devel go1.22-somecustomversion'
 ! exec garble build
 stderr 'mocking the real build'
 
