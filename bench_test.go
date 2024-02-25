@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	qt "github.com/frankban/quicktest"
+	"github.com/go-quicktest/qt"
 )
 
 //go:embed testdata/bench/main.go
@@ -57,11 +57,11 @@ func BenchmarkBuild(b *testing.B) {
 
 	outputBin := filepath.Join(tdir, "output")
 	sourceDir := filepath.Join(tdir, "src")
-	qt.Assert(b, os.Mkdir(sourceDir, 0o777), qt.IsNil)
+	qt.Assert(b, qt.IsNil(os.Mkdir(sourceDir, 0o777)))
 
 	writeSourceFile := func(name string, content []byte) {
 		err := os.WriteFile(filepath.Join(sourceDir, name), content, 0o666)
-		qt.Assert(b, err, qt.IsNil)
+		qt.Assert(b, qt.IsNil(err))
 	}
 	writeSourceFile("go.mod", []byte("module test/main"))
 	writeSourceFile("main.go", benchSourceMain)
@@ -74,11 +74,11 @@ func BenchmarkBuild(b *testing.B) {
 		// First we do a fresh build, using empty cache directories,
 		// and the second does an incremental rebuild reusing the same cache directories.
 		goCache := filepath.Join(tdir, "go-cache")
-		qt.Assert(b, os.RemoveAll(goCache), qt.IsNil)
-		qt.Assert(b, os.Mkdir(goCache, 0o777), qt.IsNil)
+		qt.Assert(b, qt.IsNil(os.RemoveAll(goCache)))
+		qt.Assert(b, qt.IsNil(os.Mkdir(goCache, 0o777)))
 		garbleCache := filepath.Join(tdir, "garble-cache")
-		qt.Assert(b, os.RemoveAll(garbleCache), qt.IsNil)
-		qt.Assert(b, os.Mkdir(garbleCache, 0o777), qt.IsNil)
+		qt.Assert(b, qt.IsNil(os.RemoveAll(garbleCache)))
+		qt.Assert(b, qt.IsNil(os.Mkdir(garbleCache, 0o777)))
 		env := append(os.Environ(),
 			"RUN_GARBLE_MAIN=true",
 			"GOCACHE="+goCache,
@@ -106,25 +106,25 @@ func BenchmarkBuild(b *testing.B) {
 				cachedTime += time.Since(cachedStart).Nanoseconds()
 			}
 
-			qt.Assert(b, err, qt.IsNil, qt.Commentf("output: %s", out))
+			qt.Assert(b, qt.IsNil(err), qt.Commentf("output: %s", out))
 			if !cached {
 				// Ensure that we built all packages, as expected.
-				qt.Assert(b, rxBuiltRuntime.Match(out), qt.IsTrue)
+				qt.Assert(b, qt.IsTrue(rxBuiltRuntime.Match(out)))
 			} else {
 				// Ensure that we only rebuilt the main package, as expected.
-				qt.Assert(b, rxBuiltRuntime.Match(out), qt.IsFalse)
+				qt.Assert(b, qt.IsFalse(rxBuiltRuntime.Match(out)))
 			}
-			qt.Assert(b, rxBuiltMain.Match(out), qt.IsTrue)
+			qt.Assert(b, qt.IsTrue(rxBuiltMain.Match(out)))
 
 			matches := rxGarbleAllocs.FindAllSubmatch(out, -1)
 			if !cached {
 				// The non-cached version should have at least a handful of
 				// sub-processes; catch if our logic breaks.
-				qt.Assert(b, len(matches) > 5, qt.IsTrue)
+				qt.Assert(b, qt.IsTrue(len(matches) > 5))
 			}
 			for _, match := range matches {
 				allocs, err := strconv.ParseInt(string(match[1]), 10, 64)
-				qt.Assert(b, err, qt.IsNil)
+				qt.Assert(b, qt.IsNil(err))
 				memoryAllocs += allocs
 			}
 
