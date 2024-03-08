@@ -142,7 +142,7 @@ func main() {
 	garbleBin := buildTestGarble(tdir)
 	args := append([]string{"-seed", garbleSeed, "-literals", "test", "-bench"}, os.Args[1:]...)
 	cmd := exec.Command(garbleBin, args...)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(cmd.Environ(),
 		// Explicitly specify package for obfuscation to avoid affecting testing package.
 		"GOGARBLE="+moduleName,
 		"GARBLE_TEST_LITERALS_OBFUSCATOR_MAP="+strings.Join(packageToObfuscatorIndex, ","),

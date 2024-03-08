@@ -196,7 +196,7 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 	//   go version -m ~/tip/pkg/tool/linux_amd64/link
 	//
 	// and which can be done from Go via debug/buildinfo.ReadFile.
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(cmd.Environ(),
 		"GOENV=off", "GOOS=", "GOARCH=", "GOEXPERIMENT=", "GOFLAGS=",
 	)
 	// Building cmd/link is possible from anywhere, but to avoid any possible side effects build in a temp directory
