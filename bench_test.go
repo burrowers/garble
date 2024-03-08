@@ -79,12 +79,12 @@ func BenchmarkBuild(b *testing.B) {
 		garbleCache := filepath.Join(tdir, "garble-cache")
 		qt.Assert(b, qt.IsNil(os.RemoveAll(garbleCache)))
 		qt.Assert(b, qt.IsNil(os.Mkdir(garbleCache, 0o777)))
-		env := append(os.Environ(),
+		env := []string{
 			"RUN_GARBLE_MAIN=true",
-			"GOCACHE="+goCache,
-			"GARBLE_CACHE="+garbleCache,
+			"GOCACHE=" + goCache,
+			"GARBLE_CACHE=" + garbleCache,
 			"GARBLE_WRITE_ALLOCS=true",
-		)
+		}
 		args := []string{"build", "-v", "-o=" + outputBin, sourceDir}
 
 		for _, cached := range []bool{false, true} {
@@ -95,7 +95,7 @@ func BenchmarkBuild(b *testing.B) {
 			}
 
 			cmd := exec.Command(os.Args[0], args...)
-			cmd.Env = env
+			cmd.Env = append(cmd.Environ(), env...)
 			cmd.Dir = sourceDir
 
 			cachedStart := time.Now()
