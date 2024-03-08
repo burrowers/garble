@@ -128,9 +128,8 @@ func writeGobExclusive(name string, val any) error {
 	if err != nil {
 		return err
 	}
-	if err := gob.NewEncoder(f).Encode(val); err != nil {
-		return err
-	}
+	// Always close the file, and return the first error we get.
+	err = gob.NewEncoder(f).Encode(val)
 	if err2 := f.Close(); err == nil {
 		err = err2
 	}
