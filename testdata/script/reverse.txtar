@@ -102,7 +102,7 @@ func printStackTrace(w io.Writer) error {
 	// The format also changes depending on the ABI.
 	// Strip them out here, to have portable static stdout files.
 	rxCallArgs := regexp.MustCompile(`\(({|0x)[^)]+\)|\(\)`)
-	rxPointer := regexp.MustCompile(`\+0x[0-9a-f]+`)
+	rxPointer := regexp.MustCompile(`\+0x[[:xdigit:]]+`)
 
 	// Keep this comment here, because comments affect line numbers.
 
