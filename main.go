@@ -60,6 +60,8 @@ var (
 	flagSeed     seedFlag
 	// TODO(pagran): in the future, when control flow obfuscation will be stable migrate to flag
 	flagControlFlow = os.Getenv("GARBLE_EXPERIMENTAL_CONTROLFLOW") == "1"
+
+	flagLiteralMethods literalMethodListFlag
 )
 
 func init() {
@@ -69,6 +71,7 @@ func init() {
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
 	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
+	flagSet.Var(&flagLiteralMethods, "literalMethods", fmt.Sprintf("Methods to use for literals. (%s)", strings.Join(literals.GetRegisteredObfuscators(), ", ")))
 }
 
 var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed)(?:$|=)`)
@@ -108,6 +111,25 @@ func (f *seedFlag) Set(s string) error {
 		}
 		f.bytes = seed
 	}
+	return nil
+}
+
+type literalMethodListFlag []string
+
+func (l *literalMethodListFlag) String() string {
+	if l == nil || *l == nil || len(*l) <= 0 {
+		return "(all)"
+	}
+	return strings.Join(*l, ", ")
+}
+
+func (l *literalMethodListFlag) Set(s string) error {
+	names := strings.Split(strings.TrimSpace(s), ",")
+	if len(names) <= 0 || len(strings.TrimSpace(names[0])) <= 0 {
+		*l = nil
+		return nil
+	}
+	*l = names
 	return nil
 }
 
@@ -260,6 +282,18 @@ func main1() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+
+	// Set up obfuscators
+	if flagLiterals {
+		if flagLiteralMethods == nil || len(flagLiteralMethods) <= 0 {
+			literals.SetObfuscators(literals.GetRegisteredObfuscators())
+			log.Printf("Enabled all literal obfuscators\n")
+		} else {
+			literals.SetObfuscators(flagLiteralMethods)
+			log.Printf("Enabled obfuscators: %s\n", strings.Join(flagLiteralMethods, ", "))
+		}
+	}
+
 	return 0
 }
 

@@ -4,10 +4,12 @@
 package literals
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
 	mathrand "math/rand"
+	"strings"
 )
 
 // obfuscator takes a byte slice and converts it to a ast.BlockStmt
@@ -18,14 +20,10 @@ type obfuscator interface {
 var (
 	simpleObfuscator = simple{}
 
+	obfuscatorRegister map[string]obfuscator
+
 	// Obfuscators contains all types which implement the obfuscator Interface
-	Obfuscators = []obfuscator{
-		simpleObfuscator,
-		swap{},
-		split{},
-		shuffle{},
-		seed{},
-	}
+	Obfuscators []obfuscator
 
 	// LinearTimeObfuscators contains all types which implement the obfuscator Interface and can safely be used on large literals
 	LinearTimeObfuscators = []obfuscator{
@@ -35,6 +33,38 @@ var (
 	TestObfuscator         string
 	testPkgToObfuscatorMap map[string]obfuscator
 )
+
+func init() {
+	obfuscatorRegister = make(map[string]obfuscator)
+	obfuscatorRegister["simple"] = simpleObfuscator
+	obfuscatorRegister["swap"] = swap{}
+	obfuscatorRegister["split"] = split{}
+	obfuscatorRegister["shuffle"] = shuffle{}
+	obfuscatorRegister["seed"] = seed{}
+}
+
+func GetRegisteredObfuscators() (names []string) {
+	names = make([]string, 0, len(obfuscatorRegister))
+	for name, _ := range obfuscatorRegister {
+		names = append(names, name)
+	}
+	return
+}
+
+func SetObfuscators(names []string) {
+	if names == nil || len(names) <= 0 {
+		panic(errors.New("no obfuscator names provided"))
+	}
+	Obfuscators = make([]obfuscator, 0, len(names))
+	for _, name := range names {
+		name = strings.ToLower(strings.TrimSpace(name)) // always check for lower-case names
+		obf, ok := obfuscatorRegister[name]
+		if !ok {
+			panic(errors.New(fmt.Sprintf("obfuscator [%s] not found! ", name)))
+		}
+		Obfuscators = append(Obfuscators, obf)
+	}
+}
 
 func genRandIntSlice(obfRand *mathrand.Rand, max, count int) []int {
 	indexes := make([]int, count)
