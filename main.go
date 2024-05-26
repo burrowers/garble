@@ -275,13 +275,6 @@ func main1() int {
 	if flagSeed.random {
 		fmt.Fprintf(os.Stderr, "-seed chosen at random: %s\n", base64.RawStdEncoding.EncodeToString(flagSeed.bytes))
 	}
-	if err := mainErr(args); err != nil {
-		if code, ok := err.(errJustExit); ok {
-			return int(code)
-		}
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
 
 	// Set up obfuscators
 	if flagLiterals {
@@ -292,6 +285,14 @@ func main1() int {
 			literals.SetObfuscators(flagLiteralMethods)
 			log.Printf("Enabled obfuscators: %s\n", strings.Join(flagLiteralMethods, ", "))
 		}
+	}
+
+	if err := mainErr(args); err != nil {
+		if code, ok := err.(errJustExit); ok {
+			return int(code)
+		}
+		fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
 
 	return 0
