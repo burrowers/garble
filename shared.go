@@ -231,7 +231,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// However, when loading standard library packages,
 		// using those flags would likely result in an error,
 		// as the standard library uses its own Go module and vendoring.
-		args = append(args, "-mod=", "-modfile=")
+		args = append(args, "-mod=readonly", "-modfile=")
 	}
 
 	args = append(args, packages...)
