@@ -1,6 +1,8 @@
 // Copyright (c) 2024, The Garble Authors.
 // See LICENSE for licensing information.
 
+//go:build ignore
+
 // This is a program used with `go generate`, so it handles errors via panic.
 package main
 
@@ -40,40 +42,35 @@ var runtimeLinknamed = []string{
 	"net",
 }
 
-var compilerIntrinsicsPkgs = map[string]bool{
-{{- range $path := .CompilerIntrinsicsPaths }}
-	"{{ $path }}": true,
-{{- end }}
-}
-
-var compilerIntrinsicsFuncs = map[string]bool{
+var compilerIntrinsics = map[string]map[string]bool{
 {{- range $intr := .CompilerIntrinsics }}
-	"{{ $intr.Path }}.{{ $intr.Name }}": true,
+	"{{ $intr.Path }}": {
+{{- range $name := $intr.Names }}
+		"{{ $name }}": true,
+{{- end }}
+	},
 {{- end }}
 }
 
 var reflectSkipPkg = map[string]bool{
 	"fmt": true,
 }
-`))
+`[1:]))
 
 type tmplData struct {
-	GoVersion               string
-	RuntimeAndDeps          []string
-	RuntimeLinknamed        []string
-	CompilerIntrinsics      []tmplIntrinsic
-	CompilerIntrinsicsPaths []string
+	GoVersion          string
+	RuntimeAndDeps     []string
+	RuntimeLinknamed   []string
+	CompilerIntrinsics []tmplIntrinsic
 }
 
 type tmplIntrinsic struct {
-	Path, Name string
+	Path  string
+	Names []string
 }
 
 func (t tmplIntrinsic) Compare(t2 tmplIntrinsic) int {
-	if c := cmp.Compare(t.Path, t2.Path); c != 0 {
-		return c
-	}
-	return cmp.Compare(t.Name, t2.Name)
+	return cmp.Compare(t.Path, t2.Path)
 }
 
 func (t tmplIntrinsic) Equal(t2 tmplIntrinsic) bool {
@@ -141,8 +138,8 @@ func main() {
 		return slices.Contains(runtimeAndDeps, path)
 	})
 
+	compilerIntrinsicsIndexByPath := make(map[string]int)
 	var compilerIntrinsics []tmplIntrinsic
-	var compilerIntrinsicsPaths []string
 	for _, line := range strings.Split(readFile(filepath.Join(
 		goroot, "src", "cmd", "compile", "internal", "ssagen", "ssa.go",
 	)), "\n") {
@@ -150,25 +147,34 @@ func main() {
 		if m == nil {
 			continue
 		}
-		compilerIntrinsics = append(compilerIntrinsics, tmplIntrinsic{
-			Path: m[2],
-			Name: m[3],
-		})
-		compilerIntrinsicsPaths = append(compilerIntrinsicsPaths, m[2])
+		path, name := m[2], m[3]
+		if i := compilerIntrinsicsIndexByPath[path]; i == 0 {
+			compilerIntrinsicsIndexByPath[path] = len(compilerIntrinsics)
+			compilerIntrinsics = append(compilerIntrinsics, tmplIntrinsic{
+				Path:  path,
+				Names: []string{name},
+			})
+		} else {
+			compilerIntrinsics[i].Names = append(compilerIntrinsics[i].Names, name)
+		}
 	}
 	slices.SortFunc(compilerIntrinsics, tmplIntrinsic.Compare)
 	compilerIntrinsics = slices.CompactFunc(compilerIntrinsics, tmplIntrinsic.Equal)
-	slices.Sort(compilerIntrinsicsPaths)
-	compilerIntrinsicsPaths = slices.Compact(compilerIntrinsicsPaths)
+	for path := range compilerIntrinsics {
+		intr := &compilerIntrinsics[path]
+		slices.Sort(intr.Names)
+		intr.Names = slices.Compact(intr.Names)
+	}
 
 	var buf bytes.Buffer
-	tmplTables.Execute(&buf, tmplData{
-		GoVersion:               goversion,
-		RuntimeAndDeps:          runtimeAndDeps,
-		RuntimeLinknamed:        runtimeLinknamed,
-		CompilerIntrinsics:      compilerIntrinsics,
-		CompilerIntrinsicsPaths: compilerIntrinsicsPaths,
-	})
+	if err := tmplTables.Execute(&buf, tmplData{
+		GoVersion:          goversion,
+		RuntimeAndDeps:     runtimeAndDeps,
+		RuntimeLinknamed:   runtimeLinknamed,
+		CompilerIntrinsics: compilerIntrinsics,
+	}); err != nil {
+		panic(err)
+	}
 	out := buf.Bytes()
 	formatted, err := format.Source(out)
 	if err != nil {
