@@ -20,7 +20,7 @@ import (
 	"golang.org/x/mod/module"
 )
 
-//go:generate ./scripts/gen-go-std-tables.sh
+//go:generate go run scripts/gen_go_std_tables.go
 
 // sharedCacheType is shared as a read-only cache between the many garble toolexec
 // sub-processes.
