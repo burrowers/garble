@@ -869,7 +869,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		name := string(remaining[:nameEnd])
 		remaining = remaining[nameEnd:]
 
-		if lpkg.ToObfuscate && !compilerIntrinsicsFuncs[lpkg.ImportPath+"."+name] {
+		if lpkg.ToObfuscate && !compilerIntrinsics[lpkg.ImportPath][name] {
 			newName := hashWithPackage(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, tf.curPkg.GarbleActionID, newName)
@@ -1107,7 +1107,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) {
 
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
 	// obfuscate the local name, if the current package is obfuscated
-	if tf.curPkg.ToObfuscate && !compilerIntrinsicsFuncs[tf.curPkg.ImportPath+"."+localName] {
+	if tf.curPkg.ToObfuscate && !compilerIntrinsics[tf.curPkg.ImportPath][localName] {
 		localName = hashWithPackage(tf.curPkg, localName)
 	}
 	if newName == "" {
@@ -1169,7 +1169,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		panic(err) // shouldn't happen
 	}
 
-	if !lpkg.ToObfuscate || compilerIntrinsicsFuncs[lpkg.ImportPath+"."+foreignName] {
+	if !lpkg.ToObfuscate || compilerIntrinsics[lpkg.ImportPath][foreignName] {
 		// We're not obfuscating that package or name.
 		return localName, newName
 	}
@@ -2010,7 +2010,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		case *types.TypeName:
 			debugName = "type"
 		case *types.Func:
-			if compilerIntrinsicsFuncs[path+"."+name] {
+			if compilerIntrinsics[path][name] {
 				return true
 			}
 

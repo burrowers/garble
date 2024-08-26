@@ -191,7 +191,7 @@ func (p *listedPackage) obfuscatedImportPath() string {
 		return p.ImportPath
 	}
 	// Intrinsics are matched by package import path as well.
-	if compilerIntrinsicsPkgs[p.ImportPath] {
+	if _, ok := compilerIntrinsics[p.ImportPath]; ok {
 		return p.ImportPath
 	}
 	if !p.ToObfuscate {
