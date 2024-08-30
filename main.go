@@ -270,7 +270,7 @@ func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 func goVersionOK() bool {
 	const (
 		minGoVersion = "go1.22" // the first major version we support
-		maxGoVersion = "go1.23" // the first major version we don't support
+		maxGoVersion = "go1.24" // the first major version we don't support
 	)
 
 	// rxVersion looks for a version like "go1.2" or "go1.2.3" in `go env GOVERSION`.
