@@ -78,6 +78,7 @@ func unexportedMainFunc() {
 package lib
 
 import (
+	"bytes"
 	"io"
 	"regexp"
 	"runtime"
@@ -109,19 +110,22 @@ func printStackTrace(w io.Writer) error {
 	stack := debug.Stack()
 	stack = rxCallArgs.ReplaceAll(stack, []byte("(...)"))
 	stack = rxPointer.ReplaceAll(stack, []byte("+0x??"))
-	_, err := w.Write(stack)
+
+	// Drop the second and third lines, as they show a position in runtime/debug
+	// which can change between Go versions.
+	stackLines := bytes.Split(stack, []byte("\n"))
+	stackLines = append(stackLines[:1], stackLines[3:]...)
+	_, err := w.Write(bytes.Join(stackLines, []byte("\n")))
 	return err
 }
 -- reverse.stdout --
 lib filename: test/main/lib/long_lib.go
 
 goroutine 1 [running]:
-runtime/debug.Stack(...)
-	runtime/debug/stack.go:24 +0x??
 test/main/lib.printStackTrace(...)
-	test/main/lib/long_lib.go:32 +0x??
+	test/main/lib/long_lib.go:33 +0x??
 test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
-	test/main/lib/long_lib.go:19 +0x??
+	test/main/lib/long_lib.go:20 +0x??
 main.unexportedMainFunc.func1(...)
 	test/main/long_main.go:21
 main.unexportedMainFunc(...)
