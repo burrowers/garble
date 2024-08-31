@@ -1,3 +1,9 @@
+# This test stopped working on Go 1.23, as linknaming into the runtime
+# is now forbidden since https://go.dev/issue/67401.
+# Perhaps rewrite this test by searching for the pcheader magic number
+# by scanning the binary, like debug/buildinfo/buildinfo.go does in searchMagic.
+skip 'no longer works on Go 1.23'
+
 # Past garble versions might not properly patch cmd/link with "git apply"
 # when running inside a git repository. Skip the extra check with -short.
 [!short] [exec:git] exec git init -q
