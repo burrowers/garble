@@ -25,12 +25,12 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.22.x]
+        go-version: [1.22.x, 1.23.x]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/setup-go@v4
+    - uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
         cache: false
@@ -40,7 +40,7 @@ jobs:
       run: go test -timeout=15m ./...
     # macos and windows failures with bincmp can be hard to reproduce locally,
     # so upload the binaries as artifacts.
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       if: failure()
       with:
         name: bincmp_output
@@ -53,20 +53,20 @@ jobs:
     # Static checks from this point forward. Only run on one Go version and on
     # linux, since it's the fastest platform, and the tools behave the same.
     - name: Test third-party project builds
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22.x'
+      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.23.x'
       run: |
         go install
         ./scripts/check-third-party.sh
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22.x'
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.23.x'
       run: ./scripts/crlf-test.sh
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22.x'
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.23.x'
       run: diff <(echo -n) <(gofmt -d .)
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22.x'
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.23.x'
       run: go vet ./...
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22.x'
+    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.23.x'
       uses: dominikh/staticcheck-action@v1
       with:
-        version: "2023.1.6"
+        version: "2024.1.1"
         install-go: false
 
   # We don't care about GOARCH=386 particularly, hence -short,
@@ -79,31 +79,8 @@ jobs:
       GOARCH: 386
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/setup-go@v4
+    - uses: actions/setup-go@v5
       with:
-        go-version: 1.22.x
+        go-version: 1.23.x
         cache: false
     - run: go test -short ./...
-
-  test-gotip:
-    if: false # let tip for 1.23 settle first
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Install Go
-      env:
-        GO_COMMIT: 2184a394777ccc9ce9625932b2ad773e6e626be0 # 2023-12-21
-      run: |
-        cd $HOME
-        mkdir $HOME/gotip
-        cd $HOME/gotip
-
-        wget -O gotip.tar.gz https://go.googlesource.com/go/+archive/${GO_COMMIT}.tar.gz
-        tar -xf gotip.tar.gz
-        echo "devel go1.22-${GO_COMMIT}" >VERSION
-
-        cd src
-        ./make.bash
-        echo "GOROOT=$HOME/gotip" >>$GITHUB_ENV
-        echo "$HOME/gotip/bin" >>$GITHUB_PATH
-    - run: go test -timeout=15m ./...
