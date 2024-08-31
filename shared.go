@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -231,7 +232,9 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// However, when loading standard library packages,
 		// using those flags would likely result in an error,
 		// as the standard library uses its own Go module and vendoring.
-		args = append(args, "-mod=readonly", "-modfile=")
+		args = slices.DeleteFunc(args, func(arg string) bool {
+			return strings.HasPrefix(arg, "-mod=") || strings.HasPrefix(arg, "-modfile=")
+		})
 	}
 
 	args = append(args, packages...)
