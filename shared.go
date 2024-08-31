@@ -265,10 +265,13 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		}
 
 		if perr := pkg.Error; perr != nil {
-			if pkg.Standard && len(pkg.CompiledGoFiles) == 0 && len(pkg.IgnoredGoFiles) > 0 {
+			if !mainBuild && len(pkg.CompiledGoFiles) == 0 && len(pkg.IgnoredGoFiles) > 0 {
 				// Some packages in runtimeLinknamed need a build tag to be importable,
 				// like crypto/internal/boring/fipstls with boringcrypto,
 				// so any pkg.Error should be ignored when the build tag isn't set.
+			} else if !mainBuild && strings.Contains(perr.Err, "is not in std") {
+				// When we support multiple Go versions at once, some packages may only
+				// exist in the newer version, so we fail to list them with the older.
 			} else {
 				if pkgErrors.Len() > 0 {
 					pkgErrors.WriteString("\n")
