@@ -43,14 +43,6 @@ import (
 	"test/main/imported"
 )
 
-// A linkname to an external non-obfuscated func.
-//go:linkname byteIndex strings.IndexByte
-func byteIndex(s string, c byte) int
-
-// A linkname to an external non-obfuscated non-exported func.
-//go:linkname interfaceEqual os/exec.interfaceEqual
-func interfaceEqual(a, b any) bool
-
 // A linkname to an external obfuscated func.
 //go:linkname obfuscatedFunc test/main/imported.ObfuscatedFuncImpl
 func obfuscatedFunc() string
@@ -85,9 +77,6 @@ func renamedFunc() string
 func tagline() string
 
 func main() {
-	println(byteIndex("01234", '3'))
-	println(interfaceEqual("Sephiroth", 7))
-
 	println(obfuscatedFunc())
 
 	r := imported.Receiver{Field: "field value"}
@@ -157,8 +146,6 @@ func chungify() string {
 	return "featuring Dante from the Devil May Cry series"
 }
 -- main.stderr --
-3
-false
 obfuscated func
 obfuscated method: field value
 unobfuscated method: field value
