@@ -40,3 +40,13 @@ import "net/http"
 func main() {
 	http.ListenAndServe("", nil)
 }
+
+-- 32bit.go --
+//go:build arm
+
+package main
+
+// Will give "out of bounds" if we don't correctly set up types.Config.Sizes.
+const is64bit = ^uint(0) >> 63 // 0 for 32-bit hosts, 1 for 64-bit ones.
+var x [1]struct{}
+var _ = x[is64bit]

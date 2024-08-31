@@ -1668,7 +1668,10 @@ func typecheck(pkgPath string, files []*ast.File, origImporter importerWithMap) 
 		Instances:  make(map[*ast.Ident]types.Instance),
 	}
 	// TODO(mvdan): we should probably set types.Config.GoVersion from go.mod
-	origTypesConfig := types.Config{Importer: origImporter}
+	origTypesConfig := types.Config{
+		Importer: origImporter,
+		Sizes:    types.SizesFor("gc", sharedCache.GoEnv.GOARCH),
+	}
 	pkg, err := origTypesConfig.Check(pkgPath, fset, files, info)
 	if err != nil {
 		return nil, nil, fmt.Errorf("typecheck error: %v", err)
@@ -2367,8 +2370,8 @@ func flagSetValue(flags []string, name, value string) []string {
 
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
-		// Keep in sync with sharedCache.GoEnv.
-		"GOOS", "GOMOD", "GOVERSION", "GOROOT",
+		// Keep in sync with [sharedCacheType.GoEnv].
+		"GOOS", "GOARCH", "GOMOD", "GOVERSION", "GOROOT",
 	).CombinedOutput()
 	if err != nil {
 		// TODO: cover this in the tests.

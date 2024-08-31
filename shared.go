@@ -60,7 +60,8 @@ type sharedCacheType struct {
 	// Filled directly from "go env".
 	// Keep in sync with fetchGoEnv.
 	GoEnv struct {
-		GOOS string // i.e. the GOOS build target
+		GOOS   string // the GOOS build target
+		GOARCH string // the GOARCH build target
 
 		GOMOD     string
 		GOVERSION string
