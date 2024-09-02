@@ -15,22 +15,23 @@
 # Also remember that the standard library already provides significant cover.
 modules=(
 	# Protobuf helps cover encoding libraries and reflection.
-	google.golang.org/protobuf v1.28.1
+	google.golang.org/protobuf v1.34.2
 
 	# Wireguard helps cover networking and cryptography.
-	golang.zx2c4.com/wireguard 0.0.20220316
+	# Note that the latest tag does not build on Go 1.23.
+	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 
 	# Lo helps cover generics.
 	# TODO: would be nice to find a more popular alternative,
 	# at least once generics are more widespread.
-	github.com/samber/lo v1.21.0
+	github.com/samber/lo v1.47.0
 
 	# Brotli is a compression algorithm popular with HTTP.
 	# It's also transpiled from C with a gitlab.com/cznic/ccgo,
 	# so this helps stress garble with Go code that few humans would write.
 	# Unlike other ccgo-generated projects, like modernc.org/sqlite,
 	# it's relatively small without any transitive dependencies.
-	github.com/andybalholm/brotli v1.0.4
+	github.com/andybalholm/brotli v1.1.0
 
 	# TODO: consider github.com/mattn/go-sqlite3 to cover a DB and more cgo
 
@@ -44,7 +45,10 @@ exit_code=0
 
 show() {
 	echo "> ${@}"
-	"${@}"
+	if ! "${@}"; then
+		echo "FAIL"
+		return 1
+	fi
 }
 
 BASE_GOFLAGS="$(go env GOFLAGS)"
@@ -64,7 +68,7 @@ for ((i = 0; i < ${#modules[@]}; i += 2)); do
 		# Use the custom go.mod file for the rest of the commands via GOFLAGS.
 		# We should delete these cached modfiles with major Go updates,
 		# to recreate their "tidy" version with newer Go toolchains.
-		cached_modfile="${module}_${version}"
+		cached_modfile="${module}"
 		cached_modfile="${CACHED_MODFILES}/${cached_modfile//[^A-Za-z0-9._-]/_}.mod"
 		export GOFLAGS="${BASE_GOFLAGS} -modfile=${cached_modfile}"
 
