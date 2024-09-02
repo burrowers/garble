@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
+//lint:ignore SA1019 we need to mention go/ast.Object here to ignore the fields with its type.
 var astCmpOpt = cmpopts.IgnoreTypes(token.NoPos, &ast.Object{})
 
 func findStruct(file *ast.File, structName string) (name *ast.Ident, structType *ast.StructType) {
