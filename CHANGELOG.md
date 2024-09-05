@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.13.0] - 2024-09-05
+
+This release drops support for Go 1.21 and adds support for Go 1.23.
+
+A number of fixes are also included:
+* Fix obfuscation errors when arch-dependent struct padding is used
+* Fix a failure when using garble inside a `go.work` workspace
+* Fail early and clearly if the Go version is too new
+* Rewrite the main `go generate` script from Bash to Go and improve it
+
 ## [v0.12.1] - 2024-02-18
 
 This bugfix release fixes a regression in v0.12.0 that broke `x/sys/unix`.
