@@ -18,7 +18,7 @@ import (
 func commandReverse(args []string) error {
 	flags, args := splitFlagsFromArgs(args)
 	if hasHelpFlag(flags) || len(args) == 0 {
-		fmt.Fprintf(os.Stderr, `
+		fmt.Fprint(os.Stderr, `
 usage: garble [garble flags] reverse [build flags] package [files]
 
 For example, after building an obfuscated program as follows:

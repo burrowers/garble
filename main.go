@@ -112,7 +112,7 @@ func (f *seedFlag) Set(s string) error {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `
+	fmt.Fprint(os.Stderr, `
 Garble obfuscates Go code by wrapping the Go toolchain.
 
 	garble [garble flags] command [go flags] [go arguments]
@@ -139,7 +139,7 @@ garble accepts the following flags before a command:
 
 `[1:])
 	flagSet.PrintDefaults()
-	fmt.Fprintf(os.Stderr, `
+	fmt.Fprint(os.Stderr, `
 
 For more information, see https://github.com/burrowers/garble.
 `[1:])
