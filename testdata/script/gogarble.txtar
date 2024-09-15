@@ -54,7 +54,7 @@ bincmp out_rebuild out
 -- go.mod --
 module test/main
 
-go 1.22
+go 1.23
 -- standalone/main.go --
 package main
 
