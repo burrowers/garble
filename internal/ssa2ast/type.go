@@ -17,8 +17,8 @@ func NewTypeConverted(resolver ImportNameResolver) *TypeConverter {
 	return &TypeConverter{resolver: resolver}
 }
 
-func (tc *TypeConverter) Convert(t types.Type) (ast.Expr, error) {
-	switch typ := t.(type) {
+func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
+	switch typ := types.Unalias(typ).(type) {
 	case *types.Array:
 		eltExpr, err := tc.Convert(typ.Elem())
 		if err != nil {
