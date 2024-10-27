@@ -1106,10 +1106,12 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) {
 }
 
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
+
 	// obfuscate the local name, if the current package is obfuscated
 	if tf.curPkg.ToObfuscate && !compilerIntrinsics[tf.curPkg.ImportPath][localName] {
 		localName = hashWithPackage(tf.curPkg, localName)
 	}
+
 	if newName == "" {
 		return localName, ""
 	}
@@ -1130,8 +1132,12 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 	}
 
 	pkgSplit := 0
-	var lpkg *listedPackage
-	var foreignName string
+	var (
+		// get the package path of the item to determine if it is obfuscated or not
+		pkgPath     string
+		foreignName string
+		lpkg        *listedPackage
+	)
 	for {
 		i := strings.Index(newName[pkgSplit:], ".")
 		if i < 0 {
@@ -1140,7 +1146,8 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 			return localName, newName
 		}
 		pkgSplit += i
-		pkgPath := newName[:pkgSplit]
+		pkgPath = newName[:pkgSplit]
+
 		pkgSplit++ // skip over the dot
 
 		if strings.HasSuffix(pkgPath, "_test") {
@@ -1176,17 +1183,32 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 	var newForeignName string
 	if receiver, name, ok := strings.Cut(foreignName, "."); ok {
+
 		if lpkg.ImportPath == "reflect" && (receiver == "(*rtype)" || receiver == "Value") {
 			// These receivers are not obfuscated.
 			// See the TODO below.
 		} else if strings.HasPrefix(receiver, "(*") {
+
 			// pkg/path.(*Receiver).method
 			receiver = strings.TrimPrefix(receiver, "(*")
 			receiver = strings.TrimSuffix(receiver, ")")
-			receiver = "(*" + hashWithPackage(lpkg, receiver) + ")"
+
+			_, ok := tf.curPkgCache.ReflectObjects[pkgPath+"."+receiver]
+
+			if !ok {
+				receiver = hashWithPackage(lpkg, receiver)
+			}
+
+			receiver = "(*" + receiver + ")"
+
 		} else {
 			// pkg/path.Receiver.method
-			receiver = hashWithPackage(lpkg, receiver)
+
+			_, ok := tf.curPkgCache.ReflectObjects[pkgPath+"."+receiver]
+
+			if !ok {
+				receiver = hashWithPackage(lpkg, receiver)
+			}
 		}
 		// Exported methods are never obfuscated.
 		//
