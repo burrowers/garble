@@ -69,7 +69,7 @@ One can reverse a captured panic stack trace as follows:
 			continue
 		}
 		addHashedWithPackage := func(str string) {
-			replaces = append(replaces, hashWithPackage(lpkg, str), str)
+			replaces = append(replaces, hashWithPackage(nil, lpkg, str), str)
 		}
 
 		// Package paths are obfuscated, too.
@@ -113,7 +113,7 @@ One can reverse a captured panic stack trace as follows:
 					// Reverse position information of call sites.
 					pos := fset.Position(node.Pos())
 					origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
-					newFilename := hashWithPackage(lpkg, origPos) + ".go"
+					newFilename := hashWithPackage(nil, lpkg, origPos) + ".go"
 
 					// Do "obfuscated.go:1", corresponding to the call site's line.
 					// Most common in stack traces.

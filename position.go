@@ -127,7 +127,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			newName := ""
 			if !flagTiny {
 				origPos := fmt.Sprintf("%s:%d", filename, origOffset)
-				newName = hashWithPackage(lpkg, origPos) + ".go"
+				newName = hashWithPackage(nil, lpkg, origPos) + ".go"
 				// log.Printf("%q hashed with %x to %q", origPos, curPkg.GarbleActionID, newName)
 			}
 
