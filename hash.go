@@ -228,8 +228,7 @@ func hashWithPackage(tf *transformer, pkg *listedPackage, name string) string {
 	// In some places it is not appropriate to access the transformer
 	if tf != nil {
 		// If the package is marked as "in-use" by reflection, the private structures are not obfuscated, so dont return them as a hash. Fixes #882
-		_, ok := tf.curPkgCache.ReflectObjects[pkg.ImportPath+"."+name]
-		if ok {
+		if _, ok := tf.curPkgCache.ReflectObjects[pkg.ImportPath+"."+name]; ok {
 			return name
 		}
 	}

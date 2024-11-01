@@ -1141,7 +1141,6 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		}
 		pkgSplit += i
 		pkgPath := newName[:pkgSplit]
-
 		pkgSplit++ // skip over the dot
 
 		if strings.HasSuffix(pkgPath, "_test") {

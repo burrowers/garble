@@ -17,11 +17,7 @@ module test/main
 go 1.22
 
 replace big.chungus/meme => ./big.chungus/meme
-replace test.reflection/toast => ./test.reflection/toast
-
 require big.chungus/meme v0.0.0
-require test.reflection/toast v0.0.0
-
 -- a.go --
 package main
 
@@ -44,8 +40,6 @@ import (
 
 	_ "big.chungus/meme"
 	"test/main/imported"
-
-	"test.reflection/toast"
 )
 
 // A linkname to an external obfuscated func.
@@ -82,7 +76,7 @@ func renamedFunc() string
 func tagline() string
 
 // A linkname to an external non-obfuscated func with receiver which is also non-obfuscated
-//go:linkname changeThing test.reflection/toast.(*channel).changeThing
+//go:linkname changeThing test/main/imported.(*channel).changeThing
 func changeThing(c unsafe.Pointer, to string)
 
 func main() {
@@ -107,7 +101,7 @@ func main() {
 	println(imported.ByteIndex("01234", '3'))
 	linknameCalledInPkg()
 
-	a := toast.Return("initial_text")
+	a := imported.Return("initial_text")
 
 	val := reflect.ValueOf(a)
 	changeThing(val.UnsafePointer(), "to this")
@@ -120,7 +114,31 @@ package imported
 import (
 	_ "strings"
 	_ "unsafe"
+
+	"reflect"
 )
+
+type Test interface {
+	DoThing() string
+}
+
+func Return(c string) Test {
+	return &channel{dummy: c}
+}
+
+type channel struct {
+	dummy string
+}
+
+var _ = reflect.TypeOf(channel{})
+
+func (c *channel) DoThing() string {
+	return c.dummy
+}
+
+func (c *channel) changeThing(to string) {
+	c.dummy = to
+}
 
 func ObfuscatedFuncImpl() string {
 	return "obfuscated func"
@@ -161,38 +179,6 @@ package meme
 func chungify() string {
 	return "featuring Dante from the Devil May Cry series"
 }
-
--- test.reflection/toast/go.mod --
-module toast
-
-go 1.22
--- test.reflection/toast/test.go --
-package toast
-
-import "reflect"
-
-type Test interface {
-	DoThing() string
-}
-
-func Return(c string) Test {
-	return &channel{dummy: c}
-}
-
-type channel struct {
-	dummy string
-}
-
-var _ = reflect.TypeOf(channel{})
-
-func (c *channel) DoThing() string {
-	return c.dummy
-}
-
-func (c *channel) changeThing(to string) {
-	c.dummy = to
-}
-
 -- main.stderr --
 obfuscated func
 obfuscated method: field value
