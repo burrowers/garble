@@ -269,7 +269,7 @@ func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
 func goVersionOK() bool {
 	const (
-		minGoVersion = "go1.22" // the first major version we support
+		minGoVersion = "go1.23" // the first major version we support
 		maxGoVersion = "go1.24" // the first major version we don't support
 	)
 
@@ -1709,6 +1709,8 @@ func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStru
 	if origin == nil {
 		origin = used
 	}
+	origin = types.Unalias(origin)
+	used = types.Unalias(used)
 	type Container interface{ Elem() types.Type }
 	switch used := used.(type) {
 	case Container:
@@ -1748,8 +1750,9 @@ func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStru
 
 // isSafeForInstanceType returns true if the passed type is safe for var declaration.
 // Unsafe types: generic types and non-method interfaces.
-func isSafeForInstanceType(typ types.Type) bool {
-	switch t := typ.(type) {
+func isSafeForInstanceType(t types.Type) bool {
+	// switch t := types.Unalias(t).(type) {
+	switch t := t.(type) {
 	case *types.Named:
 		if t.TypeParams().Len() > 0 {
 			return false
@@ -1918,11 +1921,11 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 				}
 				obj = tname
 			} else {
-				named := namedType(obj.Type())
-				if named == nil {
+				tname := namedType(obj.Type())
+				if tname == nil {
 					return true // unnamed type (probably a basic type, e.g. int)
 				}
-				obj = named.Obj()
+				obj = tname
 			}
 			pkg = obj.Pkg()
 		}
@@ -2080,14 +2083,17 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	return astutil.Apply(file, pre, post).(*ast.File)
 }
 
-// named tries to obtain the *types.Named behind a type, if there is one.
+// namedType tries to obtain the *types.TypeName behind a type, if there is one.
 // This is useful to obtain "testing.T" from "*testing.T", or to obtain the type
 // declaration object from an embedded field.
-func namedType(t types.Type) *types.Named {
+// Note that, for a type alias, this gives the alias name.
+func namedType(t types.Type) *types.TypeName {
 	switch t := t.(type) {
+	case *types.Alias:
+		return t.Obj()
 	case *types.Named:
-		return t
-	case interface{ Elem() types.Type }:
+		return t.Obj()
+	case *types.Pointer:
 		return namedType(t.Elem())
 	default:
 		return nil
@@ -2103,12 +2109,11 @@ func isTestSignature(sign *types.Signature) bool {
 	if params.Len() != 1 {
 		return false // too many parameters for a test func
 	}
-	named := namedType(params.At(0).Type())
-	if named == nil {
+	tname := namedType(params.At(0).Type())
+	if tname == nil {
 		return false // the only parameter isn't named, like "string"
 	}
-	obj := named.Obj()
-	return obj != nil && obj.Pkg().Path() == "testing" && obj.Name() == "T"
+	return tname.Pkg().Path() == "testing" && tname.Name() == "T"
 }
 
 func (tf *transformer) transformLink(args []string) ([]string, error) {
