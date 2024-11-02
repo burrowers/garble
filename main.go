@@ -664,7 +664,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	newPaths := make([]string, 0, len(paths))
 	if !slices.Contains(args, "-gensymabis") {
 		for _, path := range paths {
-			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
+			name := hashWithPackage(tf, tf.curPkg, filepath.Base(path)) + ".s"
 			pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedImportPath())
 			newPath := filepath.Join(pkgDir, name)
 			newPaths = append(newPaths, newPath)
@@ -754,7 +754,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 		// directory, as assembly files do not support `/*line` directives.
 		// TODO(mvdan): per cmd/asm/internal/lex, they do support `#line`.
 		basename := filepath.Base(path)
-		newName := hashWithPackage(tf.curPkg, basename) + ".s"
+		newName := hashWithPackage(tf, tf.curPkg, basename) + ".s"
 		if path, err := tf.writeSourceFile(basename, newName, buf.Bytes()); err != nil {
 			return nil, err
 		} else {
@@ -870,7 +870,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		remaining = remaining[nameEnd:]
 
 		if lpkg.ToObfuscate && !compilerIntrinsics[lpkg.ImportPath][name] {
-			newName := hashWithPackage(lpkg, name)
+			newName := hashWithPackage(tf, lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, tf.curPkg.GarbleActionID, newName)
 			}
@@ -1108,7 +1108,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) {
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
 	// obfuscate the local name, if the current package is obfuscated
 	if tf.curPkg.ToObfuscate && !compilerIntrinsics[tf.curPkg.ImportPath][localName] {
-		localName = hashWithPackage(tf.curPkg, localName)
+		localName = hashWithPackage(tf, tf.curPkg, localName)
 	}
 	if newName == "" {
 		return localName, ""
@@ -1130,8 +1130,8 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 	}
 
 	pkgSplit := 0
-	var lpkg *listedPackage
 	var foreignName string
+	var lpkg *listedPackage
 	for {
 		i := strings.Index(newName[pkgSplit:], ".")
 		if i < 0 {
@@ -1183,22 +1183,22 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 			// pkg/path.(*Receiver).method
 			receiver = strings.TrimPrefix(receiver, "(*")
 			receiver = strings.TrimSuffix(receiver, ")")
-			receiver = "(*" + hashWithPackage(lpkg, receiver) + ")"
+			receiver = "(*" + hashWithPackage(tf, lpkg, receiver) + ")"
 		} else {
 			// pkg/path.Receiver.method
-			receiver = hashWithPackage(lpkg, receiver)
+			receiver = hashWithPackage(tf, lpkg, receiver)
 		}
 		// Exported methods are never obfuscated.
 		//
 		// TODO(mvdan): We're duplicating the logic behind these decisions.
 		// Reuse the logic with transformCompile.
 		if !token.IsExported(name) {
-			name = hashWithPackage(lpkg, name)
+			name = hashWithPackage(tf, lpkg, name)
 		}
 		newForeignName = receiver + "." + name
 	} else {
 		// pkg/path.function
-		newForeignName = hashWithPackage(lpkg, foreignName)
+		newForeignName = hashWithPackage(tf, lpkg, foreignName)
 	}
 
 	newPkgPath := lpkg.ImportPath
@@ -1276,7 +1276,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 			// For beforePath="vendor/foo", afterPath and
 			// lpkg.ImportPath can be just "foo".
 			// Don't use obfuscatedImportPath here.
-			beforePath = hashWithPackage(lpkg, beforePath)
+			beforePath = hashWithPackage(tf, lpkg, beforePath)
 
 			afterPath = lpkg.obfuscatedImportPath()
 		}
@@ -2037,7 +2037,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			return true // we only want to rename the above
 		}
 
-		node.Name = hashWithPackage(lpkg, name)
+		node.Name = hashWithPackage(tf, lpkg, name)
 		// TODO: probably move the debugf lines inside the hash funcs
 		if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 			log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
@@ -2156,7 +2156,7 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 		if path != "main" {
 			newPath = lpkg.obfuscatedImportPath()
 		}
-		newName := hashWithPackage(lpkg, name)
+		newName := hashWithPackage(tf, lpkg, name)
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPath, newName, stringValue))
 	})
 

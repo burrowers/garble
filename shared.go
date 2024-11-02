@@ -199,7 +199,7 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	if !p.ToObfuscate {
 		return p.ImportPath
 	}
-	newPath := hashWithPackage(p, p.ImportPath)
+	newPath := hashWithPackage(nil, p, p.ImportPath)
 	log.Printf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
 	return newPath
 }
