@@ -8,7 +8,7 @@ imports_missing${/}imports.go:5:8: package test/main/missing is not in std (${GO
 -- go.mod --
 module test/main
 
-go 1.22
+go 1.23
 -- broken/broken.go --
 package broken
 

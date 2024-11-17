@@ -29,7 +29,7 @@ binsubstr main$exe 'privateAdd'
 -- go.mod --
 module test/main
 
-go 1.22
+go 1.23
 -- main.go --
 package main
 

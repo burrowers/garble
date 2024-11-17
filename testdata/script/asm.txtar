@@ -33,7 +33,7 @@ binsubstr main$exe 'addJmp' 'AddImpl'
 -- go.mod --
 module test/with.many.dots/main
 
-go 1.22
+go 1.23
 -- main.go --
 package main
 
