@@ -397,8 +397,8 @@ func mainErr(args []string) error {
 			//   veryverylong.key value
 			//          short.key some-other-value
 			//
-			// Empirically, 16 is enough; the longest key seen is "vcs.revision".
-			fmt.Printf("%16s %s\n", setting.Key, setting.Value)
+			// Empirically, 16 is enough; the longest key seen is "DefaultGODEBUG".
+			fmt.Printf("\t%-16s %s\n", setting.Key, setting.Value)
 		}
 		return nil
 	case "reverse":

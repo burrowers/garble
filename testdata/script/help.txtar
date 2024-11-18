@@ -102,10 +102,10 @@ exec garble version
 stdout -count=1 'mvdan\.cc/garble v0\.0\.0-20220318134511-91ea24634954'
 stdout -count=1 'Build settings'
 stdout -count=3 '-compiler|GOOS|GOARCH'
-stdout -count=1 'vcs git'
-stdout -count=1 'vcs\.revision 91ea246349544769f5100c29f79cb0f173abfeea'
-stdout -count=1 'vcs\.time 2022-03-18T13:45:11Z'
-stdout -count=1 'vcs\.modified true'
+stdout -count=1 'vcs              git'
+stdout -count=1 'vcs\.revision     91ea246349544769f5100c29f79cb0f173abfeea'
+stdout -count=1 'vcs\.time         2022-03-18T13:45:11Z'
+stdout -count=1 'vcs\.modified     true'
 
 ! exec garble version -flag
 stderr 'usage: garble version'
