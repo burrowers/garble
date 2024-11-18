@@ -7,7 +7,6 @@ import (
 	mathrand "math/rand"
 	"strconv"
 
-	"golang.org/x/exp/rand"
 	"golang.org/x/tools/go/ssa"
 	ah "mvdan.cc/garble/internal/asthelper"
 	"mvdan.cc/garble/internal/literals"
@@ -76,7 +75,7 @@ func (xorHardening) Apply(dispatcher []cfgInfo, ssaRemap map[ssa.Value]ast.Expr,
 	globalKeyName, localKeyName := getRandomName(rnd), getRandomName(rnd)
 
 	firstKey := int(rnd.Int31())
-	secondKey := make([]byte, literals.MinSize+rand.Intn(literals.MinSize)) // make second part of key literals obfuscation friendly
+	secondKey := make([]byte, literals.MinSize+mathrand.Intn(literals.MinSize)) // make second part of key literals obfuscation friendly
 	if _, err := rnd.Read(secondKey); err != nil {
 		panic(err)
 	}
@@ -150,7 +149,7 @@ func (xorHardening) Apply(dispatcher []cfgInfo, ssaRemap map[ssa.Value]ast.Expr,
 type delegateTableHardening struct{}
 
 func (delegateTableHardening) Apply(dispatcher []cfgInfo, ssaRemap map[ssa.Value]ast.Expr, rnd *mathrand.Rand) (ast.Decl, ast.Stmt) {
-	keySize := literals.MinSize + rand.Intn(literals.MinSize)
+	keySize := literals.MinSize + mathrand.Intn(literals.MinSize)
 	delegateCount := keySize
 
 	// Reusing multiple times one decryption function is fine,

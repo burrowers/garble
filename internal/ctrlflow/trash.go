@@ -8,12 +8,13 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
 	"math"
 	mathrand "math/rand"
+	"slices"
 	"strconv"
 	"strings"
 
-	"golang.org/x/exp/maps"
 	"golang.org/x/tools/go/ssa"
 	ah "mvdan.cc/garble/internal/asthelper"
 	"mvdan.cc/garble/internal/ssa2ast"
@@ -395,7 +396,7 @@ func (t *trashGenerator) chooseRandomMethod(vars map[string]*definedVar) (string
 		return "", nil
 	}
 
-	candidateTypes := maps.Keys(groupedCandidates)
+	candidateTypes := slices.Collect(maps.Keys(groupedCandidates))
 	candidateType := candidateTypes[t.rand.Intn(len(candidateTypes))]
 	candidates := groupedCandidates[candidateType]
 
