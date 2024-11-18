@@ -6,11 +6,11 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
-	"golang.org/x/exp/slices"
 	"golang.org/x/tools/go/ssa"
 	ah "mvdan.cc/garble/internal/asthelper"
 )

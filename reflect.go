@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"go/types"
+	"maps"
 	"path/filepath"
+	"slices"
 
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -30,7 +30,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 
 	// find all unchecked APIs to add them to checkedAPIs after the pass
 	notCheckedAPIs := make(map[string]bool)
-	for _, knownAPI := range maps.Keys(ri.result.ReflectAPIs) {
+	for knownAPI := range maps.Keys(ri.result.ReflectAPIs) {
 		if !ri.checkedAPIs[knownAPI] {
 			notCheckedAPIs[knownAPI] = true
 		}
