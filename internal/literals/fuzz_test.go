@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/go-quicktest/qt"
 	"mvdan.cc/garble/internal/literals"
 )
 
@@ -59,35 +60,29 @@ func FuzzObfuscate(f *testing.F) {
 		t.Log(srcText) // shown on failures
 		fset := token.NewFileSet()
 		srcSyntax, err := parser.ParseFile(fset, "", srcText, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatal(err)
-		}
+		qt.Assert(t, qt.IsNil(err))
 		info := types.Info{
 			Types: make(map[ast.Expr]types.TypeAndValue),
 			Defs:  make(map[*ast.Ident]types.Object),
 			Uses:  make(map[*ast.Ident]types.Object),
 		}
 		var conf types.Config
-		if _, err := conf.Check("p", fset, []*ast.File{srcSyntax}, &info); err != nil {
-			t.Fatal(err)
-		}
+		_, err = conf.Check("p", fset, []*ast.File{srcSyntax}, &info)
+		qt.Assert(t, qt.IsNil(err))
 
 		// Obfuscate the literals and print the source back.
 		rand := mathrand.New(mathrand.NewSource(randSeed))
 		srcSyntax = literals.Obfuscate(rand, srcSyntax, &info, nil)
 		count := tdirCounter.Add(1)
 		f, err := os.Create(filepath.Join(tdir, fmt.Sprintf("src_%d.go", count)))
-		if err != nil {
-			t.Fatal(err)
-		}
+		qt.Assert(t, qt.IsNil(err))
 		srcPath := f.Name()
 		t.Cleanup(func() {
 			f.Close()
 			os.Remove(srcPath)
 		})
-		if err := printer.Fprint(f, fset, srcSyntax); err != nil {
-			t.Fatal(err)
-		}
+		err = printer.Fprint(f, fset, srcSyntax)
+		qt.Assert(t, qt.IsNil(err))
 
 		// Build the main package. Use some flags to avoid work.
 		binPath := strings.TrimSuffix(srcPath, ".go")
@@ -104,12 +99,8 @@ func FuzzObfuscate(f *testing.F) {
 
 		// Run the binary, expecting the output to match.
 		out, err := exec.Command(binPath).CombinedOutput()
-		if err != nil {
-			t.Fatalf("%v: %s", err, out)
-		}
+		qt.Assert(t, qt.IsNil(err))
 		want := fmt.Sprintf("%[1]s\nx%[1]sy\n--\n%[1]s\n%[1]s\n", in)
-		if got := string(out); got != want {
-			t.Fatalf("got:  %q\nwant: %q", got, want)
-		}
+		qt.Assert(t, qt.Equals(string(out), want))
 	})
 }

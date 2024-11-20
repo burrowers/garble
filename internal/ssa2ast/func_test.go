@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/go-quicktest/qt"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
 
-	"github.com/google/go-cmp/cmp"
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
@@ -60,12 +60,8 @@ func TestConvertSignature(t *testing.T) {
 
 		funcObj := info.Defs[funcDecl.Name].(*types.Func)
 		funcDeclConverted, err := conv.convertSignatureToFuncDecl(funcObj.Name(), funcObj.Type().(*types.Signature))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if structDiff := cmp.Diff(funcDecl, funcDeclConverted, astCmpOpt); structDiff != "" {
-			t.Fatalf("method decl not equals: %s", structDiff)
-		}
+		qt.Assert(t, qt.IsNil(err))
+		qt.Assert(t, qt.CmpEquals(funcDeclConverted, funcDecl, astCmpOpt))
 	}
 }
 
@@ -372,23 +368,18 @@ func TestConvert(t *testing.T) {
 	runGoFile := func(f string) string {
 		cmd := exec.Command("go", "run", f)
 		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("compile failed: %v\n%s", err, string(out))
-		}
+		qt.Assert(t, qt.IsNil(err))
 		return string(out)
 	}
 
 	testFile := filepath.Join(t.TempDir(), "convert.go")
-	if err := os.WriteFile(testFile, []byte(mainSrc), 0o777); err != nil {
-		t.Fatal(err)
-	}
+	err := os.WriteFile(testFile, []byte(mainSrc), 0o777)
+	qt.Assert(t, qt.IsNil(err))
 
 	originalOut := runGoFile(testFile)
 	file, fset, _, _ := mustParseAndTypeCheckFile(mainSrc)
 	ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{file}, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 
 	for fIdx, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
@@ -400,25 +391,18 @@ func TestConvert(t *testing.T) {
 		ssaFunc := ssa.EnclosingFunction(ssaPkg, path)
 
 		astFunc, err := Convert(ssaFunc, DefaultConfig())
-		if err != nil {
-			t.Fatal(err)
-		}
+		qt.Assert(t, qt.IsNil(err))
 		file.Decls[fIdx] = astFunc
 	}
 
 	convertedFile := filepath.Join(t.TempDir(), "main.go")
 	f, err := os.Create(convertedFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := printer.Fprint(f, fset, file); err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
+	err = printer.Fprint(f, fset, file)
+	qt.Assert(t, qt.IsNil(err))
 	_ = f.Close()
 
 	convertedOut := runGoFile(convertedFile)
 
-	if convertedOut != originalOut {
-		t.Fatalf("Output not equals:\n\n%s\n\n%s", originalOut, convertedOut)
-	}
+	qt.Assert(t, qt.Equals(convertedOut, originalOut))
 }

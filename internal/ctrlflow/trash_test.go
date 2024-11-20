@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/go-quicktest/qt"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
@@ -28,9 +29,7 @@ func Test_generateTrashBlock(t *testing.T) {
 	fset := token.NewFileSet()
 	buildPkg := func(f *ast.File) *ssa.Package {
 		ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{f}, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
+		qt.Assert(t, qt.IsNil(err))
 		return ssaPkg
 	}
 

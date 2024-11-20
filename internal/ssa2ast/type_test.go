@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
+	"github.com/go-quicktest/qt"
 )
 
 const typesSrc = `package main
@@ -97,12 +97,8 @@ func TestTypeToExpr(t *testing.T) {
 	obj := info.Defs[name]
 	fc := &TypeConverter{resolver: defaultImportNameResolver}
 	convAst, err := fc.Convert(obj.Type().Underlying())
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 
 	structConvAst := convAst.(*ast.StructType)
-	if structDiff := cmp.Diff(structAst, structConvAst, astCmpOpt); structDiff != "" {
-		t.Fatalf("struct not equals: %s", structDiff)
-	}
+	qt.Assert(t, qt.CmpEquals(structConvAst, structAst, astCmpOpt))
 }
