@@ -187,6 +187,10 @@ to document the current shortcomings of this tool.
 * Garble requires `git` to patch the linker. That can be avoided once go-gitdiff
   supports [non-strict patches](https://github.com/bluekeyes/go-gitdiff/issues/30).
 
+* APIs like [`runtime.GOROOT`](https://pkg.go.dev/runtime#GOROOT)
+  and [`runtime/debug.ReadBuildInfo`](https://pkg.go.dev/runtime/debug#ReadBuildInfo)
+  will not work in obfuscated binaries. This [can affect loading timezones](https://github.com/golang/go/issues/51473#issuecomment-2490564684), for example.
+
 ### Contributing
 
 We welcome new contributors. If you would like to contribute, see

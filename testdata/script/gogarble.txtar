@@ -1,20 +1,20 @@
 # Ensure that "does not match any packages" works.
 env GOGARBLE=match-absolutely/nothing
-! exec garble build -o=out ./standalone
+! exec garble build -o=main$exe ./standalone
 stderr '^GOGARBLE="match-absolutely/nothing" does not match any packages to be built$'
 
 # A build where just some packages are obfuscated.
 env GOGARBLE=test/main/imported
-exec garble -literals build -o=out ./importer
+exec garble -literals build -o=main$exe ./importer
 
-! binsubstr out 'some long string to obfuscate'
-binsubstr out 'some long string to not obfuscate'
+! binsubstr main$exe 'some long string to obfuscate'
+binsubstr main$exe 'some long string to not obfuscate'
 
 # Obfuscated packages which import non-obfuscated std packages.
 # Some of the imported std packages use "import maps" due to vendoring,
 # and a past bug made this case fail for "garble build".
 env GOGARBLE=test/main
-exec garble build -o=out ./stdimporter
+exec garble build -o=main$exe ./stdimporter
 
 [short] stop # rebuilding std is slow
 
@@ -34,13 +34,19 @@ exec garble build std
 # Link a binary importing net/http, which will catch whether or not we
 # support ImportMap when linking.
 # Also ensure we are obfuscating low-level std packages.
-exec garble build -o=out ./stdimporter
+exec garble build -o=main$exe ./stdimporter
 ! stderr . # no warnings
-! binsubstr out 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
+! binsubstr main$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
+
+# Ensure that the embedded runtime.GOROOT and runtime.Version are unset.
+# Note that testscript sets GOROOT explicitly, which we don't want to use.
+env GOROOT=
+exec ./main$exe
+cmp stdout stdimporter.stdout
 
 # The same low-level std packages appear in plain sight in regular builds.
-go build -o=out_regular ./stdimporter
-binsubstr out_regular 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
+go build -o=main_regular$exe ./stdimporter
+binsubstr main_regular$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
 
 # Also check that a full rebuild is reproducible, via a new GOCACHE.
 # This is slow, but necessary to uncover bugs hidden by the build cache.
@@ -49,8 +55,8 @@ binsubstr out_regular 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'sy
 [darwin] skip 'see https://github.com/burrowers/garble/issues/609'
 env GOCACHE=${WORK}/gocache-empty
 exec garble build -a runtime
-exec garble build -o=out_rebuild ./stdimporter
-bincmp out_rebuild out
+exec garble build -o=main_rebuild$exe ./stdimporter
+bincmp main_rebuild$exe main$exe
 -- go.mod --
 module test/main
 
@@ -76,17 +82,30 @@ var LongString = "some long string to obfuscate"
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"runtime"
 	"runtime/debug"
 	"time"
 	"syscall"
 )
 
 func main() {
-	http.ListenAndServe("", nil)
-	// debug.WriteHeapDump is particularly interesting,
-	// as it is implemented by runtime via a linkname.
-	debug.WriteHeapDump(1)
-	time.Now()
-	syscall.Listen(0, 1)
+	// Ensure that embedded information in the runtime is missing.
+	fmt.Printf("runtime.GOROOT: %q\n", runtime.GOROOT())
+	fmt.Printf("runtime.Version: %q\n", runtime.Version())
+
+	// We just want to ensure these build and link OK, but we don't need to run them.
+	if len(os.Args) > 5 {
+		http.ListenAndServe("", nil)
+		// debug.WriteHeapDump is particularly interesting,
+		// as it is implemented by runtime via a linkname.
+		debug.WriteHeapDump(1)
+		time.Now()
+		syscall.Listen(0, 1)
+	}
 }
+-- stdimporter.stdout --
+runtime.GOROOT: ""
+runtime.Version: "unknown"
