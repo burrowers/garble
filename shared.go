@@ -146,7 +146,6 @@ type listedPackage struct {
 	ForTest    string
 	Export     string
 	BuildID    string
-	Deps       []string
 	ImportMap  map[string]string
 	Standard   bool
 
@@ -161,6 +160,11 @@ type listedPackage struct {
 	// between garble processes. Use "Garble" as a prefix to ensure no
 	// collisions with the JSON fields from 'go list'.
 
+	// allDeps is like the Deps field given by 'go list', but in the form of a map
+	// for the sake of fast lookups. It's also unnecessary to consume or store Deps
+	// as returned by 'go list', as it can be reconstructed from Imports.
+	allDeps map[string]struct{}
+
 	// GarbleActionID is a hash combining the Action ID from BuildID,
 	// with Garble's own inputs as per addGarbleToHash.
 	// It is set even when ToObfuscate is false, as it is also used for random
@@ -170,6 +174,33 @@ type listedPackage struct {
 	// ToObfuscate records whether the package should be obfuscated.
 	// When true, GarbleActionID must not be empty.
 	ToObfuscate bool `json:"-"`
+}
+
+func (p *listedPackage) hasDep(path string) bool {
+	if p.allDeps == nil {
+		p.allDeps = make(map[string]struct{}, len(p.Imports)*2)
+		p.addImportsFrom(p)
+	}
+	_, ok := p.allDeps[path]
+	return ok
+}
+
+func (p *listedPackage) addImportsFrom(from *listedPackage) {
+	for _, path := range from.Imports {
+		if path == "C" {
+			// `go list -json` shows "C" in Imports but not Deps.
+			// See https://go.dev/issue/60453.
+			continue
+		}
+		if path2 := from.ImportMap[path]; path2 != "" {
+			path = path2
+		}
+		if _, ok := p.allDeps[path]; ok {
+			continue // already added
+		}
+		p.allDeps[path] = struct{}{}
+		p.addImportsFrom(sharedCache.ListedPackages[path])
+	}
 }
 
 type packageError struct {
@@ -419,10 +450,8 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 
 	// Packages outside std can list any package,
 	// as long as they depend on it directly or indirectly.
-	for _, dep := range from.Deps {
-		if dep == pkg.ImportPath {
-			return pkg, nil
-		}
+	if from.hasDep(pkg.ImportPath) {
+		return pkg, nil
 	}
 
 	// As a special case, any package can list runtime or its dependencies,
@@ -432,10 +461,8 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 	if pkg.ImportPath == "runtime" {
 		return pkg, nil
 	}
-	for _, dep := range sharedCache.ListedPackages["runtime"].Deps {
-		if dep == pkg.ImportPath {
-			return pkg, nil
-		}
+	if sharedCache.ListedPackages["runtime"].hasDep(pkg.ImportPath) {
+		return pkg, nil
 	}
 
 	return nil, fmt.Errorf("list %s: %w", path, ErrNotDependency)
