@@ -30,7 +30,6 @@ import (
 // store it into a temporary file via gob encoding, and then reuse that file
 // in each of the garble toolexec sub-processes.
 type sharedCacheType struct {
-	ExecPath          string   // absolute path to the garble binary being used
 	ForwardBuildFlags []string // build flags fed to the original "garble ..." command
 
 	CacheDir string // absolute path to the GARBLE_CACHE directory being used
@@ -63,7 +62,6 @@ type sharedCacheType struct {
 		GOOS   string // the GOOS build target
 		GOARCH string // the GOARCH build target
 
-		GOMOD     string
 		GOVERSION string
 		GOROOT    string
 	}
