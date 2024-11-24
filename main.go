@@ -33,6 +33,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"runtime/pprof"
 	"slices"
 	"strconv"
 	"strings"
@@ -220,13 +221,40 @@ func debugSince(start time.Time) time.Duration {
 }
 
 func main1() int {
-	defer func() {
-		if os.Getenv("GARBLE_WRITE_ALLOCS") != "true" {
-			return
+	if dir := os.Getenv("GARBLE_WRITE_CPUPROFILES"); dir != "" {
+		f, err := os.CreateTemp(dir, "garble-cpu-*.pprof")
+		if err != nil {
+			panic(err)
 		}
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		fmt.Fprintf(os.Stderr, "garble allocs: %d\n", memStats.Mallocs)
+		if err := pprof.StartCPUProfile(f); err != nil {
+			panic(err)
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			if err := f.Close(); err != nil {
+				panic(err)
+			}
+		}()
+	}
+	defer func() {
+		if dir := os.Getenv("GARBLE_WRITE_MEMPROFILES"); dir != "" {
+			f, err := os.CreateTemp(dir, "garble-mem-*.pprof")
+			if err != nil {
+				panic(err)
+			}
+			runtime.GC() // get up-to-date statistics
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				panic(err)
+			}
+			if err := f.Close(); err != nil {
+				panic(err)
+			}
+		}
+		if os.Getenv("GARBLE_WRITE_ALLOCS") == "true" {
+			var memStats runtime.MemStats
+			runtime.ReadMemStats(&memStats)
+			fmt.Fprintf(os.Stderr, "garble allocs: %d\n", memStats.Mallocs)
+		}
 	}()
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
 		return 2

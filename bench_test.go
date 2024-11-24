@@ -85,6 +85,31 @@ func BenchmarkBuild(b *testing.B) {
 			"GARBLE_CACHE=" + garbleCache,
 			"GARBLE_WRITE_ALLOCS=true",
 		}
+		if prof := flag.Lookup("test.cpuprofile").Value.String(); prof != "" {
+			// Ensure the directory is empty and created, and pass it along, so that the garble
+			// sub-processes can also write CPU profiles.
+			// Collect and then merge the profiles as follows:
+			//
+			//    go test -run=- -vet=off -bench=. -benchtime=5x -cpuprofile=cpu.pprof
+			//    go tool pprof -proto cpu.pprof cpu.pprof-subproc/* >merged.pprof
+			dir, err := filepath.Abs(prof + "-subproc")
+			qt.Assert(b, qt.IsNil(err))
+			err = os.RemoveAll(dir)
+			qt.Assert(b, qt.IsNil(err))
+			err = os.MkdirAll(dir, 0o777)
+			qt.Assert(b, qt.IsNil(err))
+			env = append(env, "GARBLE_WRITE_CPUPROFILES="+dir)
+		}
+		if prof := flag.Lookup("test.memprofile").Value.String(); prof != "" {
+			// Same as before, but for allocation profiles.
+			dir, err := filepath.Abs(prof + "-subproc")
+			qt.Assert(b, qt.IsNil(err))
+			err = os.RemoveAll(dir)
+			qt.Assert(b, qt.IsNil(err))
+			err = os.MkdirAll(dir, 0o777)
+			qt.Assert(b, qt.IsNil(err))
+			env = append(env, "GARBLE_WRITE_MEMPROFILES="+dir)
+		}
 		args := []string{"build", "-v", "-o=" + outputBin, sourceDir}
 
 		for _, cached := range []bool{false, true} {
