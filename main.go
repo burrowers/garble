@@ -577,8 +577,7 @@ This command wraps "go %s". Below is its help:
 		return nil, errJustExit(1)
 	}
 
-	var err error
-	sharedCache.ExecPath, err = os.Executable()
+	execPath, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
@@ -597,7 +596,7 @@ This command wraps "go %s". Below is its help:
 		sharedCache.CacheDir = filepath.Join(parentDir, "garble")
 	}
 
-	binaryBuildID, err := buildidOf(sharedCache.ExecPath)
+	binaryBuildID, err := buildidOf(execPath)
 	if err != nil {
 		return nil, err
 	}
@@ -643,7 +642,7 @@ This command wraps "go %s". Below is its help:
 	// We can add extra flags to the end of the same -toolexec argument.
 	var toolexecFlag strings.Builder
 	toolexecFlag.WriteString("-toolexec=")
-	quotedExecPath, err := cmdgoQuotedJoin([]string{sharedCache.ExecPath})
+	quotedExecPath, err := cmdgoQuotedJoin([]string{execPath})
 	if err != nil {
 		// Can only happen if the absolute path to the garble binary contains
 		// both single and double quotes. Seems extremely unlikely.
