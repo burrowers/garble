@@ -151,7 +151,6 @@ type listedPackage struct {
 
 	Dir             string
 	CompiledGoFiles []string
-	IgnoredGoFiles  []string
 	Imports         []string
 
 	Error *packageError // to report package loading errors to the user
@@ -300,7 +299,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		}
 
 		if perr := pkg.Error; perr != nil {
-			if !mainBuild && len(pkg.CompiledGoFiles) == 0 && len(pkg.IgnoredGoFiles) > 0 {
+			if !mainBuild && strings.Contains(perr.Err, "build constraints exclude all Go files") {
 				// Some packages in runtimeLinknamed need a build tag to be importable,
 				// like crypto/internal/boring/fipstls with boringcrypto,
 				// so any pkg.Error should be ignored when the build tag isn't set.
