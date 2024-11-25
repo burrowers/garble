@@ -431,6 +431,8 @@ func mainErr(args []string) error {
 		return nil
 	case "reverse":
 		return commandReverse(args)
+	case "map":
+		return commandMap(args)
 	case "build", "test", "run":
 		cmd, err := toolexecCmd(command, args)
 		defer func() {
@@ -1867,6 +1869,181 @@ func (tf *transformer) useAllImports(file *ast.File) {
 	}
 }
 
+// obfuscateObjectName returns the obfuscated name of the given types.Object.
+// If the object should not be obfuscated, transformObject returns
+// the original name of the object.
+func (tf *transformer) obfuscateObjectName(obj types.Object) string {
+	name := obj.Name()
+	if name == "" || name == "_" {
+		return name // unnamed remains unnamed
+	}
+
+	pkg := obj.Pkg()
+	if vr, ok := obj.(*types.Var); ok && vr.Embedded() {
+		// The docs for ObjectOf say:
+		//
+		//     If id is an embedded struct field, ObjectOf returns the
+		//     field (*Var) it defines, not the type (*TypeName) it uses.
+		//
+		// If this embedded field is a type alias, we want to
+		// handle the alias's TypeName instead of treating it as
+		// the type the alias points to.
+		//
+		// Alternatively, if we don't have an alias, we still want to
+		// use the embedded type, not the field.
+		vrStr := recordedObjectString(vr)
+		aliasTypeName, ok := tf.curPkgCache.EmbeddedAliasFields[vrStr]
+		if ok {
+			aliasScope := tf.pkg.Scope()
+			if path := aliasTypeName.PkgPath; path == "" {
+				aliasScope = types.Universe
+			} else if path != tf.pkg.Path() {
+				// If the package is a dependency, import it.
+				// We can't grab the package via tf.pkg.Imports,
+				// because some of the packages under there are incomplete.
+				// ImportFrom will cache complete imports, anyway.
+				pkg2, err := tf.origImporter.ImportFrom(path, parentWorkDir, 0)
+				if err != nil {
+					panic(err)
+				}
+				aliasScope = pkg2.Scope()
+			}
+			tname, ok := aliasScope.Lookup(aliasTypeName.Name).(*types.TypeName)
+			if !ok {
+				panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
+			}
+			if !tname.IsAlias() {
+				panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a non-alias type %q", vrStr, aliasTypeName))
+			}
+			obj = tname
+		} else {
+			tname := namedType(obj.Type())
+			if tname == nil {
+				return name // unnamed type (probably a basic type, e.g. int)
+			}
+			obj = tname
+		}
+		pkg = obj.Pkg()
+	}
+	if pkg == nil {
+		return name // universe scope
+	}
+
+	// TODO: We match by object name here, which is actually imprecise.
+	// For example, in package embed we match the type FS, but we would also
+	// match any field or method named FS.
+	// Can we instead use an object map like ReflectObjects?
+	path := pkg.Path()
+	switch path {
+	case "sync/atomic", "runtime/internal/atomic":
+		if name == "align64" {
+			return name
+		}
+	case "embed":
+		// FS is detected by the compiler for //go:embed.
+		if name == "FS" {
+			return name
+		}
+	case "reflect":
+		switch name {
+		// Per the linker's deadcode.go docs,
+		// the Method and MethodByName methods are what drive the logic.
+		case "Method", "MethodByName":
+			return name
+		}
+	case "crypto/x509/pkix":
+		// For better or worse, encoding/asn1 detects a "SET" suffix on slice type names
+		// to tell whether those slices should be treated as sets or sequences.
+		// Do not obfuscate those names to prevent breaking x509 certificates.
+		// TODO: we can surely do better; ideally propose a non-string-based solution
+		// upstream, or as a fallback, obfuscate to a name ending with "SET".
+		if strings.HasSuffix(name, "SET") {
+			return name
+		}
+	}
+
+	// The package that declared this object did not obfuscate it.
+	if usedForReflect(tf.curPkgCache, obj) {
+		return name
+	}
+
+	lpkg, err := listPackage(tf.curPkg, path)
+	if err != nil {
+		panic(err) // shouldn't happen
+	}
+	if !lpkg.ToObfuscate {
+		return name // we're not obfuscating this package
+	}
+	hashToUse := lpkg.GarbleActionID
+	debugName := "variable"
+
+	// log.Printf("%s: %#v %T", fset.Position(node.Pos()), node, obj)
+	switch obj := obj.(type) {
+	case *types.Var:
+		if !obj.IsField() {
+			// Identifiers denoting variables are always obfuscated.
+			break
+		}
+		debugName = "field"
+		// From this point on, we deal with struct fields.
+
+		// Fields don't get hashed with the package's action ID.
+		// They get hashed with the type of their parent struct.
+		// This is because one struct can be converted to another,
+		// as long as the underlying types are identical,
+		// even if the structs are defined in different packages.
+		//
+		// TODO: Consider only doing this for structs where all
+		// fields are exported. We only need this special case
+		// for cross-package conversions, which can't work if
+		// any field is unexported. If that is done, add a test
+		// that ensures unexported fields from different
+		// packages result in different obfuscated names.
+		strct := tf.fieldToStruct[obj]
+		if strct == nil {
+			panic("could not find struct for field " + name)
+		}
+		obfuscated := hashWithStruct(strct, obj)
+		if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
+			log.Printf("%s %q hashed with struct fields to %q", debugName, name, obfuscated)
+		}
+		return obfuscated
+
+	case *types.TypeName:
+		debugName = "type"
+	case *types.Func:
+		if compilerIntrinsics[path][name] {
+			return name
+		}
+
+		sign := obj.Type().(*types.Signature)
+		if sign.Recv() == nil {
+			debugName = "func"
+		} else {
+			debugName = "method"
+		}
+		if obj.Exported() && sign.Recv() != nil {
+			return name // might implement an interface
+		}
+		switch name {
+		case "main", "init", "TestMain":
+			return name // don't break them
+		}
+		if strings.HasPrefix(name, "Test") && isTestSignature(sign) {
+			return name // don't break tests
+		}
+	default:
+		return name // we only want to rename the above
+	}
+
+	obfuscated := hashWithPackage(tf, lpkg, name)
+	// TODO: probably move the debugf lines inside the hash funcs
+	if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
+		log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], obfuscated)
+	}
+	return obfuscated
+}
+
 // transformGoFile obfuscates the provided Go syntax file.
 func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// Only obfuscate the literals here if the flag is on
@@ -1913,169 +2090,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			// so avoid that case by checking the type of cursor.Parent.
 			obj = types.NewVar(node.Pos(), tf.pkg, name, nil)
 		}
-		pkg := obj.Pkg()
-		if vr, ok := obj.(*types.Var); ok && vr.Embedded() {
-			// The docs for ObjectOf say:
-			//
-			//     If id is an embedded struct field, ObjectOf returns the
-			//     field (*Var) it defines, not the type (*TypeName) it uses.
-			//
-			// If this embedded field is a type alias, we want to
-			// handle the alias's TypeName instead of treating it as
-			// the type the alias points to.
-			//
-			// Alternatively, if we don't have an alias, we still want to
-			// use the embedded type, not the field.
-			vrStr := recordedObjectString(vr)
-			aliasTypeName, ok := tf.curPkgCache.EmbeddedAliasFields[vrStr]
-			if ok {
-				aliasScope := tf.pkg.Scope()
-				if path := aliasTypeName.PkgPath; path == "" {
-					aliasScope = types.Universe
-				} else if path != tf.pkg.Path() {
-					// If the package is a dependency, import it.
-					// We can't grab the package via tf.pkg.Imports,
-					// because some of the packages under there are incomplete.
-					// ImportFrom will cache complete imports, anyway.
-					pkg2, err := tf.origImporter.ImportFrom(path, parentWorkDir, 0)
-					if err != nil {
-						panic(err)
-					}
-					aliasScope = pkg2.Scope()
-				}
-				tname, ok := aliasScope.Lookup(aliasTypeName.Name).(*types.TypeName)
-				if !ok {
-					panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
-				}
-				if !tname.IsAlias() {
-					panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a non-alias type %q", vrStr, aliasTypeName))
-				}
-				obj = tname
-			} else {
-				tname := namedType(obj.Type())
-				if tname == nil {
-					return true // unnamed type (probably a basic type, e.g. int)
-				}
-				obj = tname
-			}
-			pkg = obj.Pkg()
-		}
-		if pkg == nil {
-			return true // universe scope
-		}
-
-		// TODO: We match by object name here, which is actually imprecise.
-		// For example, in package embed we match the type FS, but we would also
-		// match any field or method named FS.
-		// Can we instead use an object map like ReflectObjects?
-		path := pkg.Path()
-		switch path {
-		case "sync/atomic", "runtime/internal/atomic":
-			if name == "align64" {
-				return true
-			}
-		case "embed":
-			// FS is detected by the compiler for //go:embed.
-			if name == "FS" {
-				return true
-			}
-		case "reflect":
-			switch name {
-			// Per the linker's deadcode.go docs,
-			// the Method and MethodByName methods are what drive the logic.
-			case "Method", "MethodByName":
-				return true
-			}
-		case "crypto/x509/pkix":
-			// For better or worse, encoding/asn1 detects a "SET" suffix on slice type names
-			// to tell whether those slices should be treated as sets or sequences.
-			// Do not obfuscate those names to prevent breaking x509 certificates.
-			// TODO: we can surely do better; ideally propose a non-string-based solution
-			// upstream, or as a fallback, obfuscate to a name ending with "SET".
-			if strings.HasSuffix(name, "SET") {
-				return true
-			}
-		}
-
-		// The package that declared this object did not obfuscate it.
-		if usedForReflect(tf.curPkgCache, obj) {
-			return true
-		}
-
-		lpkg, err := listPackage(tf.curPkg, path)
-		if err != nil {
-			panic(err) // shouldn't happen
-		}
-		if !lpkg.ToObfuscate {
-			return true // we're not obfuscating this package
-		}
-		hashToUse := lpkg.GarbleActionID
-		debugName := "variable"
-
-		// log.Printf("%s: %#v %T", fset.Position(node.Pos()), node, obj)
-		switch obj := obj.(type) {
-		case *types.Var:
-			if !obj.IsField() {
-				// Identifiers denoting variables are always obfuscated.
-				break
-			}
-			debugName = "field"
-			// From this point on, we deal with struct fields.
-
-			// Fields don't get hashed with the package's action ID.
-			// They get hashed with the type of their parent struct.
-			// This is because one struct can be converted to another,
-			// as long as the underlying types are identical,
-			// even if the structs are defined in different packages.
-			//
-			// TODO: Consider only doing this for structs where all
-			// fields are exported. We only need this special case
-			// for cross-package conversions, which can't work if
-			// any field is unexported. If that is done, add a test
-			// that ensures unexported fields from different
-			// packages result in different obfuscated names.
-			strct := tf.fieldToStruct[obj]
-			if strct == nil {
-				panic("could not find struct for field " + name)
-			}
-			node.Name = hashWithStruct(strct, obj)
-			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
-				log.Printf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
-			}
-			return true
-
-		case *types.TypeName:
-			debugName = "type"
-		case *types.Func:
-			if compilerIntrinsics[path][name] {
-				return true
-			}
-
-			sign := obj.Type().(*types.Signature)
-			if sign.Recv() == nil {
-				debugName = "func"
-			} else {
-				debugName = "method"
-			}
-			if obj.Exported() && sign.Recv() != nil {
-				return true // might implement an interface
-			}
-			switch name {
-			case "main", "init", "TestMain":
-				return true // don't break them
-			}
-			if strings.HasPrefix(name, "Test") && isTestSignature(sign) {
-				return true // don't break tests
-			}
-		default:
-			return true // we only want to rename the above
-		}
-
-		node.Name = hashWithPackage(tf, lpkg, name)
-		// TODO: probably move the debugf lines inside the hash funcs
-		if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
-			log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
-		}
+		node.Name = tf.obfuscateObjectName(obj)
 		return true
 	}
 	post := func(cursor *astutil.Cursor) bool {
