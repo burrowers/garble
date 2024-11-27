@@ -172,6 +172,8 @@ func main() {
 		mu           sync.Mutex
 		extensionMap map[int32]EncodingT
 	})
+
+	fmt.Println(reflect.TypeOf(Connection{}))
 }
 
 type EmbeddingIndirect struct {
@@ -463,6 +465,43 @@ func gobChan() {
 	}, len([]string{}))
 }
 
+type Connection struct {
+	MaxLen struct {
+		Varchar int
+	}
+}
+
+// NewConnection create a new connection from databaseURL string
+func NewConnection() *Connection {
+	return &Connection{
+		MaxLen: struct {
+			Varchar int
+		}{
+			Varchar: 0x7FFF,
+		},
+	}
+}
+
+func closure() {
+	type gobAlias struct {
+		Security func() struct {
+			Pad bool
+		}
+	}
+
+	alias := gobAlias{}
+
+	gob.NewEncoder(os.Stdout).Encode(alias)
+
+	outer := func() func() struct{ Pad bool } {
+		return func() struct{ Pad bool } {
+			return struct{ Pad bool }{Pad: true}
+		}
+	}
+
+	alias.Security = outer()
+}
+
 -- importedpkg/imported.go --
 package importedpkg
 
@@ -603,3 +642,4 @@ struct { UnnamedStructField string }
 TypeOfParent's own name: TypeOfParent
 TypeOfParent named: TypeOfNamedField NamedReflectionField
 TypeOfParent embedded: TypeOfEmbeddedField EmbeddedReflectionField
+main.Connection

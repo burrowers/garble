@@ -696,7 +696,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	newPaths := make([]string, 0, len(paths))
 	if !slices.Contains(args, "-gensymabis") {
 		for _, path := range paths {
-			name := hashWithPackage(tf, tf.curPkg, filepath.Base(path)) + ".s"
+			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
 			pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedImportPath())
 			newPath := filepath.Join(pkgDir, name)
 			newPaths = append(newPaths, newPath)
@@ -786,7 +786,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 		// directory, as assembly files do not support `/*line` directives.
 		// TODO(mvdan): per cmd/asm/internal/lex, they do support `#line`.
 		basename := filepath.Base(path)
-		newName := hashWithPackage(tf, tf.curPkg, basename) + ".s"
+		newName := hashWithPackage(tf.curPkg, basename) + ".s"
 		if path, err := tf.writeSourceFile(basename, newName, buf.Bytes()); err != nil {
 			return nil, err
 		} else {
@@ -902,7 +902,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		remaining = remaining[nameEnd:]
 
 		if lpkg.ToObfuscate && !compilerIntrinsics[lpkg.ImportPath][name] {
-			newName := hashWithPackage(tf, lpkg, name)
+			newName := hashWithPackage(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, tf.curPkg.GarbleActionID, newName)
 			}
@@ -949,16 +949,39 @@ func (tf *transformer) writeSourceFile(basename, obfuscated string, content []by
 // parseFiles parses a list of Go files.
 // It supports relative file paths, such as those found in listedPackage.CompiledGoFiles,
 // as long as dir is set to listedPackage.Dir.
-func parseFiles(dir string, paths []string) ([]*ast.File, error) {
-	var files []*ast.File
+func parseFiles(lpkg *listedPackage, dir string, paths []string) (files []*ast.File, err error) {
+	mainPackage := lpkg.Name == "main" && lpkg.ForTest == ""
+
 	for _, path := range paths {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(dir, path)
 		}
-		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution|parser.ParseComments)
+
+		var src any
+
+		if lpkg.ImportPath == "internal/abi" && filepath.Base(path) == "type.go" {
+			src, err = abiNamePatch(path)
+			if err != nil {
+				return nil, err
+			}
+		} else if mainPackage && reflectPatchFile == "" {
+			src, err = reflectMainPrePatch(path)
+			if err != nil {
+				return nil, err
+			}
+
+			reflectPatchFile = path
+		}
+
+		file, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution|parser.ParseComments)
 		if err != nil {
 			return nil, err
 		}
+
+		if mainPackage && src != nil {
+			astutil.AddNamedImport(fset, file, "_", "unsafe")
+		}
+
 		files = append(files, file)
 	}
 	return files, nil
@@ -972,7 +995,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	flags = append(flags, "-dwarf=false")
 
 	// The Go file paths given to the compiler are always absolute paths.
-	files, err := parseFiles("", paths)
+	files, err := parseFiles(tf.curPkg, "", paths)
 	if err != nil {
 		return nil, err
 	}
@@ -1085,6 +1108,10 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			return nil, err
 		}
 
+		if tf.curPkg.Name == "main" && strings.HasSuffix(reflectPatchFile, basename) {
+			src = reflectMainPostPatch(src, tf.curPkg, tf.curPkgCache)
+		}
+
 		// We hide Go source filenames via "//line" directives,
 		// so there is no need to use obfuscated filenames here.
 		if path, err := tf.writeSourceFile(basename, basename, src); err != nil {
@@ -1140,7 +1167,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) {
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
 	// obfuscate the local name, if the current package is obfuscated
 	if tf.curPkg.ToObfuscate && !compilerIntrinsics[tf.curPkg.ImportPath][localName] {
-		localName = hashWithPackage(tf, tf.curPkg, localName)
+		localName = hashWithPackage(tf.curPkg, localName)
 	}
 	if newName == "" {
 		return localName, ""
@@ -1208,29 +1235,26 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 	var newForeignName string
 	if receiver, name, ok := strings.Cut(foreignName, "."); ok {
-		if lpkg.ImportPath == "reflect" && (receiver == "(*rtype)" || receiver == "Value") {
-			// These receivers are not obfuscated.
-			// See the TODO below.
-		} else if strings.HasPrefix(receiver, "(*") {
+		if strings.HasPrefix(receiver, "(*") {
 			// pkg/path.(*Receiver).method
 			receiver = strings.TrimPrefix(receiver, "(*")
 			receiver = strings.TrimSuffix(receiver, ")")
-			receiver = "(*" + hashWithPackage(tf, lpkg, receiver) + ")"
+			receiver = "(*" + hashWithPackage(lpkg, receiver) + ")"
 		} else {
 			// pkg/path.Receiver.method
-			receiver = hashWithPackage(tf, lpkg, receiver)
+			receiver = hashWithPackage(lpkg, receiver)
 		}
 		// Exported methods are never obfuscated.
 		//
 		// TODO(mvdan): We're duplicating the logic behind these decisions.
 		// Reuse the logic with transformCompile.
 		if !token.IsExported(name) {
-			name = hashWithPackage(tf, lpkg, name)
+			name = hashWithPackage(lpkg, name)
 		}
 		newForeignName = receiver + "." + name
 	} else {
 		// pkg/path.function
-		newForeignName = hashWithPackage(tf, lpkg, foreignName)
+		newForeignName = hashWithPackage(lpkg, foreignName)
 	}
 
 	newPkgPath := lpkg.ImportPath
@@ -1308,7 +1332,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 			// For beforePath="vendor/foo", afterPath and
 			// lpkg.ImportPath can be just "foo".
 			// Don't use obfuscatedImportPath here.
-			beforePath = hashWithPackage(tf, lpkg, beforePath)
+			beforePath = hashWithPackage(lpkg, beforePath)
 
 			afterPath = lpkg.obfuscatedImportPath()
 		}
@@ -1405,14 +1429,9 @@ type pkgCache struct {
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
 	ReflectAPIs map[funcFullName]map[int]bool
 
-	// ReflectObjects is filled with the fully qualified names from each
-	// package that we cannot obfuscate due to reflection.
-	// The included objects are named types and their fields,
-	// since it is those names being obfuscated that could break the use of reflect.
-	//
-	// This record is necessary for knowing what names from imported packages
-	// weren't obfuscated, so we can obfuscate their local uses accordingly.
-	ReflectObjects map[objectString]struct{}
+	// ReflectObjectNames maps obfuscated names which are reflected to their "real"
+	// non-obfuscated names.
+	ReflectObjectNames map[objectString]string
 
 	// EmbeddedAliasFields records which embedded fields use a type alias.
 	// They are the only instance where a type alias matters for obfuscation,
@@ -1425,7 +1444,7 @@ type pkgCache struct {
 
 func (c *pkgCache) CopyFrom(c2 pkgCache) {
 	maps.Copy(c.ReflectAPIs, c2.ReflectAPIs)
-	maps.Copy(c.ReflectObjects, c2.ReflectObjects)
+	maps.Copy(c.ReflectObjectNames, c2.ReflectObjectNames)
 	maps.Copy(c.EmbeddedAliasFields, c2.EmbeddedAliasFields)
 }
 
@@ -1497,7 +1516,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			"reflect.TypeOf":  {0: true},
 			"reflect.ValueOf": {0: true},
 		},
-		ReflectObjects:      map[objectString]struct{}{},
+		ReflectObjectNames:  map[objectString]string{},
 		EmbeddedAliasFields: map[objectString]typeName{},
 	}
 	for _, imp := range lpkg.Imports {
@@ -1530,7 +1549,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			// Missing or corrupted entry in the cache for a dependency.
 			// Could happen if GARBLE_CACHE was emptied but GOCACHE was not.
 			// Compute it, which can recurse if many entries are missing.
-			files, err := parseFiles(lpkg.Dir, lpkg.CompiledGoFiles)
+			files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles)
 			if err != nil {
 				return err
 			}
@@ -1997,11 +2016,6 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			}
 		}
 
-		// The package that declared this object did not obfuscate it.
-		if usedForReflect(tf.curPkgCache, obj) {
-			return true
-		}
-
 		lpkg, err := listPackage(tf.curPkg, path)
 		if err != nil {
 			panic(err) // shouldn't happen
@@ -2071,7 +2085,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			return true // we only want to rename the above
 		}
 
-		node.Name = hashWithPackage(tf, lpkg, name)
+		node.Name = hashWithPackage(lpkg, name)
 		// TODO: probably move the debugf lines inside the hash funcs
 		if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 			log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
@@ -2192,7 +2206,7 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 		if path != "main" {
 			newPath = lpkg.obfuscatedImportPath()
 		}
-		newName := hashWithPackage(tf, lpkg, name)
+		newName := hashWithPackage(lpkg, name)
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPath, newName, stringValue))
 	})
 

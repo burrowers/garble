@@ -26,7 +26,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 		return
 	}
 
-	prevDone := len(ri.result.ReflectAPIs) + len(ri.result.ReflectObjects)
+	prevDone := len(ri.result.ReflectAPIs) + len(ri.result.ReflectObjectNames)
 
 	// find all unchecked APIs to add them to checkedAPIs after the pass
 	notCheckedAPIs := make(map[string]bool)
@@ -43,7 +43,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 	maps.Copy(ri.checkedAPIs, notCheckedAPIs)
 
 	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
-	newDone := len(ri.result.ReflectAPIs) + len(ri.result.ReflectObjects)
+	newDone := len(ri.result.ReflectAPIs) + len(ri.result.ReflectObjectNames)
 	if newDone > prevDone {
 		ri.recordReflection(ssaPkg) // TODO: avoid recursing
 	}
@@ -58,8 +58,8 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 	// At least it's enough to leave the rtype and Value types intact.
 	if ri.pkg.Path() == "reflect" {
 		scope := ri.pkg.Scope()
-		ri.recursivelyRecordUsedForReflect(scope.Lookup("rtype").Type())
-		ri.recursivelyRecordUsedForReflect(scope.Lookup("Value").Type())
+		ri.recursivelyRecordUsedForReflect(scope.Lookup("rtype").Type(), nil)
+		ri.recursivelyRecordUsedForReflect(scope.Lookup("Value").Type(), nil)
 	}
 
 	for _, memb := range ssaPkg.Members {
@@ -135,7 +135,7 @@ func (ri *reflectInspector) checkMethodSignature(reflectParams map[int]bool, sig
 
 		if ignore {
 			reflectParams[i] = true
-			ri.recursivelyRecordUsedForReflect(param.Type())
+			ri.recursivelyRecordUsedForReflect(param.Type(), nil)
 		}
 	}
 }
@@ -196,7 +196,7 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 			case *ssa.ChangeType:
 				obj := typeToObj(inst.X.Type())
 				if usedForReflect(ri.result, obj) {
-					ri.recursivelyRecordUsedForReflect(inst.Type())
+					ri.recursivelyRecordUsedForReflect(inst.Type(), nil)
 					ri.propagatedInstr[inst] = true
 				}
 			case *ssa.Call:
@@ -284,7 +284,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 
 	case *ssa.Alloc:
 		/* fmt.Printf("recording val %v \n", *val.Referrers()) */
-		ri.recursivelyRecordUsedForReflect(val.Type())
+		ri.recursivelyRecordUsedForReflect(val.Type(), nil)
 
 		for _, ref := range *val.Referrers() {
 			if idx, ok := ref.(ssa.Value); ok {
@@ -299,11 +299,11 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		return relatedParam(val, visited)
 
 	case *ssa.ChangeType:
-		ri.recursivelyRecordUsedForReflect(val.X.Type())
+		ri.recursivelyRecordUsedForReflect(val.X.Type(), nil)
 	case *ssa.MakeSlice, *ssa.MakeMap, *ssa.MakeChan, *ssa.Const:
-		ri.recursivelyRecordUsedForReflect(val.Type())
+		ri.recursivelyRecordUsedForReflect(val.Type(), nil)
 	case *ssa.Global:
-		ri.recursivelyRecordUsedForReflect(val.Type())
+		ri.recursivelyRecordUsedForReflect(val.Type(), nil)
 
 		// TODO: this might need similar logic to *ssa.Alloc, however
 		// reassigning a function param to a global variable and then reflecting
@@ -312,7 +312,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		// this only finds the parameters who want to be found,
 		// otherwise relatedParam is used for more in depth analysis
 
-		ri.recursivelyRecordUsedForReflect(val.Type())
+		ri.recursivelyRecordUsedForReflect(val.Type(), nil)
 		return val
 	}
 
@@ -388,7 +388,7 @@ func relatedParam(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 // Only the names declared in the current package are recorded. This is to ensure
 // that reflection detection only happens within the package declaring a type.
 // Detecting it in downstream packages could result in inconsistencies.
-func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
+func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type, parent *types.Struct) {
 	switch t := t.(type) {
 	case *types.Named:
 		obj := t.Obj()
@@ -398,10 +398,10 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 		if usedForReflect(ri.result, obj) {
 			return // prevent endless recursion
 		}
-		ri.recordUsedForReflect(obj)
+		ri.recordUsedForReflect(obj, parent)
 
 		// Record the underlying type, too.
-		ri.recursivelyRecordUsedForReflect(t.Underlying())
+		ri.recursivelyRecordUsedForReflect(t.Underlying(), nil)
 
 	case *types.Struct:
 		for i := range t.NumFields() {
@@ -415,19 +415,18 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 			}
 
 			// Record the field itself, too.
-			ri.recordUsedForReflect(field)
+			ri.recordUsedForReflect(field, t)
 
-			ri.recursivelyRecordUsedForReflect(field.Type())
+			ri.recursivelyRecordUsedForReflect(field.Type(), nil)
 		}
 
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
-		ri.recursivelyRecordUsedForReflect(t.Elem())
+		ri.recursivelyRecordUsedForReflect(t.Elem(), nil)
 	}
 }
 
-// TODO: consider caching recordedObjectString via a map,
-// if that shows an improvement in our benchmark
+// TODO: remove once alias tracking is properly implemented
 func recordedObjectString(obj types.Object) objectString {
 	if obj == nil {
 		return ""
@@ -465,27 +464,44 @@ func recordedObjectString(obj types.Object) objectString {
 	return pkg.Path() + "." + obj.Name()
 }
 
+// reflectedObjectString returns the obfucated name of a types.Object,
+// parent is needed to correctly get the obfucated name of struct fields
+func reflectedObjectString(obj types.Object, parent *types.Struct) string {
+	if obj == nil {
+		return ""
+	}
+	pkg := obj.Pkg()
+	if pkg == nil {
+		return ""
+	}
+
+	if v, ok := obj.(*types.Var); ok && parent != nil {
+		return hashWithStruct(parent, v)
+	}
+
+	lpkg := sharedCache.ListedPackages[obj.Pkg().Path()]
+	return hashWithPackage(lpkg, obj.Name())
+}
+
 // recordUsedForReflect records the objects whose names we cannot obfuscate due to reflection.
 // We currently record named types and fields.
-func (ri *reflectInspector) recordUsedForReflect(obj types.Object) {
+func (ri *reflectInspector) recordUsedForReflect(obj types.Object, parent *types.Struct) {
 	if obj.Pkg().Path() != ri.pkg.Path() {
 		panic("called recordUsedForReflect with a foreign object")
 	}
-	objStr := recordedObjectString(obj)
+	objStr := reflectedObjectString(obj, parent)
 	if objStr == "" {
-		// If the object can't be described via a qualified string,
-		// do we need to record it at all?
 		return
 	}
-	ri.result.ReflectObjects[objStr] = struct{}{}
+	ri.result.ReflectObjectNames[objStr] = obj.Name()
 }
 
 func usedForReflect(cache pkgCache, obj types.Object) bool {
-	objStr := recordedObjectString(obj)
+	objStr := reflectedObjectString(obj, nil)
 	if objStr == "" {
 		return false
 	}
-	_, ok := cache.ReflectObjects[objStr]
+	_, ok := cache.ReflectObjectNames[objStr]
 	return ok
 }
 
