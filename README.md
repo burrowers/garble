@@ -157,23 +157,7 @@ to document the current shortcomings of this tool.
   be required by interfaces. This area is a work in progress; see
   [#3](https://github.com/burrowers/garble/issues/3).
 
-* Garble automatically detects which Go types are used with reflection
-  to avoid obfuscating them, as that might break your program.
-  Note that Garble obfuscates [one package at a time](#speed),
-  so if your reflection code inspects a type from an imported package,
-  you may need to add a "hint" in the imported package to exclude obfuscating it:
-   ```go
-   type Message struct {
-       Command string
-       Args    string
-   }
-
-   // Never obfuscate the Message type.
-   var _ = reflect.TypeOf(Message{})
-   ```
-
 * Aside from `GOGARBLE` to select patterns of packages to obfuscate,
-  and the hint above with `reflect.TypeOf` to exclude obfuscating particular types,
   there is no supported way to exclude obfuscating a selection of files or packages.
   More often than not, a user would want to do this to work around a bug; please file the bug instead.
 
