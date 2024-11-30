@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"maps"
 	"os"
@@ -46,10 +47,9 @@ func reflectMainPrePatch(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	nameMap := "\nvar _nameMap = map[string]string{}"
-
-	return append(content, []byte(realNameCode+nameMap)...), nil
+	_, code, _ := strings.Cut(reflectAbiCode, "// Injected code below this line.")
+	code = strings.ReplaceAll(code, "//disabledgo:", "//go:")
+	return append(content, []byte(code)...), nil
 }
 
 // reflectMainPostPatch populates the name mapping with the final obfuscated->real name
@@ -67,44 +67,5 @@ func reflectMainPostPatch(file []byte, lpkg *listedPackage, pkg pkgCache) []byte
 	return bytes.Replace(file, []byte(nameMap), []byte(nameMap+b.String()), 1)
 }
 
-// The "name" internal/abi passes to this function doesn't have to be a simple "someName"
-// it can also be for function names:
-// "*pkgName.FuncName" (obfuscated)
-// or for structs the entire struct definition:
-// "*struct { AQ45rr68K string; ipq5aQSIqN string; hNfiW5O5LVq struct { gPTbGR00hu string } }"
-//
-// Therefore all obfuscated names which occur within name need to be replaced with their "real" equivalents.
-//
-// The code below does a more efficient version of:
-//
-//	func _realName(name string) string {
-//			for obfName, real := range _nameMap {
-//				name = strings.ReplaceAll(name, obfName, real)
-//			}
-//
-//			return name
-//	}
-const realNameCode = `
-//go:linkname _realName internal/abi._realName
-func _realName(name string) string {
-	for i := 0; i < len(name); {
-		remLen := len(name[i:])
-		found := false
-		for obfName, real := range _nameMap {
-			keyLen := len(obfName)
-			if keyLen > remLen {
-				continue
-			}
-			if name[i:i+keyLen] == obfName {
-				name = name[:i] + real + name[i+keyLen:]
-				found = true
-				i += len(real)
-				break
-			}
-		}
-		if !found {
-			i++
-		}
-	}
-	return name
-}`
+//go:embed reflect_abi_code.go
+var reflectAbiCode string
