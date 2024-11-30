@@ -7,10 +7,12 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -165,4 +167,52 @@ func BenchmarkBuild(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ReportMetric(float64(info.Size()), "bin-B")
+}
+
+func BenchmarkAbiRealName(b *testing.B) {
+	// Benchmark two thousand obfuscated names in _nameMap
+	// and a variety of input strings to reverse.
+	// As an example, the cmd/go binary ends up with about 2200 entries
+	// in _nameMap as of November 2024, so it's a realistic figure.
+	// Structs with tens of fields are also relatively normal.
+	salt := []byte("some salt bytes")
+	for n := range 2000 {
+		name := fmt.Sprintf("name_%d", n)
+		garbled := hashWithCustomSalt(salt, name)
+		_nameMap[garbled] = name
+	}
+	chosen := slices.Sorted(maps.Keys(_nameMap))[:20]
+
+	inputs := []string{
+		// non-obfuscated names and types
+		"Error",
+		"int",
+		"*[]*interface {}",
+		"*map[uint64]bool",
+		// an obfuscated name
+		chosen[0],
+		// an obfuscated *pkg.Name
+		fmt.Sprintf("*%s.%s", chosen[1], chosen[2]),
+		// big struct with more than a dozen string field types
+		fmt.Sprintf("struct { %s string }", strings.Join(chosen[3:], " string ")),
+	}
+
+	var inputBytes int
+	for _, input := range inputs {
+		inputBytes += len(input)
+	}
+	b.SetBytes(int64(inputBytes))
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	// We use a parallel benchmark because internal/abi's Name method
+	// is meant to be called by any goroutine at any time.
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			for _, input := range inputs {
+				_realName(input)
+			}
+		}
+	})
+	_nameMap = map[string]string{}
 }
