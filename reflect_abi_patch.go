@@ -26,6 +26,11 @@ func abiNamePatch(path string) (string, error) {
 	originalNames := `
 //go:linkname _originalNames
 func _originalNames(name string) string
+
+//go:linkname _originalNamesInit
+func _originalNamesInit()
+
+func init() { _originalNamesInit() }
 `
 
 	return str + originalNames, nil
@@ -60,7 +65,7 @@ func reflectMainPrePatch(path string) ([]byte, error) {
 // mappings after all packages have been analyzed.
 func reflectMainPostPatch(file []byte, lpkg *listedPackage, pkg pkgCache) []byte {
 	obfVarName := hashWithPackage(lpkg, "_originalNamePairs")
-	namePairs := fmt.Appendf(nil, "%s = [][2]string{", obfVarName)
+	namePairs := fmt.Appendf(nil, "%s = []string{", obfVarName)
 
 	keys := slices.SortedFunc(maps.Keys(pkg.ReflectObjectNames), func(a, b string) int {
 		if c := cmp.Compare(len(a), len(b)); c != 0 {
@@ -70,7 +75,7 @@ func reflectMainPostPatch(file []byte, lpkg *listedPackage, pkg pkgCache) []byte
 	})
 	namePairsFilled := bytes.Clone(namePairs)
 	for _, obf := range keys {
-		namePairsFilled = fmt.Appendf(namePairsFilled, "{%q, %q},", obf, pkg.ReflectObjectNames[obf])
+		namePairsFilled = fmt.Appendf(namePairsFilled, "%q, %q,", obf, pkg.ReflectObjectNames[obf])
 	}
 
 	return bytes.Replace(file, namePairs, namePairsFilled, 1)

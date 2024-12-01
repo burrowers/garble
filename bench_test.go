@@ -178,14 +178,15 @@ func BenchmarkAbiOriginalNames(b *testing.B) {
 	for n := range 2000 {
 		name := fmt.Sprintf("name_%d", n)
 		garbled := hashWithCustomSalt(salt, name)
-		_originalNamePairs = append(_originalNamePairs, [2]string{garbled, name})
+		_originalNamePairs = append(_originalNamePairs, garbled, name)
 	}
-	// Pick twenty names at random to use as inputs below.
+	_originalNamesInit()
+	// Pick twenty obfuscated names at random to use as inputs below.
 	// Use a deterministic random source so it's stable between benchmark runs.
 	rnd := rand.New(rand.NewPCG(1, 2))
 	var chosen []string
-	for _, pair := range _originalNamePairs {
-		chosen = append(chosen, pair[0])
+	for i := 0; i < len(_originalNamePairs); i += 2 {
+		chosen = append(chosen, _originalNamePairs[i])
 	}
 	rnd.Shuffle(len(chosen), func(i, j int) {
 		chosen[i], chosen[j] = chosen[j], chosen[i]
@@ -223,5 +224,6 @@ func BenchmarkAbiOriginalNames(b *testing.B) {
 			}
 		}
 	})
-	_originalNamePairs = [][2]string{}
+	_originalNamePairs = []string{}
+	_originalNamesReplacer = nil
 }
