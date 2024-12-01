@@ -39,7 +39,9 @@ func _realName(name string) string {
 		}
 		remLen := len(name[i:])
 		found := false
-		for obfName, real := range _nameMap {
+		for _, pair := range _realNamePairs {
+			obfName := pair[0]
+			real := pair[1]
 			keyLen := len(obfName)
 			if remLen < keyLen {
 				continue
@@ -58,4 +60,4 @@ func _realName(name string) string {
 	return name
 }
 
-var _nameMap = map[string]string{}
+var _realNamePairs = [][2]string{}
