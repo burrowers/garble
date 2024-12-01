@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	_ "embed"
 	"fmt"
 	"maps"
@@ -67,12 +66,7 @@ func reflectMainPostPatch(file []byte, lpkg *listedPackage, pkg pkgCache) []byte
 	obfVarName := hashWithPackage(lpkg, "_originalNamePairs")
 	namePairs := fmt.Appendf(nil, "%s = []string{", obfVarName)
 
-	keys := slices.SortedFunc(maps.Keys(pkg.ReflectObjectNames), func(a, b string) int {
-		if c := cmp.Compare(len(a), len(b)); c != 0 {
-			return c
-		}
-		return cmp.Compare(a, b)
-	})
+	keys := slices.Sorted(maps.Keys(pkg.ReflectObjectNames))
 	namePairsFilled := bytes.Clone(namePairs)
 	for _, obf := range keys {
 		namePairsFilled = fmt.Appendf(namePairsFilled, "%q, %q,", obf, pkg.ReflectObjectNames[obf])

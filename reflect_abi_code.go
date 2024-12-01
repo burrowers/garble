@@ -22,7 +22,7 @@ package main
 // Injected code below this line.
 
 // Each pair is the obfuscated and then the real name.
-// The slice is sorted from shortest to longest obfuscated name.
+// The pairs are sorted by obfuscated name, lexicographically.
 var _originalNamePairs = []string{}
 
 var _originalNamesReplacer *_genericReplacer
