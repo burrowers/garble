@@ -24,10 +24,6 @@ package main
 
 //disabledgo:linkname _originalNames internal/abi._originalNames
 func _originalNames(name string) string {
-	if len(name) < minHashLength {
-		// The name is too short to be obfuscated.
-		return name
-	}
 	// We can stop once there aren't enough bytes to fit another obfuscated name.
 	for i := 0; i <= len(name)-minHashLength; {
 		switch name[i] {
