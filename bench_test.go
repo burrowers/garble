@@ -168,23 +168,23 @@ func BenchmarkBuild(b *testing.B) {
 	b.ReportMetric(float64(info.Size()), "bin-B")
 }
 
-func BenchmarkAbiRealName(b *testing.B) {
-	// Benchmark two thousand obfuscated names in _realNamePairs
+func BenchmarkAbiOriginalNames(b *testing.B) {
+	// Benchmark two thousand obfuscated names in _originalNamePairs
 	// and a variety of input strings to reverse.
 	// As an example, the cmd/go binary ends up with about 2200 entries
-	// in _realNamePairs as of November 2024, so it's a realistic figure.
+	// in _originalNamePairs as of November 2024, so it's a realistic figure.
 	// Structs with tens of fields are also relatively normal.
 	salt := []byte("some salt bytes")
 	for n := range 2000 {
 		name := fmt.Sprintf("name_%d", n)
 		garbled := hashWithCustomSalt(salt, name)
-		_realNamePairs = append(_realNamePairs, [2]string{garbled, name})
+		_originalNamePairs = append(_originalNamePairs, [2]string{garbled, name})
 	}
 	// Pick twenty names at random to use as inputs below.
 	// Use a deterministic random source so it's stable between benchmark runs.
 	rnd := rand.New(rand.NewPCG(1, 2))
 	var chosen []string
-	for _, pair := range _realNamePairs {
+	for _, pair := range _originalNamePairs {
 		chosen = append(chosen, pair[0])
 	}
 	rnd.Shuffle(len(chosen), func(i, j int) {
@@ -219,9 +219,9 @@ func BenchmarkAbiRealName(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			for _, input := range inputs {
-				_realName(input)
+				_originalNames(input)
 			}
 		}
 	})
-	_realNamePairs = [][2]string{}
+	_originalNamePairs = [][2]string{}
 }
