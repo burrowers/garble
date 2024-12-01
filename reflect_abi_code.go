@@ -1,21 +1,20 @@
 package main
 
 // The "name" internal/abi passes to this function doesn't have to be a simple "someName"
-// it can also be for function names:
-// "*pkgName.FuncName" (obfuscated)
-// or for structs the entire struct definition:
-// "*struct { AQ45rr68K string; ipq5aQSIqN string; hNfiW5O5LVq struct { gPTbGR00hu string } }"
+
+// it can also be for function names like "*pkgName.FuncName" (obfuscated)
+// or for structs the entire struct definition, like
 //
-// Therefore all obfuscated names which occur within name need to be replaced with their "real" equivalents.
+//	*struct { AQ45rr68K string; ipq5aQSIqN string; hNfiW5O5LVq struct { gPTbGR00hu string } }
 //
+// Therefore all obfuscated names which occur within name need to be replaced with their original equivalents.
 // The code below does a more efficient version of:
 //
-//	func _realName(name string) string {
-//			for obfName, real := range _nameMap {
-//				name = strings.ReplaceAll(name, obfName, real)
-//			}
-//
-//			return name
+//	func _originalNames(name string) string {
+//		for _, pair := range _originalNamePairs {
+//			name = strings.ReplaceAll(name, pair[0], pair[1])
+//		}
+//		return name
 //	}
 //
 // The linknames below are only turned on when the code is injected,
@@ -23,8 +22,8 @@ package main
 
 // Injected code below this line.
 
-//disabledgo:linkname _realName internal/abi._realName
-func _realName(name string) string {
+//disabledgo:linkname _originalNames internal/abi._originalNames
+func _originalNames(name string) string {
 	if len(name) < minHashLength {
 		// The name is too short to be obfuscated.
 		return name
@@ -39,7 +38,7 @@ func _realName(name string) string {
 		}
 		remLen := len(name[i:])
 		found := false
-		for _, pair := range _realNamePairs {
+		for _, pair := range _originalNamePairs {
 			obfName := pair[0]
 			real := pair[1]
 			keyLen := len(obfName)
@@ -64,4 +63,4 @@ func _realName(name string) string {
 
 // Each pair is the obfuscated and then the real name.
 // The slice is sorted from shortest to longest obfuscated name.
-var _realNamePairs = [][2]string{}
+var _originalNamePairs = [][2]string{}
