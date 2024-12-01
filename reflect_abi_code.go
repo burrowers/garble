@@ -44,7 +44,9 @@ func _realName(name string) string {
 			real := pair[1]
 			keyLen := len(obfName)
 			if remLen < keyLen {
-				continue
+				// Since the pairs are sorted from shortest to longest name,
+				// we know that the rest of the pairs are at least just as long.
+				break
 			}
 			if name[i:i+keyLen] == obfName {
 				name = name[:i] + real + name[i+keyLen:]
@@ -60,4 +62,6 @@ func _realName(name string) string {
 	return name
 }
 
+// Each pair is the obfuscated and then the real name.
+// The slice is sorted from shortest to longest obfuscated name.
 var _realNamePairs = [][2]string{}
