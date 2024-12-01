@@ -58,13 +58,13 @@ func reflectMainPrePatch(path string) ([]byte, error) {
 // reflectMainPostPatch populates the name mapping with the final obfuscated->real name
 // mappings after all packages have been analyzed.
 func reflectMainPostPatch(file []byte, lpkg *listedPackage, pkg pkgCache) []byte {
-	obfMapName := hashWithPackage(lpkg, "_nameMap")
-	nameMap := fmt.Sprintf("%s = map[string]string{", obfMapName)
+	obfVarName := hashWithPackage(lpkg, "_realNamePairs")
+	nameMap := fmt.Sprintf("%s = [][2]string{", obfVarName)
 
 	var b strings.Builder
 	keys := slices.Sorted(maps.Keys(pkg.ReflectObjectNames))
 	for _, obf := range keys {
-		b.WriteString(fmt.Sprintf(`"%s": "%s",`, obf, pkg.ReflectObjectNames[obf]))
+		b.WriteString(fmt.Sprintf("{%q, %q},", obf, pkg.ReflectObjectNames[obf]))
 	}
 
 	return bytes.Replace(file, []byte(nameMap), []byte(nameMap+b.String()), 1)

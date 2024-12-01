@@ -7,12 +7,11 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
-	"maps"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -170,18 +169,28 @@ func BenchmarkBuild(b *testing.B) {
 }
 
 func BenchmarkAbiRealName(b *testing.B) {
-	// Benchmark two thousand obfuscated names in _nameMap
+	// Benchmark two thousand obfuscated names in _realNamePairs
 	// and a variety of input strings to reverse.
 	// As an example, the cmd/go binary ends up with about 2200 entries
-	// in _nameMap as of November 2024, so it's a realistic figure.
+	// in _realNamePairs as of November 2024, so it's a realistic figure.
 	// Structs with tens of fields are also relatively normal.
 	salt := []byte("some salt bytes")
 	for n := range 2000 {
 		name := fmt.Sprintf("name_%d", n)
 		garbled := hashWithCustomSalt(salt, name)
-		_nameMap[garbled] = name
+		_realNamePairs = append(_realNamePairs, [2]string{garbled, name})
 	}
-	chosen := slices.Sorted(maps.Keys(_nameMap))[:20]
+	// Pick twenty names at random to use as inputs below.
+	// Use a deterministic random source so it's stable between benchmark runs.
+	rnd := rand.New(rand.NewPCG(1, 2))
+	var chosen []string
+	for _, pair := range _realNamePairs {
+		chosen = append(chosen, pair[0])
+	}
+	rnd.Shuffle(len(chosen), func(i, j int) {
+		chosen[i], chosen[j] = chosen[j], chosen[i]
+	})
+	chosen = chosen[:20]
 
 	inputs := []string{
 		// non-obfuscated names and types
@@ -214,5 +223,5 @@ func BenchmarkAbiRealName(b *testing.B) {
 			}
 		}
 	})
-	_nameMap = map[string]string{}
+	_realNamePairs = [][2]string{}
 }
