@@ -25,12 +25,23 @@ package main
 
 //disabledgo:linkname _realName internal/abi._realName
 func _realName(name string) string {
-	for i := 0; i < len(name); {
+	if len(name) < minHashLength {
+		// The name is too short to be obfuscated.
+		return name
+	}
+	// We can stop once there aren't enough bytes to fit another obfuscated name.
+	for i := 0; i <= len(name)-minHashLength; {
+		switch name[i] {
+		case ' ', '.', '*', '{', '}', '[', ']':
+			// These characters never start an obfuscated name.
+			i++
+			continue
+		}
 		remLen := len(name[i:])
 		found := false
 		for obfName, real := range _nameMap {
 			keyLen := len(obfName)
-			if keyLen > remLen {
+			if remLen < keyLen {
 				continue
 			}
 			if name[i:i+keyLen] == obfName {

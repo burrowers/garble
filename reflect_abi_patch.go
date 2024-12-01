@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -49,6 +50,8 @@ func reflectMainPrePatch(path string) ([]byte, error) {
 	}
 	_, code, _ := strings.Cut(reflectAbiCode, "// Injected code below this line.")
 	code = strings.ReplaceAll(code, "//disabledgo:", "//go:")
+	// This constant is declared in our hash.go file.
+	code = strings.ReplaceAll(code, "minHashLength", strconv.Itoa(minHashLength))
 	return append(content, []byte(code)...), nil
 }
 
