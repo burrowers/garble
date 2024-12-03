@@ -33,16 +33,9 @@ One can reverse a captured panic stack trace as follows:
 	}
 
 	pkg, args := args[0], args[1:]
-	listArgs := []string{
-		"-json",
-		"-deps",
-		"-export",
-	}
-	listArgs = append(listArgs, flags...)
-	listArgs = append(listArgs, pkg)
-	// TODO: We most likely no longer need this "list -toolexec" call, since
-	// we use the original build IDs.
-	_, err := toolexecCmd("list", listArgs)
+	// We don't actually run `go list -toolexec=garble`; we only use toolexecCmd
+	// to ensure that sharedCache.ListedPackages is filled.
+	_, err := toolexecCmd("list", []string{pkg})
 	defer os.RemoveAll(os.Getenv("GARBLE_SHARED"))
 	if err != nil {
 		return err
