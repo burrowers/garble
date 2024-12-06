@@ -2422,7 +2422,7 @@ func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
 		// Keep in sync with [sharedCacheType.GoEnv].
 		"GOOS", "GOARCH", "GOMOD", "GOVERSION", "GOROOT",
-	).CombinedOutput()
+	).Output()
 	if err != nil {
 		// TODO: cover this in the tests.
 		fmt.Fprintf(os.Stderr, `Can't find the Go toolchain: %v
