@@ -4,22 +4,22 @@ stderr 'garble \[garble flags\] command'
 ! stderr 'usage: go build'
 ! stdout .
 
-! exec garble -h
+exec garble -h
 stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
 ! stdout .
 
-! exec garble help
+exec garble help
 stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
 ! stdout .
 
-! exec garble help foo bar
+exec garble help foo bar
 stderr 'usage: garble help'
 ! stderr 'Garble obfuscates Go code'
 ! stdout .
 
-! exec garble help -h
+exec garble help -h
 stderr 'usage: garble help'
 ! stdout .
 

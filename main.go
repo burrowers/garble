@@ -51,7 +51,7 @@ import (
 	"mvdan.cc/garble/internal/literals"
 )
 
-var flagSet = flag.NewFlagSet("garble", flag.ContinueOnError)
+var flagSet = flag.NewFlagSet("garble", flag.ExitOnError)
 
 var (
 	flagLiterals bool
@@ -146,8 +146,6 @@ For more information, see https://github.com/burrowers/garble.
 `[1:])
 }
 
-func main() { os.Exit(main1()) }
-
 var (
 	// Presumably OK to share fset across packages.
 	fset = token.NewFileSet()
@@ -220,7 +218,7 @@ func debugSince(start time.Time) time.Duration {
 	return time.Since(start).Truncate(10 * time.Microsecond)
 }
 
-func main1() int {
+func main() {
 	if dir := os.Getenv("GARBLE_WRITE_CPUPROFILES"); dir != "" {
 		f, err := os.CreateTemp(dir, "garble-cpu-*.pprof")
 		if err != nil {
@@ -256,9 +254,7 @@ func main1() int {
 			fmt.Fprintf(os.Stderr, "garble allocs: %d\n", memStats.Mallocs)
 		}
 	}()
-	if err := flagSet.Parse(os.Args[1:]); err != nil {
-		return 2
-	}
+	flagSet.Parse(os.Args[1:])
 	log.SetPrefix("[garble] ")
 	log.SetFlags(0) // no timestamps, as they aren't very useful
 	if flagDebug {
@@ -270,7 +266,7 @@ func main1() int {
 	args := flagSet.Args()
 	if len(args) < 1 {
 		usage()
-		return 2
+		os.Exit(2)
 	}
 
 	// If a random seed was used, the user won't be able to reproduce the
@@ -283,12 +279,11 @@ func main1() int {
 	}
 	if err := mainErr(args); err != nil {
 		if code, ok := err.(errJustExit); ok {
-			return int(code)
+			os.Exit(int(code))
 		}
 		fmt.Fprintln(os.Stderr, err)
-		return 1
+		os.Exit(1)
 	}
-	return 0
 }
 
 type errJustExit int
@@ -358,13 +353,13 @@ func mainErr(args []string) error {
 	case "help":
 		if hasHelpFlag(args) || len(args) > 1 {
 			fmt.Fprintf(os.Stderr, "usage: garble help [command]\n")
-			return errJustExit(2)
+			return errJustExit(0)
 		}
 		if len(args) == 1 {
 			return mainErr([]string{args[0], "-h"})
 		}
 		usage()
-		return errJustExit(2)
+		return errJustExit(0)
 	case "version":
 		if hasHelpFlag(args) || len(args) > 0 {
 			fmt.Fprintf(os.Stderr, "usage: garble version\n")

@@ -41,11 +41,11 @@ func TestMain(m *testing.M) {
 		os.Setenv("GORACE", "atexit_sleep_ms=10")
 	}
 	if os.Getenv("RUN_GARBLE_MAIN") == "true" {
-		os.Exit(main1())
+		main()
 	}
-	os.Exit(testscript.RunMain(garbleMain{m}, map[string]func() int{
-		"garble": main1,
-	}))
+	testscript.Main(garbleMain{m}, map[string]func(){
+		"garble": main,
+	})
 }
 
 type garbleMain struct {
