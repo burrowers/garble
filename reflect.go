@@ -464,9 +464,9 @@ func recordedObjectString(obj types.Object) objectString {
 	return pkg.Path() + "." + obj.Name()
 }
 
-// reflectedObjectString returns the obfucated name of a types.Object,
+// obfuscatedObjectName returns the obfucated name of a types.Object,
 // parent is needed to correctly get the obfucated name of struct fields
-func reflectedObjectString(obj types.Object, parent *types.Struct) string {
+func obfuscatedObjectName(obj types.Object, parent *types.Struct) string {
 	if obj == nil {
 		return ""
 	}
@@ -489,19 +489,22 @@ func (ri *reflectInspector) recordUsedForReflect(obj types.Object, parent *types
 	if obj.Pkg().Path() != ri.pkg.Path() {
 		panic("called recordUsedForReflect with a foreign object")
 	}
-	objStr := reflectedObjectString(obj, parent)
-	if objStr == "" {
+	obfName := obfuscatedObjectName(obj, parent)
+	if obfName == "" {
 		return
 	}
-	ri.result.ReflectObjectNames[objStr] = obj.Name()
+	ri.result.ReflectObjectNames[obfName] = obj.Name()
 }
 
 func usedForReflect(cache pkgCache, obj types.Object) bool {
-	objStr := reflectedObjectString(obj, nil)
-	if objStr == "" {
+	obfName := obfuscatedObjectName(obj, nil)
+	if obfName == "" {
 		return false
 	}
-	_, ok := cache.ReflectObjectNames[objStr]
+	// TODO: Note that this does an object lookup by obfuscated name.
+	// We should probably use unique object identifiers or strings,
+	// such as go/types/objectpath.
+	_, ok := cache.ReflectObjectNames[obfName]
 	return ok
 }
 
