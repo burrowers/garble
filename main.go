@@ -678,9 +678,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	flags, paths := splitFlagsFromFiles(args, ".s")
 
 	// When assembling, the import path can make its way into the output object file.
-	if tf.curPkg.Name != "main" && tf.curPkg.ToObfuscate {
-		flags = flagSetValue(flags, "-p", tf.curPkg.obfuscatedImportPath())
-	}
+	flags = flagSetValue(flags, "-p", tf.curPkg.obfuscatedImportPath())
 
 	flags = alterTrimpath(flags)
 
@@ -692,7 +690,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	if !slices.Contains(args, "-gensymabis") {
 		for _, path := range paths {
 			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
-			pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedImportPath())
+			pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir())
 			newPath := filepath.Join(pkgDir, name)
 			newPaths = append(newPaths, newPath)
 		}
@@ -857,9 +855,8 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 
 		// If the name was qualified, fetch the package, and write the
 		// obfuscated import path if needed.
-		// Note that we don't obfuscate the package path "main".
 		lpkg := tf.curPkg
-		if asmPkgPath != "" && asmPkgPath != "main" {
+		if asmPkgPath != "" {
 			if asmPkgPath != tf.curPkg.Name {
 				goPkgPath := asmPkgPath
 				goPkgPath = strings.ReplaceAll(goPkgPath, string(asmPeriod), string(goPeriod))
@@ -930,7 +927,7 @@ func (tf *transformer) writeSourceFile(basename, obfuscated string, content []by
 	// We use the obfuscated import path to hold the temporary files.
 	// Assembly files do not support line directives to set positions,
 	// so the only way to not leak the import path is to replace it.
-	pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedImportPath())
+	pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir())
 	if err := os.MkdirAll(pkgDir, 0o777); err != nil {
 		return "", err
 	}
@@ -1062,13 +1059,8 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		return nil, err
 	}
 
-	// If this is a package to obfuscate, swap the -p flag with the new package path.
-	// We don't if it's the main package, as that just uses "-p main".
-	// We only set newPkgPath if we're obfuscating the import path,
-	// to replace the original package name in the package clause below.
-	if tf.curPkg.Name != "main" && tf.curPkg.ToObfuscate {
-		flags = flagSetValue(flags, "-p", tf.curPkg.obfuscatedImportPath())
-	}
+	// Note that the main package always uses `-p main`, even though it's not an import path.
+	flags = flagSetValue(flags, "-p", tf.curPkg.obfuscatedImportPath())
 
 	newPaths := make([]string, 0, len(files))
 
@@ -1244,11 +1236,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		newForeignName = hashWithPackage(lpkg, foreignName)
 	}
 
-	newPkgPath := lpkg.ImportPath
-	if newPkgPath != "main" {
-		newPkgPath = lpkg.obfuscatedImportPath()
-	}
-	newName = newPkgPath + "." + newForeignName
+	newName = lpkg.obfuscatedImportPath() + "." + newForeignName
 	return localName, newName
 }
 
@@ -1379,9 +1367,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 			}
 			return "", err
 		}
-		if lpkg.Name != "main" {
-			impPath = lpkg.obfuscatedImportPath()
-		}
+		impPath = lpkg.obfuscatedImportPath()
 		fmt.Fprintf(newCfg, "packagefile %s=%s\n", impPath, pkgfile)
 	}
 
@@ -1643,7 +1629,7 @@ func computeLinkerVariableStrings(pkg *types.Package) (map[*types.Var]string, er
 		i := strings.LastIndexByte(fullName, '.')
 		path, name := fullName[:i], fullName[i+1:]
 
-		// -X represents the main package as "main", not its import path.
+		// Note that package main always has import path "main" as part of a build.
 		if path != pkg.Path() && (path != "main" || pkg.Name() != "main") {
 			return // not the current package
 		}
@@ -2091,16 +2077,14 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		}
 		// We're importing an obfuscated package.
 		// Replace the import path with its obfuscated version.
-		// If the import was unnamed, give it the name of the
-		// original package name, to keep references working.
 		lpkg, err := listPackage(tf.curPkg, path)
 		if err != nil {
 			panic(err) // should never happen
 		}
-		if lpkg.Name != "main" {
-			newPath := lpkg.obfuscatedImportPath()
-			imp.Path.Value = strconv.Quote(newPath)
-		}
+		// Note that a main package is imported via its original import path.
+		imp.Path.Value = strconv.Quote(lpkg.obfuscatedImportPath())
+		// If the import was unnamed, give it the name of the
+		// original package name, to keep references working.
 		if imp.Name == nil {
 			imp.Name = &ast.Ident{
 				NamePos: imp.Path.ValuePos, // ensure it ends up on the same line
@@ -2174,8 +2158,7 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 		path, name := fullName[:i], fullName[i+1:]
 
 		// If the package path is "main", it's the current top-level
-		// package we are linking.
-		// Otherwise, find it in the cache.
+		// package we are linking. Otherwise, find it in the cache.
 		lpkg := tf.curPkg
 		if path != "main" {
 			lpkg = sharedCache.ListedPackages[path]
@@ -2186,13 +2169,8 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 			// cmd/link ignores those, so we should too.
 			return
 		}
-		// As before, the main package must remain as "main".
-		newPath := path
-		if path != "main" {
-			newPath = lpkg.obfuscatedImportPath()
-		}
 		newName := hashWithPackage(lpkg, name)
-		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", newPath, newName, stringValue))
+		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", lpkg.obfuscatedImportPath(), newName, stringValue))
 	})
 
 	// Starting in Go 1.17, Go's version is implicitly injected by the linker.
