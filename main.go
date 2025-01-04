@@ -1066,10 +1066,8 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	// We don't if it's the main package, as that just uses "-p main".
 	// We only set newPkgPath if we're obfuscating the import path,
 	// to replace the original package name in the package clause below.
-	newPkgPath := ""
 	if tf.curPkg.Name != "main" && tf.curPkg.ToObfuscate {
-		newPkgPath = tf.curPkg.obfuscatedImportPath()
-		flags = flagSetValue(flags, "-p", newPkgPath)
+		flags = flagSetValue(flags, "-p", tf.curPkg.obfuscatedImportPath())
 	}
 
 	newPaths := make([]string, 0, len(files))
@@ -1090,13 +1088,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		}
 		tf.transformDirectives(file.Comments)
 		file = tf.transformGoFile(file)
-		// newPkgPath might be the original ImportPath in some edge cases like
-		// compilerIntrinsics; we don't want to use slashes in package names.
-		// TODO: when we do away with those edge cases, only check the string is
-		// non-empty.
-		if newPkgPath != "" && newPkgPath != tf.curPkg.ImportPath {
-			file.Name.Name = newPkgPath
-		}
+		file.Name.Name = tf.curPkg.obfuscatedPackageName()
 
 		src, err := printFile(tf.curPkg, file)
 		if err != nil {
@@ -2104,9 +2096,6 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		lpkg, err := listPackage(tf.curPkg, path)
 		if err != nil {
 			panic(err) // should never happen
-		}
-		if !lpkg.ToObfuscate {
-			return true
 		}
 		if lpkg.Name != "main" {
 			newPath := lpkg.obfuscatedImportPath()

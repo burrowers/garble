@@ -205,6 +205,15 @@ type packageError struct {
 	Err string
 }
 
+func (p *listedPackage) obfuscatedPackageName() string {
+	// Note that package main is treated in a special way by the toolchain.
+	if p.Name == "main" || !p.ToObfuscate {
+		return p.Name
+	}
+	// The package name itself is obfuscated like any other name.
+	return hashWithPackage(p, p.Name)
+}
+
 func (p *listedPackage) obfuscatedImportPath() string {
 	// We can't obfuscate these standard library import paths,
 	// as the toolchain expects to recognize the packages by them:
