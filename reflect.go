@@ -189,13 +189,13 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 			switch inst := inst.(type) {
 			case *ssa.Store:
 				obj := typeToObj(inst.Addr.Type())
-				if usedForReflect(ri.result, obj) {
+				if obj != nil && usedForReflect(ri.result, obj) {
 					ri.recordArgReflected(inst.Val, make(map[ssa.Value]bool))
 					ri.propagatedInstr[inst] = true
 				}
 			case *ssa.ChangeType:
 				obj := typeToObj(inst.X.Type())
-				if usedForReflect(ri.result, obj) {
+				if obj != nil && usedForReflect(ri.result, obj) {
 					ri.recursivelyRecordUsedForReflect(inst.Type(), nil)
 					ri.propagatedInstr[inst] = true
 				}
@@ -467,12 +467,9 @@ func recordedObjectString(obj types.Object) objectString {
 // obfuscatedObjectName returns the obfucated name of a types.Object,
 // parent is needed to correctly get the obfucated name of struct fields
 func obfuscatedObjectName(obj types.Object, parent *types.Struct) string {
-	if obj == nil {
-		return ""
-	}
 	pkg := obj.Pkg()
 	if pkg == nil {
-		return ""
+		return "" // builtin types are never obfuscated
 	}
 
 	if v, ok := obj.(*types.Var); ok && parent != nil {
