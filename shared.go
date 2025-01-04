@@ -205,8 +205,10 @@ type packageError struct {
 	Err string
 }
 
+// obfuscatedPackageName returns a package's obfuscated package name,
+// which may be unchanged in some cases where we cannot obfuscate it.
+// Note that package main is unchanged as it is treated in a special way by the toolchain.
 func (p *listedPackage) obfuscatedPackageName() string {
-	// Note that package main is treated in a special way by the toolchain.
 	if p.Name == "main" || !p.ToObfuscate {
 		return p.Name
 	}
@@ -214,7 +216,24 @@ func (p *listedPackage) obfuscatedPackageName() string {
 	return hashWithPackage(p, p.Name)
 }
 
+// obfuscatedSourceDir returns an obfuscated directory name which can be used
+// to write obfuscated source files to. This directory name should be unique per package,
+// even when building many main packages at once, such as in `go test ./...`.
+func (p *listedPackage) obfuscatedSourceDir() string {
+	return hashWithPackage(p, p.ImportPath)
+}
+
+// obfuscatedImportPath returns a package's obfuscated import path,
+// which may be unchanged in some cases where we cannot obfuscate it.
+// Note that package main always has the unchanged import path "main" as part of a build,
+// but not if it's a main package as part of a test, which can be imported.
 func (p *listedPackage) obfuscatedImportPath() string {
+	if p.Name == "main" && p.ForTest == "" {
+		return "main"
+	}
+	if !p.ToObfuscate {
+		return p.ImportPath
+	}
 	// We can't obfuscate these standard library import paths,
 	// as the toolchain expects to recognize the packages by them:
 	//
@@ -231,9 +250,6 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	}
 	// Intrinsics are matched by package import path as well.
 	if _, ok := compilerIntrinsics[p.ImportPath]; ok {
-		return p.ImportPath
-	}
-	if !p.ToObfuscate {
 		return p.ImportPath
 	}
 	newPath := hashWithPackage(p, p.ImportPath)
