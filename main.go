@@ -151,7 +151,6 @@ var (
 	fset = token.NewFileSet()
 
 	sharedTempDir = os.Getenv("GARBLE_SHARED")
-	parentWorkDir = os.Getenv("GARBLE_PARENT_WORK")
 )
 
 const actionGraphFileName = "action-graph.json"
@@ -601,15 +600,11 @@ This command wraps "go %s". Below is its help:
 		return nil, err
 	}
 	os.Setenv("GARBLE_SHARED", sharedTempDir)
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	os.Setenv("GARBLE_PARENT_WORK", wd)
 
 	if flagDebugDir != "" {
-		if !filepath.IsAbs(flagDebugDir) {
-			flagDebugDir = filepath.Join(wd, flagDebugDir)
+		flagDebugDir, err = filepath.Abs(flagDebugDir)
+		if err != nil {
+			return nil, err
 		}
 
 		if err := os.RemoveAll(flagDebugDir); err != nil {
