@@ -117,7 +117,7 @@ func BenchmarkBuild(b *testing.B) {
 			// The cached rebuild will reuse all dependencies,
 			// but rebuild the main package itself.
 			if cached {
-				writeSourceFile("rebuild.go", []byte(fmt.Sprintf("package main\nvar v%d int", i)))
+				writeSourceFile("rebuild.go", fmt.Appendf(nil, "package main\nvar v%d int", i))
 			}
 
 			cmd := exec.Command(os.Args[0], args...)

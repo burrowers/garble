@@ -39,7 +39,7 @@ func generateRunSrc() string {
 	sb.WriteString(`
 var alwaysFalseFlag = false
 
-func noop(i interface{}) {
+func noop(i any) {
 	if alwaysFalseFlag {
 		println(i)
 	}	
