@@ -42,6 +42,7 @@ func TestMain(m *testing.M) {
 	}
 	if os.Getenv("RUN_GARBLE_MAIN") == "true" {
 		main()
+		return
 	}
 	testscript.Main(garbleMain{m}, map[string]func(){
 		"garble": main,
