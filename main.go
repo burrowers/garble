@@ -292,8 +292,8 @@ func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
 func goVersionOK() bool {
 	const (
-		minGoVersion = "go1.23" // the first major version we support
-		maxGoVersion = "go1.24" // the first major version we don't support
+		minGoVersion  = "go1.23.5" // the minimum Go version we support; could be a bugfix release if needed
+		unsupportedGo = "go1.24"   // the first major version we don't support
 	)
 
 	// rxVersion looks for a version like "go1.2" or "go1.2.3" in `go env GOVERSION`.
@@ -311,8 +311,8 @@ func goVersionOK() bool {
 		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to %s or newer\n", toolchainVersionFull, minGoVersion)
 		return false
 	}
-	if version.Compare(sharedCache.GoVersion, maxGoVersion) >= 0 {
-		fmt.Fprintf(os.Stderr, "Go version %q is too new; Go linker patches aren't available for %s or later yet\n", toolchainVersionFull, maxGoVersion)
+	if version.Compare(sharedCache.GoVersion, unsupportedGo) >= 0 {
+		fmt.Fprintf(os.Stderr, "Go version %q is too new; Go linker patches aren't available for %s or later yet\n", toolchainVersionFull, unsupportedGo)
 		return false
 	}
 
@@ -337,11 +337,6 @@ garble was built with %q and can't be used with the newer %q; rebuild it with a 
 }
 
 func mainErr(args []string) error {
-	// TODO(mvdan): until we can rely on alias tracking to work reliably,
-	// we must turn it off so that we don't get inconsistent types.
-	// See: https://go.dev/issue/70394
-	os.Setenv("GODEBUG", "gotypesalias=0")
-
 	command, args := args[0], args[1:]
 
 	// Catch users reaching for `go build -toolexec=garble`.
@@ -1384,11 +1379,6 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 type (
 	funcFullName = string // as per go/types.Func.FullName
 	objectString = string // as per recordedObjectString
-
-	typeName struct {
-		PkgPath string // empty if builtin
-		Name    string
-	}
 )
 
 // pkgCache contains information about a package that will be stored in fsCache.
@@ -1405,20 +1395,11 @@ type pkgCache struct {
 	// ReflectObjectNames maps obfuscated names which are reflected to their "real"
 	// non-obfuscated names.
 	ReflectObjectNames map[objectString]string
-
-	// EmbeddedAliasFields records which embedded fields use a type alias.
-	// They are the only instance where a type alias matters for obfuscation,
-	// because the embedded field name is derived from the type alias itself,
-	// and not the type that the alias points to.
-	// In that way, the type alias is obfuscated as a form of named type,
-	// bearing in mind that it may be owned by a different package.
-	EmbeddedAliasFields map[objectString]typeName
 }
 
 func (c *pkgCache) CopyFrom(c2 pkgCache) {
 	maps.Copy(c.ReflectAPIs, c2.ReflectAPIs)
 	maps.Copy(c.ReflectObjectNames, c2.ReflectObjectNames)
-	maps.Copy(c.EmbeddedAliasFields, c2.EmbeddedAliasFields)
 }
 
 func ssaBuildPkg(pkg *types.Package, files []*ast.File, info *types.Info) *ssa.Package {
@@ -1489,8 +1470,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			"reflect.TypeOf":  {0: true},
 			"reflect.ValueOf": {0: true},
 		},
-		ReflectObjectNames:  map[objectString]string{},
-		EmbeddedAliasFields: map[objectString]typeName{},
+		ReflectObjectNames: map[objectString]string{},
 	}
 	for _, imp := range lpkg.Imports {
 		if imp == "C" {
@@ -1540,29 +1520,6 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		}(); err != nil {
 			return pkgCache{}, fmt.Errorf("pkgCache load for %s: %w", imp, err)
 		}
-	}
-
-	// Fill EmbeddedAliasFields from the type info.
-	for name, obj := range info.Uses {
-		obj, ok := obj.(*types.TypeName)
-		if !ok || !obj.IsAlias() {
-			continue
-		}
-		vr, _ := info.Defs[name].(*types.Var)
-		if vr == nil || !vr.Embedded() {
-			continue
-		}
-		vrStr := recordedObjectString(vr)
-		if vrStr == "" {
-			continue
-		}
-		aliasTypeName := typeName{
-			Name: obj.Name(),
-		}
-		if pkg := obj.Pkg(); pkg != nil {
-			aliasTypeName.PkgPath = pkg.Path()
-		}
-		computed.EmbeddedAliasFields[vrStr] = aliasTypeName
 	}
 
 	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
@@ -1919,38 +1876,11 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			//
 			// Alternatively, if we don't have an alias, we still want to
 			// use the embedded type, not the field.
-			vrStr := recordedObjectString(vr)
-			aliasTypeName, ok := tf.curPkgCache.EmbeddedAliasFields[vrStr]
-			if ok {
-				aliasScope := tf.pkg.Scope()
-				if path := aliasTypeName.PkgPath; path == "" {
-					aliasScope = types.Universe
-				} else if path != tf.pkg.Path() {
-					// If the package is a dependency, import it.
-					// We can't grab the package via tf.pkg.Imports,
-					// because some of the packages under there are incomplete.
-					// ImportFrom will cache complete imports, anyway.
-					pkg2, err := tf.origImporter.ImportFrom(path, parentWorkDir, 0)
-					if err != nil {
-						panic(err)
-					}
-					aliasScope = pkg2.Scope()
-				}
-				tname, ok := aliasScope.Lookup(aliasTypeName.Name).(*types.TypeName)
-				if !ok {
-					panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a missing type %q", vrStr, aliasTypeName))
-				}
-				if !tname.IsAlias() {
-					panic(fmt.Sprintf("EmbeddedAliasFields pointed %q to a non-alias type %q", vrStr, aliasTypeName))
-				}
-				obj = tname
-			} else {
-				tname := namedType(obj.Type())
-				if tname == nil {
-					return true // unnamed type (probably a basic type, e.g. int)
-				}
-				obj = tname
+			tname := namedType(obj.Type())
+			if tname == nil {
+				return true // unnamed type (probably a basic type, e.g. int)
 			}
+			obj = tname
 			pkg = obj.Pkg()
 		}
 		if pkg == nil {

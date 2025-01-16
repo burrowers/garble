@@ -1,10 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"go/types"
 	"maps"
-	"path/filepath"
 	"slices"
 
 	"golang.org/x/tools/go/ssa"
@@ -425,44 +423,6 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type, parent
 		// Get past pointers, slices, etc.
 		ri.recursivelyRecordUsedForReflect(t.Elem(), nil)
 	}
-}
-
-// TODO: remove once alias tracking is properly implemented
-func recordedObjectString(obj types.Object) objectString {
-	if obj == nil {
-		return ""
-	}
-	pkg := obj.Pkg()
-	if pkg == nil {
-		return ""
-	}
-	// Names which are not at the package level still need to avoid obfuscation in some cases:
-	//
-	// 1. Field names on global types, which can be reached via reflection.
-	// 2. Field names on anonymous types can also be reached via reflection.
-	// 3. Local named types can be embedded in a local struct, becoming a field name as well.
-	//
-	// For now, a hack: assume that packages don't declare the same field
-	// more than once in the same line. This works in practice, but one
-	// could craft Go code to break this assumption.
-	// Also note that the compiler's object files include filenames and line
-	// numbers, but not column numbers nor byte offsets.
-	if pkg.Scope() != obj.Parent() {
-		switch obj := obj.(type) {
-		case *types.Var: // struct fields; cases 1 and 2 above
-			if !obj.IsField() {
-				return "" // local variables don't need to be recorded
-			}
-		case *types.TypeName: // local named types; case 3 above
-		default:
-			return "" // other objects (labels, consts, etc) don't need to be recorded
-		}
-		pos := fset.Position(obj.Pos())
-		return fmt.Sprintf("%s.%s - %s:%d", pkg.Path(), obj.Name(),
-			filepath.Base(pos.Filename), pos.Line)
-	}
-	// For top-level names, "pkgpath.Name" is unique.
-	return pkg.Path() + "." + obj.Name()
 }
 
 // obfuscatedObjectName returns the obfucated name of a types.Object,
