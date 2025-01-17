@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"go/version"
 	"io"
 	"io/fs"
 	"os"
@@ -211,11 +212,7 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 }
 
 func PatchLinker(goRoot, goVersion, cacheDir, tempDir string) (string, func(), error) {
-	// rxVersion looks for a version like "go1.19" or "go1.20"
-	rxVersion := regexp.MustCompile(`go\d+\.\d+`)
-	majorGoVersion := rxVersion.FindString(goVersion)
-
-	patchesVer, modFiles, patches, err := loadLinkerPatches(majorGoVersion)
+	patchesVer, modFiles, patches, err := loadLinkerPatches(version.Lang(goVersion))
 	if err != nil {
 		return "", nil, fmt.Errorf("cannot retrieve linker patches: %v", err)
 	}
