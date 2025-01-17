@@ -13,6 +13,7 @@ import (
 	"go/types"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"mvdan.cc/garble/internal/literals"
@@ -236,63 +237,23 @@ func hashWithPackage(pkg *listedPackage, name string) string {
 	return hashWithCustomSalt([]byte(pkg.ImportPath+"|"), name)
 }
 
-// stripStructTags takes the bytes produced by [types.WriteType]
-// and removes any struct tags in-place, such as rewriting
-//
-//	struct{Foo int; Bar string "json:\"bar\""}
-//
-// into
-//
-//	struct{Foo int; Bar string}
-//
-// Note that, unlike most Go source, WriteType uses double quotes for tags.
-//
-// Reusing WriteType does require a second pass over its output here,
-// which we could save by implementing our own modified version of WriteType.
-// However, that would be a significant amount of code to maintain.
-func stripStructTags(p []byte) []byte {
-	i := 0
-	for i < len(p) {
-		b := p[i]
-		start := i - 1 // a struct tag is preceded by a space
-		i++
-		if b != '"' {
-			continue
-		}
-		// Find the closing double quote, skipping over escaped characters.
-		// Note that we should probably iterate over runes and not bytes,
-		// but this byte implementation is probably good enough in practice.
-		for {
-			b = p[i]
-			i++
-			if b == '\\' {
-				i++
-			} else if b == '"' {
-				break
-			}
-		}
-		end := i
-		// Remove the bytes between start and end,
-		// and reset i to start, since we just shortened p.
-		p = append(p[:start], p[end:]...)
-		i = start
-	}
-	return p
-}
-
-var typeIdentityBuf bytes.Buffer
-
 // hashWithStruct is separate from hashWithPackage since Go
 // allows converting between struct types across packages.
 // Hashing struct field names differently between packages would break that.
 //
-// We hash field names with the identity struct type as a salt
+// We hash field names with the "identity" struct type as a salt
 // so that the same field name used in different struct types is obfuscated differently.
-// Note that "identity" means omitting struct tags since conversions ignore them.
+// In practice this means omitting struct field tags and unaliasing field types,
+// given that those do not affect whether two types are identical.
 func hashWithStruct(strct *types.Struct, field *types.Var) string {
-	typeIdentityBuf.Reset()
-	types.WriteType(&typeIdentityBuf, strct, nil)
-	salt := stripStructTags(typeIdentityBuf.Bytes())
+	// Here we use a bundled and modified version of x/tools/go/types/typeutil.NewHasher.Hash
+	// which includes two crucial modifications:
+	//
+	//   * struct field tags are not hashed
+	//   * named types are hashed by name rather than by pointer
+	//
+	// TODO: rethink once the proposed go/types.Hash API in https://go.dev/issue/69420 is merged.
+	salt := strconv.AppendUint(nil, uint64(typeutil_hash(strct)), 32)
 
 	// If the user provided us with an obfuscation seed,
 	// we only use the identity struct type as a salt.
