@@ -57,8 +57,8 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 	// At least it's enough to leave the rtype and Value types intact.
 	if ri.pkg.Path() == "reflect" {
 		scope := ri.pkg.Scope()
-		ri.recursivelyRecordUsedForReflect(scope.Lookup("rtype").Type(), nil)
-		ri.recursivelyRecordUsedForReflect(scope.Lookup("Value").Type(), nil)
+		ri.recursivelyRecordUsedForReflect(scope.Lookup("rtype").Type())
+		ri.recursivelyRecordUsedForReflect(scope.Lookup("Value").Type())
 	}
 
 	for _, memb := range ssaPkg.Members {
@@ -134,7 +134,7 @@ func (ri *reflectInspector) checkMethodSignature(reflectParams map[int]bool, sig
 
 		if ignore {
 			reflectParams[i] = true
-			ri.recursivelyRecordUsedForReflect(param.Type(), nil)
+			ri.recursivelyRecordUsedForReflect(param.Type())
 		}
 	}
 }
@@ -188,14 +188,14 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 			switch inst := inst.(type) {
 			case *ssa.Store:
 				obj := typeToObj(inst.Addr.Type())
-				if obj != nil && ri.usedForReflect(ri.result, obj) {
+				if obj != nil && ri.usedForReflect(obj) {
 					ri.recordArgReflected(inst.Val, make(map[ssa.Value]bool))
 					ri.propagatedInstr[inst] = true
 				}
 			case *ssa.ChangeType:
 				obj := typeToObj(inst.X.Type())
-				if obj != nil && ri.usedForReflect(ri.result, obj) {
-					ri.recursivelyRecordUsedForReflect(inst.Type(), nil)
+				if obj != nil && ri.usedForReflect(obj) {
+					ri.recursivelyRecordUsedForReflect(inst.Type())
 					ri.propagatedInstr[inst] = true
 				}
 			case *ssa.Call:
@@ -283,7 +283,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 
 	case *ssa.Alloc:
 		/* fmt.Printf("recording val %v \n", *val.Referrers()) */
-		ri.recursivelyRecordUsedForReflect(val.Type(), nil)
+		ri.recursivelyRecordUsedForReflect(val.Type())
 
 		for _, ref := range *val.Referrers() {
 			if idx, ok := ref.(ssa.Value); ok {
@@ -298,11 +298,11 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		return relatedParam(val, visited)
 
 	case *ssa.ChangeType:
-		ri.recursivelyRecordUsedForReflect(val.X.Type(), nil)
+		ri.recursivelyRecordUsedForReflect(val.X.Type())
 	case *ssa.MakeSlice, *ssa.MakeMap, *ssa.MakeChan, *ssa.Const:
-		ri.recursivelyRecordUsedForReflect(val.Type(), nil)
+		ri.recursivelyRecordUsedForReflect(val.Type())
 	case *ssa.Global:
-		ri.recursivelyRecordUsedForReflect(val.Type(), nil)
+		ri.recursivelyRecordUsedForReflect(val.Type())
 
 		// TODO: this might need similar logic to *ssa.Alloc, however
 		// reassigning a function param to a global variable and then reflecting
@@ -311,7 +311,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		// this only finds the parameters who want to be found,
 		// otherwise relatedParam is used for more in depth analysis
 
-		ri.recursivelyRecordUsedForReflect(val.Type(), nil)
+		ri.recursivelyRecordUsedForReflect(val.Type())
 		return val
 	}
 
@@ -375,9 +375,7 @@ func relatedParam(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 		if param != nil {
 			return param
 		}
-
 	}
-
 	return nil
 }
 
@@ -387,20 +385,20 @@ func relatedParam(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 // Only the names declared in the current package are recorded. This is to ensure
 // that reflection detection only happens within the package declaring a type.
 // Detecting it in downstream packages could result in inconsistencies.
-func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type, parent *types.Struct) {
+func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 	switch t := t.(type) {
 	case *types.Named:
 		obj := t.Obj()
 		if obj.Pkg() == nil || obj.Pkg() != ri.pkg {
 			return // not from the specified package
 		}
-		if ri.usedForReflect(ri.result, obj) {
+		if ri.usedForReflect(obj) {
 			return // prevent endless recursion
 		}
-		ri.recordUsedForReflect(obj, parent)
+		ri.recordUsedForReflect(obj, nil)
 
 		// Record the underlying type, too.
-		ri.recursivelyRecordUsedForReflect(t.Underlying(), nil)
+		ri.recursivelyRecordUsedForReflect(t.Underlying())
 
 	case *types.Struct:
 		for i := range t.NumFields() {
@@ -416,12 +414,12 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type, parent
 			// Record the field itself, too.
 			ri.recordUsedForReflect(field, t)
 
-			ri.recursivelyRecordUsedForReflect(field.Type(), nil)
+			ri.recursivelyRecordUsedForReflect(field.Type())
 		}
 
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
-		ri.recursivelyRecordUsedForReflect(t.Elem(), nil)
+		ri.recursivelyRecordUsedForReflect(t.Elem())
 	}
 }
 
@@ -453,7 +451,7 @@ func (ri *reflectInspector) recordUsedForReflect(obj types.Object, parent *types
 	ri.result.ReflectObjectNames[obfName] = obj.Name()
 }
 
-func (ri *reflectInspector) usedForReflect(cache pkgCache, obj types.Object) bool {
+func (ri *reflectInspector) usedForReflect(obj types.Object) bool {
 	obfName := ri.obfuscatedObjectName(obj, nil)
 	if obfName == "" {
 		return false
@@ -461,7 +459,7 @@ func (ri *reflectInspector) usedForReflect(cache pkgCache, obj types.Object) boo
 	// TODO: Note that this does an object lookup by obfuscated name.
 	// We should probably use unique object identifiers or strings,
 	// such as go/types/objectpath.
-	_, ok := cache.ReflectObjectNames[obfName]
+	_, ok := ri.result.ReflectObjectNames[obfName]
 	return ok
 }
 
