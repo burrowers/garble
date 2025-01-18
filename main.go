@@ -1387,7 +1387,7 @@ type pkgCache struct {
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
 	ReflectAPIs map[funcFullName]map[int]bool
 
-	// ReflectObjectNames maps obfuscated names which are reflected to their "real"
+	// ReflectObjectNames maps obfuscated names which are reflected to their original
 	// non-obfuscated names.
 	ReflectObjectNames map[objectString]string
 }
