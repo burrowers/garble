@@ -1683,21 +1683,23 @@ func computeFieldToStruct(info *types.Info) map[*types.Var]*types.Struct {
 // Since types can be recursive, we need a map to avoid cycles.
 // We only need to track named types as done, as all cycles must use them.
 func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStruct map[*types.Var]*types.Struct) {
+	used = types.Unalias(used)
 	if origin == nil {
 		origin = used
-	}
-	origin = types.Unalias(origin)
-	used = types.Unalias(used)
-	type Container interface{ Elem() types.Type }
-	switch used := used.(type) {
-	case Container:
-		// origin may be a *types.TypeParam, which is not a Container.
+	} else {
+		origin = types.Unalias(origin)
+		// origin may be a [*types.TypeParam].
 		// For now, we haven't found a need to recurse in that case.
 		// We can edit this code in the future if we find an example,
 		// because we panic if a field is not in fieldToStruct.
-		if origin, ok := origin.(Container); ok {
-			recordType(used.Elem(), origin.Elem(), done, fieldToStruct)
+		if _, ok := origin.(*types.TypeParam); ok {
+			return
 		}
+	}
+	type Container interface{ Elem() types.Type }
+	switch used := used.(type) {
+	case Container:
+		recordType(used.Elem(), origin.(Container).Elem(), done, fieldToStruct)
 	case *types.Named:
 		if done[used] {
 			return

@@ -24,7 +24,7 @@ type GenericVector[GenericParamT any] []GenericParamT
 
 type GenericGraph[T any] struct {
 	Content T
-	Edges []GenericGraph[T]
+	Edges   []GenericGraph[T]
 }
 
 type PredeclaredSignedInteger interface {
@@ -40,7 +40,7 @@ type StringableSignedInteger interface {
 type CombineEmbeds interface {
 	string | int
 
-	interface { EmbeddedMethod() }
+	interface{ EmbeddedMethod() }
 	RegularMethod()
 }
 
@@ -49,3 +49,7 @@ type Slice[T any] []T
 func sliceOfPointer() Slice[*any] {
 	return []*any{}
 }
+
+type Map[K, V comparable] map[K]V
+
+var _ = Map[string, struct{}]{}
