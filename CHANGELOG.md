@@ -1,5 +1,27 @@
 # Changelog
 
+## [v0.14.0] - 2025-01-22
+
+This release drops support for Go 1.22 and continues support for Go 1.23.
+
+@lu4p improved the compatibility with reflection of Go types by collecting
+the set of all types used with reflection during the entire build,
+and then inject the de-obfuscation of their names in the link step.
+Thanks to this, many more Go packages should work out of the box,
+and the README caveat suggesting the use of "reflection hints" is removed.
+
+@mvdan replaced our own tracking of type aliases, necessary given that the
+alias name becomes a field name when embedded into a struct type.
+We now rely entirely on upstream Go's tracking of aliases in `go/types`.
+Note that this means that Garble now requires Go 1.23.5 or later,
+given that alias tracking did not work properly in previous Go versions.
+
+A number of fixes are also included:
+* Reduce the amount of info fetched from `go list -json` for a ~2% speed-up 
+* Package names and paths are now obfuscated separately
+* Hashing of struct types to obfuscate field names is now better implemented
+* Fix a panic which could occur when using structs as type parameters
+
 ## [v0.13.0] - 2024-09-05
 
 This release drops support for Go 1.21 and adds support for Go 1.23.
