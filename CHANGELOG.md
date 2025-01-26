@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.14.0] - 2025-01-22
+## [v0.14.0] - 2025-01-26
 
 This release drops support for Go 1.22 and continues support for Go 1.23.
 
