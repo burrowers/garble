@@ -7,22 +7,25 @@
 [exec:git] setenvfile HEAD_COMMIT_SHA stdout
 
 exec garble build -tags veryuniquebuildtag
-! binsubstr main$exe '(devel)' 'veryuniquebuildtag' ${HEAD_COMMIT_SHA}
 
 go version -m main$exe
 stdout 'main(\.exe)?: unknown'
 stdout -count=1 '^.+$' # expect just one line
 
+! binsubstr main$exe '(devel)' 'v0.0.0-202' 'veryuniquebuildtag' ${HEAD_COMMIT_SHA}
+
 [short] stop # no need to verify this with -short
 
 go build -tags veryuniquebuildtag
-binsubstr main$exe '(devel)' 'veryuniquebuildtag' ${HEAD_COMMIT_SHA}
 
 go version -m main$exe
 stdout 'path\s*test/main'
-stdout 'mod\s*test/main\s*\(devel\)'
+[go1.24] stdout 'mod\s*test/main\s*v0\.0\.0-202\d'
 stdout 'build\s*-tags=veryuniquebuildtag'
 stdout 'build\s*vcs.revision='${HEAD_COMMIT_SHA}
+
+binsubstr main$exe 'veryuniquebuildtag' ${HEAD_COMMIT_SHA}
+[go1.24] binsubstr main$exe 'v0.0.0-202'
 -- go.mod --
 module test/main
 
