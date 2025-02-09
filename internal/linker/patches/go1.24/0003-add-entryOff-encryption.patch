@@ -1,0 +1,43 @@
+From 03342e79193875d08bf3f88154e77a453b28c076 Mon Sep 17 00:00:00 2001
+From: pagran <pagran@protonmail.com>
+Date: Sat, 14 Jan 2023 21:36:16 +0100
+Subject: [PATCH 3/3] add entryOff encryption
+
+---
+ cmd/link/internal/ld/pcln.go | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
+index b497573b15..f1021fcee3 100644
+--- a/cmd/link/internal/ld/pcln.go
++++ b/cmd/link/internal/ld/pcln.go
+@@ -806,6 +806,26 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
+ 			sb.SetUint32(ctxt.Arch, dataoff, uint32(ldr.SymValue(fdsym)-gofuncBase))
+ 		}
+ 	}
++
++	// Moving next code higher is not recommended.
++	// Only at the end of the current function no edits between go versions
++	garbleEntryOffKeyStr := os.Getenv("GARBLE_LINK_ENTRYOFF_KEY")
++	if garbleEntryOffKeyStr == "" {
++		panic("[garble] entryOff key must be set")
++	}
++	var garbleEntryOffKey uint32
++	// Use fmt package instead of strconv to avoid importing a new package
++	if _, err := fmt.Sscan(garbleEntryOffKeyStr, &garbleEntryOffKey); err != nil {
++		panic(fmt.Errorf("[garble] invalid entryOff key %s: %v", garbleEntryOffKeyStr, err))
++	}
++
++	garbleData := sb.Data()
++	for _, off := range startLocations {
++		entryOff := ctxt.Arch.ByteOrder.Uint32(garbleData[off:])
++		nameOff := ctxt.Arch.ByteOrder.Uint32(garbleData[off+4:])
++
++		sb.SetUint32(ctxt.Arch, int64(off), entryOff^(nameOff*garbleEntryOffKey))
++	}
+ }
+ 
+ // pclntab initializes the pclntab symbol with
+-- 
+2.48.1
+
