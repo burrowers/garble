@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.14.1] - 2025-02-12
+
+This release adds support for Go 1.24 and continues support for Go 1.23.
+
 ## [v0.14.0] - 2025-01-26
 
 This release drops support for Go 1.22 and continues support for Go 1.23.
@@ -314,7 +318,9 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
-[v0.12.1]: https://github.com/burrowers/garble/releases/tag/v0.12.1
+[v0.14.1]: https://github.com/burrowers/garble/releases/tag/v0.14.1
+[v0.14.0]: https://github.com/burrowers/garble/releases/tag/v0.14.0
+[v0.13.0]: https://github.com/burrowers/garble/releases/tag/v0.13.0
 
 [v0.12.0]: https://github.com/burrowers/garble/releases/tag/v0.12.0
 [#690]: https://github.com/burrowers/garble/issues/690
