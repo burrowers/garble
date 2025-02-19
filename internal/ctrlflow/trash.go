@@ -174,7 +174,7 @@ func isGenericType(p types.Type) bool {
 
 // isSupportedSig checks that the function is not generic and all parameters can be generated using valueGenerators
 func isSupportedSig(m *types.Func) bool {
-	sig := m.Type().(*types.Signature)
+	sig := m.Signature()
 	if isGenericType(sig) {
 		return false
 	}
@@ -430,7 +430,7 @@ func (t *trashGenerator) generateCall(vars map[string]*definedVar) ast.Stmt {
 
 	var args []ast.Expr
 
-	targetSig := targetFunc.Type().(*types.Signature)
+	targetSig := targetFunc.Signature()
 	params := targetSig.Params()
 	for i := 0; i < params.Len(); i++ {
 		param := params.At(i)

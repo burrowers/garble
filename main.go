@@ -1966,7 +1966,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 				return true
 			}
 
-			sign := obj.Type().(*types.Signature)
+			sign := obj.Signature()
 			if sign.Recv() == nil {
 				debugName = "func"
 			} else {
