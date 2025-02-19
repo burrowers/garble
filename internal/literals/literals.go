@@ -175,7 +175,7 @@ func handleCompositeLiteral(obfRand *obfRand, isPointer bool, node *ast.Composit
 //
 // We don't set any "end" or middle positions, because they seem irrelevant.
 func withPos(node ast.Node, pos token.Pos) ast.Node {
-	ast.Inspect(node, func(node ast.Node) bool {
+	for node := range ast.Preorder(node) {
 		switch node := node.(type) {
 		case *ast.BasicLit:
 			node.ValuePos = pos
@@ -207,8 +207,7 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 		case *ast.BranchStmt:
 			node.TokPos = pos
 		}
-		return true
-	})
+	}
 	return node
 }
 

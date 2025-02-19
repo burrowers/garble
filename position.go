@@ -71,7 +71,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	// we use a list of offsets indexed by identifiers in source order.
 	var origCallOffsets []int
 	nextOffset := -1
-	ast.Inspect(file, func(node ast.Node) bool {
+	for node := range ast.Preorder(file) {
 		switch node := node.(type) {
 		case *ast.CallExpr:
 			nextOffset = fsetFile.Position(node.Pos()).Offset
@@ -79,8 +79,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			origCallOffsets = append(origCallOffsets, nextOffset)
 			nextOffset = -1
 		}
-		return true
-	})
+	}
 
 	copied := 0
 	printBuf2.Reset()

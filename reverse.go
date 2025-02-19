@@ -80,7 +80,7 @@ One can reverse a captured panic stack trace as follows:
 		fieldToStruct := computeFieldToStruct(info)
 		for i, file := range files {
 			goFile := lpkg.CompiledGoFiles[i]
-			ast.Inspect(file, func(node ast.Node) bool {
+			for node := range ast.Preorder(file) {
 				switch node := node.(type) {
 
 				// Replace names.
@@ -125,9 +125,7 @@ One can reverse a captured panic stack trace as follows:
 						fmt.Sprintf("%s/%s", lpkg.ImportPath, goFile),
 					)
 				}
-
-				return true
-			})
+			}
 		}
 	}
 	repl := strings.NewReplacer(replaces...)
