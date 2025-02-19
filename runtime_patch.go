@@ -201,16 +201,13 @@ func stripRuntime(basename string, file *ast.File) {
 			}
 		case "runtime1.go":
 			usesEnv := func(node ast.Node) bool {
-				seen := false
-				ast.Inspect(node, func(node ast.Node) bool {
+				for node := range ast.Preorder(node) {
 					ident, ok := node.(*ast.Ident)
 					if ok && ident.Name == "gogetenv" {
-						seen = true
-						return false
+						return true
 					}
-					return true
-				})
-				return seen
+				}
+				return false
 			}
 		filenames:
 			switch funcDecl.Name.Name {
