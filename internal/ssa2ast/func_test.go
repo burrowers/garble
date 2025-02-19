@@ -59,7 +59,7 @@ func TestConvertSignature(t *testing.T) {
 		funcDecl.Body = nil
 
 		funcObj := info.Defs[funcDecl.Name].(*types.Func)
-		funcDeclConverted, err := conv.convertSignatureToFuncDecl(funcObj.Name(), funcObj.Type().(*types.Signature))
+		funcDeclConverted, err := conv.convertSignatureToFuncDecl(funcObj.Name(), funcObj.Signature())
 		qt.Assert(t, qt.IsNil(err))
 		qt.Assert(t, qt.CmpEquals(funcDeclConverted, funcDecl, astCmpOpt))
 	}

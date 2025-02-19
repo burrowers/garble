@@ -145,7 +145,7 @@ func (ri *reflectInspector) checkInterfaceMethod(m *types.Func) {
 
 	maps.Copy(reflectParams, ri.result.ReflectAPIs[m.FullName()])
 
-	sig := m.Type().(*types.Signature)
+	sig := m.Signature()
 	if m.Exported() {
 		ri.checkMethodSignature(reflectParams, sig)
 	}
