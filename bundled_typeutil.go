@@ -37,7 +37,7 @@ type typeutil_hasher struct{ inGenericSig bool }
 // hashString computes the Fowler–Noll–Vo hash of s.
 func typeutil_hashString(s string) uint32 {
 	var h uint32
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		h ^= uint32(s[i])
 		h *= 16777619
 	}
@@ -129,7 +129,7 @@ func (h typeutil_hasher) hash(t types.Type) uint32 {
 	case *types.Named:
 		hash := h.hashTypeName(t.Obj())
 		targs := t.TypeArgs()
-		for i := 0; i < targs.Len(); i++ {
+		for i := range targs.Len() {
 			targ := targs.At(i)
 			hash += 2 * h.hash(targ)
 		}

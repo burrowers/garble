@@ -38,7 +38,7 @@ var (
 
 func genRandIntSlice(obfRand *mathrand.Rand, max, count int) []int {
 	indexes := make([]int, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		indexes[i] = obfRand.Intn(max)
 	}
 	return indexes

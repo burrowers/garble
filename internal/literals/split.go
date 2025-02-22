@@ -30,10 +30,7 @@ func splitIntoRandomChunks(obfRand *mathrand.Rand, data []byte) [][]byte {
 
 	var chunks [][]byte
 	for len(data) > 0 {
-		chunkSize := 1 + obfRand.Intn(maxChunkSize)
-		if chunkSize > len(data) {
-			chunkSize = len(data)
-		}
+		chunkSize := min(1+obfRand.Intn(maxChunkSize), len(data))
 
 		chunks = append(chunks, data[:chunkSize])
 		data = data[chunkSize:]

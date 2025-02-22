@@ -152,7 +152,7 @@ func addJunkBlocks(ssaFunc *ssa.Function, count int, obfRand *mathrand.Rand) {
 		return
 	}
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		targetBlock := candidates[obfRand.Intn(len(candidates))]
 		succsIdx := obfRand.Intn(len(targetBlock.Succs))
 		succs := targetBlock.Succs[succsIdx]
@@ -254,7 +254,7 @@ func addTrashBlockMarkers(ssaFunc *ssa.Function, count int, obfRand *mathrand.Ra
 		return
 	}
 
-	for i := 0; i < count; i++ {
+	for range count {
 		targetBlock := candidates[obfRand.Intn(len(candidates))]
 		succsIdx := obfRand.Intn(len(targetBlock.Succs))
 		succs := targetBlock.Succs[succsIdx]
