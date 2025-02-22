@@ -200,7 +200,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			if trashBlockCount > 0 {
 				addTrashBlockMarkers(ssaFunc, trashBlockCount, obfRand)
 			}
-			for i := 0; i < split; i++ {
+			for range split {
 				if !applySplitting(ssaFunc, obfRand) {
 					break // no more candidates for splitting
 				}
@@ -209,7 +209,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 				addJunkBlocks(ssaFunc, junkCount, obfRand)
 			}
 			var dispatchers []dispatcherInfo
-			for i := 0; i < passes; i++ {
+			for range passes {
 				if info := applyFlattening(ssaFunc, obfRand); info != nil {
 					dispatchers = append(dispatchers, info)
 				}

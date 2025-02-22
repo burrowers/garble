@@ -85,7 +85,7 @@ func typeparams_computeTermSetInternal(t types.Type, seen map[types.Type]*typepa
 		// The term set of an interface is the intersection of the term sets of its
 		// embedded types.
 		tset.terms = typeparams_allTermlist
-		for i := 0; i < u.NumEmbeddeds(); i++ {
+		for i := range u.NumEmbeddeds() {
 			embedded := u.EmbeddedType(i)
 			if _, ok := embedded.Underlying().(*types.TypeParam); ok {
 				return nil, fmt.Errorf("invalid embedded type %T", embedded)
@@ -99,7 +99,7 @@ func typeparams_computeTermSetInternal(t types.Type, seen map[types.Type]*typepa
 	case *types.Union:
 		// The term set of a union is the union of term sets of its terms.
 		tset.terms = nil
-		for i := 0; i < u.Len(); i++ {
+		for i := range u.Len() {
 			t := u.Term(i)
 			var terms typeparams_termlist
 			switch t.Type().Underlying().(type) {

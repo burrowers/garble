@@ -178,7 +178,7 @@ func isSupportedSig(m *types.Func) bool {
 	if isGenericType(sig) {
 		return false
 	}
-	for i := 0; i < sig.Params().Len(); i++ {
+	for i := range sig.Params().Len() {
 		if !isSupportedType(sig.Params().At(i).Type()) {
 			return false
 		}
@@ -363,7 +363,7 @@ func (t *trashGenerator) cacheMethods(vars map[string]*definedVar) {
 		var methods []*types.Func
 		switch typ := typ.(type) {
 		case methodSet:
-			for i := 0; i < typ.NumMethods(); i++ {
+			for i := range typ.NumMethods() {
 				if m := typ.Method(i); token.IsExported(m.Name()) && isSupportedSig(m) {
 					methods = append(methods, m)
 					if len(methods) > limitFunctionCount {
@@ -432,7 +432,7 @@ func (t *trashGenerator) generateCall(vars map[string]*definedVar) ast.Stmt {
 
 	targetSig := targetFunc.Signature()
 	params := targetSig.Params()
-	for i := 0; i < params.Len(); i++ {
+	for i := range params.Len() {
 		param := params.At(i)
 		if !targetSig.Variadic() || i != params.Len()-1 {
 			args = append(args, t.generateRandomValue(param.Type(), vars))
@@ -440,7 +440,7 @@ func (t *trashGenerator) generateCall(vars map[string]*definedVar) ast.Stmt {
 		}
 
 		variadicCount := t.rand.Intn(maxVariadicParams)
-		for i := 0; i < variadicCount; i++ {
+		for range variadicCount {
 			sliceTyp, ok := param.Type().(*types.Slice)
 			if !ok {
 				panic(fmt.Errorf("unsupported variadic type: %v", param.Type()))
@@ -472,7 +472,7 @@ func (t *trashGenerator) generateCall(vars map[string]*definedVar) ast.Stmt {
 		Rhs: []ast.Expr{callExpr},
 	}
 
-	for i := 0; i < results.Len(); i++ {
+	for i := range results.Len() {
 		ident := ast.NewIdent(getRandomName(t.rand))
 		vars[ident.Name] = &definedVar{
 			Type:   results.At(i).Type(),
@@ -501,10 +501,7 @@ func (t *trashGenerator) generateAssign(vars map[string]*definedVar) ast.Stmt {
 		varNames[i], varNames[j] = varNames[j], varNames[i]
 	})
 
-	varCount := 1 + t.rand.Intn(maxAssignVars)
-	if varCount > len(varNames) {
-		varCount = len(varNames)
-	}
+	varCount := min(1+t.rand.Intn(maxAssignVars), len(varNames))
 
 	assignStmt := &ast.AssignStmt{
 		Tok: token.ASSIGN,
@@ -537,7 +534,7 @@ func (t *trashGenerator) Generate(statementCount int, externalVars map[string]ty
 	}
 
 	var stmts []ast.Stmt
-	for i := 0; i < statementCount; i++ {
+	for range statementCount {
 		var stmt ast.Stmt
 		if len(vars) >= minVarsForAssign && t.rand.Float32() < assignVarProb {
 			stmt = t.generateAssign(vars)

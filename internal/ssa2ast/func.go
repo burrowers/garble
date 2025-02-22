@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -459,7 +460,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			localTuple := true
 			tmpVars := make(map[string]types.Type)
 
-			for i := 0; i < tuple.Len(); i++ {
+			for i := range tuple.Len() {
 				name, typ, hasRefs := fc.tupleVarNameAndType(r, i)
 				tmpVars[name] = typ
 				if hasRefs {
@@ -469,9 +470,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			}
 
 			if !localTuple {
-				for n, t := range tmpVars {
-					astFunc.Vars[n] = t
-				}
+				maps.Copy(astFunc.Vars, tmpVars)
 			}
 
 			return assignStmt

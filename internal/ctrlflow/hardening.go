@@ -150,13 +150,10 @@ type delegateTableHardening struct{}
 
 func (delegateTableHardening) Apply(dispatcher []cfgInfo, ssaRemap map[ssa.Value]ast.Expr, rnd *mathrand.Rand) (ast.Decl, ast.Stmt) {
 	keySize := literals.MinSize + mathrand.Intn(literals.MinSize)
-	delegateCount := keySize
 
 	// Reusing multiple times one decryption function is fine,
 	// but it doesn't make sense to generate more functions than keys.
-	if delegateCount > len(dispatcher) {
-		delegateCount = len(dispatcher)
-	}
+	delegateCount := min(keySize, len(dispatcher))
 
 	delegateKeyIdxs := rnd.Perm(keySize)[:delegateCount]
 	delegateLocalKeys := generateKeys(delegateCount, nil, rnd)
@@ -184,7 +181,7 @@ func (delegateTableHardening) Apply(dispatcher []cfgInfo, ssaRemap map[ssa.Value
 	}
 
 	delegatesAst := make([]ast.Expr, delegateCount)
-	for i := 0; i < delegateCount; i++ {
+	for i := range delegateCount {
 		// Code for single decryption delegate:
 		/*
 			func(i int) int {
