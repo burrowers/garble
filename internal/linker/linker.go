@@ -117,7 +117,8 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 	// by default treats workingDir as a subfolder of repository, so it will break git apply. Adding --git-dir flag blocks this behavior.
 	cmd := exec.Command("git", "--git-dir", workingDir, "apply", "--verbose")
 	cmd.Dir = workingDir
-	cmd.Env = append(cmd.Env, "LANG=en_US")
+	// Ensure that the output messages are in plain English.
+	cmd.Env = append(cmd.Env, "LC_ALL=C")
 	cmd.Stdin = bytes.NewReader(bytes.Join(patches, []byte("\n")))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
