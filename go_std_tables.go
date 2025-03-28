@@ -73,111 +73,140 @@ var runtimeLinknamed = []string{
 
 var compilerIntrinsics = map[string]map[string]bool{
 	"internal/runtime/atomic": {
-		"And":             true, // go1.23
-		"And32":           true, // go1.23
-		"And64":           true, // go1.23
-		"And8":            true, // go1.23
-		"Anduintptr":      true, // go1.23
-		"Cas":             true, // go1.23
-		"Cas64":           true, // go1.23
-		"CasRel":          true, // go1.23
-		"Casint32":        true, // go1.23
-		"Casint64":        true, // go1.23
-		"Casp1":           true, // go1.23
-		"Casuintptr":      true, // go1.23
-		"Load":            true, // go1.23
-		"Load64":          true, // go1.23
-		"Load8":           true, // go1.23
-		"LoadAcq":         true, // go1.23
-		"LoadAcq64":       true, // go1.23
-		"LoadAcquintptr":  true, // go1.23
-		"Loadint32":       true, // go1.23
-		"Loadint64":       true, // go1.23
-		"Loadp":           true, // go1.23
-		"Loaduint":        true, // go1.23
-		"Loaduintptr":     true, // go1.23
-		"Or":              true, // go1.23
-		"Or32":            true, // go1.23
-		"Or64":            true, // go1.23
-		"Or8":             true, // go1.23
-		"Oruintptr":       true, // go1.23
-		"Store":           true, // go1.23
-		"Store64":         true, // go1.23
-		"Store8":          true, // go1.23
-		"StoreRel":        true, // go1.23
-		"StoreRel64":      true, // go1.23
-		"StoreReluintptr": true, // go1.23
-		"Storeint32":      true, // go1.23
-		"Storeint64":      true, // go1.23
-		"StorepNoWB":      true, // go1.23
-		"Storeuintptr":    true, // go1.23
-		"Xadd":            true, // go1.23
-		"Xadd64":          true, // go1.23
-		"Xaddint32":       true, // go1.23
-		"Xaddint64":       true, // go1.23
-		"Xadduintptr":     true, // go1.23
-		"Xchg":            true, // go1.23
-		"Xchg64":          true, // go1.23
-		"Xchgint32":       true, // go1.23
-		"Xchgint64":       true, // go1.23
-		"Xchguintptr":     true, // go1.23
+		"And":             true, // go1.24
+		"And32":           true, // go1.24
+		"And64":           true, // go1.24
+		"And8":            true, // go1.24
+		"Anduintptr":      true, // go1.24
+		"Cas":             true, // go1.24
+		"Cas64":           true, // go1.24
+		"CasRel":          true, // go1.24
+		"Casint32":        true, // go1.24
+		"Casint64":        true, // go1.24
+		"Casp1":           true, // go1.24
+		"Casuintptr":      true, // go1.24
+		"Load":            true, // go1.24
+		"Load64":          true, // go1.24
+		"Load8":           true, // go1.24
+		"LoadAcq":         true, // go1.24
+		"LoadAcq64":       true, // go1.24
+		"LoadAcquintptr":  true, // go1.24
+		"Loadint32":       true, // go1.24
+		"Loadint64":       true, // go1.24
+		"Loadp":           true, // go1.24
+		"Loaduint":        true, // go1.24
+		"Loaduintptr":     true, // go1.24
+		"Or":              true, // go1.24
+		"Or32":            true, // go1.24
+		"Or64":            true, // go1.24
+		"Or8":             true, // go1.24
+		"Oruintptr":       true, // go1.24
+		"Store":           true, // go1.24
+		"Store64":         true, // go1.24
+		"Store8":          true, // go1.24
+		"StoreRel":        true, // go1.24
+		"StoreRel64":      true, // go1.24
+		"StoreReluintptr": true, // go1.24
+		"Storeint32":      true, // go1.24
+		"Storeint64":      true, // go1.24
+		"StorepNoWB":      true, // go1.24
+		"Storeuintptr":    true, // go1.24
+		"Xadd":            true, // go1.24
+		"Xadd64":          true, // go1.24
+		"Xaddint32":       true, // go1.24
+		"Xaddint64":       true, // go1.24
+		"Xadduintptr":     true, // go1.24
+		"Xchg":            true, // go1.24
+		"Xchg64":          true, // go1.24
+		"Xchg8":           true, // go1.24
+		"Xchgint32":       true, // go1.24
+		"Xchgint64":       true, // go1.24
+		"Xchguintptr":     true, // go1.24
+	},
+	"internal/runtime/maps": {
+		"bitsetFirst":                  true, // go1.24
+		"bitsetLowestSet":              true, // go1.24
+		"bitsetRemoveBelow":            true, // go1.24
+		"bitsetShiftOutLowest":         true, // go1.24
+		"ctrlGroupMatchEmpty":          true, // go1.24
+		"ctrlGroupMatchEmptyOrDeleted": true, // go1.24
+		"ctrlGroupMatchFull":           true, // go1.24
+		"ctrlGroupMatchH2":             true, // go1.24
+	},
+	"internal/runtime/math": {
+		"Add64":      true, // go1.24
+		"Mul64":      true, // go1.24
+		"MulUintptr": true, // go1.24
+	},
+	"internal/runtime/sys": {
+		"Bswap32":          true, // go1.24
+		"Bswap64":          true, // go1.24
+		"Len64":            true, // go1.24
+		"Len8":             true, // go1.24
+		"OnesCount64":      true, // go1.24
+		"Prefetch":         true, // go1.24
+		"PrefetchStreamed": true, // go1.24
+		"TrailingZeros32":  true, // go1.24
+		"TrailingZeros64":  true, // go1.24
+		"TrailingZeros8":   true, // go1.24
 	},
 	"math": {
-		"Abs":         true, // go1.23
-		"Ceil":        true, // go1.23
-		"Copysign":    true, // go1.23
-		"FMA":         true, // go1.23
-		"Floor":       true, // go1.23
-		"Round":       true, // go1.23
-		"RoundToEven": true, // go1.23
-		"Trunc":       true, // go1.23
-		"sqrt":        true, // go1.23
+		"Abs":         true, // go1.24
+		"Ceil":        true, // go1.24
+		"Copysign":    true, // go1.24
+		"FMA":         true, // go1.24
+		"Floor":       true, // go1.24
+		"Round":       true, // go1.24
+		"RoundToEven": true, // go1.24
+		"Trunc":       true, // go1.24
+		"sqrt":        true, // go1.24
 	},
 	"math/big": {
-		"mulWW": true, // go1.23
+		"mulWW": true, // go1.24
 	},
 	"math/bits": {
-		"Add":             true, // go1.23
-		"Add64":           true, // go1.23
-		"Div":             true, // go1.23
-		"Div64":           true, // go1.23
-		"Len":             true, // go1.23
-		"Len16":           true, // go1.23
-		"Len32":           true, // go1.23
-		"Len64":           true, // go1.23
-		"Len8":            true, // go1.23
-		"Mul":             true, // go1.23
-		"Mul64":           true, // go1.23
-		"OnesCount":       true, // go1.23
-		"OnesCount16":     true, // go1.23
-		"OnesCount32":     true, // go1.23
-		"OnesCount64":     true, // go1.23
-		"OnesCount8":      true, // go1.23
-		"Reverse":         true, // go1.23
-		"Reverse16":       true, // go1.23
-		"Reverse32":       true, // go1.23
-		"Reverse64":       true, // go1.23
-		"Reverse8":        true, // go1.23
-		"ReverseBytes16":  true, // go1.23
-		"ReverseBytes32":  true, // go1.23
-		"ReverseBytes64":  true, // go1.23
-		"RotateLeft":      true, // go1.23
-		"RotateLeft16":    true, // go1.23
-		"RotateLeft32":    true, // go1.23
-		"RotateLeft64":    true, // go1.23
-		"RotateLeft8":     true, // go1.23
-		"Sub":             true, // go1.23
-		"Sub64":           true, // go1.23
-		"TrailingZeros16": true, // go1.23
-		"TrailingZeros32": true, // go1.23
-		"TrailingZeros64": true, // go1.23
-		"TrailingZeros8":  true, // go1.23
+		"Add":             true, // go1.24
+		"Add64":           true, // go1.24
+		"Div":             true, // go1.24
+		"Div64":           true, // go1.24
+		"Len":             true, // go1.24
+		"Len16":           true, // go1.24
+		"Len32":           true, // go1.24
+		"Len64":           true, // go1.24
+		"Len8":            true, // go1.24
+		"Mul":             true, // go1.24
+		"Mul64":           true, // go1.24
+		"OnesCount":       true, // go1.24
+		"OnesCount16":     true, // go1.24
+		"OnesCount32":     true, // go1.24
+		"OnesCount64":     true, // go1.24
+		"OnesCount8":      true, // go1.24
+		"Reverse":         true, // go1.24
+		"Reverse16":       true, // go1.24
+		"Reverse32":       true, // go1.24
+		"Reverse64":       true, // go1.24
+		"Reverse8":        true, // go1.24
+		"ReverseBytes16":  true, // go1.24
+		"ReverseBytes32":  true, // go1.24
+		"ReverseBytes64":  true, // go1.24
+		"RotateLeft":      true, // go1.24
+		"RotateLeft16":    true, // go1.24
+		"RotateLeft32":    true, // go1.24
+		"RotateLeft64":    true, // go1.24
+		"RotateLeft8":     true, // go1.24
+		"Sub":             true, // go1.24
+		"Sub64":           true, // go1.24
+		"TrailingZeros16": true, // go1.24
+		"TrailingZeros32": true, // go1.24
+		"TrailingZeros64": true, // go1.24
+		"TrailingZeros8":  true, // go1.24
 	},
 	"runtime": {
-		"publicationBarrier": true, // go1.23
+		"publicationBarrier": true, // go1.24
 	},
 	"runtime/internal/math": {
-		"MulUintptr": true, // go1.23
+		"Add64": true, // go1.23
+		"Mul64": true, // go1.23
 	},
 	"runtime/internal/sys": {
 		"Bswap32":          true, // go1.23
@@ -192,46 +221,46 @@ var compilerIntrinsics = map[string]map[string]bool{
 		"TrailingZeros8":   true, // go1.23
 	},
 	"sync": {
-		"runtime_LoadAcquintptr":  true, // go1.23
-		"runtime_StoreReluintptr": true, // go1.23
+		"runtime_LoadAcquintptr":  true, // go1.24
+		"runtime_StoreReluintptr": true, // go1.24
 	},
 	"sync/atomic": {
-		"AddInt32":              true, // go1.23
-		"AddInt64":              true, // go1.23
-		"AddUint32":             true, // go1.23
-		"AddUint64":             true, // go1.23
-		"AddUintptr":            true, // go1.23
-		"AndInt32":              true, // go1.23
-		"AndInt64":              true, // go1.23
-		"AndUint32":             true, // go1.23
-		"AndUint64":             true, // go1.23
-		"AndUintptr":            true, // go1.23
-		"CompareAndSwapInt32":   true, // go1.23
-		"CompareAndSwapInt64":   true, // go1.23
-		"CompareAndSwapUint32":  true, // go1.23
-		"CompareAndSwapUint64":  true, // go1.23
-		"CompareAndSwapUintptr": true, // go1.23
-		"LoadInt32":             true, // go1.23
-		"LoadInt64":             true, // go1.23
-		"LoadPointer":           true, // go1.23
-		"LoadUint32":            true, // go1.23
-		"LoadUint64":            true, // go1.23
-		"LoadUintptr":           true, // go1.23
-		"OrInt32":               true, // go1.23
-		"OrInt64":               true, // go1.23
-		"OrUint32":              true, // go1.23
-		"OrUint64":              true, // go1.23
-		"OrUintptr":             true, // go1.23
-		"StoreInt32":            true, // go1.23
-		"StoreInt64":            true, // go1.23
-		"StoreUint32":           true, // go1.23
-		"StoreUint64":           true, // go1.23
-		"StoreUintptr":          true, // go1.23
-		"SwapInt32":             true, // go1.23
-		"SwapInt64":             true, // go1.23
-		"SwapUint32":            true, // go1.23
-		"SwapUint64":            true, // go1.23
-		"SwapUintptr":           true, // go1.23
+		"AddInt32":              true, // go1.24
+		"AddInt64":              true, // go1.24
+		"AddUint32":             true, // go1.24
+		"AddUint64":             true, // go1.24
+		"AddUintptr":            true, // go1.24
+		"AndInt32":              true, // go1.24
+		"AndInt64":              true, // go1.24
+		"AndUint32":             true, // go1.24
+		"AndUint64":             true, // go1.24
+		"AndUintptr":            true, // go1.24
+		"CompareAndSwapInt32":   true, // go1.24
+		"CompareAndSwapInt64":   true, // go1.24
+		"CompareAndSwapUint32":  true, // go1.24
+		"CompareAndSwapUint64":  true, // go1.24
+		"CompareAndSwapUintptr": true, // go1.24
+		"LoadInt32":             true, // go1.24
+		"LoadInt64":             true, // go1.24
+		"LoadPointer":           true, // go1.24
+		"LoadUint32":            true, // go1.24
+		"LoadUint64":            true, // go1.24
+		"LoadUintptr":           true, // go1.24
+		"OrInt32":               true, // go1.24
+		"OrInt64":               true, // go1.24
+		"OrUint32":              true, // go1.24
+		"OrUint64":              true, // go1.24
+		"OrUintptr":             true, // go1.24
+		"StoreInt32":            true, // go1.24
+		"StoreInt64":            true, // go1.24
+		"StoreUint32":           true, // go1.24
+		"StoreUint64":           true, // go1.24
+		"StoreUintptr":          true, // go1.24
+		"SwapInt32":             true, // go1.24
+		"SwapInt64":             true, // go1.24
+		"SwapUint32":            true, // go1.24
+		"SwapUint64":            true, // go1.24
+		"SwapUintptr":           true, // go1.24
 	},
 }
 

@@ -189,8 +189,13 @@ func main() {
 	compilerIntrinsicsIndexByPath := make(map[string]int)
 	var compilerIntrinsics []tmplIntrinsic
 	for _, goroot := range goroots {
+		// Go 1.24 moved the "alias" intrinsic calls from ssa.go to intrinsics.go.
+		name := "ssa.go"
+		if goroot.GoVersionLang == "go1.24" {
+			name = "intrinsics.go"
+		}
 		for _, line := range strings.Split(readFile(filepath.Join(
-			goroot.String, "src", "cmd", "compile", "internal", "ssagen", "ssa.go",
+			goroot.String, "src", "cmd", "compile", "internal", "ssagen", name,
 		)), "\n") {
 			m := rxIntrinsic.FindStringSubmatch(line)
 			if m == nil {
