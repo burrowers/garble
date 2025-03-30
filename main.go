@@ -2326,6 +2326,7 @@ To install Go, see: https://go.dev/doc/install
 	if err := json.Unmarshal(out, &sharedCache.GoEnv); err != nil {
 		return fmt.Errorf(`cannot unmarshal from "go env -json": %w`, err)
 	}
+	sharedCache.GoCmd = filepath.Join(sharedCache.GoEnv.GOROOT, "bin", "go")
 	sharedCache.GOGARBLE = cmp.Or(os.Getenv("GOGARBLE"), "*") // we default to obfuscating everything
 	return nil
 }

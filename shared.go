@@ -49,6 +49,10 @@ type sharedCacheType struct {
 
 	GOGARBLE string
 
+	// GoCmd is [GoEnv.GOROOT]/bin/go, so that we run exactly the same version
+	// of the Go tool that the original "go build" invocation did.
+	GoCmd string
+
 	// GoVersion is a version of the Go toolchain currently being used,
 	// as reported by "go env GOVERSION" and compatible with go/version.
 	// Note that the version of Go that built the garble binary might be newer.
@@ -292,7 +296,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 	}
 
 	args = append(args, packages...)
-	cmd := exec.Command("go", args...)
+	cmd := exec.Command(sharedCache.GoCmd, args...)
 
 	defer func() {
 		log.Printf("original build info obtained in %s via: go %s", debugSince(startTime), strings.Join(args, " "))
