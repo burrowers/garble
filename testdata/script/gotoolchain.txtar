@@ -4,9 +4,6 @@
 setup-go go1.23.7
 env GOPROXY=proxy.golang.org
 env GOMODCACHE=${HOST_GOMODCACHE}
-# The bug below is about a badly patched cmd/link, so we need a separate
-# GARBLE_CACHE to not allow reusing the host's working patched linker.
-env GARBLE_CACHE=${WORK}/.garble-cache
 
 # Verify that we are using an older version of Go.
 exec go version
@@ -19,9 +16,11 @@ cd mod
 exec go run .
 stderr 'hello from go1\.24\.1'
 
-# TODO: fix this.
-! exec garble run .
-stderr 'gcMarkTermination: relocation target .* not defined'
+# Note that garble hides runtime.Version by design, but we know that it requires
+# the Go toolchain version to match the exact same version that built garble,
+# and that version is most likely newer than GOVERSION_BASE.
+exec garble run .
+stderr 'hello from unknown'
 
 -- mod/go.mod --
 module test
