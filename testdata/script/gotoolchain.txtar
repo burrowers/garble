@@ -1,0 +1,37 @@
+# Test that garble works with transparent upgrades via GOTOOLCHAIN.
+# We want to use the real GOPROXY so that we can download the newer
+# toolchain, and we use the host's GOMODCACHE so we can reuse it.
+setup-go go1.23.7
+env GOPROXY=proxy.golang.org
+env GOMODCACHE=${HOST_GOMODCACHE}
+# The bug below is about a badly patched cmd/link, so we need a separate
+# GARBLE_CACHE to not allow reusing the host's working patched linker.
+env GARBLE_CACHE=${WORK}/.garble-cache
+
+# Verify that we are using an older version of Go.
+exec go version
+stdout 'go version go1\.23\.7'
+
+cd mod
+
+# The builds inside the module use the upgraded toolchain.
+
+exec go run .
+stderr 'hello from go1\.24\.1'
+
+# TODO: fix this.
+! exec garble run .
+stderr 'linked object header mismatch'
+
+-- mod/go.mod --
+module test
+
+go 1.24.1
+-- mod/main.go --
+package main
+
+import "runtime"
+
+func main() {
+	println("hello from", runtime.Version())
+}

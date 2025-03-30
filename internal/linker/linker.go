@@ -156,7 +156,11 @@ func cachePath(cacheDir string) (string, error) {
 }
 
 func getCurrentVersion(goVersion, patchesVer string) string {
-	return goVersion + " " + patchesVer
+	// Note that we assume that if a Go toolchain reports itself as e.g. go1.24.1,
+	// it really is that upstream Go version with no alterations or edits.
+	// If any modifications are made, it should report itself as e.g. go1.24.1-corp.
+	// The alternative would be to use the content ID hash of the cmd/link binary.
+	return goVersion + " " + patchesVer + "\n"
 }
 
 func checkVersion(linkerPath, goVersion, patchesVer string) (bool, error) {
