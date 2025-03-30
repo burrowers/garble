@@ -27,9 +27,6 @@ const (
 	MagicValueEnv  = "GARBLE_LINK_MAGIC"
 	TinyEnv        = "GARBLE_LINK_TINY"
 	EntryOffKeyEnv = "GARBLE_LINK_ENTRYOFF_KEY"
-
-	versionExt    = ".version"
-	baseSrcSubdir = "src"
 )
 
 //go:embed patches/*/*.patch
@@ -163,6 +160,8 @@ func getCurrentVersion(goVersion, patchesVer string) string {
 	return goVersion + " " + patchesVer + "\n"
 }
 
+const versionExt = ".version"
+
 func checkVersion(linkerPath, goVersion, patchesVer string) (bool, error) {
 	versionPath := linkerPath + versionExt
 	version, err := os.ReadFile(versionPath)
@@ -181,7 +180,7 @@ func writeVersion(linkerPath, goVersion, patchesVer string) error {
 	return os.WriteFile(versionPath, []byte(getCurrentVersion(goVersion, patchesVer)), 0o777)
 }
 
-func buildLinker(workingDir string, overlay map[string]string, outputLinkPath string) error {
+func buildLinker(goRoot, workingDir string, overlay map[string]string, outputLinkPath string) error {
 	file, err := json.Marshal(&struct{ Replace map[string]string }{overlay})
 	if err != nil {
 		return err
@@ -191,7 +190,8 @@ func buildLinker(workingDir string, overlay map[string]string, outputLinkPath st
 		return err
 	}
 
-	cmd := exec.Command("go", "build", "-overlay", overlayPath, "-o", outputLinkPath, "cmd/link")
+	goCmd := filepath.Join(goRoot, "bin", "go")
+	cmd := exec.Command(goCmd, "build", "-overlay", overlayPath, "-o", outputLinkPath, "cmd/link")
 	// Ignore any build settings from the environment or GOENV.
 	// We want to build cmd/link like the rest of the toolchain,
 	// regardless of what build options are set for the current build.
@@ -250,14 +250,14 @@ func PatchLinker(goRoot, goVersion, cacheDir, tempDir string) (string, func(), e
 		return outputLinkPath, unlock, nil
 	}
 
-	srcDir := filepath.Join(goRoot, baseSrcSubdir)
+	srcDir := filepath.Join(goRoot, "src")
 	workingDir := filepath.Join(tempDir, "linker-src")
 
 	overlay, err := applyPatches(srcDir, workingDir, modFiles, patches)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := buildLinker(workingDir, overlay, outputLinkPath); err != nil {
+	if err := buildLinker(goRoot, workingDir, overlay, outputLinkPath); err != nil {
 		return "", nil, err
 	}
 	if err := writeVersion(outputLinkPath, goVersion, patchesVer); err != nil {

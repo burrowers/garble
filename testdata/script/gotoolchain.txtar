@@ -21,7 +21,7 @@ stderr 'hello from go1\.24\.1'
 
 # TODO: fix this.
 ! exec garble run .
-stderr 'linked object header mismatch'
+stderr 'gcMarkTermination: relocation target .* not defined'
 
 -- mod/go.mod --
 module test
