@@ -66,7 +66,7 @@ func encryptChunks(chunks [][]byte, op token.Token, key byte) {
 	}
 }
 
-func (split) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
+func (split) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*extKey) *ast.BlockStmt {
 	var chunks [][]byte
 	// Short arrays should be divided into single-byte fragments
 	if len(data)/maxChunkSize < minCaseCount {
@@ -131,10 +131,10 @@ func (split) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 		}
 
 		if len(chunk) != 1 {
-			appendCallExpr.Args = append(appendCallExpr.Args, ah.StringLit(string(chunk)))
+			appendCallExpr.Args = append(appendCallExpr.Args, dataToByteSliceWithExtKeys(obfRand, chunk, extKeys))
 			appendCallExpr.Ellipsis = 1
 		} else {
-			appendCallExpr.Args = append(appendCallExpr.Args, ah.IntLit(int(chunk[0])))
+			appendCallExpr.Args = append(appendCallExpr.Args, byteLitWithExtKey(obfRand, chunk[0], extKeys, rareRarity))
 		}
 
 		switchCases = append(switchCases, &ast.CaseClause{
@@ -168,7 +168,7 @@ func (split) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("decryptKey")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.IntLit(int(decryptKeyInitial))},
+			Rhs: []ast.Expr{ah.CallExprByName("int", byteLitWithExtKey(obfRand, decryptKeyInitial, extKeys, normalRarity))},
 		},
 		&ast.ForStmt{
 			Init: &ast.AssignStmt{
