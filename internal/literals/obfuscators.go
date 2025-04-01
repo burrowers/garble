@@ -229,7 +229,7 @@ func dataToByteSliceWithExtKeys(obfRand *mathrand.Rand, data []byte, extKeys []*
 	slices.Reverse(stmts)
 
 	stmts = append([]ast.Stmt{ah.AssignDefineStmt(ast.NewIdent("data"), ah.DataToByteSlice(data))}, append(stmts, ah.ReturnStmt(ast.NewIdent("data")))...)
-	return ah.LambdaCall(&ast.ArrayType{Elt: ast.NewIdent("byte")}, ah.BlockStmt(stmts...))
+	return ah.LambdaCall(nil, &ast.ArrayType{Elt: ast.NewIdent("byte")}, ah.BlockStmt(stmts...), nil)
 }
 
 // dataToByteSliceWithExtKeys scramble and turns a byte into an AST expression like:

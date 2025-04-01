@@ -43,24 +43,8 @@ func CallExpr(fun ast.Expr, args ...ast.Expr) *ast.CallExpr {
 	}
 }
 
-// LambdaCall "func() resultType {block}()"
-func LambdaCall(resultType ast.Expr, block *ast.BlockStmt) *ast.CallExpr {
-	funcLit := &ast.FuncLit{
-		Type: &ast.FuncType{
-			Params: &ast.FieldList{},
-			Results: &ast.FieldList{
-				List: []*ast.Field{
-					{Type: resultType},
-				},
-			},
-		},
-		Body: block,
-	}
-	return CallExpr(funcLit)
-}
-
-// LambdaCallParams "func(params) resultType {block}(args)"
-func LambdaCallParams(params *ast.FieldList, resultType ast.Expr, block *ast.BlockStmt, args []ast.Expr) *ast.CallExpr {
+// LambdaCall "func(params) resultType {block}(args)"
+func LambdaCall(params *ast.FieldList, resultType ast.Expr, block *ast.BlockStmt, args []ast.Expr) *ast.CallExpr {
 	funcLit := &ast.FuncLit{
 		Type: &ast.FuncType{
 			Params: params,

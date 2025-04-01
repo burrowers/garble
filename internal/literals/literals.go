@@ -242,7 +242,7 @@ func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 
 	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent("string"), ast.NewIdent("data"))))
 
-	return ah.LambdaCallParams(params, ast.NewIdent("string"), block, args)
+	return ah.LambdaCall(params, ast.NewIdent("string"), block, args)
 }
 
 func obfuscateByteSlice(obfRand *obfRand, isPointer bool, data []byte) *ast.CallExpr {
@@ -257,13 +257,13 @@ func obfuscateByteSlice(obfRand *obfRand, isPointer bool, data []byte) *ast.Call
 			Op: token.AND,
 			X:  ast.NewIdent("data"),
 		}))
-		return ah.LambdaCallParams(params, &ast.StarExpr{
+		return ah.LambdaCall(params, &ast.StarExpr{
 			X: &ast.ArrayType{Elt: ast.NewIdent("byte")},
 		}, block, args)
 	}
 
 	block.List = append(block.List, ah.ReturnStmt(ast.NewIdent("data")))
-	return ah.LambdaCallParams(params, &ast.ArrayType{Elt: ast.NewIdent("byte")}, block, args)
+	return ah.LambdaCall(params, &ast.ArrayType{Elt: ast.NewIdent("byte")}, block, args)
 }
 
 func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length int64) *ast.CallExpr {
@@ -311,10 +311,10 @@ func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length in
 	block.List = append(block.List, sliceToArray...)
 
 	if isPointer {
-		return ah.LambdaCallParams(params, &ast.StarExpr{X: arrayType}, block, args)
+		return ah.LambdaCall(params, &ast.StarExpr{X: arrayType}, block, args)
 	}
 
-	return ah.LambdaCallParams(params, arrayType, block, args)
+	return ah.LambdaCall(params, arrayType, block, args)
 }
 
 func getNextObfuscator(obfRand *obfRand, size int) obfuscator {
