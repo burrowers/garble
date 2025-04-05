@@ -1,4 +1,4 @@
-exec garble -debugdir ./debug1 build
+exec garble -debugdir=debug1 build
 exists 'debug1/test/main/imported/imported.go' 'debug1/test/main/main.go' 'debug1/reflect/type.go'
 exists 'debug1/runtime/error.go' 'debug1/runtime/funcdata.h' 'debug1/runtime/asm.s'
 [amd64] exists 'debug1/runtime/cpuflags_amd64.go' 'debug1/runtime/asm_amd64.s'
@@ -7,14 +7,26 @@ exists 'debug1/runtime/error.go' 'debug1/runtime/funcdata.h' 'debug1/runtime/asm
 ! grep ImportedFunc $WORK/debug1/test/main/main.go
 ! grep 'some comment' $WORK/debug1/test/main/main.go
 
+# We should refuse to delete non-empty directories which weren't created
+# by an earlier invocation of garble -debugdir, as that could lead to data loss.
+! exec garble -debugdir=notdebug build
+stderr 'debugdir "notdebug" has unknown contents; empty it first'
+exists notdebug/important_data.txt
+exists notdebug/subdir/important_data.txt
+
 [short] stop
 
 # Sources from previous builds should be deleted
 cp $WORK/debug1/test/main/main.go $WORK/debug1/some_file_from_prev_build.go
 
-exec garble -debugdir ./debug1 build -v
+exec garble -debugdir=debug1 build -v
 stderr 'test/main' # we force rebuilds with -debugdir
 ! exists $WORK/debug1/some_file_from_prev_build.go
+
+-- notdebug/important_data.txt --
+This file should not be deleted by -debugdir.
+-- notdebug/subdir/important_data.txt --
+This file should not be deleted by -debugdir.
 -- go.mod --
 module test/main
 
