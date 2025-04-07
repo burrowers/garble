@@ -110,7 +110,29 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 		return true
 	}
 
-	return astutil.Apply(file, pre, post).(*ast.File)
+	newFile := astutil.Apply(file, pre, post).(*ast.File)
+	if obfRand.globalKeysUsed {
+		// Generate a global variable containing global keys
+		// var __garble_global_keys_%d = [...]uint64{ <global keys> }
+		elts := make([]ast.Expr, len(obfRand.globalKeys))
+		for i, key := range obfRand.globalKeys {
+			elts[i] = &ast.BasicLit{Kind: token.INT, Value: fmt.Sprint(key)}
+		}
+		newFile.Decls = append(newFile.Decls, &ast.GenDecl{
+			Tok: token.VAR,
+			Specs: []ast.Spec{&ast.ValueSpec{
+				Names: []*ast.Ident{ast.NewIdent(obfRand.globalKeysVarName)},
+				Values: []ast.Expr{&ast.CompositeLit{
+					Type: &ast.ArrayType{
+						Len: ah.IntLit(len(obfRand.globalKeys)),
+						Elt: ast.NewIdent("uint64"),
+					},
+					Elts: elts,
+				}},
+			}},
+		})
+	}
+	return newFile
 }
 
 // handleCompositeLiteral checks if the input node is []byte or [...]byte and
@@ -213,34 +235,43 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 
 func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 	obf := getNextObfuscator(obfRand, len(data))
-	block := obf.obfuscate(obfRand.Rand, []byte(data))
+
+	extKeys := randExtKeys(obfRand.Rand)
+	block := obf.obfuscate(obfRand.Rand, []byte(data), extKeys)
+	params, args := extKeysToParams(obfRand, extKeys)
 
 	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent("string"), ast.NewIdent("data"))))
 
-	return ah.LambdaCall(ast.NewIdent("string"), block)
+	return ah.LambdaCallParams(params, ast.NewIdent("string"), block, args)
 }
 
 func obfuscateByteSlice(obfRand *obfRand, isPointer bool, data []byte) *ast.CallExpr {
 	obf := getNextObfuscator(obfRand, len(data))
-	block := obf.obfuscate(obfRand.Rand, data)
+
+	extKeys := randExtKeys(obfRand.Rand)
+	block := obf.obfuscate(obfRand.Rand, data, extKeys)
+	params, args := extKeysToParams(obfRand, extKeys)
 
 	if isPointer {
 		block.List = append(block.List, ah.ReturnStmt(&ast.UnaryExpr{
 			Op: token.AND,
 			X:  ast.NewIdent("data"),
 		}))
-		return ah.LambdaCall(&ast.StarExpr{
+		return ah.LambdaCallParams(params, &ast.StarExpr{
 			X: &ast.ArrayType{Elt: ast.NewIdent("byte")},
-		}, block)
+		}, block, args)
 	}
 
 	block.List = append(block.List, ah.ReturnStmt(ast.NewIdent("data")))
-	return ah.LambdaCall(&ast.ArrayType{Elt: ast.NewIdent("byte")}, block)
+	return ah.LambdaCallParams(params, &ast.ArrayType{Elt: ast.NewIdent("byte")}, block, args)
 }
 
 func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length int64) *ast.CallExpr {
 	obf := getNextObfuscator(obfRand, len(data))
-	block := obf.obfuscate(obfRand.Rand, data)
+
+	extKeys := randExtKeys(obfRand.Rand)
+	block := obf.obfuscate(obfRand.Rand, data, extKeys)
+	params, args := extKeysToParams(obfRand, extKeys)
 
 	arrayType := &ast.ArrayType{
 		Len: ah.IntLit(int(length)),
@@ -280,10 +311,10 @@ func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length in
 	block.List = append(block.List, sliceToArray...)
 
 	if isPointer {
-		return ah.LambdaCall(&ast.StarExpr{X: arrayType}, block)
+		return ah.LambdaCallParams(params, &ast.StarExpr{X: arrayType}, block, args)
 	}
 
-	return ah.LambdaCall(arrayType, block)
+	return ah.LambdaCallParams(params, arrayType, block, args)
 }
 
 func getNextObfuscator(obfRand *obfRand, size int) obfuscator {

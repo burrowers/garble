@@ -58,7 +58,7 @@ func generateSwapCount(obfRand *mathrand.Rand, dataLen int) int {
 	return swapCount
 }
 
-func (swap) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
+func (swap) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*extKey) *ast.BlockStmt {
 	swapCount := generateSwapCount(obfRand, len(data))
 	shiftKey := byte(obfRand.Uint32())
 
@@ -76,7 +76,7 @@ func (swap) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("data")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.DataToByteSlice(data)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(obfRand, data, extKeys)},
 		},
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("positions")},
@@ -118,7 +118,7 @@ func (swap) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 							}),
 						},
 						Op: token.ADD,
-						Y:  ah.IntLit(int(shiftKey)),
+						Y:  byteLitWithExtKey(obfRand, shiftKey, extKeys, commonRarity),
 					}},
 				},
 				&ast.AssignStmt{
