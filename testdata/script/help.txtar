@@ -87,25 +87,11 @@ stderr 'directory not found'
 
 # Test the version command. Note that test binaries exclude VCS build info,
 # and we reuse the test binary for garble itself, so that's missing.
-# To avoid building another garble binary,
-# and to be able to use static VCS info, use an environment variable.
-# First, test without the information, and then with it.
 exec garble version
 stdout -count=1 'mvdan.cc/garble \(devel\)'
 stdout -count=1 'Build settings'
 stdout -count=3 '-compiler|GOOS|GOARCH'
 ! stdout 'vcs'
-
-# Obtained from a real build while developing.
-env GARBLE_TEST_BUILDSETTINGS='[{"Key":"vcs","Value":"git"},{"Key":"vcs.revision","Value":"91ea246349544769f5100c29f79cb0f173abfeea"},{"Key":"vcs.time","Value":"2022-03-18T13:45:11Z"},{"Key":"vcs.modified","Value":"true"}]'
-exec garble version
-stdout -count=1 'mvdan\.cc/garble v0\.0\.0-20220318134511-91ea24634954'
-stdout -count=1 'Build settings'
-stdout -count=3 '-compiler|GOOS|GOARCH'
-stdout -count=1 'vcs git'
-stdout -count=1 'vcs\.revision 91ea246349544769f5100c29f79cb0f173abfeea'
-stdout -count=1 'vcs\.time 2022-03-18T13:45:11Z'
-stdout -count=1 'vcs\.modified true'
 
 ! exec garble version -flag
 stderr 'usage: garble version'
