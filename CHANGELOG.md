@@ -1,5 +1,22 @@
 # Changelog
 
+## [v0.14.2] - 2025-04-13
+
+This bugfix release fixes a number of issues and continues support
+for Go 1.23 and 1.24.
+
+Toolchain upgrades via `GOTOOLCHAIN` now work correctly; the transparent
+upgrade could lead to "linked object header mismatch" errors as garble
+was accidentally mixing the original and upgraded toolchain versions.
+
+`garble -debugdir` now refuses to delete a non-empty directory if its
+contents were not created by a previous `-debugdir` invocation.
+This should prevent mistakes which could lead to losing important files.
+
+Function intrinsics were not being picked up correctly from Go 1.24;
+this could lead to degraded performance for some users, as obfuscating
+their names prevented the toolchain from optimizing them.
+
 ## [v0.14.1] - 2025-02-12
 
 This release adds support for Go 1.24 and continues support for Go 1.23.
@@ -318,6 +335,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[v0.14.2]: https://github.com/burrowers/garble/releases/tag/v0.14.2
 [v0.14.1]: https://github.com/burrowers/garble/releases/tag/v0.14.1
 [v0.14.0]: https://github.com/burrowers/garble/releases/tag/v0.14.0
 [v0.13.0]: https://github.com/burrowers/garble/releases/tag/v0.13.0
