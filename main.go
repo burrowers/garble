@@ -42,7 +42,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/rogpeppe/go-internal/cache"
-	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
 	"mvdan.cc/garble/internal/ctrlflow"
@@ -369,38 +368,6 @@ func mainErr(args []string) error {
 		mod := &info.Main
 		if mod.Replace != nil {
 			mod = mod.Replace
-		}
-
-		// For the tests.
-		if v := os.Getenv("GARBLE_TEST_BUILDSETTINGS"); v != "" {
-			var extra []debug.BuildSetting
-			if err := json.Unmarshal([]byte(v), &extra); err != nil {
-				return err
-			}
-			info.Settings = append(info.Settings, extra...)
-		}
-
-		// Until https://github.com/golang/go/issues/50603 is implemented,
-		// manually construct something like a pseudo-version.
-		// TODO: remove when this code is dead, hopefully in Go 1.22.
-		if mod.Version == "(devel)" {
-			var vcsTime time.Time
-			var vcsRevision string
-			for _, setting := range info.Settings {
-				switch setting.Key {
-				case "vcs.time":
-					// If the format is invalid, we'll print a zero timestamp.
-					vcsTime, _ = time.Parse(time.RFC3339Nano, setting.Value)
-				case "vcs.revision":
-					vcsRevision = setting.Value
-					if len(vcsRevision) > 12 {
-						vcsRevision = vcsRevision[:12]
-					}
-				}
-			}
-			if vcsRevision != "" {
-				mod.Version = module.PseudoVersion("", "", vcsTime, vcsRevision)
-			}
 		}
 
 		fmt.Printf("%s %s\n\n", mod.Path, mod.Version)
