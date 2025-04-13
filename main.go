@@ -695,7 +695,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 
 			// Preprocessor lines to include another file.
 			// For example: #include "foo.h"
-			if quoted := strings.TrimPrefix(line, "#include"); quoted != line {
+			if quoted, ok := strings.CutPrefix(line, "#include"); ok {
 				quoted = strings.TrimSpace(quoted)
 				path, err := strconv.Unquote(quoted)
 				if err != nil { // note that strconv.Unquote errors do not include the input string
@@ -1185,10 +1185,9 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 	var newForeignName string
 	if receiver, name, ok := strings.Cut(foreignName, "."); ok {
-		if strings.HasPrefix(receiver, "(*") {
+		if receiver, ok = strings.CutPrefix(receiver, "(*"); ok {
 			// pkg/path.(*Receiver).method
-			receiver = strings.TrimPrefix(receiver, "(*")
-			receiver = strings.TrimSuffix(receiver, ")")
+			receiver, _ = strings.CutSuffix(receiver, ")")
 			receiver = "(*" + hashWithPackage(lpkg, receiver) + ")"
 		} else {
 			// pkg/path.Receiver.method
@@ -1234,7 +1233,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 		}
 	}
 
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -1332,7 +1331,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 			// See exporttest/*.go in testdata/scripts/test.txt.
 			// For now, spot the pattern and avoid the unnecessary error;
 			// the dependency is unused, so the packagefile line is redundant.
-			// This still triggers as of go1.21.
+			// This still triggers as of go1.24.
 			if strings.HasSuffix(tf.curPkg.ImportPath, ".test]") && strings.HasPrefix(tf.curPkg.ImportPath, impPath) {
 				continue
 			}
@@ -2257,7 +2256,7 @@ func flagValue(flags []string, name string) string {
 // those whose values compose a list.
 func flagValueIter(flags []string, name string, fn func(string)) {
 	for i, arg := range flags {
-		if val := strings.TrimPrefix(arg, name+"="); val != arg {
+		if val, ok := strings.CutPrefix(arg, name+"="); ok {
 			// -name=value
 			fn(val)
 		}
