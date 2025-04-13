@@ -1,8 +1,6 @@
 module mvdan.cc/garble
 
-// Before the .5 bugfix release, alias tracking via go/types
-// was broken; see https://go.dev/issue/70517.
-go 1.23.5
+go 1.24
 
 require (
 	github.com/bluekeyes/go-gitdiff v0.8.1

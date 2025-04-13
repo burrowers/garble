@@ -291,8 +291,8 @@ func (e errJustExit) Error() string { return fmt.Sprintf("exit: %d", e) }
 
 func goVersionOK() bool {
 	const (
-		minGoVersion  = "go1.23.5" // the minimum Go version we support; could be a bugfix release if needed
-		unsupportedGo = "go1.25"   // the first major version we don't support
+		minGoVersion  = "go1.24" // the minimum Go version we support; could be a bugfix release if needed
+		unsupportedGo = "go1.25" // the first major version we don't support
 	)
 
 	// rxVersion looks for a version like "go1.2" or "go1.2.3" in `go env GOVERSION`.
