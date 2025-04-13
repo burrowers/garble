@@ -68,9 +68,7 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 			// so some logic is required to find the methods a type has
 
 			method := func(mset *types.MethodSet) {
-				for i := range mset.Len() {
-					at := mset.At(i)
-
+				for at := range mset.Methods() {
 					if m := ssaPkg.Prog.MethodValue(at); m != nil {
 						ri.checkFunction(m)
 					} else {
@@ -78,7 +76,6 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 						// handle interface declarations
 						ri.checkInterfaceMethod(m)
 					}
-
 				}
 			}
 
@@ -110,15 +107,14 @@ func (ri *reflectInspector) checkMethodSignature(reflectParams map[int]bool, sig
 		return
 	}
 
-	params := sig.Params()
-	for i := range params.Len() {
+	i := 0
+	for param := range sig.Params().Variables() {
 		if reflectParams[i] {
+			i++
 			continue
 		}
 
 		ignore := false
-		param := params.At(i)
-
 		switch x := param.Type().(type) {
 		case *types.Struct:
 			ignore = true
@@ -136,6 +132,7 @@ func (ri *reflectInspector) checkMethodSignature(reflectParams map[int]bool, sig
 			reflectParams[i] = true
 			ri.recursivelyRecordUsedForReflect(param.Type())
 		}
+		i++
 	}
 }
 
