@@ -1,8 +1,6 @@
 [!cgo] skip 'this test requires cgo to be enabled'
 
-! exec garble build
-stderr 'cannot define new methods on non-local type _trieNode'
-stop
+exec garble build
 ! stderr 'warning' # check that the C toolchain is happy
 exec ./main
 cmp stdout main.stdout
