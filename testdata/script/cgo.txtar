@@ -1,6 +1,8 @@
 [!cgo] skip 'this test requires cgo to be enabled'
 
-exec garble build
+! exec garble build
+stderr 'cannot define new methods on non-local type _trieNode'
+stop
 ! stderr 'warning' # check that the C toolchain is happy
 exec ./main
 cmp stdout main.stdout
@@ -33,12 +35,18 @@ go 1.23
 -- main.go --
 package main
 
+// It's important that the main package only has files importing "C",
+// as that used to trigger https://github.com/burrowers/garble/issues/916.
+
+import "C"
+import "test/main/imported"
+
 func main() {
-	regularFunc()
+	imported.RegularFunc()
 	cgoFunc()
 }
--- regular_main.go --
-package main
+-- imported/imported_regular.go --
+package imported
 
 import (
 	"fmt"
@@ -46,7 +54,7 @@ import (
 	"runtime"
 )
 
-func regularFunc() {
+func RegularFunc() {
 	if os.Getenv("GARBLE_TEST_REVERSING") == "true" {
 		_, filename, _, _ := runtime.Caller(0)
 		fmt.Println("regular filename:", filename)
@@ -71,7 +79,7 @@ static int privateAdd(int a, int b) {
 
 extern void goCallback();
 
-static void callGoCallback() {
+static void callGoCallbacks() {
 	goCallback();
 	separateFunction();
 }
@@ -89,7 +97,7 @@ func cgoFunc() {
 	st := C.struct_portedStruct{}
 	fmt.Println(st.PortedField == nil)
 
-	C.callGoCallback()
+	C.callGoCallbacks()
 }
 
 //export goCallback
@@ -101,22 +109,31 @@ func goCallback() {
 		fmt.Println("cgo filename:", filename)
 	}
 }
+
+//export printString
+func printString(cs *C.char) {
+	fmt.Println(C.GoString(cs))
+}
 -- separate.h --
 void separateFunction();
 -- separate.c --
 #include "_cgo_export.h"
+#include <stdio.h>
 
 void separateFunction() {
 	goCallback();
+	printString("string from C");
 }
 -- main.stdout --
 3
 true
 go callback
 go callback
+string from C
 -- reversed.stdout --
-regular filename: test/main/regular_main.go
+regular filename: test/main/imported/imported_regular.go
 3
 true
 go callback
 go callback
+string from C
