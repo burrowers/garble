@@ -922,12 +922,14 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string) (files []*ast.F
 
 		var src any
 
-		if lpkg.ImportPath == "internal/abi" && filepath.Base(path) == "type.go" {
+		base := filepath.Base(path)
+		if lpkg.ImportPath == "internal/abi" && base == "type.go" {
 			src, err = abiNamePatch(path)
 			if err != nil {
 				return nil, err
 			}
-		} else if mainPackage && reflectPatchFile == "" {
+		} else if mainPackage && reflectPatchFile == "" && !strings.HasPrefix(base, "_cgo_") {
+			// Note that we cannot add our code to e.g. _cgo_gotypes.go.
 			src, err = reflectMainPrePatch(path)
 			if err != nil {
 				return nil, err
@@ -941,11 +943,14 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string) (files []*ast.F
 			return nil, err
 		}
 
-		if mainPackage && src != nil {
+		if mainPackage && src != "" {
 			astutil.AddNamedImport(fset, file, "_", "unsafe")
 		}
 
 		files = append(files, file)
+	}
+	if mainPackage && reflectPatchFile == "" {
+		return nil, fmt.Errorf("main packages must get reflect code patched in")
 	}
 	return files, nil
 }

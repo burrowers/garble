@@ -43,21 +43,21 @@ var reflectPatchFile = ""
 // We split this into pre/post steps so that all variable names in the generated code
 // can be properly obfuscated - if we added the filled map directly, the obfuscated names
 // would appear as plain strings in the binary.
-func reflectMainPrePatch(path string) ([]byte, error) {
+func reflectMainPrePatch(path string) (string, error) {
 	if reflectPatchFile != "" {
 		// already patched another file in main
-		return nil, nil
+		return "", nil
 	}
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	_, code, _ := strings.Cut(reflectAbiCode, "// Injected code below this line.")
 	code = strings.ReplaceAll(code, "//disabledgo:", "//go:")
 	// This constant is declared in our hash.go file.
 	code = strings.ReplaceAll(code, "minHashLength", strconv.Itoa(minHashLength))
-	return append(content, []byte(code)...), nil
+	return string(content) + code, nil
 }
 
 // reflectMainPostPatch populates the name mapping with the final obfuscated->real name
