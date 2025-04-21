@@ -1,0 +1,30 @@
+# TODO: Disallow certain kinds of runtime linknaming which break with garble.
+
+exec garble build
+exec ./main
+
+[short] stop # no need to verify this with -short
+
+go build
+exec ./main
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- linkname_runtime.go --
+package main
+
+import _ "unsafe"
+
+// Note that it doesn't matter that the struct here is empty,
+// as the linknames below only use pointers to it.
+type moduledata struct {}
+
+//go:linkname lastmoduledatap runtime.lastmoduledatap
+var lastmoduledatap *moduledata
+
+//go:linkname moduledataverify1 runtime.moduledataverify1
+func moduledataverify1(_ *moduledata)
+
+func main() {}
