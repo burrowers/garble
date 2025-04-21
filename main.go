@@ -1054,7 +1054,9 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 				updateEntryOffset(file, entryOffKey())
 			}
 		}
-		tf.transformDirectives(file.Comments)
+		if err := tf.transformDirectives(file.Comments); err != nil {
+			return nil, err
+		}
 		file = tf.transformGoFile(file)
 		file.Name.Name = tf.curPkg.obfuscatedPackageName()
 
@@ -1082,7 +1084,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 
 // transformDirectives rewrites //go:linkname toolchain directives in comments
 // to replace names with their obfuscated versions.
-func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) {
+func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 	for _, group := range comments {
 		for _, comment := range group.List {
 			if !strings.HasPrefix(comment.Text, "//go:linkname ") {
@@ -1104,6 +1106,17 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) {
 			if len(fields) == 3 {
 				newName = fields[2]
 			}
+			switch newName {
+			case "runtime.lastmoduledatap", "runtime.moduledataverify1":
+				// Linknaming to the var and function above is used by github.com/bytedance/sonic/loader
+				// to inject functions into the runtime, but that breaks as garble patches
+				// the runtime to change the function header magic number.
+				//
+				// Given that Go is locking down access to runtime internals via go:linkname,
+				// and what sonic does was never supported and is a hack,
+				// refuse to build before the user sees confusing run-time panics.
+				return fmt.Errorf("garble does not support packages with a //go:linkname to %s", newName)
+			}
 
 			localName, newName = tf.transformLinkname(localName, newName)
 			fields[1] = localName
@@ -1117,6 +1130,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) {
 			comment.Text = strings.Join(fields, " ")
 		}
 	}
+	return nil
 }
 
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {

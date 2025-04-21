@@ -1,13 +1,17 @@
-# TODO: Disallow certain kinds of runtime linknaming which break with garble.
+# Disallow certain kinds of runtime linknaming which break with garble.
 
-exec garble build
-exec ./main
+! exec garble build
+cmp stderr build.stderr
 
 [short] stop # no need to verify this with -short
 
 go build
 exec ./main
 
+-- build.stderr --
+# test/main
+garble does not support packages with a //go:linkname to runtime.lastmoduledatap
+exit status 1
 -- go.mod --
 module test/main
 
