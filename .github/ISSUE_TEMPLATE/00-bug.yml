@@ -1,0 +1,55 @@
+name: Bug Report
+description: File a bug report.
+
+body:
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      description: |
+        What version of Go are you using (`go version`)?
+      placeholder: ex. go version go1.20.7 darwin/arm64
+    validations:
+      required: true
+
+  - type: textarea
+    id: go-env
+    attributes:
+      label: "Output of `go env` in your module/workspace:"
+      placeholder: |
+        GO111MODULE=""
+        GOARCH="arm64"
+        GOBIN="/Users/gopher/go/bin"
+        GOCACHE="/Users/gopher/go/cache"
+        GOENV="/Users/gopher/Library/Application Support/go/env"
+        GOEXE=""
+        GOEXPERIMENT=""
+        GOFLAGS=""
+        [...]
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-did-you-do
+    attributes:
+      label: "What did you do?"
+      description: "Provide clear steps for others to reproduce the error. If your code is private, try reproducing via a small program. As a fallback, provide as many relevant details as possible."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: "What did you see happen?"
+      description: Command invocations and their associated output. Prefer copying text output over using screenshots.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: "What did you expect to see?"
+      description: Why is the current output incorrect, and any additional context we may need to understand the issue.
+    validations:
+      required: true
