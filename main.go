@@ -1455,10 +1455,6 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 	// Note that practically all errors from Cache.GetFile are a cache miss;
 	// for example, a file might exist but be empty if another process
 	// is filling the same cache entry concurrently.
-	//
-	// TODO: if A (curPkg) imports B and C, and B also imports C,
-	// then loading the gob files from both B and C is unnecessary;
-	// loading B's gob file would be enough. Is there an easy way to do that?
 	computed := pkgCache{
 		ReflectAPIs: map[funcFullName]map[int]bool{
 			"reflect.TypeOf":  {0: true},
@@ -1643,8 +1639,9 @@ func typecheck(pkgPath string, files []*ast.File, origImporter importerWithMap) 
 		Selections: make(map[*ast.SelectorExpr]*types.Selection),
 		Instances:  make(map[*ast.Ident]types.Instance),
 	}
-	// TODO(mvdan): we should probably set types.Config.GoVersion from go.mod
 	origTypesConfig := types.Config{
+		// Note that we don't set GoVersion here. Any Go language version checks
+		// are performed by the upfront `go list -json -compiled` call.
 		Importer: origImporter,
 		Sizes:    types.SizesFor("gc", sharedCache.GoEnv.GOARCH),
 	}
