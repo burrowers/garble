@@ -2325,6 +2325,16 @@ To install Go, see: https://go.dev/doc/install
 	if err := json.Unmarshal(out, &sharedCache.GoEnv); err != nil {
 		return fmt.Errorf(`cannot unmarshal from "go env -json": %w`, err)
 	}
+
+	// Some Go version managers switch between Go versions via a GOROOT which symlinks
+	// to one of the available versions. Given that later we build a patched linker
+	// from GOROOT/src via `go build -overlay`, we need to resolve any symlinks.
+	// Note that this edge case has no tests as it's relatively rare.
+	sharedCache.GoEnv.GOROOT, err = filepath.EvalSymlinks(sharedCache.GoEnv.GOROOT)
+	if err != nil {
+		return err
+	}
+
 	sharedCache.GoCmd = filepath.Join(sharedCache.GoEnv.GOROOT, "bin", "go")
 	sharedCache.GOGARBLE = cmp.Or(os.Getenv("GOGARBLE"), "*") // we default to obfuscating everything
 	return nil

@@ -4,7 +4,6 @@
 # setting up a `go` directive with its Go version.
 cd mod
 go mod init test
-exec cat go.mod
 cd ..
 go env GOVERSION
 setenvfile GOVERSION_UPGRADE stdout
