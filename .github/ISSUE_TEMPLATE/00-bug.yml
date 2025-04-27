@@ -2,13 +2,19 @@ name: Bug Report
 description: File a bug report.
 
 body:
-  - type: input
-    id: go-version
+  - type: textarea
+    id: garble-version
     attributes:
-      label: Go version
-      description: |
-        What version of Go are you using (`go version`)?
-      placeholder: ex. go version go1.20.7 darwin/arm64
+      label: "Output of `garble version`:"
+      placeholder: |
+        mvdan.cc/garble v0.14.2
+
+        Build settings:
+              -buildmode exe
+               -compiler gc
+             CGO_ENABLED 1
+                  GOARCH amd64
+                    GOOS linux
     validations:
       required: true
 
