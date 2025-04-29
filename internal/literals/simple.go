@@ -7,7 +7,6 @@ import (
 	"go/ast"
 	"go/token"
 	mathrand "math/rand"
-
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
@@ -16,7 +15,7 @@ type simple struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = simple{}
 
-func (simple) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
+func (simple) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*extKey) *ast.BlockStmt {
 	key := make([]byte, len(data))
 	obfRand.Read(key)
 
@@ -29,12 +28,12 @@ func (simple) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("key")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.DataToByteSlice(key)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(obfRand, key, extKeys)},
 		},
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("data")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.DataToByteSlice(data)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(obfRand, data, extKeys)},
 		},
 		&ast.RangeStmt{
 			Key:   ast.NewIdent("i"),
