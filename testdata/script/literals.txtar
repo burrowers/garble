@@ -54,10 +54,7 @@ grep '^(\s+)?\w+ = .*\bappend\(\w+,(\s+\w+\[\d+\^\s.+\][\^\-+]\w+\[\d+\^\s.+\],?
 grep '^\s+type \w+ func\(byte\) \w+$' debug1/test/main/extra_literals.go
 
 # Check external keys
-grep '__garble_ext_key_' debug1/test/main/extra_literals.go
-
-# Check global keys
-grep '__garble_global_keys_' debug1/test/main/extra_literals.go
+grep 'garbleEx1ternalKey' debug1/test/main/extra_literals.go
 
 # Finally, sanity check that we can build all of std with -literals.
 # Analogous to gogarble.txt.

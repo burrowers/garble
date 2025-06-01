@@ -9,8 +9,10 @@ import (
 	"go/token"
 	"math"
 	mathrand "math/rand"
-	ah "mvdan.cc/garble/internal/asthelper"
 	"slices"
+	"strconv"
+
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 // extKeyRarity probability of using an external key.
@@ -146,10 +148,11 @@ var extKeyRanges = []struct {
 	{"uint64", math.MaxUint64, 64},
 }
 
+// randExtKey generates a random external key with a unique name, type, value, and bitnesses
 func randExtKey(obfRand *mathrand.Rand, idx int) *extKey {
 	r := extKeyRanges[obfRand.Intn(len(extKeyRanges))]
 	return &extKey{
-		name:  fmt.Sprintf("__garble_ext_key_%d", idx),
+		name:  "garbleExternalKey" + strconv.Itoa(idx),
 		typ:   r.typ,
 		value: obfRand.Uint64() & r.max,
 		bits:  r.bits,
@@ -158,16 +161,16 @@ func randExtKey(obfRand *mathrand.Rand, idx int) *extKey {
 
 func randExtKeys(obfRand *mathrand.Rand) []*extKey {
 	count := minExtKeyCount + obfRand.Intn(maxExtKeyCount-minExtKeyCount)
-
 	keys := make([]*extKey, count)
 	for i := 0; i < count; i++ {
 		keys[i] = randExtKey(obfRand, i)
 	}
-
 	return keys
 }
 
-func extKeysToParams(obfRand *obfRand, keys []*extKey) (params *ast.FieldList, args []ast.Expr) {
+// extKeysToParams converts a list of extKeys into a parameter list and argument expressions for function calls.
+// It ensures unused keys have placeholder names and sometimes use proxyDispatcher.HideValue for key values
+func extKeysToParams(objRand *obfRand, keys []*extKey) (params *ast.FieldList, args []ast.Expr) {
 	params = &ast.FieldList{}
 	for _, key := range keys {
 		name := key.Name()
@@ -179,19 +182,37 @@ func extKeysToParams(obfRand *obfRand, keys []*extKey) (params *ast.FieldList, a
 			Type:  key.Type(),
 		})
 
-		if rareRarity.Try(obfRand.Rand) {
-			args = append(args, obfRand.scrambleUsingGlobalKey(key))
-		} else {
-			args = append(args, &ast.BasicLit{
-				Kind:  token.INT,
-				Value: fmt.Sprint(key.value),
-			})
+		var extKeyExpr ast.Expr = &ast.BasicLit{
+			Kind:  token.INT,
+			Value: fmt.Sprint(key.value),
 		}
+		if rareRarity.Try(objRand.Rand) {
+			extKeyExpr = objRand.proxyDispatcher.HideValue(extKeyExpr, ast.NewIdent(key.typ))
+		}
+		args = append(args, extKeyExpr)
 	}
 	return
 }
 
-// dataToByteSliceWithExtKeys scramble and turns a byte slice into an AST expression like:
+// extKeyToExpr converts an external key into an AST expression like:
+//
+// uint8(key >> b)
+func extKeyToExpr(key *extKey, b int) ast.Expr {
+	var x ast.Expr = key.Name()
+	if b > 0 {
+		x = &ast.BinaryExpr{
+			X:  x,
+			Op: token.SHR,
+			Y:  ah.IntLit(b * 8),
+		}
+	}
+	if key.typ != "uint8" {
+		x = ah.CallExprByName("byte", x)
+	}
+	return x
+}
+
+// dataToByteSliceWithExtKeys scramble and turn a byte slice into an AST expression like:
 //
 //	func() []byte {
 //		data := []byte("<data>")
@@ -214,11 +235,7 @@ func dataToByteSliceWithExtKeys(obfRand *mathrand.Rand, data []byte, extKeys []*
 			Rhs: []ast.Expr{
 				operatorToReversedBinaryExpr(op,
 					ah.IndexExpr("data", ah.IntLit(idx)),
-					ah.CallExprByName("byte", &ast.BinaryExpr{
-						X:  key.Name(),
-						Op: token.SHR,
-						Y:  ah.IntLit(b * 8),
-					}),
+					extKeyToExpr(key, b),
 				),
 			},
 		})
@@ -245,13 +262,10 @@ func byteLitWithExtKey(obfRand *mathrand.Rand, val byte, extKeys []*extKey, rari
 
 	op, b := randOperator(obfRand), obfRand.Intn(key.bits/8)
 	newVal := evalOperator(op, val, byte(key.value>>(b*8)))
+
 	return operatorToReversedBinaryExpr(op,
 		ah.CallExprByName("byte", ah.IntLit(int(newVal))),
-		ah.CallExprByName("byte", &ast.BinaryExpr{
-			X:  key.Name(),
-			Op: token.SHR,
-			Y:  ah.IntLit(b * 8),
-		}),
+		extKeyToExpr(key, b),
 	)
 }
 
@@ -259,9 +273,7 @@ type obfRand struct {
 	*mathrand.Rand
 	testObfuscator obfuscator
 
-	globalKeysVarName string
-	globalKeys        []uint64
-	globalKeysUsed    bool
+	proxyDispatcher *proxyDispatcher
 }
 
 func (r *obfRand) nextObfuscator() obfuscator {
@@ -278,26 +290,7 @@ func (r *obfRand) nextLinearTimeObfuscator() obfuscator {
 	return Obfuscators[r.Intn(len(LinearTimeObfuscators))]
 }
 
-func (r *obfRand) scrambleUsingGlobalKey(k *extKey) ast.Expr {
-	r.globalKeysUsed = true
-
-	extKeyIdx := r.Intn(len(r.globalKeys))
-	return &ast.BinaryExpr{
-		X:  ah.CallExprByName(k.typ, ah.IndexExpr(r.globalKeysVarName, ah.IntLit(extKeyIdx))),
-		Op: token.XOR,
-		Y: &ast.BasicLit{
-			Kind: token.INT,
-			// To avoid an overflow error at compile time, truncate global key to external key bitness
-			Value: fmt.Sprint(k.value ^ (r.globalKeys[extKeyIdx] & ((1 << k.bits) - 1))),
-		},
-	}
-}
-
-func newObfRand(rand *mathrand.Rand, file *ast.File) *obfRand {
+func newObfRand(rand *mathrand.Rand, file *ast.File, nameFunc NameProviderFunc) *obfRand {
 	testObf := testPkgToObfuscatorMap[file.Name.Name]
-	globalKeys := make([]uint64, minExtKeyCount+rand.Intn(maxExtKeyCount-minExtKeyCount))
-	for i := 0; i < len(globalKeys); i++ {
-		globalKeys[i] = rand.Uint64()
-	}
-	return &obfRand{rand, testObf, fmt.Sprintf("__garble_global_keys_%d", rand.Uint64()), globalKeys, false}
+	return &obfRand{rand, testObf, newProxyDispatcher(rand, nameFunc)}
 }

@@ -25,9 +25,19 @@ const MinSize = 8
 // Beyond that we apply only a subset of obfuscators which are guaranteed to run efficiently.
 const maxSize = 2 << 10 // KiB
 
+const (
+	// minStringJunkBytes defines the minimum number of junk bytes to prepend or append during string obfuscation.
+	minStringJunkBytes = 2
+	// maxStringJunkBytes defines the maximum number of junk bytes to prepend or append during string obfuscation.
+	maxStringJunkBytes = 8
+)
+
+// NameProviderFunc defines a function type that generates a string based on a random source and a base name.
+type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
+
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string) *ast.File {
-	obfRand := newObfRand(rand, file)
+func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
+	obfRand := newObfRand(rand, file, nameFunc)
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.GenDecl:
@@ -111,27 +121,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	}
 
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
-	if obfRand.globalKeysUsed {
-		// Generate a global variable containing global keys
-		// var __garble_global_keys_%d = [...]uint64{ <global keys> }
-		elts := make([]ast.Expr, len(obfRand.globalKeys))
-		for i, key := range obfRand.globalKeys {
-			elts[i] = &ast.BasicLit{Kind: token.INT, Value: fmt.Sprint(key)}
-		}
-		newFile.Decls = append(newFile.Decls, &ast.GenDecl{
-			Tok: token.VAR,
-			Specs: []ast.Spec{&ast.ValueSpec{
-				Names: []*ast.Ident{ast.NewIdent(obfRand.globalKeysVarName)},
-				Values: []ast.Expr{&ast.CompositeLit{
-					Type: &ast.ArrayType{
-						Len: ah.IntLit(len(obfRand.globalKeys)),
-						Elt: ast.NewIdent("uint64"),
-					},
-					Elts: elts,
-				}},
-			}},
-		})
-	}
+	obfRand.proxyDispatcher.AddToFile(newFile)
 	return newFile
 }
 
@@ -236,12 +226,58 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 	obf := getNextObfuscator(obfRand, len(data))
 
+	junkBytes := make([]byte, obfRand.Intn(maxStringJunkBytes-minStringJunkBytes)+minStringJunkBytes)
+	obfRand.Read(junkBytes)
+
+	splitIdx := obfRand.Intn(len(junkBytes))
+
 	extKeys := randExtKeys(obfRand.Rand)
-	block := obf.obfuscate(obfRand.Rand, []byte(data), extKeys)
+
+	plainData := []byte(data)
+	plainDataWithJunkBytes := append(append(junkBytes[:splitIdx], plainData...), junkBytes[splitIdx:]...)
+
+	block := obf.obfuscate(obfRand.Rand, plainDataWithJunkBytes, extKeys)
 	params, args := extKeysToParams(obfRand, extKeys)
 
-	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent("string"), ast.NewIdent("data"))))
-
+	// Generate unique cast bytes to string function and hide it using proxyDispatcher:
+	//
+	// func(x []byte) string {
+	//		return string(x[<splitIdx>:<splitIdx+len(plainData)>])
+	//	}
+	funcTyp := &ast.FuncType{
+		Params: &ast.FieldList{List: []*ast.Field{{
+			Type: &ast.ArrayType{Elt: ast.NewIdent("byte")},
+		}}},
+		Results: &ast.FieldList{List: []*ast.Field{{
+			Type: ast.NewIdent("string"),
+		}}},
+	}
+	funcVal := &ast.FuncLit{
+		Type: &ast.FuncType{
+			Params: &ast.FieldList{List: []*ast.Field{{
+				Names: []*ast.Ident{ast.NewIdent("x")},
+				Type:  &ast.ArrayType{Elt: ast.NewIdent("byte")},
+			}}},
+			Results: &ast.FieldList{List: []*ast.Field{{
+				Type: ast.NewIdent("string"),
+			}}},
+		},
+		Body: &ast.BlockStmt{List: []ast.Stmt{
+			&ast.ReturnStmt{Results: []ast.Expr{
+				&ast.CallExpr{
+					Fun: ast.NewIdent("string"),
+					Args: []ast.Expr{
+						&ast.SliceExpr{
+							X:    ast.NewIdent("x"),
+							Low:  ah.IntLit(splitIdx),
+							High: ah.IntLit(splitIdx + len(plainData)),
+						},
+					},
+				},
+			}},
+		}},
+	}
+	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(obfRand.proxyDispatcher.HideValue(funcVal, funcTyp), ast.NewIdent("data"))))
 	return ah.LambdaCall(params, ast.NewIdent("string"), block, args)
 }
 
