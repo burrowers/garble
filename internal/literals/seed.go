@@ -16,30 +16,29 @@ type seed struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = seed{}
 
-func (seed) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
+func (seed) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	seed := byte(obfRand.Uint32())
 	originalSeed := seed
 
 	op := randOperator(obfRand)
-
 	var callExpr *ast.CallExpr
 	for i, b := range data {
 		encB := evalOperator(op, b, seed)
 		seed += encB
 
 		if i == 0 {
-			callExpr = ah.CallExpr(ast.NewIdent("fnc"), ah.IntLit(int(encB)))
+			callExpr = ah.CallExpr(ast.NewIdent("fnc"), byteLitWithExtKey(obfRand, encB, extKeys, highProb))
 			continue
 		}
 
-		callExpr = ah.CallExpr(callExpr, ah.IntLit(int(encB)))
+		callExpr = ah.CallExpr(callExpr, byteLitWithExtKey(obfRand, encB, extKeys, lowProb))
 	}
 
 	return ah.BlockStmt(
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("seed")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.CallExpr(ast.NewIdent("byte"), ah.IntLit(int(originalSeed)))},
+			Rhs: []ast.Expr{ah.CallExprByName("byte", byteLitWithExtKey(obfRand, originalSeed, extKeys, highProb))},
 		},
 		&ast.DeclStmt{
 			Decl: &ast.GenDecl{

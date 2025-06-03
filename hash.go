@@ -12,6 +12,7 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	mathrand "math/rand"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -309,6 +310,15 @@ const (
 	// which is nameBase64.DecodedLen(12) being rounded up.
 	neededSumBytes = 9
 )
+
+// randomName generates a random name derived from the given baseName, using the provided random source.
+func randomName(rand *mathrand.Rand, baseName string) string {
+	salt := make([]byte, buildIDHashLength)
+	if _, err := rand.Read(salt); err != nil {
+		panic(err)
+	}
+	return hashWithCustomSalt(salt, baseName)
+}
 
 // hashWithCustomSalt returns a hashed version of name,
 // including the provided salt as well as opts.Seed into the hash input.

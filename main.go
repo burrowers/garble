@@ -1819,7 +1819,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && tf.curPkg.ToObfuscate {
-		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings)
+		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings, randomName)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
 		tf.useAllImports(file)

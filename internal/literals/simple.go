@@ -16,11 +16,11 @@ type simple struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = simple{}
 
-func (simple) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
+func (simple) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	key := make([]byte, len(data))
-	obfRand.Read(key)
+	rand.Read(key)
 
-	op := randOperator(obfRand)
+	op := randOperator(rand)
 	for i, b := range key {
 		data[i] = evalOperator(op, data[i], b)
 	}
@@ -29,12 +29,12 @@ func (simple) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("key")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.DataToByteSlice(key)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, key, extKeys)},
 		},
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("data")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.DataToByteSlice(data)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, data, extKeys)},
 		},
 		&ast.RangeStmt{
 			Key:   ast.NewIdent("i"),

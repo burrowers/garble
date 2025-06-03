@@ -43,11 +43,11 @@ func CallExpr(fun ast.Expr, args ...ast.Expr) *ast.CallExpr {
 	}
 }
 
-// LambdaCall "func() resultType {block}()"
-func LambdaCall(resultType ast.Expr, block *ast.BlockStmt) *ast.CallExpr {
+// LambdaCall "func(params) resultType {block}(args)"
+func LambdaCall(params *ast.FieldList, resultType ast.Expr, block *ast.BlockStmt, args []ast.Expr) *ast.CallExpr {
 	funcLit := &ast.FuncLit{
 		Type: &ast.FuncType{
-			Params: &ast.FieldList{},
+			Params: params,
 			Results: &ast.FieldList{
 				List: []*ast.Field{
 					{Type: resultType},
@@ -56,7 +56,7 @@ func LambdaCall(resultType ast.Expr, block *ast.BlockStmt) *ast.CallExpr {
 		},
 		Body: block,
 	}
-	return CallExpr(funcLit)
+	return CallExpr(funcLit, args...)
 }
 
 // ReturnStmt "return result"
@@ -138,6 +138,63 @@ func AssignStmt(Lhs ast.Expr, Rhs ast.Expr) *ast.AssignStmt {
 // IndexExprByExpr "xExpr[indexExpr]"
 func IndexExprByExpr(xExpr, indexExpr ast.Expr) *ast.IndexExpr {
 	return &ast.IndexExpr{X: xExpr, Index: indexExpr}
+}
+
+// UnaryExpr creates a unary expression with the given operator and operand
+func UnaryExpr(op token.Token, x ast.Expr) *ast.UnaryExpr {
+	return &ast.UnaryExpr{
+		Op: op,
+		X:  x,
+	}
+}
+
+// StarExpr creates a pointer type expression "*x"
+func StarExpr(x ast.Expr) *ast.StarExpr {
+	return &ast.StarExpr{X: x}
+}
+
+// ArrayType creates an array type expression "[len]eltType"
+func ArrayType(len ast.Expr, eltType ast.Expr) *ast.ArrayType {
+	return &ast.ArrayType{
+		Len: len,
+		Elt: eltType,
+	}
+}
+
+// ByteArrayType creates a byte array type "[len]byte"
+func ByteArrayType(len int64) *ast.ArrayType {
+	lenLit := IntLit(int(len))
+	return ArrayType(lenLit, ast.NewIdent("byte"))
+}
+
+// ByteSliceType creates a byte slice type "[]byte"
+func ByteSliceType() *ast.ArrayType {
+	return &ast.ArrayType{Elt: ast.NewIdent("byte")}
+}
+
+// BinaryExpr creates a binary expression "x op y"
+func BinaryExpr(x ast.Expr, op token.Token, y ast.Expr) *ast.BinaryExpr {
+	return &ast.BinaryExpr{
+		X:  x,
+		Op: op,
+		Y:  y,
+	}
+}
+
+// UintLit returns an ast.BasicLit of kind INT for uint64 values
+func UintLit(value uint64) *ast.BasicLit {
+	return &ast.BasicLit{
+		Kind:  token.INT,
+		Value: fmt.Sprint(value),
+	}
+}
+
+// Field creates a field with names and type for function parameters or struct fields
+func Field(typ ast.Expr, names ...*ast.Ident) *ast.Field {
+	return &ast.Field{
+		Names: names,
+		Type:  typ,
+	}
 }
 
 func ConstToAst(val constant.Value) ast.Expr {

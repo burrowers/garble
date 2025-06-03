@@ -25,9 +25,19 @@ const MinSize = 8
 // Beyond that we apply only a subset of obfuscators which are guaranteed to run efficiently.
 const maxSize = 2 << 10 // KiB
 
+const (
+	// minStringJunkBytes defines the minimum number of junk bytes to prepend or append during string obfuscation.
+	minStringJunkBytes = 2
+	// maxStringJunkBytes defines the maximum number of junk bytes to prepend or append during string obfuscation.
+	maxStringJunkBytes = 8
+)
+
+// NameProviderFunc defines a function type that generates a string based on a random source and a base name.
+type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
+
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string) *ast.File {
-	obfRand := newObfRand(rand, file)
+func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
+	obfRand := newObfRand(rand, file, nameFunc)
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.GenDecl:
@@ -110,7 +120,9 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 		return true
 	}
 
-	return astutil.Apply(file, pre, post).(*ast.File)
+	newFile := astutil.Apply(file, pre, post).(*ast.File)
+	obfRand.proxyDispatcher.AddToFile(newFile)
+	return newFile
 }
 
 // handleCompositeLiteral checks if the input node is []byte or [...]byte and
@@ -213,39 +225,86 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 
 func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 	obf := getNextObfuscator(obfRand, len(data))
-	block := obf.obfuscate(obfRand.Rand, []byte(data))
 
-	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent("string"), ast.NewIdent("data"))))
+	// Generate junk bytes to to prepend and append to the data.
+	// This is to prevent the obfuscated string from being easily fingerprintable.
+	junkBytes := make([]byte, obfRand.Intn(maxStringJunkBytes-minStringJunkBytes)+minStringJunkBytes)
+	obfRand.Read(junkBytes)
+	splitIdx := obfRand.Intn(len(junkBytes))
 
-	return ah.LambdaCall(ast.NewIdent("string"), block)
+	extKeys := randExtKeys(obfRand.Rand)
+
+	plainData := []byte(data)
+	plainDataWithJunkBytes := append(append(junkBytes[:splitIdx], plainData...), junkBytes[splitIdx:]...)
+
+	block := obf.obfuscate(obfRand.Rand, plainDataWithJunkBytes, extKeys)
+	params, args := extKeysToParams(obfRand, extKeys)
+
+	// Generate unique cast bytes to string function and hide it using proxyDispatcher:
+	//
+	// func(x []byte) string {
+	//		return string(x[<splitIdx>:<splitIdx+len(plainData)>])
+	//	}
+	funcTyp := &ast.FuncType{
+		Params: &ast.FieldList{List: []*ast.Field{{
+			Type: ah.ByteSliceType(),
+		}}},
+		Results: &ast.FieldList{List: []*ast.Field{{
+			Type: ast.NewIdent("string"),
+		}}},
+	}
+	funcVal := &ast.FuncLit{
+		Type: &ast.FuncType{
+			Params: &ast.FieldList{List: []*ast.Field{{
+				Names: []*ast.Ident{ast.NewIdent("x")},
+				Type:  ah.ByteSliceType(),
+			}}},
+			Results: &ast.FieldList{List: []*ast.Field{{
+				Type: ast.NewIdent("string"),
+			}}},
+		},
+		Body: ah.BlockStmt(
+			ah.ReturnStmt(
+				ah.CallExprByName("string",
+					&ast.SliceExpr{
+						X:    ast.NewIdent("x"),
+						Low:  ah.IntLit(splitIdx),
+						High: ah.IntLit(splitIdx + len(plainData)),
+					},
+				),
+			),
+		),
+	}
+	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(obfRand.proxyDispatcher.HideValue(funcVal, funcTyp), ast.NewIdent("data"))))
+	return ah.LambdaCall(params, ast.NewIdent("string"), block, args)
 }
 
 func obfuscateByteSlice(obfRand *obfRand, isPointer bool, data []byte) *ast.CallExpr {
 	obf := getNextObfuscator(obfRand, len(data))
-	block := obf.obfuscate(obfRand.Rand, data)
+
+	extKeys := randExtKeys(obfRand.Rand)
+	block := obf.obfuscate(obfRand.Rand, data, extKeys)
+	params, args := extKeysToParams(obfRand, extKeys)
 
 	if isPointer {
-		block.List = append(block.List, ah.ReturnStmt(&ast.UnaryExpr{
-			Op: token.AND,
-			X:  ast.NewIdent("data"),
-		}))
-		return ah.LambdaCall(&ast.StarExpr{
-			X: &ast.ArrayType{Elt: ast.NewIdent("byte")},
-		}, block)
+		block.List = append(block.List, ah.ReturnStmt(
+			ah.UnaryExpr(token.AND, ast.NewIdent("data")),
+		))
+		return ah.LambdaCall(params, ah.StarExpr(ah.ByteSliceType()), block, args)
 	}
 
 	block.List = append(block.List, ah.ReturnStmt(ast.NewIdent("data")))
-	return ah.LambdaCall(&ast.ArrayType{Elt: ast.NewIdent("byte")}, block)
+	return ah.LambdaCall(params, ah.ByteSliceType(), block, args)
 }
 
 func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length int64) *ast.CallExpr {
 	obf := getNextObfuscator(obfRand, len(data))
-	block := obf.obfuscate(obfRand.Rand, data)
 
-	arrayType := &ast.ArrayType{
-		Len: ah.IntLit(int(length)),
-		Elt: ast.NewIdent("byte"),
-	}
+	extKeys := randExtKeys(obfRand.Rand)
+	block := obf.obfuscate(obfRand.Rand, data, extKeys)
+	params, args := extKeysToParams(obfRand, extKeys)
+
+	arrayType := ah.ByteArrayType(length)
 
 	sliceToArray := []ast.Stmt{
 		&ast.DeclStmt{
@@ -261,29 +320,28 @@ func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length in
 			Key: ast.NewIdent("i"),
 			Tok: token.DEFINE,
 			X:   ast.NewIdent("data"),
-			Body: &ast.BlockStmt{List: []ast.Stmt{
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.IndexExpr("newdata", ast.NewIdent("i"))},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{ah.IndexExpr("data", ast.NewIdent("i"))},
-				},
-			}},
+			Body: ah.BlockStmt(
+				ah.AssignStmt(
+					ah.IndexExprByExpr(ast.NewIdent("newdata"), ast.NewIdent("i")),
+					ah.IndexExprByExpr(ast.NewIdent("data"), ast.NewIdent("i")),
+				),
+			),
 		},
 	}
 
 	var retexpr ast.Expr = ast.NewIdent("newdata")
 	if isPointer {
-		retexpr = &ast.UnaryExpr{X: retexpr, Op: token.AND}
+		retexpr = ah.UnaryExpr(token.AND, retexpr)
 	}
 
 	sliceToArray = append(sliceToArray, ah.ReturnStmt(retexpr))
 	block.List = append(block.List, sliceToArray...)
 
 	if isPointer {
-		return ah.LambdaCall(&ast.StarExpr{X: arrayType}, block)
+		return ah.LambdaCall(params, ah.StarExpr(arrayType), block, args)
 	}
 
-	return ah.LambdaCall(arrayType, block)
+	return ah.LambdaCall(params, arrayType, block, args)
 }
 
 func getNextObfuscator(obfRand *obfRand, size int) obfuscator {

@@ -58,13 +58,13 @@ func generateSwapCount(obfRand *mathrand.Rand, dataLen int) int {
 	return swapCount
 }
 
-func (swap) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
-	swapCount := generateSwapCount(obfRand, len(data))
-	shiftKey := byte(obfRand.Uint32())
+func (swap) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
+	swapCount := generateSwapCount(rand, len(data))
+	shiftKey := byte(rand.Uint32())
 
-	op := randOperator(obfRand)
+	op := randOperator(rand)
 
-	positions := genRandIntSlice(obfRand, len(data), swapCount)
+	positions := genRandIntSlice(rand, len(data), swapCount)
 	for i := len(positions) - 2; i >= 0; i -= 2 {
 		// Generate local key for xor based on random key and byte position
 		localKey := byte(i) + byte(positions[i]^positions[i+1]) + shiftKey
@@ -76,7 +76,7 @@ func (swap) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("data")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.DataToByteSlice(data)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, data, extKeys)},
 		},
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("positions")},
@@ -118,7 +118,7 @@ func (swap) obfuscate(obfRand *mathrand.Rand, data []byte) *ast.BlockStmt {
 							}),
 						},
 						Op: token.ADD,
-						Y:  ah.IntLit(int(shiftKey)),
+						Y:  byteLitWithExtKey(rand, shiftKey, extKeys, highProb),
 					}},
 				},
 				&ast.AssignStmt{
