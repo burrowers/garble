@@ -66,33 +66,33 @@ func encryptChunks(chunks [][]byte, op token.Token, key byte) {
 	}
 }
 
-func (split) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*extKey) *ast.BlockStmt {
+func (split) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	var chunks [][]byte
 	// Short arrays should be divided into single-byte fragments
 	if len(data)/maxChunkSize < minCaseCount {
 		chunks = splitIntoOneByteChunks(data)
 	} else {
-		chunks = splitIntoRandomChunks(obfRand, data)
+		chunks = splitIntoRandomChunks(rand, data)
 	}
 
 	// Generate indexes for cases chunk count + 1 decrypt case + 1 exit case
-	indexes := obfRand.Perm(len(chunks) + 2)
+	indexes := rand.Perm(len(chunks) + 2)
 
-	decryptKeyInitial := byte(obfRand.Uint32())
+	decryptKeyInitial := byte(rand.Uint32())
 	decryptKey := decryptKeyInitial
 	// Calculate decrypt key based on indexes and position. Ignore exit index
 	for i, index := range indexes[:len(indexes)-1] {
 		decryptKey ^= byte(index * i)
 	}
 
-	op := randOperator(obfRand)
+	op := randOperator(rand)
 	encryptChunks(chunks, op, decryptKey)
 
 	decryptIndex := indexes[len(indexes)-2]
 	exitIndex := indexes[len(indexes)-1]
 	switchCases := []ast.Stmt{&ast.CaseClause{
 		List: []ast.Expr{ah.IntLit(decryptIndex)},
-		Body: shuffleStmts(obfRand,
+		Body: shuffleStmts(rand,
 			&ast.AssignStmt{
 				Lhs: []ast.Expr{ast.NewIdent("i")},
 				Tok: token.ASSIGN,
@@ -131,15 +131,15 @@ func (split) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*extKey) *
 		}
 
 		if len(chunk) != 1 {
-			appendCallExpr.Args = append(appendCallExpr.Args, dataToByteSliceWithExtKeys(obfRand, chunk, extKeys))
+			appendCallExpr.Args = append(appendCallExpr.Args, dataToByteSliceWithExtKeys(rand, chunk, extKeys))
 			appendCallExpr.Ellipsis = 1
 		} else {
-			appendCallExpr.Args = append(appendCallExpr.Args, byteLitWithExtKey(obfRand, chunk[0], extKeys, rareRarity))
+			appendCallExpr.Args = append(appendCallExpr.Args, byteLitWithExtKey(rand, chunk[0], extKeys, lowProb))
 		}
 
 		switchCases = append(switchCases, &ast.CaseClause{
 			List: []ast.Expr{ah.IntLit(index)},
-			Body: shuffleStmts(obfRand,
+			Body: shuffleStmts(rand,
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{ast.NewIdent("i")},
 					Tok: token.ASSIGN,
@@ -168,7 +168,7 @@ func (split) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*extKey) *
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("decryptKey")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.CallExprByName("int", byteLitWithExtKey(obfRand, decryptKeyInitial, extKeys, normalRarity))},
+			Rhs: []ast.Expr{ah.CallExprByName("int", byteLitWithExtKey(rand, decryptKeyInitial, extKeys, normalProb))},
 		},
 		&ast.ForStmt{
 			Init: &ast.AssignStmt{
@@ -199,7 +199,7 @@ func (split) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*extKey) *
 				},
 				&ast.SwitchStmt{
 					Tag:  ast.NewIdent("i"),
-					Body: ah.BlockStmt(shuffleStmts(obfRand, switchCases...)...),
+					Body: ah.BlockStmt(shuffleStmts(rand, switchCases...)...),
 				}),
 		},
 	)

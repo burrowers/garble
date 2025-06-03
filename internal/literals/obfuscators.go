@@ -15,48 +15,48 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-// extKeyRarity probability of using an external key.
+// externalKeyProbability probability of using an external key.
 // Larger value, greater probability of using an external key.
 // Must be between 0 and 1
-type extKeyRarity float32
+type externalKeyProbability float32
 
 const (
-	rareRarity   extKeyRarity = 0.4
-	normalRarity extKeyRarity = 0.6
-	commonRarity extKeyRarity = 0.8
+	lowProb    externalKeyProbability = 0.4
+	normalProb externalKeyProbability = 0.6
+	highProb   externalKeyProbability = 0.8
 )
 
-func (r extKeyRarity) Try(rand *mathrand.Rand) bool {
+func (r externalKeyProbability) Try(rand *mathrand.Rand) bool {
 	return rand.Float32() < float32(r)
 }
 
-// extKey contains all information about the external key
-type extKey struct {
+// externalKey contains all information about the external key
+type externalKey struct {
 	name, typ string
 	value     uint64
 	bits      int
 	refs      int
 }
 
-func (k *extKey) Type() *ast.Ident {
+func (k *externalKey) Type() *ast.Ident {
 	return ast.NewIdent(k.typ)
 }
 
-func (k *extKey) Name() *ast.Ident {
+func (k *externalKey) Name() *ast.Ident {
 	return ast.NewIdent(k.name)
 }
 
-func (k *extKey) AddRef() {
+func (k *externalKey) AddRef() {
 	k.refs++
 }
 
-func (k *extKey) IsUsed() bool {
+func (k *externalKey) IsUsed() bool {
 	return k.refs > 0
 }
 
 // obfuscator takes a byte slice and converts it to a ast.BlockStmt
 type obfuscator interface {
-	obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*extKey) *ast.BlockStmt
+	obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt
 }
 
 var (
@@ -107,20 +107,18 @@ func evalOperator(t token.Token, x, y byte) byte {
 }
 
 func operatorToReversedBinaryExpr(t token.Token, x, y ast.Expr) *ast.BinaryExpr {
-	expr := &ast.BinaryExpr{X: x, Y: y}
-
+	var op token.Token
 	switch t {
 	case token.XOR:
-		expr.Op = token.XOR
+		op = token.XOR
 	case token.ADD:
-		expr.Op = token.SUB
+		op = token.SUB
 	case token.SUB:
-		expr.Op = token.ADD
+		op = token.ADD
 	default:
 		panic(fmt.Sprintf("unknown operator: %s", t))
 	}
-
-	return expr
+	return ah.BinaryExpr(x, op, y)
 }
 
 const (
@@ -149,44 +147,38 @@ var extKeyRanges = []struct {
 }
 
 // randExtKey generates a random external key with a unique name, type, value, and bitnesses
-func randExtKey(obfRand *mathrand.Rand, idx int) *extKey {
-	r := extKeyRanges[obfRand.Intn(len(extKeyRanges))]
-	return &extKey{
+func randExtKey(rand *mathrand.Rand, idx int) *externalKey {
+	r := extKeyRanges[rand.Intn(len(extKeyRanges))]
+	return &externalKey{
 		name:  "garbleExternalKey" + strconv.Itoa(idx),
 		typ:   r.typ,
-		value: obfRand.Uint64() & r.max,
+		value: rand.Uint64() & r.max,
 		bits:  r.bits,
 	}
 }
 
-func randExtKeys(obfRand *mathrand.Rand) []*extKey {
-	count := minExtKeyCount + obfRand.Intn(maxExtKeyCount-minExtKeyCount)
-	keys := make([]*extKey, count)
+func randExtKeys(rand *mathrand.Rand) []*externalKey {
+	count := minExtKeyCount + rand.Intn(maxExtKeyCount-minExtKeyCount)
+	keys := make([]*externalKey, count)
 	for i := 0; i < count; i++ {
-		keys[i] = randExtKey(obfRand, i)
+		keys[i] = randExtKey(rand, i)
 	}
 	return keys
 }
 
 // extKeysToParams converts a list of extKeys into a parameter list and argument expressions for function calls.
 // It ensures unused keys have placeholder names and sometimes use proxyDispatcher.HideValue for key values
-func extKeysToParams(objRand *obfRand, keys []*extKey) (params *ast.FieldList, args []ast.Expr) {
+func extKeysToParams(objRand *obfRand, keys []*externalKey) (params *ast.FieldList, args []ast.Expr) {
 	params = &ast.FieldList{}
 	for _, key := range keys {
 		name := key.Name()
 		if !key.IsUsed() {
 			name.Name = "_"
 		}
-		params.List = append(params.List, &ast.Field{
-			Names: []*ast.Ident{name},
-			Type:  key.Type(),
-		})
+		params.List = append(params.List, ah.Field(key.Type(), name))
 
-		var extKeyExpr ast.Expr = &ast.BasicLit{
-			Kind:  token.INT,
-			Value: fmt.Sprint(key.value),
-		}
-		if rareRarity.Try(objRand.Rand) {
+		var extKeyExpr ast.Expr = ah.UintLit(key.value)
+		if lowProb.Try(objRand.Rand) {
 			extKeyExpr = objRand.proxyDispatcher.HideValue(extKeyExpr, ast.NewIdent(key.typ))
 		}
 		args = append(args, extKeyExpr)
@@ -196,15 +188,11 @@ func extKeysToParams(objRand *obfRand, keys []*extKey) (params *ast.FieldList, a
 
 // extKeyToExpr converts an external key into an AST expression like:
 //
-// uint8(key >> b)
-func extKeyToExpr(key *extKey, b int) ast.Expr {
+//	uint8(key >> b)
+func (key *externalKey) ToExpr(b int) ast.Expr {
 	var x ast.Expr = key.Name()
 	if b > 0 {
-		x = &ast.BinaryExpr{
-			X:  x,
-			Op: token.SHR,
-			Y:  ah.IntLit(b * 8),
-		}
+		x = ah.BinaryExpr(x, token.SHR, ah.IntLit(b*8))
 	}
 	if key.typ != "uint8" {
 		x = ah.CallExprByName("byte", x)
@@ -219,26 +207,23 @@ func extKeyToExpr(key *extKey, b int) ast.Expr {
 //		data[<index>] = data[<index>] <random operator> byte(<external key> >> <random shift>) // repeated random times
 //		return data
 //	}()
-func dataToByteSliceWithExtKeys(obfRand *mathrand.Rand, data []byte, extKeys []*extKey) ast.Expr {
-	extKeyOpCount := minByteSliceExtKeyOps + obfRand.Intn(maxByteSliceExtKeyOps-minByteSliceExtKeyOps)
+func dataToByteSliceWithExtKeys(rand *mathrand.Rand, data []byte, extKeys []*externalKey) ast.Expr {
+	extKeyOpCount := minByteSliceExtKeyOps + rand.Intn(maxByteSliceExtKeyOps-minByteSliceExtKeyOps)
 
 	var stmts []ast.Stmt
 	for i := 0; i < extKeyOpCount; i++ {
-		key := extKeys[obfRand.Intn(len(extKeys))]
+		key := extKeys[rand.Intn(len(extKeys))]
 		key.AddRef()
 
-		idx, op, b := obfRand.Intn(len(data)), randOperator(obfRand), obfRand.Intn(key.bits/8)
+		idx, op, b := rand.Intn(len(data)), randOperator(rand), rand.Intn(key.bits/8)
 		data[idx] = evalOperator(op, data[idx], byte(key.value>>(b*8)))
-		stmts = append(stmts, &ast.AssignStmt{
-			Lhs: []ast.Expr{ah.IndexExpr("data", ah.IntLit(idx))},
-			Tok: token.ASSIGN,
-			Rhs: []ast.Expr{
-				operatorToReversedBinaryExpr(op,
-					ah.IndexExpr("data", ah.IntLit(idx)),
-					extKeyToExpr(key, b),
-				),
-			},
-		})
+		stmts = append(stmts, ah.AssignStmt(
+			ah.IndexExpr("data", ah.IntLit(idx)),
+			operatorToReversedBinaryExpr(op,
+				ah.IndexExpr("data", ah.IntLit(idx)),
+				key.ToExpr(b),
+			),
+		))
 	}
 
 	// External keys can be applied several times to the same array element,
@@ -246,26 +231,26 @@ func dataToByteSliceWithExtKeys(obfRand *mathrand.Rand, data []byte, extKeys []*
 	slices.Reverse(stmts)
 
 	stmts = append([]ast.Stmt{ah.AssignDefineStmt(ast.NewIdent("data"), ah.DataToByteSlice(data))}, append(stmts, ah.ReturnStmt(ast.NewIdent("data")))...)
-	return ah.LambdaCall(nil, &ast.ArrayType{Elt: ast.NewIdent("byte")}, ah.BlockStmt(stmts...), nil)
+	return ah.LambdaCall(nil, ah.ByteSliceType(), ah.BlockStmt(stmts...), nil)
 }
 
 // dataToByteSliceWithExtKeys scramble and turns a byte into an AST expression like:
 //
 //	byte(<obfuscated value>) <random operator> byte(<external key> >> <random shift>)
-func byteLitWithExtKey(obfRand *mathrand.Rand, val byte, extKeys []*extKey, rarity extKeyRarity) ast.Expr {
-	if !rarity.Try(obfRand) {
+func byteLitWithExtKey(rand *mathrand.Rand, val byte, extKeys []*externalKey, extKeyProb externalKeyProbability) ast.Expr {
+	if !extKeyProb.Try(rand) {
 		return ah.IntLit(int(val))
 	}
 
-	key := extKeys[obfRand.Intn(len(extKeys))]
+	key := extKeys[rand.Intn(len(extKeys))]
 	key.AddRef()
 
-	op, b := randOperator(obfRand), obfRand.Intn(key.bits/8)
+	op, b := randOperator(rand), rand.Intn(key.bits/8)
 	newVal := evalOperator(op, val, byte(key.value>>(b*8)))
 
 	return operatorToReversedBinaryExpr(op,
 		ah.CallExprByName("byte", ah.IntLit(int(newVal))),
-		extKeyToExpr(key, b),
+		key.ToExpr(b),
 	)
 }
 

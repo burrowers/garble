@@ -226,9 +226,10 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 	obf := getNextObfuscator(obfRand, len(data))
 
+	// Generate junk bytes to to prepend and append to the data.
+	// This is to prevent the obfuscated string from being easily fingerprintable.
 	junkBytes := make([]byte, obfRand.Intn(maxStringJunkBytes-minStringJunkBytes)+minStringJunkBytes)
 	obfRand.Read(junkBytes)
-
 	splitIdx := obfRand.Intn(len(junkBytes))
 
 	extKeys := randExtKeys(obfRand.Rand)
@@ -246,7 +247,7 @@ func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 	//	}
 	funcTyp := &ast.FuncType{
 		Params: &ast.FieldList{List: []*ast.Field{{
-			Type: &ast.ArrayType{Elt: ast.NewIdent("byte")},
+			Type: ah.ByteSliceType(),
 		}}},
 		Results: &ast.FieldList{List: []*ast.Field{{
 			Type: ast.NewIdent("string"),
@@ -256,26 +257,23 @@ func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 		Type: &ast.FuncType{
 			Params: &ast.FieldList{List: []*ast.Field{{
 				Names: []*ast.Ident{ast.NewIdent("x")},
-				Type:  &ast.ArrayType{Elt: ast.NewIdent("byte")},
+				Type:  ah.ByteSliceType(),
 			}}},
 			Results: &ast.FieldList{List: []*ast.Field{{
 				Type: ast.NewIdent("string"),
 			}}},
 		},
-		Body: &ast.BlockStmt{List: []ast.Stmt{
-			&ast.ReturnStmt{Results: []ast.Expr{
-				&ast.CallExpr{
-					Fun: ast.NewIdent("string"),
-					Args: []ast.Expr{
-						&ast.SliceExpr{
-							X:    ast.NewIdent("x"),
-							Low:  ah.IntLit(splitIdx),
-							High: ah.IntLit(splitIdx + len(plainData)),
-						},
+		Body: ah.BlockStmt(
+			ah.ReturnStmt(
+				ah.CallExprByName("string",
+					&ast.SliceExpr{
+						X:    ast.NewIdent("x"),
+						Low:  ah.IntLit(splitIdx),
+						High: ah.IntLit(splitIdx + len(plainData)),
 					},
-				},
-			}},
-		}},
+				),
+			),
+		),
 	}
 	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(obfRand.proxyDispatcher.HideValue(funcVal, funcTyp), ast.NewIdent("data"))))
 	return ah.LambdaCall(params, ast.NewIdent("string"), block, args)
@@ -289,17 +287,14 @@ func obfuscateByteSlice(obfRand *obfRand, isPointer bool, data []byte) *ast.Call
 	params, args := extKeysToParams(obfRand, extKeys)
 
 	if isPointer {
-		block.List = append(block.List, ah.ReturnStmt(&ast.UnaryExpr{
-			Op: token.AND,
-			X:  ast.NewIdent("data"),
-		}))
-		return ah.LambdaCall(params, &ast.StarExpr{
-			X: &ast.ArrayType{Elt: ast.NewIdent("byte")},
-		}, block, args)
+		block.List = append(block.List, ah.ReturnStmt(
+			ah.UnaryExpr(token.AND, ast.NewIdent("data")),
+		))
+		return ah.LambdaCall(params, ah.StarExpr(ah.ByteSliceType()), block, args)
 	}
 
 	block.List = append(block.List, ah.ReturnStmt(ast.NewIdent("data")))
-	return ah.LambdaCall(params, &ast.ArrayType{Elt: ast.NewIdent("byte")}, block, args)
+	return ah.LambdaCall(params, ah.ByteSliceType(), block, args)
 }
 
 func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length int64) *ast.CallExpr {
@@ -309,10 +304,7 @@ func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length in
 	block := obf.obfuscate(obfRand.Rand, data, extKeys)
 	params, args := extKeysToParams(obfRand, extKeys)
 
-	arrayType := &ast.ArrayType{
-		Len: ah.IntLit(int(length)),
-		Elt: ast.NewIdent("byte"),
-	}
+	arrayType := ah.ByteArrayType(length)
 
 	sliceToArray := []ast.Stmt{
 		&ast.DeclStmt{
@@ -328,26 +320,25 @@ func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length in
 			Key: ast.NewIdent("i"),
 			Tok: token.DEFINE,
 			X:   ast.NewIdent("data"),
-			Body: &ast.BlockStmt{List: []ast.Stmt{
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.IndexExpr("newdata", ast.NewIdent("i"))},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{ah.IndexExpr("data", ast.NewIdent("i"))},
-				},
-			}},
+			Body: ah.BlockStmt(
+				ah.AssignStmt(
+					ah.IndexExprByExpr(ast.NewIdent("newdata"), ast.NewIdent("i")),
+					ah.IndexExprByExpr(ast.NewIdent("data"), ast.NewIdent("i")),
+				),
+			),
 		},
 	}
 
 	var retexpr ast.Expr = ast.NewIdent("newdata")
 	if isPointer {
-		retexpr = &ast.UnaryExpr{X: retexpr, Op: token.AND}
+		retexpr = ah.UnaryExpr(token.AND, retexpr)
 	}
 
 	sliceToArray = append(sliceToArray, ah.ReturnStmt(retexpr))
 	block.List = append(block.List, sliceToArray...)
 
 	if isPointer {
-		return ah.LambdaCall(params, &ast.StarExpr{X: arrayType}, block, args)
+		return ah.LambdaCall(params, ah.StarExpr(arrayType), block, args)
 	}
 
 	return ah.LambdaCall(params, arrayType, block, args)
