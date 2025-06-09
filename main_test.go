@@ -90,9 +90,6 @@ func TestScript(t *testing.T) {
 			}
 			env.Setenv("HOST_GOMODCACHE", strings.TrimSpace(string(out)))
 
-			// We use our own proxy, so avoid sum.golang.org.
-			env.Setenv("GONOSUMDB", "*")
-
 			// "go build" starts many short-lived Go processes,
 			// such as asm, buildid, compile, and link.
 			// They don't allocate huge amounts of memory,
