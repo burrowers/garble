@@ -1248,6 +1248,11 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 	if requiredPkgs != nil {
 		newIndirectImports = make(map[string]bool)
 		for _, pkg := range requiredPkgs {
+			// unsafe is a special case, it's not a real dependency
+			if pkg == "unsafe" {
+				continue
+			}
+
 			newIndirectImports[pkg] = true
 		}
 	}
@@ -1727,6 +1732,8 @@ func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStru
 // Unsafe types: generic types and non-method interfaces.
 func isSafeForInstanceType(t types.Type) bool {
 	switch t := types.Unalias(t).(type) {
+	case *types.Basic:
+		return t.Kind() != types.Invalid
 	case *types.Named:
 		if t.TypeParams().Len() > 0 {
 			return false
