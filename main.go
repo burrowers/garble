@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"cmp"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
@@ -35,6 +36,7 @@ import (
 	"runtime/debug"
 	"runtime/pprof"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -562,6 +564,11 @@ This command wraps "go %s". Below is its help:
 		return nil, err
 	}
 
+	// Compute a deterministic default seed if the user did not provide one.
+	if err := computeDefaultSeed(); err != nil {
+		return nil, err
+	}
+
 	sharedTempDir, err = saveSharedCache()
 	if err != nil {
 		return nil, err
@@ -969,10 +976,10 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	}
 
 	// Literal and control flow obfuscation uses math/rand, so seed it deterministically.
-	randSeed := tf.curPkg.GarbleActionID[:]
-	if flagSeed.present() {
-		randSeed = flagSeed.bytes
+	if !flagSeed.present() {
+		panic("transformCompile: no seed")
 	}
+	randSeed := flagSeed.bytes
 	// log.Printf("seeding math/rand with %x\n", randSeed)
 	tf.obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
 
@@ -2334,5 +2341,65 @@ To install Go, see: https://go.dev/doc/install
 
 	sharedCache.GoCmd = filepath.Join(sharedCache.GoEnv.GOROOT, "bin", "go")
 	sharedCache.GOGARBLE = cmp.Or(os.Getenv("GOGARBLE"), "*") // we default to obfuscating everything
+	return nil
+}
+
+func computeDefaultSeed() error {
+	// If the user has provided a seed explicitly (or random), keep it.
+	if flagSeed.present() {
+		return nil
+	}
+
+	// Step 1: hash module information from `go list -m`.
+	args := []string{"list", "-m", "-json=Path,Version,GoVersion,Sum,GoModSum,Indirect,Time,Main", "all"}
+
+	cmd := exec.Command(sharedCache.GoCmd, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("go list modules failed: %v\n%s", err, stderr.String())
+	}
+
+	hasher := sha256.New()
+	hasher.Write(stdout.Bytes())
+
+	// Parse the module list to determine the main module path.
+	dec := json.NewDecoder(bytes.NewReader(stdout.Bytes()))
+	mainModulePath := ""
+	for dec.More() {
+		var mod struct {
+			Path string
+			Main bool
+		}
+		if err := dec.Decode(&mod); err != nil {
+			return fmt.Errorf("decode module json: %w", err)
+		}
+		if mod.Main {
+			mainModulePath = mod.Path
+		}
+	}
+	if mainModulePath == "" {
+		return errors.New("could not determine main module path for seed derivation")
+	}
+
+	// Step 2: include BuildIDs of all packages inside the main module.
+	var pkgs []string
+	for path := range sharedCache.ListedPackages {
+		if strings.HasPrefix(path, mainModulePath) {
+			pkgs = append(pkgs, path)
+		}
+	}
+	// Sort for deterministic order.
+	sort.Strings(pkgs)
+	for _, path := range pkgs {
+		if buildID := sharedCache.ListedPackages[path].BuildID; buildID != "" {
+			hasher.Write([]byte(buildID))
+		}
+	}
+
+	seed := hasher.Sum(nil)
+	flagSeed.bytes = seed
+
 	return nil
 }

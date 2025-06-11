@@ -204,10 +204,10 @@ func toUpper(b byte) byte { return b - ('a' - 'A') }
 func runtimeHashWithCustomSalt(salt []byte) uint32 {
 	hasher.Reset()
 	if !flagSeed.present() {
-		hasher.Write(sharedCache.ListedPackages["runtime"].GarbleActionID[:])
-	} else {
-		hasher.Write(flagSeed.bytes)
+		panic("runtimeHashWithCustomSalt: no seed")
 	}
+
+	hasher.Write(flagSeed.bytes)
 	hasher.Write(salt)
 	sum := hasher.Sum(sumBuffer[:0])
 	return binary.LittleEndian.Uint32(sum)
@@ -226,12 +226,6 @@ func entryOffKey() uint32 {
 }
 
 func hashWithPackage(pkg *listedPackage, name string) string {
-	// If the user provided us with an obfuscation seed,
-	// we use that with the package import path directly..
-	// Otherwise, we use GarbleActionID as a fallback salt.
-	if !flagSeed.present() {
-		return hashWithCustomSalt(pkg.GarbleActionID[:], name)
-	}
 	// Use a separator at the end of ImportPath as a salt,
 	// to ensure that "pkgfoo.bar" and "pkg.foobar" don't both hash
 	// as the same string "pkgfoobar".
@@ -256,13 +250,6 @@ func hashWithStruct(strct *types.Struct, field *types.Var) string {
 	// TODO: rethink once the proposed go/types.Hash API in https://go.dev/issue/69420 is merged.
 	salt := strconv.AppendUint(nil, uint64(typeutil_hash(strct)), 32)
 
-	// If the user provided us with an obfuscation seed,
-	// we only use the identity struct type as a salt.
-	// Otherwise, we add garble's own inputs to the salt as a fallback.
-	if !flagSeed.present() {
-		withGarbleHash := addGarbleToHash(salt)
-		salt = withGarbleHash[:]
-	}
 	return hashWithCustomSalt(salt, field.Name())
 }
 
@@ -332,6 +319,9 @@ func hashWithCustomSalt(salt []byte, name string) string {
 	}
 	if name == "" {
 		panic("hashWithCustomSalt: empty name")
+	}
+	if !flagSeed.present() {
+		panic("hashWithCustomSalt:no seed")
 	}
 
 	hasher.Reset()
