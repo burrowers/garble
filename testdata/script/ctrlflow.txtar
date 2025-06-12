@@ -38,6 +38,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"hash/crc32"
+	"unsafe"
 )
 
 //garble:controlflow flatten_passes=0 junk_jumps=max block_splits=max
@@ -78,6 +79,22 @@ func multiHardeningTest(i int) int {
     return multiply(i);
 }
 
+//garble:controlflow
+func ModifyValue() {
+	var a int = 42
+	var p *int = &a
+
+	println("Value of a:", a)
+
+	var up unsafe.Pointer = unsafe.Pointer(p)
+
+	var p2 *int = (*int)(up)
+
+	*p2 = 100
+
+	println("New value of a:", a)
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
 	// Reference to the unexported interface triggers creation of a new interface
@@ -106,6 +123,7 @@ func main() {
 	println(xorHardeningTest(0))
 	println(delegateHardeningTest(0))
 	println(multiHardeningTest(0))
+	ModifyValue()
 }
 
 -- main.stderr --
@@ -117,3 +135,5 @@ correct name
 1
 1
 1
+Value of a: 42
+New value of a: 100
