@@ -30,10 +30,10 @@ import (
 	"math/big"
 	"os"
 	"reflect"
-	"unsafe"
 	"strings"
 	"sync"
 	"text/template"
+	"unsafe"
 
 	"test/main/importedpkg"
 	"test/main/importedpkg2"
@@ -66,7 +66,7 @@ func main() {
 
 	// Another common library, text/template.
 	tmpl := template.Must(template.New("").Parse("Hello {{.Name}}."))
-	_ = tmpl.Execute(os.Stdout, struct{Name string}{Name: "Dave"})
+	_ = tmpl.Execute(os.Stdout, struct{ Name string }{Name: "Dave"})
 	fmt.Println() // Always print a newline.
 
 	// Another complex case, involving embedding and another package.
@@ -133,20 +133,20 @@ func main() {
 
 	// Local names not used in reflection should not be in the final binary,
 	// even if they are embedded in a struct and become a field name.
-	type unexportedLocalObfuscated struct { LocalObfuscatedA int }
-	type ExportedLocalObfuscated struct { LocalObfuscatedB int }
+	type unexportedLocalObfuscated struct{ LocalObfuscatedA int }
+	type ExportedLocalObfuscated struct{ LocalObfuscatedB int }
 	type EmbeddingObfuscated struct {
 		unexportedLocalObfuscated
 		ExportedLocalObfuscated
 	}
 	// Ensure the types are kept in the binary. Use an anonymous type too.
 	_ = fmt.Sprintf("%#v", EmbeddingObfuscated{})
-	_ = fmt.Sprintf("%#v", struct{ExportedLocalObfuscated}{})
+	_ = fmt.Sprintf("%#v", struct{ ExportedLocalObfuscated }{})
 
 	// reflection can see all type names, even local ones, so they cannot be obfuscated.
 	{
-		type TypeOfNamedField struct    { NamedReflectionField int }
-		type TypeOfEmbeddedField struct { EmbeddedReflectionField int }
+		type TypeOfNamedField struct{ NamedReflectionField int }
+		type TypeOfEmbeddedField struct{ EmbeddedReflectionField int }
 		type TypeOfParent struct {
 			ReflectionField TypeOfNamedField
 			TypeOfEmbeddedField
@@ -178,7 +178,7 @@ func main() {
 
 type EmbeddingIndirect struct {
 	// With field names, to test selectors above.
-	With importedpkg.AliasIndirectNamedWithReflect
+	With    importedpkg.AliasIndirectNamedWithReflect
 	Without importedpkg.AliasIndirectNamedWithoutReflect
 
 	// Embedding used to crash garble, too.
@@ -347,7 +347,6 @@ func reflectUnrelatedConv() {
 	json.Marshal(msg)
 
 }
-
 
 type StatUser struct {
 	Id      int64 `gorm:"primaryKey"`
@@ -545,7 +544,7 @@ var ReflectInDefinedVar = ReflectInDefined{ExportedField2: 9000}
 
 var _ = reflect.TypeOf(ReflectInDefinedVar)
 
-var _ = reflect.TypeOf([]*struct{EmbeddingOuter}{})
+var _ = reflect.TypeOf([]*struct{ EmbeddingOuter }{})
 
 type EmbeddingOuter struct {
 	EmbeddingInner
@@ -563,7 +562,7 @@ type UnnamedWithDownstreamReflect = struct {
 }
 
 type (
-	AliasIndirectNamedWithReflect = indirect.IndirectNamedWithReflect
+	AliasIndirectNamedWithReflect    = indirect.IndirectNamedWithReflect
 	AliasIndirectNamedWithoutReflect = indirect.IndirectNamedWithoutReflect
 )
 

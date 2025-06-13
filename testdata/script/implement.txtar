@@ -47,14 +47,14 @@ var _ privateInterface = T("")
 type StructUnnamed = struct {
 	Foo int
 	Bar []*struct {
-		Nested *[]string
+		Nested       *[]string
 		NestedTagged string
-		NestedAlias int64 // we can skip the alias too
+		NestedAlias  int64 // we can skip the alias too
 	}
 	Named lib3.Named
 	lib3.StructEmbed
 	Tagged string // no field tag
-	Alias int64   // we can skip the alias too
+	Alias  int64  // we can skip the alias too
 }
 
 var _ = lib1.Struct1(lib2.Struct2{})
@@ -88,14 +88,14 @@ import "test/main/lib3"
 type Struct1 struct {
 	Foo int
 	Bar []*struct {
-		Nested *[]string
+		Nested       *[]string
 		NestedTagged string `json:"tagged1"`
-		NestedAlias alias1
+		NestedAlias  alias1
 	}
 	Named lib3.Named
 	lib3.StructEmbed
 	Tagged string `json:"tagged1"`
-	Alias alias1
+	Alias  alias1
 }
 
 type alias1 = int64
@@ -108,17 +108,18 @@ import "test/main/lib3"
 type Struct2 struct {
 	Foo int
 	Bar []*struct {
-		Nested *[]string
+		Nested       *[]string
 		NestedTagged string `json:"tagged2"`
-		NestedAlias alias2
+		NestedAlias  alias2
 	}
 	Named lib3.Named
 	lib3.StructEmbed
 	Tagged string `json:"tagged2"`
-	Alias alias2
+	Alias  alias2
 }
 
 type alias2 = int64
+
 -- lib3/lib3.go --
 package lib3
 
@@ -127,6 +128,7 @@ type Named int
 type StructEmbed struct {
 	Baz any
 }
+
 -- main.stdout --
 String method for foo
 unexported method for foo

@@ -43,6 +43,7 @@ func main() {
 	imported.RegularFunc()
 	cgoFunc()
 }
+
 -- imported/imported_regular.go --
 package imported
 
@@ -58,6 +59,7 @@ func RegularFunc() {
 		fmt.Println("regular filename:", filename)
 	}
 }
+
 -- cgo_main.go --
 package main
 
@@ -112,6 +114,7 @@ func goCallback() {
 func printString(cs *C.char) {
 	fmt.Println(C.GoString(cs))
 }
+
 -- separate.h --
 void separateFunction();
 -- separate.c --

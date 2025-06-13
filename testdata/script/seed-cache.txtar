@@ -49,6 +49,7 @@ package main
 import garbletest "gopkg.in/garbletest.v2"
 
 func main() { garbletest.Test() }
+
 -- mod2/go.mod --
 module test/main/mod2
 

@@ -74,6 +74,7 @@ func unexportedMainFunc() {
 	}
 	anonFunc()
 }
+
 -- lib/long_lib.go --
 package lib
 
@@ -85,7 +86,7 @@ import (
 	"runtime/debug"
 )
 
-type ExportedLibType struct{
+type ExportedLibType struct {
 	ExportedLibField int
 }
 
@@ -118,6 +119,7 @@ func printStackTrace(w io.Writer) error {
 	_, err := w.Write(bytes.Join(stackLines, []byte("\n")))
 	return err
 }
+
 -- reverse.stdout --
 lib filename: test/main/lib/long_lib.go
 
