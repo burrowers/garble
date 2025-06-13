@@ -65,6 +65,7 @@ go 1.23
 package main
 
 func main() {}
+
 -- importer/importer.go --
 package main
 
@@ -74,10 +75,12 @@ func main() {
 	println(imported.LongString)
 	println("some long string to not obfuscate")
 }
+
 -- imported/imported.go --
 package imported
 
 var LongString = "some long string to obfuscate"
+
 -- stdimporter/main.go --
 package main
 
@@ -87,8 +90,8 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
-	"time"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -106,6 +109,7 @@ func main() {
 		syscall.Listen(0, 1)
 	}
 }
+
 -- stdimporter.stdout --
 runtime.GOROOT: ""
 runtime.Version: "unknown"

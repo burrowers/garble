@@ -72,14 +72,14 @@ rsc.io/testonly v1.0.0/go.mod h1:OqmGbIFOcF+XrFReLOGZ6BhMM7uMBiQwZsyNmh74SzY=
 package main
 
 import (
-	"fmt"
 	"database/sql"
+	"fmt"
 
 	"test/main/importedpkg"
 
-	"rsc.io/quote"
 	garbletest "gopkg.in/garbletest.v2"
 	garbletestconst "gopkg.in/garbletestconst.v2"
+	"rsc.io/quote"
 )
 
 func main() {
@@ -95,12 +95,14 @@ func main() {
 	fmt.Println(garbletestconst.StrConst)
 	fmt.Println(sql.Drivers()[0])
 }
+
 -- notag_fail.go --
 //go:build !buildtag
 
 package main
 
 var foo int = "should be omitted by -tags"
+
 -- withtag_success.go --
 //go:build buildtag
 
@@ -109,6 +111,7 @@ package main
 import "fmt"
 
 func init() { fmt.Println("buildtag init func") }
+
 -- differentpkg_unnamed.go --
 package main
 
@@ -119,12 +122,14 @@ import (
 
 var _ = actualpkgname.Noop
 var _ = goextension.Noop
+
 -- differentpkg_named.go --
 package main
 
 import named "test/main/different-pkg-name"
 
 var _ = named.Noop
+
 -- importedpkg/imported.go --
 package importedpkg
 
@@ -172,10 +177,12 @@ import (
 
 var _ indirect.Indirect
 var _ = another.Blank
+
 -- importedpkg/another/pkg.go --
 package another
 
 const Blank = 3
+
 -- importedpkg/indirect/indirect.go --
 package indirect
 
@@ -192,6 +199,7 @@ var Noop int
 package goextension
 
 var Noop int
+
 -- main.stdout --
 buildtag init func
 imported var value

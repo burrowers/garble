@@ -47,5 +47,6 @@ func main() {
 	wg.Wait()
 	println(unalignedUint64.u64.Load())
 }
+
 -- main.stderr --
 20

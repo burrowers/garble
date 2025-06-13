@@ -57,6 +57,7 @@ func main() {
 	fmt.Printf("should be kept: %q, %q\n", notReplacedBefore, notReplacedAfter)
 	fmt.Printf("no longer unset: %q\n", imported.ExportedUnset)
 }
+
 -- imported/imported.go --
 package imported
 
@@ -65,6 +66,7 @@ var (
 
 	otherVar int
 )
+
 -- main.stdout --
 version: "v1.22.33"
 becomes empty: ""

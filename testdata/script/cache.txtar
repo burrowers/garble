@@ -43,6 +43,7 @@ func main() {
 	level1b.Print()
 	level1c.Print()
 }
+
 -- level1a/pkg.go --
 package level1a
 
@@ -52,14 +53,17 @@ import (
 )
 
 func Print() { println(level2x.Value, level2y.Value) }
+
 -- level1a/level2x/pkg.go --
 package level2x
 
 var Value = "1a/2x"
+
 -- level1a/level2y/pkg.go --
 package level2y
 
 var Value = "1a/2y"
+
 -- level1b/pkg.go --
 package level1b
 
@@ -69,14 +73,17 @@ import (
 )
 
 func Print() { println(level2x.Value, level2y.Value) }
+
 -- level1b/level2x/pkg.go --
 package level2x
 
 var Value = "1b/2x"
+
 -- level1b/level2y/pkg.go --
 package level2y
 
 var Value = "1b/2y"
+
 -- level1c/pkg.go --
 package level1c
 
@@ -86,14 +93,17 @@ import (
 )
 
 func Print() { println(level2x.Value, level2y.Value) }
+
 -- level1c/level2x/pkg.go --
 package level2x
 
 var Value = "1c/2x"
+
 -- level1c/level2y/pkg.go --
 package level2y
 
 var Value = "1c/2y"
+
 -- main.stderr --
 1a/2x 1a/2y
 1b/2x 1b/2y

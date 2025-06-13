@@ -96,9 +96,9 @@ import (
 
 func main() {
 	if len(os.Args) > 0 && os.Args[1] == "env" {
-		enc, _ := json.Marshal(struct{
+		enc, _ := json.Marshal(struct {
 			GOVERSION string
-		} {
+		}{
 			GOVERSION: os.Getenv("TOOLCHAIN_GOVERSION"),
 		})
 		fmt.Printf("%s\n", enc)

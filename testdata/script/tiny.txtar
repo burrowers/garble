@@ -36,7 +36,7 @@ import (
 	"runtime"
 )
 
-type testStruct struct {}
+type testStruct struct{}
 
 func (testStruct) unexportedFunc() { println("dummy") }
 
