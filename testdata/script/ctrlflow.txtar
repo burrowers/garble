@@ -45,37 +45,38 @@ func func1() {}
 
 //garble:controlflow flatten_passes=1 junk_jumps=max block_splits=max flatten_hardening=xor
 func xorHardeningTest(i int) int {
-    if i == 0 {
-        return 1
-    }
-    return i * 2;
+	if i == 0 {
+		return 1
+	}
+	return i * 2
 }
 
 //garble:controlflow flatten_passes=1 junk_jumps=max block_splits=max flatten_hardening=delegate_table
 func delegateHardeningTest(i int) int {
-    if i == 0 {
-        return 1
-    }
-    return i * 3;
+	if i == 0 {
+		return 1
+	}
+	return i * 3
 }
 
-//garble:controlflow flatten_passes=1 junk_jumps=max block_splits=max flatten_hardening=xor,delegate_table
 // Trigger multiple hardening using multiple anonymous functions
+//
+//garble:controlflow flatten_passes=1 junk_jumps=max block_splits=max flatten_hardening=xor,delegate_table
 func multiHardeningTest(i int) int {
-    notZero := func(i int) bool {
-       return i != 0
-    }
-    isZero := func(i int) bool {
-       return i == 0
-    }
-    multiply :=  func(i int) int {
-       return i * 4
-    }
+	notZero := func(i int) bool {
+		return i != 0
+	}
+	isZero := func(i int) bool {
+		return i == 0
+	}
+	multiply := func(i int) int {
+		return i * 4
+	}
 
-    if !notZero(i) && isZero(i) {
-        return 1
-    }
-    return multiply(i);
+	if !notZero(i) && isZero(i) {
+		return 1
+	}
+	return multiply(i)
 }
 
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32

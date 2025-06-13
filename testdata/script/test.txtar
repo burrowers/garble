@@ -70,6 +70,7 @@ func OriginalFuncName() string {
 	fn := runtime.FuncForPC(pc)
 	return fn.Name()
 }
+
 -- bar_test.go --
 package bar
 
@@ -82,6 +83,7 @@ func TestFoo(t *testing.T) {
 	}
 	t.Logf("package bar, func name: %s", OriginalFuncName())
 }
+
 -- bar_separate_test.go --
 package bar_test
 
@@ -107,6 +109,7 @@ func TestWithFlag(t *testing.T) {
 		t.Skip()
 	}
 }
+
 -- main_test.go --
 package bar
 
@@ -118,34 +121,41 @@ import (
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
+
 -- somemain/main.go --
 package main
 
 func main() {}
+
 -- somemaintest/main.go --
 package main
 
 func main() {}
+
 -- somemaintest/main_test.go --
 package main
 
 import "testing"
 
 func TestMain(t *testing.T) {}
+
 -- sometest/foo_test.go --
 package sometest
 
 import "testing"
 
 func TestFoo(t *testing.T) {}
+
 -- exporttest/foo.go --
 package exporttest
 
 type foo int
+
 -- exporttest/export_test.go --
 package exporttest
 
 type Foo = foo
+
 -- exporttest/foo_test.go --
 package exporttest_test
 

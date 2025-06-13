@@ -23,7 +23,7 @@ import _ "unsafe"
 
 // Note that it doesn't matter that the struct here is empty,
 // as the linknames below only use pointers to it.
-type moduledata struct {}
+type moduledata struct{}
 
 //go:linkname lastmoduledatap runtime.lastmoduledatap
 var lastmoduledatap *moduledata

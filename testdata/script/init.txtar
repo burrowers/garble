@@ -36,52 +36,64 @@ func main() {
 	println(string(chungus))
 	println(string(yoshi))
 }
+
 -- y.go --
 package main
 
 // yoshi is filled by ordered init funcs, all in different files.
 // If we change the relative order of filenames when sorted, this file will break.
 var yoshi []byte
+
 -- y0.go --
 package main
 
 func init() { yoshi = append(yoshi, 'B') }
+
 -- y1.go --
 package main
 
 func init() { yoshi = append(yoshi, 'E') }
+
 -- y2.go --
 package main
 
 func init() { yoshi = append(yoshi, 'E') }
+
 -- y3.go --
 package main
 
 func init() { yoshi = append(yoshi, 'G') }
+
 -- y4.go --
 package main
 
 func init() { yoshi = append(yoshi, ' ') }
+
 -- y5.go --
 package main
 
 func init() { yoshi = append(yoshi, 'Y') }
+
 -- y6.go --
 package main
 
 func init() { yoshi = append(yoshi, 'O') }
+
 -- y7.go --
 package main
 
 func init() { yoshi = append(yoshi, 'S') }
+
 -- y8.go --
 package main
 
 func init() { yoshi = append(yoshi, 'H') }
+
 -- y9.go --
 package main
 
 func init() { yoshi = append(yoshi, 'I') }
+
 -- main.stderr --
 Big Chungus
 BEEG YOSHI

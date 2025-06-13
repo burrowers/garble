@@ -134,10 +134,10 @@ func mainFunc() {
 			for _, name := range hashedNames {
 				name = name[len("main."):]
 				if len(name) < 6 {
-					panic("ended up with a hashed name that's too short: "+name)
+					panic("ended up with a hashed name that's too short: " + name)
 				}
 				if len(name) > 12 {
-					panic("ended up with a hashed name that's too long: "+name)
+					panic("ended up with a hashed name that's too long: " + name)
 				}
 				count[len(name)]++
 				if count[len(name)] >= 14 {
@@ -218,6 +218,7 @@ func CallerFuncName() string {
 	fn := runtime.FuncForPC(pc)
 	return fn.Name()
 }
+
 -- main.stderr --
 teststring
 imported var value
