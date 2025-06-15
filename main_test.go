@@ -90,7 +90,8 @@ func TestScript(t *testing.T) {
 			}
 			env.Setenv("HOST_GOMODCACHE", strings.TrimSpace(string(out)))
 
-			// We use our own proxy, so avoid sum.golang.org.
+			// We use our own GOPROXY above, so avoid using sum.golang.org,
+			// as we would fail to update any go.sum file in the testscripts.
 			env.Setenv("GONOSUMDB", "*")
 
 			// "go build" starts many short-lived Go processes,
