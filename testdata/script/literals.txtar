@@ -72,9 +72,9 @@ import (
 	"test/main/imp"
 	. "test/main/imp_const"
 	. "test/main/imp_func"
-	. "test/main/imp_var"
-	. "test/main/imp_type"
 	. "test/main/imp_struct"
+	. "test/main/imp_type"
+	. "test/main/imp_var"
 )
 
 type structTest struct {
@@ -336,17 +336,17 @@ func shadowTest() {
 }
 
 func dotImportTest() {
-    println(DotImportedStr)
-    println(DotImportedFunc())
-    println(DotImportedVar)
-    println(DotImportedType("str as dot imported type"))
-    println(DotImportedStruct.Str)
+	println(DotImportedStr)
+	println(DotImportedFunc())
+	println(DotImportedVar)
+	println(DotImportedType("str as dot imported type"))
+	println(DotImportedStruct.Str)
 }
 
 func multipleTimeImportTest() {
-    regularAndUnusedRenamed()
-    regularAndUnusedDotImport()
-    unusedRegularAndDotImport()
+	regularAndUnusedRenamed()
+	regularAndUnusedDotImport()
+	unusedRegularAndDotImport()
 }
 
 func noop(...any) {}
@@ -355,45 +355,46 @@ func noop(...any) {}
 package main
 
 import (
-    "test/main/imp_mult"
-    imp_mult2 "test/main/imp_mult"
+	"test/main/imp_mult"
+	imp_mult2 "test/main/imp_mult"
 )
 
 func regularAndUnusedRenamed() {
-    imp_mult.MultDummy()
-    noop(imp_mult.MultImpStr, imp_mult2.MultImpStr)
+	imp_mult.MultDummy()
+	noop(imp_mult.MultImpStr, imp_mult2.MultImpStr)
 }
 
 -- regular_and_unused_dotimport.go --
 package main
 
 import (
-    "test/main/imp_mult"
-    . "test/main/imp_mult"
+	"test/main/imp_mult"
+	. "test/main/imp_mult"
 )
 
 func regularAndUnusedDotImport() {
-    imp_mult.MultDummy()
-    noop(imp_mult.MultImpStr, MultImpStr)
+	imp_mult.MultDummy()
+	noop(imp_mult.MultImpStr, MultImpStr)
 }
 
 -- unused_regular_and_dotimport.go --
 package main
 
 import (
-    "test/main/imp_mult"
-    . "test/main/imp_mult"
+	"test/main/imp_mult"
+	. "test/main/imp_mult"
 )
 
 func unusedRegularAndDotImport() {
-    MultDummy()
-    noop(imp_mult.MultImpStr, MultImpStr)
+	MultDummy()
+	noop(imp_mult.MultImpStr, MultImpStr)
 }
 
 -- imp/imported.go --
 package imported
 
 type ImportedType int
+
 -- imp_const/imported.go --
 package imp_const
 

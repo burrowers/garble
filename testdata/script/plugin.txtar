@@ -37,10 +37,12 @@ var PublicVar int = lib.ImportedFunc()
 func privateFunc(n int) { println("Hello, number", n) }
 
 func PublicFunc() { privateFunc(PublicVar) }
+
 -- plugin/lib/lib.go --
 package lib
 
 func ImportedFunc() int { return 4 }
+
 -- main.go --
 package main
 
@@ -62,5 +64,6 @@ func main() {
 	*v.(*int) = 7
 	f.(func())()
 }
+
 -- main.stderr --
 Hello, number 7

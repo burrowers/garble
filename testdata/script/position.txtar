@@ -68,6 +68,7 @@ func issue_573(s struct{ f int }) {
 	var _ *int = &s.f
 	/*x*/
 }
+
 -- garble_other_filename.go --
 package main
 

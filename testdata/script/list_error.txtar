@@ -15,12 +15,14 @@ package broken
 // A broken package will list in JSON form like:
 // {..., "Incomplete": true, "Error": {...}, ...}
 var x string = 123
+
 -- imports_broken/imports.go --
 package imports_broken
 
 // Importing a broken package will list in JSON form like:
 // {..., "Incomplete": false, ...}
 import _ "test/main/broken"
+
 -- imports_missing/imports.go --
 package imports_missing
 

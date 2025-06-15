@@ -18,6 +18,9 @@ Just the usual `go test ./...`; many of the tests are in
 `testdata/scripts/`, which allows laying out files and shell-like steps to run as
 part of the test.
 
+For editor support of testscript files in vscode (highlighting and formatting), install the
+[vscode-testscript](https://marketplace.visualstudio.com/items?itemName=twpayne.vscode-testscript) extension.
+
 Note that the tests do real builds, so they are quite slow; on an average
 laptop, `go test` can take over thirty seconds. Here are some tips:
 

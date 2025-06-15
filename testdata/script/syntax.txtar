@@ -23,6 +23,7 @@ package extra
 func Func() string {
 	return "This is a separate module to obfuscate."
 }
+
 -- go.mod --
 module test/main
 
@@ -129,7 +130,7 @@ func main() {
 
 	_ = sub.EmbeddingExternalForeignAlias{
 		ExternalForeignAlias: nil,
-		Reader:       nil,
+		Reader:               nil,
 	}
 
 	var emb sub.EmbeddingAlias
@@ -185,7 +186,7 @@ var someGlobalVar2 = "2"
 func Test() {
 	var A, B, C, D, E string
 	noop(A, B, C, D, E)
-	if someGlobalVar0 != "0" || someGlobalVar1 != "1" || someGlobalVar2 != "2"{
+	if someGlobalVar0 != "0" || someGlobalVar1 != "1" || someGlobalVar2 != "2" {
 		panic("name collision detected")
 	}
 }
@@ -221,7 +222,7 @@ type foreignAlias = io.Reader
 
 var _ = embeddingForeignAlias{
 	foreignAlias: nil,
-	Reader: nil,
+	Reader:       nil,
 }
 
 // Similar to embeddingForeignAlias,

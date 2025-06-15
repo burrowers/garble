@@ -62,6 +62,7 @@ func main() {
 
 	println(imported.AddImpl(3, 4))
 }
+
 -- garble_main_amd64.s --
 #include "garble_define_amd64.h"
 
