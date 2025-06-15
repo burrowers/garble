@@ -15,8 +15,11 @@ setup-go ${GOVERSION_BASE}
 
 # We want to use the real GOPROXY so that we can download the newer
 # toolchain, and we use the host's GOMODCACHE so we can reuse it.
+# Unset GONOSUMDB to get its default value, as TestScript's setup func
+# sets it to "*" to not use sum.golang.org with the testdata/mod modules.
 env GOPROXY=proxy.golang.org
 env GOMODCACHE=${HOST_GOMODCACHE}
+env GONOSUMDB=
 
 # Verify that we are using an older version of Go.
 exec go version
