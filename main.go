@@ -58,6 +58,7 @@ var (
 	flagDebug    bool
 	flagDebugDir string
 	flagSeed     seedFlag
+	flagSentry   bool
 	// TODO(pagran): in the future, when control flow obfuscation will be stable migrate to flag
 	flagControlFlow = os.Getenv("GARBLE_EXPERIMENTAL_CONTROLFLOW") == "1"
 )
@@ -69,9 +70,10 @@ func init() {
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
 	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
+	flagSet.BoolVar(&flagSentry, "sentry", false, "Enable Sentry-compatible output")
 }
 
-var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed)(?:$|=)`)
+var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed|sentry)(?:$|=)`)
 
 type seedFlag struct {
 	random bool
@@ -132,6 +134,7 @@ The following commands are supported:
 	run            replace "go run"
 	reverse        de-obfuscate output such as stack traces
 	version        print the version and build settings of the garble binary
+	sentry         enable Sentry-compatible output for reverse
 
 To learn more about a command, run "garble help <command>".
 
