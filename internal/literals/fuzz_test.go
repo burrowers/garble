@@ -72,7 +72,7 @@ func FuzzObfuscate(f *testing.F) {
 
 		// Obfuscate the literals and print the source back.
 		rand := mathrand.New(mathrand.NewSource(randSeed))
-		srcSyntax = literals.Obfuscate(rand, srcSyntax, &info, nil, func(rand *mathrand.Rand, baseName string) string {
+		srcSyntax = literals.Obfuscate(rand, srcSyntax, fset, &info, nil, func(rand *mathrand.Rand, baseName string) string {
 			return fmt.Sprintf("%s%d", baseName, rand.Uint64())
 		})
 		count := tdirCounter.Add(1)

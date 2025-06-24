@@ -36,7 +36,7 @@ const (
 type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
 
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
+func Obfuscate(rand *mathrand.Rand, file *ast.File, fset *token.FileSet, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
 	obfRand := newObfRand(rand, file, nameFunc)
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
@@ -58,6 +58,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 		return true
 	}
 
+	strReplaced := false
 	post := func(cursor *astutil.Cursor) bool {
 		node, ok := cursor.Node().(ast.Expr)
 		if !ok {
@@ -76,6 +77,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 			}
 
 			cursor.Replace(withPos(obfuscateString(obfRand, value), node.Pos()))
+			strReplaced = true
 
 			return true
 		}
@@ -122,6 +124,9 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
 	obfRand.proxyDispatcher.AddToFile(newFile)
+	if strReplaced {
+		astutil.AddImport(fset, newFile, "unsafe") // make sure to add import "unsafe" if needed
+	}
 	return newFile
 }
 
@@ -253,6 +258,13 @@ func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 			Type: ast.NewIdent("string"),
 		}}},
 	}
+
+	sliceExpr := &ast.SliceExpr{
+		X:    ast.NewIdent("x"),
+		Low:  ah.IntLit(splitIdx),
+		High: ah.IntLit(splitIdx + len(plainData)),
+	}
+
 	funcVal := &ast.FuncLit{
 		Type: &ast.FuncType{
 			Params: &ast.FieldList{List: []*ast.Field{{
@@ -265,12 +277,22 @@ func obfuscateString(obfRand *obfRand, data string) *ast.CallExpr {
 		},
 		Body: ah.BlockStmt(
 			ah.ReturnStmt(
-				ah.CallExprByName("string",
-					&ast.SliceExpr{
-						X:    ast.NewIdent("x"),
-						Low:  ah.IntLit(splitIdx),
-						High: ah.IntLit(splitIdx + len(plainData)),
-					},
+				ah.CallExpr(
+					ah.SelectorExpr(
+						ast.NewIdent("unsafe"),
+						ast.NewIdent("String"),
+					),
+					ah.CallExpr(
+						ah.SelectorExpr(
+							ast.NewIdent("unsafe"),
+							ast.NewIdent("SliceData"),
+						),
+						sliceExpr,
+					),
+					ah.CallExpr(
+						ast.NewIdent("len"),
+						sliceExpr,
+					),
 				),
 			),
 		),

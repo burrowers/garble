@@ -1761,6 +1761,10 @@ func (tf *transformer) useAllImports(file *ast.File) {
 		}
 
 		pkgName := tf.info.PkgNameOf(imp)
+		if pkgName == nil {
+			continue
+		}
+
 		pkgScope := pkgName.Imported().Scope()
 		var nameObj types.Object
 		for _, name := range pkgScope.Names() {
@@ -1826,7 +1830,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && tf.curPkg.ToObfuscate {
-		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings, randomName)
+		file = literals.Obfuscate(tf.obfRand, file, fset, tf.info, tf.linkerVariableStrings, randomName)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
 		tf.useAllImports(file)

@@ -213,3 +213,10 @@ func ConstToAst(val constant.Value) ast.Expr {
 		panic("unreachable")
 	}
 }
+
+func SelectorExpr(x ast.Expr, sel *ast.Ident) *ast.SelectorExpr {
+	return &ast.SelectorExpr{
+		X:   x,
+		Sel: sel,
+	}
+}
