@@ -68,6 +68,14 @@ One can reverse a captured panic stack trace as follows:
 		// Package paths are obfuscated, too.
 		addHashedWithPackage(lpkg.ImportPath)
 
+		// Assembly filenames are obfuscated in a simple way.
+		// Mirroring [transformer.transformAsm]; note the lack of a test
+		// as so far this has only mattered for build errors with positions.
+		for _, name := range lpkg.SFiles {
+			newName := hashWithPackage(lpkg, name) + ".s"
+			replaces = append(replaces, newName, name)
+		}
+
 		files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles)
 		if err != nil {
 			return err
