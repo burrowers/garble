@@ -152,7 +152,8 @@ type listedPackage struct {
 	Standard   bool
 
 	Dir             string
-	CompiledGoFiles []string
+	CompiledGoFiles []string // all .go files to build
+	SFiles          []string // all .s (asm) files to build
 	Imports         []string
 
 	Error *packageError // to report package loading errors to the user
