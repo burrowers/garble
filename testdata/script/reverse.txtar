@@ -43,6 +43,17 @@ cmp stdout reverse.stdout
 stdin main-literals.stderr
 ! exec garble reverse .
 cmp stdout main-literals.stderr
+
+# https://github.com/burrowers/garble/pull/967
+# Ensure that we can reverse a package with build tag required.
+exec garble build -o tag.bin -tags sometag ./case/tag
+exec ./tag.bin
+cp stderr tag.stderr
+! grep "main.CallerFuncName" tag.stderr
+stdin tag.stderr
+exec garble reverse -tags sometag ./case/tag
+stdout main\.CallerFuncName
+
 -- go.mod --
 module test/main
 
@@ -118,6 +129,23 @@ func printStackTrace(w io.Writer) error {
 	stackLines = append(stackLines[:1], stackLines[3:]...)
 	_, err := w.Write(bytes.Join(stackLines, []byte("\n")))
 	return err
+}
+
+-- case/tag/main.go --
+//go:build sometag
+
+package main
+
+import "runtime"
+
+func main() {
+	println(CallerFuncName())
+}
+
+func CallerFuncName() string {
+	pc, _, _, _ := runtime.Caller(0)
+	fn := runtime.FuncForPC(pc)
+	return fn.Name()
 }
 
 -- reverse.stdout --
