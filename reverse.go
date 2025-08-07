@@ -35,7 +35,7 @@ One can reverse a captured panic stack trace as follows:
 	pkg, args := args[0], args[1:]
 	// We don't actually run `go list -toolexec=garble`; we only use toolexecCmd
 	// to ensure that sharedCache.ListedPackages is filled.
-	_, err := toolexecCmd("list", []string{pkg})
+	_, err := toolexecCmd("list", append(flags, pkg))
 	defer os.RemoveAll(os.Getenv("GARBLE_SHARED"))
 	if err != nil {
 		return err
