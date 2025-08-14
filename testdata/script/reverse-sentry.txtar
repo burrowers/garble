@@ -1,0 +1,171 @@
+# Unknown build flags should result in errors.
+! exec garble reverse -badflag=foo .
+stderr 'flag provided but not defined'
+
+exec garble build
+exec ./main
+cp stderr main.stderr
+
+# Ensure that the garbled panic output looks correct.
+# This output is not reproducible between 'go test' runs,
+# so we can't use a static golden file.
+grep 'Traceback \(most recent call last\)' main.stderr
+# Note that ExportedLibMethod isn't obfuscated.
+# Note that we use long names like "long_lib.go",
+# because an obfuscated filename could realistically end with "lib".
+! grep 'ExportedLib(Type|Field)|unexportedMainFunc|test/main|long_main\.go|long_lib\.go' main.stderr
+
+stdin main.stderr
+exec garble -sentry reverse .
+cmp stdout reverse-sentry.stdout
+
+# Ensure that we cleaned up the temporary files.
+# Note that we rely on the unix-like TMPDIR env var name.
+[!windows] ! grepfiles ${TMPDIR} 'garble|importcfg|cache\.gob|\.go'
+
+[short] stop # no need to verify this with -short
+
+# Ensure that the reversed output matches the non-garbled output.
+go build -trimpath
+exec ./main
+cmp stderr reverse-sentry.stdout
+
+# Ensure that we can still reverse with -literals.
+exec garble -literals build
+exec ./main
+cp stderr main-literals.stderr
+
+stdin main-literals.stderr
+exec garble -literals -sentry reverse .
+cmp stdout reverse-sentry.stdout
+
+# Reversing a -literals output without the flag should fail.
+stdin main-literals.stderr
+! exec garble reverse .
+cmp stdout main-literals.stderr
+-- go.mod --
+module test/main
+
+go 1.23
+-- long_main.go --
+package main
+
+import (
+	"os"
+	"runtime"
+
+	"test/main/lib"
+)
+
+func main() {
+	unexportedMainFunc()
+
+	_, filename, _, _ := runtime.Caller(0)
+	println()
+	println("main filename:", filename)
+}
+
+func unexportedMainFunc() {
+	anonFunc := func() {
+		lt := lib.ExportedLibType{}
+		if err := lt.ExportedLibMethod(os.Stderr); err != nil {
+			panic(err)
+		}
+	}
+	anonFunc()
+}
+-- lib/long_lib.go --
+package lib
+
+import (
+	"bytes"
+	"io"
+	"runtime"
+	"runtime/debug"
+)
+
+type ExportedLibType struct {
+	ExportedLibField int
+}
+
+func (*ExportedLibType) ExportedLibMethod(w io.Writer) error {
+	_, filename, _, _ := runtime.Caller(0)
+	println("lib filename:", filename)
+	println()
+
+	return printStackTrace(w)
+}
+
+func printStackTrace(w io.Writer) error {
+	stack := debug.Stack()
+	lines := bytes.Split(stack, []byte("\n"))
+
+	// Write the header
+	w.Write([]byte("Traceback (most recent call last):\n"))
+
+	// Start from 1 to skip "goroutine ..." line
+	for i := 1; i+1 < len(lines); i += 2 {
+		funcLine := string(lines[i])
+		fileLine := string(lines[i+1])
+
+		// Extract function name
+		funcName := funcLine
+		if idx := bytes.Index([]byte(funcLine), []byte("(")); idx != -1 {
+			funcName = funcLine[:idx]
+		}
+		// Keep everything after the last '/'
+		if idx := bytes.LastIndexByte([]byte(funcName), '/'); idx != -1 {
+			funcName = funcName[idx+1:]
+		}
+		// If there is still a dot, keep everything after the last dot for main package,
+		// otherwise keep full for e.g. debug.Stack
+		if dot := bytes.IndexByte([]byte(funcName), '.'); dot != -1 {
+			// If there is a dot and the prefix is "main", keep only the suffix after the dot
+			if len(funcName) > 0 && funcName[:dot] == "main" {
+				funcName = funcName[dot+1:]
+			}
+		}
+
+		// Extract file and line
+		file := ""
+		lineNum := ""
+		if colon := bytes.LastIndex([]byte(fileLine), []byte(":")); colon != -1 {
+			file = fileLine[:colon]
+			rest := fileLine[colon+1:]
+			for i := 0; i < len(rest); i++ {
+				if rest[i] < '0' || rest[i] > '9' {
+					lineNum = string(rest[:i])
+					break
+				}
+			}
+			if lineNum == "" {
+				lineNum = string(rest)
+			}
+		}
+
+		// Only print if both file and lineNum are found
+		if file != "" && lineNum != "" {
+			w.Write([]byte("  File "))
+			w.Write([]byte(file))
+			w.Write([]byte(", line "))
+			w.Write([]byte(lineNum))
+			w.Write([]byte(", in "))
+			w.Write([]byte(funcName))
+			w.Write([]byte("\n"))
+		}
+	}
+
+	return nil
+}
+-- reverse-sentry.stdout --
+lib filename: test/main/lib/long_lib.go
+
+Traceback (most recent call last):
+  File 	runtime/debug/stack.go, line 26, in debug.Stack
+  File 	test/main/lib/long_lib.go, line 23, in lib.printStackTrace
+  File 	test/main/lib/long_lib.go, line 19, in lib.
+  File 	test/main/long_main.go, line 21, in unexportedMainFunc.func1
+  File 	test/main/long_main.go, line 25, in unexportedMainFunc
+  File 	test/main/long_main.go, line 11, in main
+
+main filename: test/main/long_main.go

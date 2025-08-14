@@ -108,6 +108,21 @@ One can reverse a captured panic stack trace as follows:
 					origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
 					newFilename := hashWithPackage(lpkg, origPos) + ".go"
 
+					if flagSentry {
+						// Sentry/Bugsink Python-like stack trace mapping.
+						replaces = append(replaces,
+							fmt.Sprintf("%s, line 1", newFilename),
+							fmt.Sprintf("%s/%s, line %d", lpkg.ImportPath, goFile, pos.Line),
+						)
+
+						// Sentry/Bugsink json stack trace mapping.
+						replaces = append(replaces,
+							fmt.Sprintf(`"filename": "%s", "lineno": 1`, newFilename),
+							fmt.Sprintf(`"filename": "%s/%s", "lineno": %d`, lpkg.ImportPath, goFile, pos.Line),
+						)
+						continue
+					}
+
 					// Do "obfuscated.go:1", corresponding to the call site's line.
 					// Most common in stack traces.
 					replaces = append(replaces,
