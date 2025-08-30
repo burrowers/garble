@@ -245,11 +245,16 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	//   * reflect: its presence turns down dead code elimination
 	//   * embed: its presence enables using //go:embed
 	//   * others like syscall are allowed by import path to have more ABI tricks
-	//
-	// TODO: collect directly from cmd/internal/objabi/pkgspecial.go,
-	// in this particular case from allowAsmABIPkgs.
 	switch p.ImportPath {
-	case "runtime", "reflect", "embed", "syscall", "runtime/internal/startlinetest":
+	case "runtime", "reflect", "embed",
+		// TODO: collect directly from cmd/internal/objabi/pkgspecial.go,
+		// in this particular case from allowAsmABIPkgs.
+		"syscall",
+		"internal/bytealg",
+		"internal/chacha8rand",
+		"internal/runtime/syscall/linux",
+		"internal/runtime/syscall/windows",
+		"internal/runtime/startlinetest":
 		return p.ImportPath
 	}
 	// Intrinsics are matched by package import path as well.
