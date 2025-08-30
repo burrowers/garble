@@ -2,7 +2,7 @@
 
 	go install mvdan.cc/garble@latest
 
-Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.24 or later.
+Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.25 or later.
 
 	garble build [build flags] [packages]
 
