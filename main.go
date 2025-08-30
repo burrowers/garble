@@ -436,7 +436,7 @@ func mainErr(args []string) error {
 			toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
 			tf.curPkg = sharedCache.ListedPackages[toolexecImportPath]
 			if tf.curPkg == nil {
-				return fmt.Errorf("TOOLEXEC_IMPORTPATH not found in listed packages: %s", toolexecImportPath)
+				return fmt.Errorf("TOOLEXEC_IMPORTPATH package not found in listed packages: %s", toolexecImportPath)
 			}
 			tf.origImporter = importerForPkg(tf.curPkg)
 
@@ -1544,7 +1544,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 // cmd/bundle will include a go:generate directive in its output by default.
 // Ours specifies a version and doesn't assume bundle is in $PATH, so drop it.
 
-//go:generate go run golang.org/x/tools/cmd/bundle -o cmdgo_quoted.go -prefix cmdgoQuoted cmd/internal/quoted
+//go:generate go tool bundle -o cmdgo_quoted.go -prefix cmdgoQuoted cmd/internal/quoted
 //go:generate sed -i /go:generate/d cmdgo_quoted.go
 
 // computeLinkerVariableStrings iterates over the -ldflags arguments,
