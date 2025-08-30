@@ -91,6 +91,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"syscall"
+	"testing"
 	"time"
 )
 
@@ -107,6 +108,7 @@ func main() {
 		debug.WriteHeapDump(1)
 		time.Now()
 		syscall.Listen(0, 1)
+		testing.MainStart(nil, nil, nil, nil, nil)
 	}
 }
 

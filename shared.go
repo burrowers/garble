@@ -279,23 +279,12 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// Similar flags to what go/packages uses.
 		"-json", "-export", "-compiled", "-e",
 	}
-	if len(packages) == 0 {
-		// As we may append to the packages slice below,
-		// ensure that zero packages still means "the current directory".
-		packages = append(packages, ".")
-	}
 	if mainBuild {
 		// When loading the top-level packages we are building,
 		// we want to transitively load all their dependencies as well.
 		// That is not the case when loading standard library packages,
 		// as runtimeAndLinknamed already contains transitive dependencies.
 		args = append(args, "-deps")
-		if slices.Contains(sharedCache.ForwardBuildFlags, "-test") {
-			// The testing package uses a //go:linkname directive pointing to testing/synctest,
-			// but it doesn't import the package, presumably to avoid an import cycle.
-			// For the linkname to obfuscate correctly, we need to list both when using `go test`.
-			packages = append(packages, "testing/synctest")
-		}
 	}
 	args = append(args, garbleBuildFlags...)
 	args = append(args, sharedCache.ForwardBuildFlags...)
