@@ -87,8 +87,10 @@ var runtimeAndLinknamed = []string{
 	"unique",                        // go1.25
 	"weak",                          // go1.25
 	// The net package linknames to the runtime, not the other way around.
-	// TODO: support this automatically via our script.
 	"net",
+	// The testing package uses a //go:linkname directive pointing to testing/synctest,
+	// but it doesn't import the package, presumably to avoid an import cycle.
+	"testing/synctest",
 }
 
 var compilerIntrinsics = map[string]map[string]bool{
