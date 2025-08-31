@@ -54,7 +54,7 @@ type proxyDispatcher struct {
 
 func (d *proxyDispatcher) initialize() {
 	flattenStructs := make([]*proxyStruct, d.rand.Intn(maxStructCount-minStructCount)+minStructCount)
-	for i := 0; i < len(flattenStructs); i++ {
+	for i := range flattenStructs {
 		flattenStructs[i] = &proxyStruct{
 			typeName:  d.nameFunc(d.rand, "proxyStructName"+strconv.Itoa(i)),
 			name:      d.nameFunc(d.rand, "proxyStructFieldName"+strconv.Itoa(i)),
@@ -75,10 +75,7 @@ func (d *proxyDispatcher) initialize() {
 		current := queue[0]
 		queue = queue[1:]
 
-		childCount := d.rand.Intn(maxChildCount-minChildCount) + minChildCount
-		if childCount > len(unassigned) {
-			childCount = len(unassigned)
-		}
+		childCount := min(d.rand.Intn(maxChildCount-minChildCount)+minChildCount, len(unassigned))
 
 		for i := 0; i < childCount; i++ {
 			child := unassigned[0]
@@ -194,7 +191,7 @@ func (d *proxyDispatcher) AddToFile(file *ast.File) {
 
 	for _, strct := range d.flattenStructs {
 		dummyCount := d.rand.Intn(maxJunkValueCount-minJunkValueCount+1) + minJunkValueCount
-		for i := 0; i < dummyCount; i++ {
+		for range dummyCount {
 			strct.values = append(strct.values, d.junkValue())
 		}
 
