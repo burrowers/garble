@@ -160,7 +160,7 @@ func randExtKey(rand *mathrand.Rand, idx int) *externalKey {
 func randExtKeys(rand *mathrand.Rand) []*externalKey {
 	count := minExtKeyCount + rand.Intn(maxExtKeyCount-minExtKeyCount)
 	keys := make([]*externalKey, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		keys[i] = randExtKey(rand, i)
 	}
 	return keys
@@ -211,7 +211,7 @@ func dataToByteSliceWithExtKeys(rand *mathrand.Rand, data []byte, extKeys []*ext
 	extKeyOpCount := minByteSliceExtKeyOps + rand.Intn(maxByteSliceExtKeyOps-minByteSliceExtKeyOps)
 
 	var stmts []ast.Stmt
-	for i := 0; i < extKeyOpCount; i++ {
+	for range extKeyOpCount {
 		key := extKeys[rand.Intn(len(extKeys))]
 		key.AddRef()
 
