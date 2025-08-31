@@ -27,6 +27,16 @@ laptop, `go test` can take over thirty seconds. Here are some tips:
 * Use `go test -short` to skip the more expensive or thorough tests
 * Use `go test -run Script/foo` to just run `testdata/scripts/foo.txt`
 
+### Architecture Testing via Docker
+
+To test garble on multiple architectures, you can use [Docker Bake](https://docs.docker.com/build/bake/) and the provided `docker-bake.hcl` file. Before running though, ensure that you have QEMU set up for multi-platform builds. You can do this by following the instructions below:
+
+(https://docs.docker.com/build/building/multi-platform/#install-qemu-manually)
+
+```bash
+docker run --privileged --rm tonistiigi/binfmt --install all
+```
+
 ### Integrating into Go builds
 
 When you run `go build`, it first loads all needed packages.
