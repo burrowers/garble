@@ -1,5 +1,24 @@
 # Changelog
 
+## [v0.15.0] - 2025-08-31
+
+This release adds support for Go 1.25 and drops support for Go 1.23
+and Go 1.24.
+
+Literal obfuscation is improved slightly so that deobfuscation via
+static analysis is not as easy to achieve.
+
+Attempting to obfuscate packages which inject function headers
+into the runtime via `//go:linkname` now fails in a very clear way,
+as such packages like `github.com/bytedance/sonic/loader` cannot work
+with an obfuscated runtime.
+
+A number of fixes are also included:
+* Fix obfuscating packages whose Go files all import `C`
+* Fix builds where `GOROOT` is a symbolic link
+* Fix control flow obfuscation on packages importing `unsafe`
+* Fix a regression where build flags were not obeyed in `garble reverse`
+
 ## [v0.14.2] - 2025-04-13
 
 This bugfix release fixes a number of issues and continues support
