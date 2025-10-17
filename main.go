@@ -546,6 +546,10 @@ func goVersionOK() bool {
 		return false
 	}
 
+	if !version.IsValid(toolchainVersion) {
+		fmt.Fprintf(os.Stderr, "Go version %q appears to be invalid or too old; use %s or newer\n", toolchainVersion, minGoVersion)
+		return false
+	}
 	if version.Compare(toolchainVersion, minGoVersion) < 0 {
 		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to %s or newer\n", toolchainVersion, minGoVersion)
 		return false

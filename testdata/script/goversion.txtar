@@ -9,15 +9,20 @@ env TOOLCHAIN_GOVERSION=''
 ! exec garble build
 stderr 'Go version is too old; please upgrade to go1\.25\.0 or newer'
 
+# A clearly invalid go version.
+env TOOLCHAIN_GOVERSION='bogus version'
+! exec garble build
+stderr 'Go version "bogus version" appears to be invalid or too old; use go1\.25\.0 or newer'
+
 # We should error on a devel version that's too old;
 # note that they started with the string "devel",
 # and very old ones didn't even have "goN.M" in them.
 env TOOLCHAIN_GOVERSION='devel +afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! exec garble build
-stderr 'Go version "devel \+afb5.*2020.*" is too old; please upgrade to go1\.25\.0 or newer'
+stderr 'Go version .* appears to be invalid or too old'
 env TOOLCHAIN_GOVERSION='devel go1.15-afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! exec garble build
-stderr 'Go version "devel go1\.15-.*2020.*" is too old; please upgrade to go1\.25\.0 or newer'
+stderr 'Go version .* appears to be invalid or too old'
 
 # A current devel version should be fine.
 # Note that we don't look at devel version timestamps.
