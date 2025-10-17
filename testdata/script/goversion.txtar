@@ -12,7 +12,7 @@ stderr 'Go version is too old; please upgrade to go1\.25\.0 or newer'
 # A clearly invalid go version.
 env TOOLCHAIN_GOVERSION='bogus version'
 ! exec garble build
-stderr 'Go version "bogus version" appears to be invalid or too old; use go1\.25\.0 or newer'
+stderr 'Go version "bogus" appears to be invalid or too old; use go1\.25\.0 or newer'
 
 # We should error on a devel version that's too old;
 # note that they started with the string "devel",
@@ -46,6 +46,12 @@ stderr 'Go version "go1\.28\.2" is too new; Go linker patches aren''t available 
 
 # We should accept custom devel strings.
 env TOOLCHAIN_GOVERSION='go1.25.0-somecustomversion'
+! exec garble build
+stderr 'mocking the real build'
+
+# A stable version with a build-time GOEXPERIMENT.
+# See: https://github.com/golang/go/issues/75953
+env TOOLCHAIN_GOVERSION='go1.25.0 X:nodwarf5'
 ! exec garble build
 stderr 'mocking the real build'
 

@@ -731,6 +731,9 @@ To install Go, see: https://go.dev/doc/install
 	if err := json.Unmarshal(out, &sharedCache.GoEnv); err != nil {
 		return fmt.Errorf(`cannot unmarshal from "go env -json": %w`, err)
 	}
+	// TODO: remove once https://github.com/golang/go/issues/75953 is fixed,
+	// such that `go env GOVERSION` can always be parsed by go/version.
+	sharedCache.GoEnv.GOVERSION, _, _ = strings.Cut(sharedCache.GoEnv.GOVERSION, " ")
 
 	// Some Go version managers switch between Go versions via a GOROOT which symlinks
 	// to one of the available versions. Given that later we build a patched linker
