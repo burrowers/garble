@@ -96,8 +96,7 @@ Many symbol names are also omitted from binary sections at link time.
 All in all, this can make binaries about 15% smaller.
 
 With this flag, no panics or fatal runtime errors will ever be printed, but they
-can still be handled internally with `recover` as normal. In addition, the
-`GODEBUG` environmental variable will be ignored.
+can still be handled internally with `recover` as normal.
 
 Note that this flag can make debugging crashes harder, as a panic will simply
 exit the entire program without printing a stack trace, and source code

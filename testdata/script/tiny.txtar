@@ -1,15 +1,12 @@
 # Tiny mode
 exec garble -tiny build
 ! binsubstr main$exe 'garble_main.go' 'fmt/print.go'
-env GODEBUG='allocfreetrace=1,gcpacertrace=1,gctrace=1,inittrace=1,scavenge=1,scavtrace=1,scheddetail=1,schedtrace=10'
 ! exec ./main$exe
-env GODEBUG='' # Ensure further commands don't have weirdness due to GODEBUG.
 stderr '^\(0x[[:xdigit:]]+,0x[[:xdigit:]]+\)' # interfaces/pointers print correctly
 # With -tiny, all line numbers are reset to 1.
 # Unfortunately, line comment directives don't allow erasing line numbers entirely.
 stderr '^caller: \?\? 1$' # position info is removed
 stderr '^recovered: ya like jazz?'
-! stderr '^init runtime'  # GODEBUG prints are hidden, like inittrace=1
 ! stderr 'panic: oh noes' # panics are hidden
 stderr 'funcExported false funcUnexported true'
 stderr 'funcStructExported false funcStructUnexported true'

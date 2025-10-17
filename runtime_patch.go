@@ -200,27 +200,7 @@ func stripRuntime(basename string, file *ast.File) {
 				funcDecl.Body.List = nil
 			}
 		case "runtime1.go":
-			usesEnv := func(node ast.Node) bool {
-				for node := range ast.Preorder(node) {
-					ident, ok := node.(*ast.Ident)
-					if ok && ident.Name == "gogetenv" {
-						return true
-					}
-				}
-				return false
-			}
-		filenames:
 			switch funcDecl.Name.Name {
-			case "parsedebugvars":
-				// keep defaults for GODEBUG cgocheck and invalidptr,
-				// remove code that reads GODEBUG via gogetenv
-				for i, stmt := range funcDecl.Body.List {
-					if usesEnv(stmt) {
-						funcDecl.Body.List = funcDecl.Body.List[:i]
-						break filenames
-					}
-				}
-				panic("did not see any gogetenv call in parsedebugvars")
 			case "setTraceback":
 				// tracebacks are completely hidden, no
 				// sense keeping this function
