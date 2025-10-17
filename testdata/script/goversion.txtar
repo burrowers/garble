@@ -9,13 +9,12 @@ env TOOLCHAIN_GOVERSION=''
 ! exec garble build
 stderr 'Go version is too old; please upgrade to go1\.25\.0 or newer'
 
-# We should error on a devel version that's too old.
-# Note that they lacked the "goN.M-" prefix.
+# We should error on a devel version that's too old;
+# note that they started with the string "devel",
+# and very old ones didn't even have "goN.M" in them.
 env TOOLCHAIN_GOVERSION='devel +afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! exec garble build
-stderr 'Go version is too old; please upgrade to go1\.25\.0 or newer'
-
-# Another form of old version; with an old "goN.M-" prefix.
+stderr 'Go version "devel \+afb5.*2020.*" is too old; please upgrade to go1\.25\.0 or newer'
 env TOOLCHAIN_GOVERSION='devel go1.15-afb5fca Sun Aug 07 00:00:00 2020 +0000'
 ! exec garble build
 stderr 'Go version "devel go1\.15-.*2020.*" is too old; please upgrade to go1\.25\.0 or newer'
@@ -23,8 +22,8 @@ stderr 'Go version "devel go1\.15-.*2020.*" is too old; please upgrade to go1\.2
 # A current devel version should be fine.
 # Note that we don't look at devel version timestamps.
 env GARBLE_TEST_GOVERSION='go1.25.0'
-# TODO: temporarily disabled while we do not support tip.
-# env TOOLCHAIN_GOVERSION='devel go1.24-ad97d204f0 Sun Sep 12 16:46:58 2023 +0000'
+# TODO: we do not currently bother with supporting tip.
+# env TOOLCHAIN_GOVERSION='go version go1.26-devel_36863d6194 2025-10-17 01:07:59 -0700 linux/amd64'
 # ! exec garble build
 # stderr 'mocking the real build'
 
@@ -41,7 +40,7 @@ env TOOLCHAIN_GOVERSION='go1.28.2'
 stderr 'Go version "go1\.28\.2" is too new; Go linker patches aren''t available for go1\.26 or later yet'
 
 # We should accept custom devel strings.
-env TOOLCHAIN_GOVERSION='devel go1.25.0-somecustomversion'
+env TOOLCHAIN_GOVERSION='go1.25.0-somecustomversion'
 ! exec garble build
 stderr 'mocking the real build'
 

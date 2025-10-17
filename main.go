@@ -539,40 +539,35 @@ func goVersionOK() bool {
 		unsupportedGo = "go1.26"   // the first major version we don't support
 	)
 
-	// rxVersion looks for a version like "go1.2" or "go1.2.3" in `go env GOVERSION`.
-	rxVersion := regexp.MustCompile(`go\d+\.\d+(?:\.\d+)?`)
-
-	toolchainVersionFull := sharedCache.GoEnv.GOVERSION
-	sharedCache.GoVersion = rxVersion.FindString(toolchainVersionFull)
-	if sharedCache.GoVersion == "" {
+	toolchainVersion := sharedCache.GoEnv.GOVERSION
+	if toolchainVersion == "" {
 		// Go 1.15.x and older did not have GOVERSION yet; they are too old anyway.
 		fmt.Fprintf(os.Stderr, "Go version is too old; please upgrade to %s or newer\n", minGoVersion)
 		return false
 	}
 
-	if version.Compare(sharedCache.GoVersion, minGoVersion) < 0 {
-		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to %s or newer\n", toolchainVersionFull, minGoVersion)
+	if version.Compare(toolchainVersion, minGoVersion) < 0 {
+		fmt.Fprintf(os.Stderr, "Go version %q is too old; please upgrade to %s or newer\n", toolchainVersion, minGoVersion)
 		return false
 	}
-	if version.Compare(sharedCache.GoVersion, unsupportedGo) >= 0 {
-		fmt.Fprintf(os.Stderr, "Go version %q is too new; Go linker patches aren't available for %s or later yet\n", toolchainVersionFull, unsupportedGo)
+	if version.Compare(toolchainVersion, unsupportedGo) >= 0 {
+		fmt.Fprintf(os.Stderr, "Go version %q is too new; Go linker patches aren't available for %s or later yet\n", toolchainVersion, unsupportedGo)
 		return false
 	}
 
 	// Ensure that the version of Go that built the garble binary is equal or
 	// newer than cache.GoVersionSemver.
-	builtVersionFull := cmp.Or(os.Getenv("GARBLE_TEST_GOVERSION"), runtime.Version())
-	builtVersion := rxVersion.FindString(builtVersionFull)
-	if builtVersion == "" {
+	builtVersion := cmp.Or(os.Getenv("GARBLE_TEST_GOVERSION"), runtime.Version())
+	if !version.IsValid(builtVersion) {
 		// If garble built itself, we don't know what Go version was used.
 		// Fall back to not performing the check against the toolchain version.
 		return true
 	}
-	if version.Compare(builtVersion, sharedCache.GoVersion) < 0 {
+	if version.Compare(builtVersion, toolchainVersion) < 0 {
 		fmt.Fprintf(os.Stderr, `
 garble was built with %q and can't be used with the newer %q; rebuild it with a command like:
     go install mvdan.cc/garble@latest
-`[1:], builtVersionFull, toolchainVersionFull)
+`[1:], builtVersion, toolchainVersion)
 		return false
 	}
 

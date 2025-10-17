@@ -53,13 +53,6 @@ type sharedCacheType struct {
 	// of the Go tool that the original "go build" invocation did.
 	GoCmd string
 
-	// GoVersion is a version of the Go toolchain currently being used,
-	// as reported by "go env GOVERSION" and compatible with go/version.
-	// Note that the version of Go that built the garble binary might be newer.
-	// Also note that a devel version like "go1.22-231f290e51" is
-	// currently represented as "go1.22", as the suffix is ignored by go/version.
-	GoVersion string
-
 	// Filled directly from "go env".
 	// Keep in sync with fetchGoEnv.
 	GoEnv struct {
