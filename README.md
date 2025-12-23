@@ -87,6 +87,9 @@ Literals used in constant expressions cannot be obfuscated, since they are
 resolved at compile time. This includes any expressions part of a `const`
 declaration, for example.
 
+Note that this process can be reversed given enough effort;
+see [#984](https://github.com/burrowers/garble/issues/984).
+
 ### Tiny mode
 
 With the `-tiny` flag, even more information is stripped from the Go binary.
