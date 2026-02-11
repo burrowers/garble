@@ -1,4 +1,4 @@
-From 2a691e00bc659059133cd5604c7a099981cf684c Mon Sep 17 00:00:00 2001
+From 0d8063d9af410ceb914ba75b19a98686fe5f119c Mon Sep 17 00:00:00 2001
 From: pagran <pagran@protonmail.com>
 Date: Mon, 9 Jan 2023 13:30:36 +0100
 Subject: [PATCH 2/3] add unexported function name removing
@@ -8,7 +8,7 @@ Subject: [PATCH 2/3] add unexported function name removing
  1 file changed, 42 insertions(+), 1 deletion(-)
 
 diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
-index 7bae9f18c5..b497573b15 100644
+index ffe8fdf7a1..c47b9eab72 100644
 --- a/cmd/link/internal/ld/pcln.go
 +++ b/cmd/link/internal/ld/pcln.go
 @@ -8,6 +8,10 @@ import (
@@ -22,7 +22,7 @@ index 7bae9f18c5..b497573b15 100644
  import (
  	"cmd/internal/goobj"
  	"cmd/internal/objabi"
-@@ -318,19 +322,56 @@ func walkFuncs(ctxt *Link, funcs []loader.Sym, f func(loader.Sym)) {
+@@ -335,19 +339,56 @@ func walkFuncs(ctxt *Link, funcs []loader.Sym, f func(loader.Sym)) {
  func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[loader.Sym]uint32 {
  	nameOffsets := make(map[loader.Sym]uint32, state.nfunc)
  
@@ -79,7 +79,7 @@ index 7bae9f18c5..b497573b15 100644
 +		size += int64(len(name) + 1) // NULL terminate
  	})
  
- 	state.funcnametab = state.addGeneratedSym(ctxt, "runtime.funcnametab", size, writeFuncNameTab)
+ 	state.funcnametab = state.addGeneratedSym(ctxt, "runtime.funcnametab", size, 1, writeFuncNameTab)
 -- 
-2.48.1
+2.53.0
 
