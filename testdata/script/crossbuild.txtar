@@ -1,9 +1,8 @@
 # A fairly average Go build, importing some std libraries.
 # We always build for a foreign GOOS.
-# GOOS=windows, unless the host is also windows; then linux.
-# GOARCH=arm, unless the host is also arm; then amd64.
-# Windows and ARM are both interesting,
-# and it helps with coverage as we mainly test on linux/amd64.
+# GOOS=windows, unless the host is already windows, in which case linux.
+# GOARCH=386, unless the host is already 386, in which case amd64.
+# This helps ensure good coverage for Windows and 32-bit architectures.
 #
 # We also ensure that intrinsics work as expected.
 # The compiler replaces calls to some functions with intrinsics in its ssa stage,
@@ -14,10 +13,10 @@
 # and arm64, and it is not part of the runtime nor its dependencies.
 [!windows] env GOOS=windows
 [windows] env GOOS=linux
-[!arm] env GOARCH=arm
-[arm] env GOARCH=arm64
+[!386] env GOARCH=386
+[386] env GOARCH=amd64
 exec garble build -gcflags=math/bits=-d=ssa/intrinsics/debug=1
-stderr 'intrinsic substitution for Len64.*BitLen64'
+stderr 'intrinsic substitution for ReverseBytes32.*Bswap32'
 
 # As a last step, also test building for MacOS if we're not already on it.
 # We already cover Windows and Linux above, and MacOS is the other major OS.
