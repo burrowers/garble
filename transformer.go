@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -32,6 +33,47 @@ import (
 
 //go:generate go tool bundle -o cmdgo_quoted.go -prefix cmdgoQuoted cmd/internal/quoted
 //go:generate sed -i /go:generate/d cmdgo_quoted.go
+
+// runtimeAsmTypes lists runtime struct types that are referenced from assembly code
+// or the linker. These types and their fields must NOT be obfuscated because:
+// 1. The compiler generates go_asm.h with offset constants like "g_stack", "m_curg"
+// 2. Assembly code references these constants
+// 3. The linker writes data structures with fixed field offsets
+// 4. If we rename the types or fields, assembly/linker expectations won't match
+var runtimeAsmTypes = map[string]bool{
+	"g":                true, // goroutine struct (g_stack, g_sched, g_m, g_stackguard, etc.)
+	"m":                true, // machine/thread struct (m_g0, m_curg, m_gsignal, m_p, m_morebuf)
+	"p":                true, // processor struct (p_mcache, p_wb, etc.)
+	"gobuf":            true, // goroutine context (gobuf_sp, gobuf_pc, gobuf_g, gobuf_ctxt, gobuf_lr, gobuf_bp)
+	"stack":            true, // stack bounds (stack_lo, stack_hi)
+	"pcHeader":         true, // function table header - linker writes with fixed field offsets
+	"moduledata":       true, // module data - linker writes with fixed field offsets
+	"functab":          true, // function table entry
+	"sudog":            true, // synchronization descriptor
+	"funcval":          true, // function value struct
+	"stkframe":         true, // stack frame
+	"wbBuf":            true, // write barrier buffer
+	"mOS":              true, // OS-specific m fields
+	"sigset":           true, // signal set
+	"gsignalStack":     true, // signal stack
+	"stackt":           true, // stack_t
+	"timespec":         true, // time spec
+	"timeval":          true, // time val
+	"itimerval":        true, // interval timer
+	"mcontextt":        true, // machine context
+	"ucontextt":        true, // user context
+	"keventt":          true, // kqueue event
+	"pthreadattr":      true, // pthread attributes
+	"pthreadcond":      true, // pthread condition
+	"pthreadmutex":     true, // pthread mutex
+	"pthreadmutexattr": true, // pthread mutex attributes
+	"machheader":       true, // mach header
+	"usigactiont":      true, // signal action
+	"uf":               true, // unwinder frame (uf_next, uf_end)
+	"val":              true, // value struct (val_data, val_type)
+	"machTimebaseInfo": true, // mach timebase info (darwin)
+	"callbackArgs":     true, // callback arguments (cgo, Windows)
+}
 
 // computeLinkerVariableStrings iterates over the -ldflags arguments,
 // filling a map with all the string values set via the linker's -X flag.
@@ -289,6 +331,35 @@ type transformer struct {
 	// usedAllImportsFiles is used to prevent multiple calls of tf.useAllImports function on one file
 	// in case of simultaneously applied control flow and literals obfuscation
 	usedAllImportsFiles map[*ast.File]bool
+
+	// asmReferencedStructs caches which structs are assembly-referenced types (for runtime package)
+	asmReferencedStructs map[*types.Struct]bool
+}
+
+// isAsmReferencedStruct checks if the given struct is one of the runtime types
+// that are referenced from assembly code (g, m, p, gobuf, etc.).
+// We cache the result since multiple fields may belong to the same struct.
+func (tf *transformer) isAsmReferencedStruct(strct *types.Struct) bool {
+	if tf.asmReferencedStructs == nil {
+		tf.asmReferencedStructs = make(map[*types.Struct]bool)
+		// Build the cache by looking up each type name in the runtime package scope
+		if tf.pkg != nil && tf.pkg.Path() == "runtime" {
+			for typeName := range runtimeAsmTypes {
+				obj := tf.pkg.Scope().Lookup(typeName)
+				if obj == nil {
+					continue
+				}
+				if tn, ok := obj.(*types.TypeName); ok {
+					if named, ok := tn.Type().(*types.Named); ok {
+						if s, ok := named.Underlying().(*types.Struct); ok {
+							tf.asmReferencedStructs[s] = true
+						}
+					}
+				}
+			}
+		}
+	}
+	return tf.asmReferencedStructs[strct]
 }
 
 var transformMethods = map[string]func(*transformer, []string) ([]string, error){
@@ -370,7 +441,10 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 					} else if err != nil {
 						return nil, err
 					}
-					tf.replaceAsmNames(&includeBuf, content)
+					// First replace struct field offsets, then function names
+					var tmpIncludeBuf bytes.Buffer
+					tf.replaceAsmFieldOffsets(&tmpIncludeBuf, content)
+					tf.replaceAsmNames(&includeBuf, tmpIncludeBuf.Bytes())
 
 					// For now, we replace `foo.h` or `dir/foo.h` with `garbled_foo.h`.
 					// The different name ensures we don't use the unobfuscated file.
@@ -391,7 +465,11 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 			}
 
 			// Anything else is regular assembly; replace the names.
-			tf.replaceAsmNames(&buf, []byte(line))
+			// First, replace struct field offsets (like g_stack -> g_<obfuscated>)
+			var tmpBuf bytes.Buffer
+			tf.replaceAsmFieldOffsets(&tmpBuf, []byte(line))
+			// Then replace function names (like ·funcName)
+			tf.replaceAsmNames(&buf, tmpBuf.Bytes())
 			buf.WriteByte('\n')
 		}
 		if err := scanner.Err(); err != nil {
@@ -412,6 +490,70 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	}
 
 	return append(flags, newPaths...), nil
+}
+
+// asmStructFieldCache caches struct field name mappings for assembly obfuscation.
+// The key is "structName_fieldName" and the value is the obfuscated field name.
+var asmStructFieldCache map[string]string
+var asmStructFieldCacheOnce sync.Once
+
+// initAsmStructFieldCache initializes the struct field cache for the runtime package.
+// This is called lazily when processing assembly for the runtime package.
+func (tf *transformer) initAsmStructFieldCache() {
+	asmStructFieldCacheOnce.Do(func() {
+		asmStructFieldCache = make(map[string]string)
+
+		// Import the runtime package to get struct type information
+		// Use ImportFrom with the current package directory
+		runtimePkg, err := tf.origImporter.ImportFrom("runtime", tf.curPkg.Dir, 0)
+		if err != nil {
+			log.Printf("warning: cannot import runtime for asm field mapping: %v", err)
+			return
+		}
+
+		// Known runtime struct types that are referenced from assembly
+		// The field offset pattern is: <structname>_<fieldname>
+		structNames := []string{"g", "m", "p", "gobuf", "stack", "sudog", "funcval", "stkframe", "wbBuf", "mOS"}
+
+		for _, structName := range structNames {
+			obj := runtimePkg.Scope().Lookup(structName)
+			if obj == nil {
+				continue
+			}
+			typeName, ok := obj.(*types.TypeName)
+			if !ok {
+				continue
+			}
+			named, ok := typeName.Type().(*types.Named)
+			if !ok {
+				continue
+			}
+			strct, ok := named.Underlying().(*types.Struct)
+			if !ok {
+				continue
+			}
+
+			// Map each field to its obfuscated name
+			for i := 0; i < strct.NumFields(); i++ {
+				field := strct.Field(i)
+				fieldName := field.Name()
+				key := structName + "_" + fieldName
+				// Use hashWithStruct to get the obfuscated name
+				obfuscatedFieldName := hashWithStruct(strct, field)
+				asmStructFieldCache[key] = structName + "_" + obfuscatedFieldName
+				if flagDebug {
+					log.Printf("asm field mapping: %s -> %s", key, asmStructFieldCache[key])
+				}
+			}
+		}
+	})
+}
+
+// replaceAsmFieldOffsets is now a no-op since we don't obfuscate assembly-referenced types.
+// We keep the struct types like g, m, p, gobuf, etc. and their fields unobfuscated
+// so that go_asm.h constants match what assembly expects.
+func (tf *transformer) replaceAsmFieldOffsets(buf *bytes.Buffer, line []byte) {
+	buf.Write(line)
 }
 
 func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
@@ -516,7 +658,13 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		name := string(remaining[:nameEnd])
 		remaining = remaining[nameEnd:]
 
-		if lpkg.ToObfuscate && !compilerIntrinsics[lpkg.ImportPath][name] {
+		// Preserve special function names that should not be obfuscated
+		preserveName := false
+		switch name {
+		case "main", "init", "TestMain":
+			preserveName = true
+		}
+		if lpkg.ToObfuscate && !isIntrinsicSymbol(lpkg.ImportPath, name) && !preserveName {
 			newName := hashWithPackage(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, tf.curPkg.GarbleActionID, newName)
@@ -628,7 +776,25 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	}
 
 	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
+	// Compute fieldToStruct first so runtime patches can use it.
 	tf.fieldToStruct = computeFieldToStruct(tf.info)
+
+	// Apply runtime patches after computing fieldToStruct, so the patches can
+	// properly register new field references for obfuscation.
+	if tf.curPkg.ImportPath == "runtime" {
+		for i, file := range files {
+			basename := filepath.Base(paths[i])
+			if flagTiny {
+				// strip unneeded runtime code
+				stripRuntime(basename, file)
+				tf.useAllImports(file)
+			}
+			if basename == "symtab.go" {
+				updateMagicValue(file, magicValue(), tf.info, tf.fieldToStruct)
+				updateEntryOffset(file, entryOffKey(), tf.info, tf.fieldToStruct)
+			}
+		}
+	}
 	if flagLiterals {
 		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg); err != nil {
 			return nil, err
@@ -649,17 +815,6 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
 		log.Printf("obfuscating %s", basename)
-		if tf.curPkg.ImportPath == "runtime" {
-			if flagTiny {
-				// strip unneeded runtime code
-				stripRuntime(basename, file)
-				tf.useAllImports(file)
-			}
-			if basename == "symtab.go" {
-				updateMagicValue(file, magicValue())
-				updateEntryOffset(file, entryOffKey())
-			}
-		}
 		if err := tf.transformDirectives(file.Comments); err != nil {
 			return nil, err
 		}
@@ -741,7 +896,8 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
 	// obfuscate the local name, if the current package is obfuscated
-	if tf.curPkg.ToObfuscate && !compilerIntrinsics[tf.curPkg.ImportPath][localName] {
+	// but preserve intrinsic symbol names
+	if tf.curPkg.ToObfuscate && !isIntrinsicSymbol(tf.curPkg.ImportPath, localName) {
 		localName = hashWithPackage(tf.curPkg, localName)
 	}
 	if newName == "" {
@@ -803,8 +959,8 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		panic(err) // shouldn't happen
 	}
 
-	if !lpkg.ToObfuscate || compilerIntrinsics[lpkg.ImportPath][foreignName] {
-		// We're not obfuscating that package or name.
+	if !lpkg.ToObfuscate {
+		// We're not obfuscating that package.
 		return localName, newName
 	}
 
@@ -828,7 +984,11 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		newForeignName = receiver + "." + name
 	} else {
 		// pkg/path.function
-		newForeignName = hashWithPackage(lpkg, foreignName)
+		if isIntrinsicSymbol(lpkg.ImportPath, foreignName) {
+			newForeignName = foreignName
+		} else {
+			newForeignName = hashWithPackage(lpkg, foreignName)
+		}
 	}
 
 	newName = lpkg.obfuscatedImportPath() + "." + newForeignName
@@ -1059,7 +1219,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// We can't obfuscate literals in the runtime and its dependencies,
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
-	if flagLiterals && tf.curPkg.ToObfuscate {
+	if flagLiterals && tf.curPkg.ToObfuscate && !isRuntimePkgPath(tf.curPkg.ImportPath) {
 		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings, randomName)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
@@ -1168,7 +1328,14 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		switch obj := obj.(type) {
 		case *types.Var:
 			if !obj.IsField() {
-				// Identifiers denoting variables are always obfuscated.
+				// Identifiers denoting variables are obfuscated.
+				if name == "firstmoduledata" && flagDebug {
+					fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: transformCompile var %s in %s (GarbleActionID=%x)\n", name, lpkg.ImportPath, lpkg.GarbleActionID[:8])
+				}
+				// Don't obfuscate intrinsic variables - the linker needs them
+				if isIntrinsicSymbol(lpkg.ImportPath, name) {
+					return true
+				}
 				break
 			}
 			debugName = "field"
@@ -1190,6 +1357,14 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			if strct == nil {
 				panic("could not find struct for field " + name)
 			}
+			// Check if the parent struct is an assembly-referenced type (runtime only).
+			// We need to preserve field names for types like g, m, p, gobuf, etc.
+			// because go_asm.h generates offset constants like "g_stack" that assembly depends on.
+			if lpkg.ImportPath == "runtime" {
+				if tf.isAsmReferencedStruct(strct) {
+					return true // don't obfuscate fields of asm-referenced types
+				}
+			}
 			node.Name = hashWithStruct(strct, obj)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
@@ -1198,11 +1373,22 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 
 		case *types.TypeName:
 			debugName = "type"
-		case *types.Func:
-			if compilerIntrinsics[path][name] {
+			// Skip obfuscation for runtime types referenced in assembly
+			if lpkg.ImportPath == "runtime" && runtimeAsmTypes[name] {
 				return true
 			}
-
+			// Skip obfuscation for internal/runtime/sys.nih and NotInHeap types.
+			// The compiler checks for obj.Name() == "nih" && obj.Pkg().Path() == "internal/runtime/sys"
+			// in cmd/compile/internal/noder/helpers.go to detect NotInHeap types.
+			// If we obfuscate these, the compiler won't recognize NotInHeap types properly.
+			if lpkg.ImportPath == "internal/runtime/sys" && (name == "nih" || name == "NotInHeap") {
+				return true
+			}
+			// Don't obfuscate compiler intrinsics - the compiler won't recognize them otherwise
+			if isIntrinsicSymbol(lpkg.ImportPath, name) {
+				return true
+			}
+		case *types.Func:
 			sign := obj.Signature()
 			if sign.Recv() == nil {
 				debugName = "func"
@@ -1219,6 +1405,10 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			if strings.HasPrefix(name, "Test") && isTestSignature(sign) {
 				return true // don't break tests
 			}
+			// Don't obfuscate compiler intrinsics - the compiler won't recognize them otherwise
+			if isIntrinsicSymbol(lpkg.ImportPath, name) {
+				return true
+			}
 		default:
 			return true // we only want to rename the above
 		}
@@ -1227,6 +1417,10 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 		// TODO: probably move the debugf lines inside the hash funcs
 		if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 			log.Printf("%s %q hashed with %x… to %q", debugName, name, hashToUse[:4], node.Name)
+		}
+		// Debug: show what we're hashing for firstmoduledata
+		if name == "firstmoduledata" && flagDebug {
+			fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: transformCompile hashing %s.%s to %s (GarbleActionID=%x)\n", lpkg.ImportPath, name, node.Name, lpkg.GarbleActionID[:8])
 		}
 		return true
 	}

@@ -206,8 +206,16 @@ type packageError struct {
 // obfuscatedPackageName returns a package's obfuscated package name,
 // which may be unchanged in some cases where we cannot obfuscate it.
 // Note that package main is unchanged as it is treated in a special way by the toolchain.
+// The package name must stay in sync with the import path - if the import path is not
+// obfuscated (e.g., for compiler intrinsics), the name must also be preserved.
 func (p *listedPackage) obfuscatedPackageName() string {
 	if p.Name == "main" || !p.ToObfuscate {
+		return p.Name
+	}
+	// If the import path is not obfuscated, the package name shouldn't be either.
+	// This happens for packages like runtime, reflect, embed, and packages with
+	// compiler intrinsics.
+	if p.obfuscatedImportPath() == p.ImportPath {
 		return p.Name
 	}
 	// The package name itself is obfuscated like any other name.
@@ -235,29 +243,183 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	// We can't obfuscate these standard library import paths,
 	// as the toolchain expects to recognize the packages by them:
 	//
-	//   * runtime: it is special in many ways
 	//   * reflect: its presence turns down dead code elimination
 	//   * embed: its presence enables using //go:embed
 	//   * others like syscall are allowed by import path to have more ABI tricks
+	//
+	// Note: runtime and its intrinsics packages ARE obfuscated now, with the
+	// compiler/linker receiving mappings via GARBLE_SYMBOL_MAP to translate
+	// obfuscated names back to originals for intrinsic matching.
 	switch p.ImportPath {
-	case "runtime", "reflect", "embed",
+	case "reflect", "embed",
 		// TODO: collect directly from cmd/internal/objabi/pkgspecial.go,
 		// in this particular case from allowAsmABIPkgs.
 		"syscall",
 		"internal/bytealg",
 		"internal/chacha8rand",
+		"internal/abi",
 		"internal/runtime/syscall/linux",
 		"internal/runtime/syscall/windows",
-		"internal/runtime/startlinetest":
-		return p.ImportPath
-	}
-	// Intrinsics are matched by package import path as well.
-	if _, ok := compilerIntrinsics[p.ImportPath]; ok {
+		"internal/runtime/startlinetest",
+		// internal/runtime/sys contains the NotInHeap type which the compiler
+		// detects by checking for obj.Name() == "nih" && obj.Pkg().Path() == "internal/runtime/sys"
+		// in cmd/compile/internal/noder/helpers.go. If we obfuscate this package,
+		// the compiler won't recognize NotInHeap types, which can cause issues
+		// with struct layouts and memory management.
+		"internal/runtime/sys":
 		return p.ImportPath
 	}
 	newPath := hashWithPackage(p, p.ImportPath)
 	log.Printf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
 	return newPath
+}
+
+// runtimePkgPaths lists packages that the Go compiler's PkgSpecial recognizes as runtime packages.
+// These need special handling for write barriers, nosplit, etc.
+// This must match the runtimePkgs list in cmd/internal/objabi/pkgspecial.go.
+var runtimePkgPaths = []string{
+	"runtime",
+	"internal/runtime/atomic",
+	"internal/runtime/cgroup",
+	"internal/runtime/exithook",
+	"internal/runtime/gc",
+	"internal/runtime/maps",
+	"internal/runtime/math",
+	"internal/runtime/strconv",
+	"internal/runtime/sys",
+	"internal/runtime/syscall",
+	"internal/abi",
+	"internal/bytealg",
+	"internal/byteorder",
+	"internal/chacha8rand",
+	"internal/coverage/rtcov",
+	"internal/cpu",
+	"internal/goarch",
+	"internal/godebugs",
+	"internal/goexperiment",
+	"internal/goos",
+	"internal/profilerecord",
+	"internal/stringslite",
+}
+
+var runtimePkgPathSet = func() map[string]struct{} {
+	set := make(map[string]struct{}, len(runtimePkgPaths))
+	for _, pkgPath := range runtimePkgPaths {
+		set[pkgPath] = struct{}{}
+	}
+	return set
+}()
+
+func isRuntimePkgPath(path string) bool {
+	_, ok := runtimePkgPathSet[path]
+	return ok
+}
+
+// buildRuntimePkgPathMap builds a mapping of obfuscated->original paths for all
+// runtime packages. This is passed to the patched compiler so it can recognize
+// obfuscated runtime packages for special handling (write barriers, etc.)
+// Format: "obfuscated1=original1,obfuscated2=original2,..."
+func buildRuntimePkgPathMap() string {
+	var mappings []string
+	for _, pkgPath := range runtimePkgPaths {
+		lpkg := sharedCache.ListedPackages[pkgPath]
+		if lpkg == nil {
+			continue // Package not in current build
+		}
+		obfuscatedPath := lpkg.obfuscatedImportPath()
+		if obfuscatedPath != pkgPath {
+			mappings = append(mappings, obfuscatedPath+"="+pkgPath)
+			if pkgPath == "runtime" && flagDebug {
+				fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: buildRuntimePkgPathMap: %s -> %s\n", obfuscatedPath, pkgPath)
+			}
+		}
+	}
+	result := strings.Join(mappings, ",")
+	if flagDebug {
+		fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: buildRuntimePkgPathMap result length=%d, first 200 chars=%s\n", len(result), result[:min(200, len(result))])
+	}
+	return result
+}
+
+// buildSymbolMap builds a complete mapping of obfuscated->original symbols
+// for all intrinsic and builtin functions. This is passed to the patched
+// compiler and linker so they can recognize obfuscated symbols.
+// Format: "obfuscatedPkg.obfuscatedFunc=originalPkg.originalFunc,..."
+func buildSymbolMap() string {
+	// Debug: show GarbleActionID for runtime
+	if flagDebug {
+		if lpkg := sharedCache.ListedPackages["runtime"]; lpkg != nil {
+			fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: buildSymbolMap runtime GarbleActionID=%x\n", lpkg.GarbleActionID[:8])
+		}
+	}
+	var mappings []string
+	// Debug: check runtime package
+	if flagDebug {
+		if lpkg := sharedCache.ListedPackages["runtime"]; lpkg != nil {
+			fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: runtime package found, ToObfuscate=%v\n", lpkg.ToObfuscate)
+		} else {
+			fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: runtime package NOT in ListedPackages\n")
+		}
+	}
+
+	// Add intrinsic symbols
+	// Note: intrinsic function names are now preserved (not obfuscated) by isIntrinsicSymbol,
+	// so we use the original symbol name in the mapping
+	for _, pkgPath := range intrinsicPackages {
+		lpkg := sharedCache.ListedPackages[pkgPath]
+		if lpkg == nil || !lpkg.ToObfuscate {
+			continue
+		}
+		obfuscatedPath := lpkg.obfuscatedImportPath()
+		symbols := intrinsicSymbols[pkgPath]
+		for _, sym := range symbols {
+			// Intrinsic symbol names are preserved, so mapping is: obfPkg.origSym=origPkg.origSym
+			if obfuscatedPath != pkgPath {
+				mappings = append(mappings,
+					obfuscatedPath+"."+sym+"="+pkgPath+"."+sym)
+			}
+		}
+	}
+
+	// Add builtin symbols
+	if flagDebug {
+		fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: processing %d builtin packages\n", len(builtinSymbols))
+	}
+	for pkgPath, symbols := range builtinSymbols {
+		lpkg := sharedCache.ListedPackages[pkgPath]
+		if lpkg == nil {
+			if flagDebug {
+				fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: builtin package %s not in ListedPackages\n", pkgPath)
+			}
+			continue
+		}
+		if !lpkg.ToObfuscate {
+			if flagDebug {
+				fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: builtin package %s ToObfuscate=false\n", pkgPath)
+			}
+			continue
+		}
+		obfuscatedPath := lpkg.obfuscatedImportPath()
+		for _, sym := range symbols {
+			// Check if this symbol is also an intrinsic (name preserved)
+			var obfuscatedSym string
+			if isIntrinsicSymbol(pkgPath, sym) {
+				// Intrinsic symbol names are preserved
+				obfuscatedSym = sym
+			} else {
+				obfuscatedSym = hashWithPackage(lpkg, sym)
+			}
+			if obfuscatedSym != sym || obfuscatedPath != pkgPath {
+				mappings = append(mappings,
+					obfuscatedPath+"."+obfuscatedSym+"="+pkgPath+"."+sym)
+				if flagDebug && (sym == "newobject" || sym == "firstmoduledata") {
+					fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: mapped %s.%s = %s.%s\n", obfuscatedPath, obfuscatedSym, pkgPath, sym)
+				}
+			}
+		}
+	}
+
+	return strings.Join(mappings, ",")
 }
 
 // garbleBuildFlags are always passed to top-level build commands such as

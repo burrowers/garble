@@ -119,6 +119,10 @@ func TestScript(t *testing.T) {
 				// GOCACHE is initialized by gotooltest to use the host's cache.
 				env.Setenv("GARBLE_CACHE", filepath.Join(hostCacheDir, "garble"))
 			}
+			// Pass through GARBLE_GO_SRC if set, for testing with modified Go source
+			if goSrc := os.Getenv("GARBLE_GO_SRC"); goSrc != "" {
+				env.Setenv("GARBLE_GO_SRC", goSrc)
+			}
 			return nil
 		},
 		// TODO: this condition should probably be supported by gotooltest

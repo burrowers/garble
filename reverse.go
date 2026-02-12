@@ -178,6 +178,7 @@ func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer) (bool, err
 	// to also obtain the newline characters themselves.
 	br := bufio.NewReader(r)
 	modified := false
+	skipNextLine := false
 	for {
 		// Note that ReadString can return a line as well as an error if
 		// we hit EOF without a newline.
@@ -185,6 +186,25 @@ func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer) (bool, err
 		line, readErr := br.ReadString('\n')
 
 		newLine := repl.Replace(line)
+		if skipNextLine {
+			if strings.HasPrefix(newLine, "\t") {
+				modified = true
+				skipNextLine = false
+				if readErr == io.EOF {
+					return modified, nil
+				}
+				continue
+			}
+			skipNextLine = false
+		}
+		if strings.HasPrefix(newLine, "runtime.main(") || strings.HasPrefix(newLine, "runtime.goexit(") {
+			modified = true
+			skipNextLine = true
+			if readErr == io.EOF {
+				return modified, nil
+			}
+			continue
+		}
 		if newLine != line {
 			modified = true
 		}
