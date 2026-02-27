@@ -53,3 +53,16 @@ func sliceOfPointer() Slice[*any] {
 type Map[K, V comparable] map[K]V
 
 var _ = Map[string, struct{}]{}
+
+type Result[T any] interface {
+	AsResult() Result[T]
+	Redirect(struct { ret T })
+}
+
+type AsyncResult[oldT, newT any] struct {}
+
+func (w *AsyncResult[oldT, newT]) AsResult() Result[newT] {
+	return w
+}
+
+func (w *AsyncResult[oldT, newT]) Redirect(struct {ret newT}) {}

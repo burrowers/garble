@@ -25,13 +25,22 @@ var typeutil_theHasher typeutil_Hasher
 // Hash computes a hash value for the given type t such that
 // Identical(t, t') => Hash(t) == Hash(t').
 func (h typeutil_Hasher) Hash(t types.Type) uint32 {
-	return typeutil_hasher{inGenericSig: false}.hash(t)
+	return typeutil_hasher{
+		inGenericSig: false,
+		typeParamIDs: make(map[*types.TypeParam]uint32),
+	}.hash(t)
 }
 
 // hasher holds the state of a single Hash traversal: whether we are
 // inside the signature of a generic function; this is used to
 // optimize [hasher.hashTypeParam].
-type typeutil_hasher struct{ inGenericSig bool }
+//
+// typeParamIDs assigns deterministic traversal-local IDs to free type params,
+// making hashes stable across alpha-renaming in equivalent generic contexts.
+type typeutil_hasher struct {
+	inGenericSig bool
+	typeParamIDs map[*types.TypeParam]uint32
+}
 
 // hashString computes the Fowler–Noll–Vo hash of s.
 func typeutil_hashString(s string) uint32 {
@@ -186,15 +195,25 @@ func (h typeutil_hasher) hashTypeParam(t *types.TypeParam) uint32 {
 	// identical if they have the same index and constraint, so we
 	// hash them based on index.
 	//
-	// When we are outside a generic function, free TypeParams are
-	// identical iff they are the same object, so we can use a
-	// more discriminating hash consistent with object identity.
-	// This optimization saves [Map] about 4% when hashing all the
-	// types.Info.Types in the forward closure of net/http.
+	// When we are outside a generic function signature, free TypeParams can
+	// come from equivalent generic contexts that only differ by alpha-renaming
+	// (e.g. T vs newT). Object identity/name would make those hash differently.
+	//
+	// We therefore assign each free TypeParam a traversal-local canonical ID.
+	// We intentionally keep the same "9173 + 3*x" shape used elsewhere for
+	// TypeParams, only swapping x from Index/object-derived info to this ID.
 	if !h.inGenericSig {
-		// Optimization: outside a generic function signature,
-		// use a more discrimating hash consistent with object identity.
-		return h.hashTypeName(t.Obj())
+		// Outside generic function signatures, object identity depends on the
+		// specific binder and does not survive alpha-renaming between equivalent
+		// type expressions (e.g. T vs newT). Use a deterministic traversal-local
+		// ID to keep hashes stable in those equivalent cases.
+		if id, ok := h.typeParamIDs[t]; ok {
+			// 9173 marks "type param", 3*id matches this hasher's mixing style.
+			return 9173 + 3*id
+		}
+		id := uint32(len(h.typeParamIDs))
+		h.typeParamIDs[t] = id
+		return 9173 + 3*id
 	}
 	return 9173 + 3*uint32(t.Index())
 }
