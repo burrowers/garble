@@ -1,16 +1,20 @@
-// Originally bundled from golang.org/x/tools/internal/typeparams@v0.29.0,
-// as it is used by x/tools/go/types/typeutil and is an internal package.
+// NOTE(garble): bundled as of golang.org/x/tools v0.42.0; see CONTRIBUTING.md.
+
+//lint:file-ignore ST1012 NOTE(garble): err var names get a new prefix
 
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"go/types"
+	"os"
+	"strings"
 )
 
-var errEmptyTypeSet = errors.New("empty type set")
+const typeparams_debug = false
+
+var typeparams_ErrEmptyTypeSet = errors.New("empty type set")
 
 // InterfaceTermSet computes the normalized terms for a constraint interface,
 // returning an error if the term set cannot be computed or is empty. In the
@@ -38,7 +42,7 @@ func typeparams_computeTermSet(typ types.Type) ([]*types.Term, error) {
 		return nil, err
 	}
 	if tset.terms.isEmpty() {
-		return nil, errEmptyTypeSet
+		return nil, typeparams_ErrEmptyTypeSet
 	}
 	if tset.terms.isAll() {
 		return nil, nil
@@ -60,9 +64,24 @@ type typeparams_termSet struct {
 	terms    typeparams_termlist
 }
 
+func typeparams_indentf(depth int, format string, args ...any) {
+	fmt.Fprintf(os.Stderr, strings.Repeat(".", depth)+format+"\n", args...)
+}
+
 func typeparams_computeTermSetInternal(t types.Type, seen map[types.Type]*typeparams_termSet, depth int) (res *typeparams_termSet, err error) {
 	if t == nil {
 		panic("nil type")
+	}
+
+	if typeparams_debug {
+		typeparams_indentf(depth, "%s", t.String())
+		defer func() {
+			if err != nil {
+				typeparams_indentf(depth, "=> %s", err)
+			} else {
+				typeparams_indentf(depth, "=> %s", res.terms.String())
+			}
+		}()
 	}
 
 	const maxTermCount = 100
@@ -85,8 +104,7 @@ func typeparams_computeTermSetInternal(t types.Type, seen map[types.Type]*typepa
 		// The term set of an interface is the intersection of the term sets of its
 		// embedded types.
 		tset.terms = typeparams_allTermlist
-		for i := range u.NumEmbeddeds() {
-			embedded := u.EmbeddedType(i)
+		for embedded := range u.EmbeddedTypes() {
 			if _, ok := embedded.Underlying().(*types.TypeParam); ok {
 				return nil, fmt.Errorf("invalid embedded type %T", embedded)
 			}
@@ -99,8 +117,7 @@ func typeparams_computeTermSetInternal(t types.Type, seen map[types.Type]*typepa
 	case *types.Union:
 		// The term set of a union is the union of term sets of its terms.
 		tset.terms = nil
-		for i := range u.Len() {
-			t := u.Term(i)
+		for t := range u.Terms() {
 			var terms typeparams_termlist
 			switch t.Type().Underlying().(type) {
 			case *types.Interface:
@@ -156,15 +173,18 @@ type typeparams_termlist []*typeparams_term
 // It is in normal form.
 var typeparams_allTermlist = typeparams_termlist{new(typeparams_term)}
 
+// termSep is the separator used between individual terms.
+const typeparams_termSep = " | "
+
 // String prints the termlist exactly (without normalization).
 func (xl typeparams_termlist) String() string {
 	if len(xl) == 0 {
 		return "∅"
 	}
-	var buf bytes.Buffer
+	var buf strings.Builder
 	for i, x := range xl {
 		if i > 0 {
-			buf.WriteString(" | ")
+			buf.WriteString(typeparams_termSep)
 		}
 		buf.WriteString(x.String())
 	}
@@ -342,6 +362,9 @@ func (x *typeparams_term) intersect(y *typeparams_term) *typeparams_term {
 // disjoint reports whether x ∩ y == ∅.
 // x.typ and y.typ must not be nil.
 func (x *typeparams_term) disjoint(y *typeparams_term) bool {
+	if typeparams_debug && (x.typ == nil || y.typ == nil) {
+		panic("invalid argument(s)")
+	}
 	ux := x.typ
 	if y.tilde {
 		ux = typeparams_under(ux)

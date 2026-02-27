@@ -1,12 +1,11 @@
-// Originally bundled from golang.org/x/tools/go/types/typeutil@v0.29.0.
-// Edited to just keep the hasher API in place, removing the use of internal/typeparams,
-// and removed the inclusion of struct field tags in the hasher.
+// NOTE(garble): bundled as of golang.org/x/tools v0.42.0; see CONTRIBUTING.md.
 
 package main
 
 import (
 	"fmt"
 	"go/types"
+	_ "unsafe"
 )
 
 // -- Hasher --
@@ -37,7 +36,7 @@ type typeutil_hasher struct{ inGenericSig bool }
 // hashString computes the Fowler–Noll–Vo hash of s.
 func typeutil_hashString(s string) uint32 {
 	var h uint32
-	for i := range len(s) {
+	for i := 0; i < len(s); i++ {
 		h ^= uint32(s[i])
 		h *= 16777619
 	}
@@ -67,7 +66,7 @@ func (h typeutil_hasher) hash(t types.Type) uint32 {
 			if f.Anonymous() {
 				hash += 8861
 			}
-			// NOTE: we must not hash struct field tags, as they do not affect type identity.
+			// NOTE(garble): we must not hash struct field tags, as they do not affect type identity.
 			// hash += typeutil_hashString(t.Tag(i))
 			hash += typeutil_hashString(f.Name()) // (ignore f.Pkg)
 			hash += h.hash(f.Type())
@@ -84,10 +83,13 @@ func (h typeutil_hasher) hash(t types.Type) uint32 {
 		}
 
 		tparams := t.TypeParams()
-		for i := range tparams.Len() {
-			h.inGenericSig = true
-			tparam := tparams.At(i)
-			hash += 7 * h.hash(tparam.Constraint())
+		if n := tparams.Len(); n > 0 {
+			h.inGenericSig = true // affects constraints, params, and results
+
+			for i := range n {
+				tparam := tparams.At(i)
+				hash += 7 * h.hash(tparam.Constraint())
+			}
 		}
 
 		return hash + 3*h.hashTuple(t.Params()) + 5*h.hashTuple(t.Results())
@@ -129,8 +131,7 @@ func (h typeutil_hasher) hash(t types.Type) uint32 {
 	case *types.Named:
 		hash := h.hashTypeName(t.Obj())
 		targs := t.TypeArgs()
-		for i := range targs.Len() {
-			targ := targs.At(i)
+		for targ := range targs.Types() {
 			hash += 2 * h.hash(targ)
 		}
 		return hash
@@ -200,21 +201,12 @@ func (h typeutil_hasher) hashTypeParam(t *types.TypeParam) uint32 {
 
 // hashTypeName hashes the pointer of tname.
 func (typeutil_hasher) hashTypeName(tname *types.TypeName) uint32 {
-	// NOTE: we must not hash any pointers, as garble is a toolexec tool
-	// so by nature it uses multiple processes.
+	// NOTE(garble): we must not hash any pointers,
+	// as garble is a toolexec tool so by nature it uses multiple processes.
 	return typeutil_hashString(tname.Name())
 	// Since types.Identical uses == to compare TypeNames,
 	// the Hash function uses maphash.Comparable.
-	// TODO(adonovan): or will, when it becomes available in go1.24.
-	// In the meantime we use the pointer's numeric value.
-	//
-	//   hash := maphash.Comparable(theSeed, tname)
-	//
-	// (Another approach would be to hash the name and package
-	// path, and whether or not it is a package-level typename. It
-	// is rare for a package to define multiple local types with
-	// the same name.)
-	// hash := uintptr(unsafe.Pointer(tname))
+	// hash := maphash.Comparable(typeutil_theSeed, tname)
 	// return uint32(hash ^ (hash >> 32))
 }
 
