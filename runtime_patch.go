@@ -4,17 +4,37 @@
 package main
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
+	"os"
 	"strconv"
 	"strings"
 
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
+// cloneIdent creates a copy of an ast.Ident and registers it in the type info
+// so that the obfuscator can process it correctly.
+func cloneIdent(node *ast.Ident, info *types.Info) *ast.Ident {
+	clone := &ast.Ident{
+		NamePos: node.NamePos,
+		Name:    node.Name,
+		Obj:     node.Obj,
+	}
+	// Register the clone in the type info so obfuscator sees it
+	if info != nil {
+		if obj := info.ObjectOf(node); obj != nil {
+			info.Uses[clone] = obj
+		}
+	}
+	return clone
+}
+
 // updateMagicValue updates hardcoded value of hdr.magic
 // when verifying header in symtab.go
-func updateMagicValue(file *ast.File, magicValue uint32) {
+func updateMagicValue(file *ast.File, magicValue uint32, info *types.Info, fieldToStruct map[*types.Var]*types.Struct) {
 	magicUpdated := false
 
 	// Find `hdr.magic != 0xfffffff?` in symtab.go and update to random magicValue
@@ -51,6 +71,7 @@ func updateMagicValue(file *ast.File, magicValue uint32) {
 		funcDecl, ok := decl.(*ast.FuncDecl)
 		if ok && funcDecl.Name.Name == "moduledataverify1" {
 			ast.Inspect(funcDecl, updateMagic)
+
 			break
 		}
 	}
@@ -58,6 +79,14 @@ func updateMagicValue(file *ast.File, magicValue uint32) {
 	if !magicUpdated {
 		panic("magic value not updated")
 	}
+	if flagDebug {
+		fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: Set runtime magic check to %d (0x%x)\n", magicValue, magicValue)
+	}
+}
+
+// injectDebugPrint was used for troubleshooting; keep as a no-op placeholder
+// so we can re-enable without changing call sites if needed.
+func injectDebugPrint(funcDecl *ast.FuncDecl, info *types.Info, fieldToStruct map[*types.Var]*types.Struct) {
 }
 
 // updateEntryOffset adds xor encryption for funcInfo.entryoff
@@ -65,7 +94,12 @@ func updateMagicValue(file *ast.File, magicValue uint32) {
 // Its goal, without slowing down program performance (reflection, stacktrace),
 // is to make it difficult to determine relations between function metadata and function itself in a binary file.
 // Difficulty of decryption is based on the difficulty of finding a small (probably inlined) entry() function without obvious patterns.
-func updateEntryOffset(file *ast.File, entryOffKey uint32) {
+//
+// The info parameter is used to register new AST nodes with type information,
+// which is necessary for the obfuscator to process them correctly when runtime
+// obfuscation is enabled. The fieldToStruct map is needed to register field objects
+// for proper field name obfuscation.
+func updateEntryOffset(file *ast.File, entryOffKey uint32, info *types.Info, fieldToStruct map[*types.Var]*types.Struct) {
 	// Note that this field could be renamed in future Go versions.
 	const nameOffField = "nameOff"
 	entryOffUpdated := false
@@ -96,14 +130,60 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 			return true
 		}
 
+		// Get the receiver identifier (e.g., "f" in "f.entryOff")
+		receiverIdent, ok := selExpr.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		// Clone the receiver identifier for the new selector expression.
+		// This is crucial: we must NOT share the same ast.Ident node between
+		// multiple parent nodes, as that confuses the obfuscator which walks
+		// the AST and modifies node.Name in place.
+		clonedReceiver := cloneIdent(receiverIdent, info)
+
+		// Find the nameOff field in the struct to get its type object
+		// so we can properly register the new selector in the type info.
+		// We use LookupFieldOrMethod because nameOff might be in an embedded struct.
+		var nameOffVar *types.Var
+		var nameOffStruct *types.Struct
+		if info != nil {
+			if obj := info.ObjectOf(receiverIdent); obj != nil {
+				// LookupFieldOrMethod handles embedded fields correctly.
+				// For unexported fields like nameOff, we need to pass the package.
+				pkg := obj.Pkg()
+				fieldObj, _, _ := types.LookupFieldOrMethod(obj.Type(), true, pkg, nameOffField)
+				if fv, ok := fieldObj.(*types.Var); ok {
+					nameOffVar = fv
+					// Find the struct that contains this field in fieldToStruct
+					// by looking up the existing field entry
+					if fieldToStruct != nil {
+						nameOffStruct = fieldToStruct[fv]
+					}
+				}
+			}
+		}
+
+		// Create the new nameOff selector: clonedReceiver.nameOff
+		nameOffIdent := ast.NewIdent(nameOffField)
+		if info != nil && nameOffVar != nil {
+			info.Uses[nameOffIdent] = nameOffVar
+			// Also ensure the field is in fieldToStruct for proper obfuscation
+			if fieldToStruct != nil && nameOffStruct != nil {
+				fieldToStruct[nameOffVar] = nameOffStruct
+			}
+		}
+
+		newSelector := &ast.SelectorExpr{
+			X:   clonedReceiver,
+			Sel: nameOffIdent,
+		}
+
 		callExpr.Args[0] = &ast.BinaryExpr{
 			X:  selExpr,
 			Op: token.XOR,
 			Y: &ast.ParenExpr{X: &ast.BinaryExpr{
-				X: ah.CallExpr(ast.NewIdent("uint32"), &ast.SelectorExpr{
-					X:   selExpr.X,
-					Sel: ast.NewIdent(nameOffField),
-				}),
+				X:  ah.CallExpr(ast.NewIdent("uint32"), newSelector),
 				Op: token.MUL,
 				Y: &ast.BasicLit{
 					Kind:  token.INT,
@@ -235,6 +315,12 @@ func stripRuntime(basename string, file *ast.File) {
 }
 
 var hidePrintDecl = &ast.FuncDecl{
+	Doc: &ast.CommentGroup{
+		List: []*ast.Comment{
+			{Text: "//go:nowritebarrierrec"},
+			{Text: "//go:nosplit"},
+		},
+	},
 	Name: ast.NewIdent("hidePrint"),
 	Type: &ast.FuncType{Params: &ast.FieldList{
 		List: []*ast.Field{{

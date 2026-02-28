@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"mvdan.cc/garble/internal/linker"
+	"mvdan.cc/garble/internal/patcher"
 )
 
 const actionGraphFileName = "action-graph.json"
@@ -316,18 +316,62 @@ func mainErr(args []string) error {
 		}
 
 		executablePath := args[0]
+		if tool == "compile" {
+			// Use GARBLE_GO_SRC if set to build a patched compiler
+			goSrc := os.Getenv(patcher.GoSrcEnv)
+			modifiedCompilePath, unlock, err := patcher.PatchCompiler(goSrc, sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
+			if err != nil {
+				return fmt.Errorf("cannot get modified compiler: %v", err)
+			}
+			defer unlock()
+
+			if modifiedCompilePath != "" {
+				executablePath = modifiedCompilePath
+				log.Printf("replaced compiler with: %s", executablePath)
+			}
+			// Set package path mapping for the patched compiler.
+			// We need to pass ALL runtime package mappings so the compiler can
+			// recognize obfuscated packages as runtime packages (for write barrier checks, etc.)
+			os.Setenv(patcher.PkgPathMapEnv, buildRuntimePkgPathMap())
+			// Set symbol mapping for intrinsic/builtin recognition
+			os.Setenv(patcher.SymbolMapEnv, buildSymbolMap())
+		}
+		if tool == "asm" {
+			// Use GARBLE_GO_SRC if set to build a patched assembler
+			goSrc := os.Getenv(patcher.GoSrcEnv)
+			modifiedAsmPath, unlock, err := patcher.PatchAssembler(goSrc, sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
+			if err != nil {
+				return fmt.Errorf("cannot get modified assembler: %v", err)
+			}
+			defer unlock()
+
+			if modifiedAsmPath != "" {
+				executablePath = modifiedAsmPath
+				log.Printf("replaced assembler with: %s", executablePath)
+			}
+			// Set package path mapping for the patched assembler
+			os.Setenv(patcher.PkgPathMapEnv, buildRuntimePkgPathMap())
+		}
 		if tool == "link" {
-			modifiedLinkPath, unlock, err := linker.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
+			modifiedLinkPath, unlock, err := patcher.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
 			if err != nil {
 				return fmt.Errorf("cannot get modified linker: %v", err)
 			}
 			defer unlock()
 
 			executablePath = modifiedLinkPath
-			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
-			os.Setenv(linker.EntryOffKeyEnv, strconv.FormatUint(uint64(entryOffKey()), 10))
+			magicVal := magicValue()
+			if flagDebug {
+				fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: Setting linker magic to %d (0x%x)\n", magicVal, magicVal)
+			}
+			os.Setenv(patcher.MagicValueEnv, strconv.FormatUint(uint64(magicVal), 10))
+			os.Setenv(patcher.EntryOffKeyEnv, strconv.FormatUint(uint64(entryOffKey()), 10))
+			// Pass package path mapping to the patched linker for obfuscated runtime lookups
+			os.Setenv(patcher.PkgPathMapEnv, buildRuntimePkgPathMap())
+			// Set symbol mapping for builtin symbol recognition
+			os.Setenv(patcher.SymbolMapEnv, buildSymbolMap())
 			if flagTiny {
-				os.Setenv(linker.TinyEnv, "true")
+				os.Setenv(patcher.TinyEnv, "true")
 			}
 
 			log.Printf("replaced linker with: %s", executablePath)

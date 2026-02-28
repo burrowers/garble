@@ -4,36 +4,21 @@
 
 package main
 
-// runtimeAndDeps contains the runtime package and all of its transitive dependencies
-// as reported by 'go list -deps'.
+import (
+	"fmt"
+	"os"
+)
+
+// runtimeAndDeps contains packages that cannot have their contents obfuscated.
+// Currently only "unsafe" is truly unobfuscatable as it's a compiler builtin.
+// Runtime and its dependencies CAN be obfuscated thanks to compiler/linker patches that:
+//  1. Pass obfuscated->original symbol mappings via GARBLE_SYMBOL_MAP
+//  2. Translate obfuscated names for intrinsic/builtin lookups
+//  3. Skip the nowritebarrierrec check when garble is active
 var runtimeAndDeps = map[string]bool{
-	"internal/abi":              true, // go1.25
-	"internal/asan":             true, // go1.25
-	"internal/bytealg":          true, // go1.25
-	"internal/byteorder":        true, // go1.25
-	"internal/chacha8rand":      true, // go1.25
-	"internal/coverage/rtcov":   true, // go1.25
-	"internal/cpu":              true, // go1.25
-	"internal/goarch":           true, // go1.25
-	"internal/godebugs":         true, // go1.25
-	"internal/goexperiment":     true, // go1.25
-	"internal/goos":             true, // go1.25
-	"internal/msan":             true, // go1.25
-	"internal/profilerecord":    true, // go1.25
-	"internal/race":             true, // go1.25
-	"internal/runtime/atomic":   true, // go1.25
-	"internal/runtime/cgroup":   true, // go1.25
-	"internal/runtime/exithook": true, // go1.25
-	"internal/runtime/gc":       true, // go1.25
-	"internal/runtime/maps":     true, // go1.25
-	"internal/runtime/math":     true, // go1.25
-	"internal/runtime/strconv":  true, // go1.25
-	"internal/runtime/sys":      true, // go1.25
-	"internal/runtime/syscall":  true, // go1.25
-	"internal/stringslite":      true, // go1.25
-	"internal/trace/tracev2":    true, // go1.25
-	"runtime":                   true, // go1.25
-	"unsafe":                    true, // go1.25
+	"unsafe": true, // builtin pseudo-package
+	// internal/abi contains compiler intrinsics which must keep names/paths.
+	"internal/abi": true, // go1.25
 }
 
 // runtimeAndLinknamed contains the runtime package and all the packages
@@ -93,179 +78,222 @@ var runtimeAndLinknamed = []string{
 	"testing/synctest",
 }
 
-var compilerIntrinsics = map[string]map[string]bool{
+// intrinsicPackages lists packages that contain compiler intrinsics.
+// These packages have their symbols obfuscated, but the obfuscated->original
+// mappings are passed to the compiler/linker via GARBLE_SYMBOL_MAP so that
+// intrinsic matching and builtin symbol lookup still work.
+var intrinsicPackages = []string{
+	"internal/runtime/atomic",
+	"internal/runtime/maps",
+	"internal/runtime/math",
+	"internal/runtime/sys",
+	"math",
+	"math/big",
+	"math/bits",
+	"runtime",
+	"sync",
+	"internal/sync",
+	"sync/atomic",
+	"internal/abi",
+}
+
+// intrinsicSymbols lists the intrinsic function names per package.
+// These are functions that the compiler replaces with inline code.
+var intrinsicSymbols = map[string][]string{
 	"internal/runtime/atomic": {
-		"And":             true, // go1.25
-		"And32":           true, // go1.25
-		"And64":           true, // go1.25
-		"And8":            true, // go1.25
-		"Anduintptr":      true, // go1.25
-		"Cas":             true, // go1.25
-		"Cas64":           true, // go1.25
-		"CasRel":          true, // go1.25
-		"Casint32":        true, // go1.25
-		"Casint64":        true, // go1.25
-		"Casp1":           true, // go1.25
-		"Casuintptr":      true, // go1.25
-		"Load":            true, // go1.25
-		"Load64":          true, // go1.25
-		"Load8":           true, // go1.25
-		"LoadAcq":         true, // go1.25
-		"LoadAcq64":       true, // go1.25
-		"LoadAcquintptr":  true, // go1.25
-		"Loadint32":       true, // go1.25
-		"Loadint64":       true, // go1.25
-		"Loadp":           true, // go1.25
-		"Loaduint":        true, // go1.25
-		"Loaduintptr":     true, // go1.25
-		"Or":              true, // go1.25
-		"Or32":            true, // go1.25
-		"Or64":            true, // go1.25
-		"Or8":             true, // go1.25
-		"Oruintptr":       true, // go1.25
-		"Store":           true, // go1.25
-		"Store64":         true, // go1.25
-		"Store8":          true, // go1.25
-		"StoreRel":        true, // go1.25
-		"StoreRel64":      true, // go1.25
-		"StoreReluintptr": true, // go1.25
-		"Storeint32":      true, // go1.25
-		"Storeint64":      true, // go1.25
-		"StorepNoWB":      true, // go1.25
-		"Storeuintptr":    true, // go1.25
-		"Xadd":            true, // go1.25
-		"Xadd64":          true, // go1.25
-		"Xaddint32":       true, // go1.25
-		"Xaddint64":       true, // go1.25
-		"Xadduintptr":     true, // go1.25
-		"Xchg":            true, // go1.25
-		"Xchg64":          true, // go1.25
-		"Xchg8":           true, // go1.25
-		"Xchgint32":       true, // go1.25
-		"Xchgint64":       true, // go1.25
-		"Xchguintptr":     true, // go1.25
+		"And", "And32", "And64", "And8", "Anduintptr",
+		"Cas", "Cas64", "CasRel", "Casint32", "Casint64", "Casp1", "Casuintptr",
+		"Load", "Load64", "Load8", "LoadAcq", "LoadAcq64", "LoadAcquintptr",
+		"Loadint32", "Loadint64", "Loadp", "Loaduint", "Loaduintptr",
+		"Or", "Or32", "Or64", "Or8", "Oruintptr",
+		"Store", "Store64", "Store8", "StoreRel", "StoreRel64", "StoreReluintptr",
+		"Storeint32", "Storeint64", "StorepNoWB", "Storeuintptr",
+		"Xadd", "Xadd64", "Xaddint32", "Xaddint64", "Xadduintptr",
+		"Xchg", "Xchg64", "Xchg8", "Xchgint32", "Xchgint64", "Xchguintptr",
 	},
 	"internal/runtime/maps": {
-		"bitsetFirst":                  true, // go1.25
-		"bitsetLowestSet":              true, // go1.25
-		"bitsetRemoveBelow":            true, // go1.25
-		"bitsetShiftOutLowest":         true, // go1.25
-		"ctrlGroupMatchEmpty":          true, // go1.25
-		"ctrlGroupMatchEmptyOrDeleted": true, // go1.25
-		"ctrlGroupMatchFull":           true, // go1.25
-		"ctrlGroupMatchH2":             true, // go1.25
+		"bitsetFirst", "bitsetLowestSet", "bitsetRemoveBelow", "bitsetShiftOutLowest",
+		"ctrlGroupMatchEmpty", "ctrlGroupMatchEmptyOrDeleted", "ctrlGroupMatchFull", "ctrlGroupMatchH2",
+		// Note: newobject is NOT an intrinsic here - it's a linknamed function that links to runtime.newobject
 	},
 	"internal/runtime/math": {
-		"MulUintptr": true, // go1.25
+		"MulUintptr",
 	},
 	"internal/runtime/sys": {
-		"Bswap32":          true, // go1.25
-		"Bswap64":          true, // go1.25
-		"Len64":            true, // go1.25
-		"Len8":             true, // go1.25
-		"OnesCount64":      true, // go1.25
-		"Prefetch":         true, // go1.25
-		"PrefetchStreamed": true, // go1.25
-		"TrailingZeros32":  true, // go1.25
-		"TrailingZeros64":  true, // go1.25
-		"TrailingZeros8":   true, // go1.25
+		"Bswap32", "Bswap64", "Len64", "Len8", "OnesCount64",
+		"Prefetch", "PrefetchStreamed",
+		"TrailingZeros32", "TrailingZeros64", "TrailingZeros8",
+		"GetCallerPC", "GetCallerSP", "GetClosurePtr",
+		"LeadingZeros64", "LeadingZeros8",
+		"DITEnabled", "DisableDIT", "EnableDIT",
+	},
+	"internal/abi": {
+		"FuncPCABI0", "FuncPCABIInternal", "EscapeNonString",
 	},
 	"math": {
-		"Abs":         true, // go1.25
-		"Ceil":        true, // go1.25
-		"Copysign":    true, // go1.25
-		"FMA":         true, // go1.25
-		"Floor":       true, // go1.25
-		"Round":       true, // go1.25
-		"RoundToEven": true, // go1.25
-		"Trunc":       true, // go1.25
-		"sqrt":        true, // go1.25
+		"Abs", "Ceil", "Copysign", "FMA", "Floor", "Round", "RoundToEven", "Trunc", "sqrt",
 	},
 	"math/big": {
-		"mulWW": true, // go1.25
+		"mulWW",
 	},
 	"math/bits": {
-		"Add":             true, // go1.25
-		"Add64":           true, // go1.25
-		"Div":             true, // go1.25
-		"Div64":           true, // go1.25
-		"Len":             true, // go1.25
-		"Len16":           true, // go1.25
-		"Len32":           true, // go1.25
-		"Len64":           true, // go1.25
-		"Len8":            true, // go1.25
-		"Mul":             true, // go1.25
-		"Mul64":           true, // go1.25
-		"OnesCount":       true, // go1.25
-		"OnesCount16":     true, // go1.25
-		"OnesCount32":     true, // go1.25
-		"OnesCount64":     true, // go1.25
-		"OnesCount8":      true, // go1.25
-		"Reverse":         true, // go1.25
-		"Reverse16":       true, // go1.25
-		"Reverse32":       true, // go1.25
-		"Reverse64":       true, // go1.25
-		"Reverse8":        true, // go1.25
-		"ReverseBytes16":  true, // go1.25
-		"ReverseBytes32":  true, // go1.25
-		"ReverseBytes64":  true, // go1.25
-		"RotateLeft":      true, // go1.25
-		"RotateLeft16":    true, // go1.25
-		"RotateLeft32":    true, // go1.25
-		"RotateLeft64":    true, // go1.25
-		"RotateLeft8":     true, // go1.25
-		"Sub":             true, // go1.25
-		"Sub64":           true, // go1.25
-		"TrailingZeros16": true, // go1.25
-		"TrailingZeros32": true, // go1.25
-		"TrailingZeros64": true, // go1.25
-		"TrailingZeros8":  true, // go1.25
+		"Add", "Add64", "Div", "Div64", "Len", "Len16", "Len32", "Len64", "Len8",
+		"Mul", "Mul64", "OnesCount", "OnesCount16", "OnesCount32", "OnesCount64", "OnesCount8",
+		"Reverse", "Reverse16", "Reverse32", "Reverse64", "Reverse8",
+		"ReverseBytes16", "ReverseBytes32", "ReverseBytes64",
+		"RotateLeft", "RotateLeft16", "RotateLeft32", "RotateLeft64", "RotateLeft8",
+		"Sub", "Sub64", "TrailingZeros16", "TrailingZeros32", "TrailingZeros64", "TrailingZeros8",
 	},
 	"runtime": {
-		"publicationBarrier": true, // go1.25
+		"publicationBarrier", "KeepAlive",
+		// getg is a compiler intrinsic - if obfuscated, the compiler won't recognize it
+		// and will generate a function call that has no implementation
+		"getg",
+		// hex is a special runtime type used by the compiler to print hex values.
+		"hex",
+		// firstmoduledata is a critical global variable that the linker populates.
+		// If obfuscated, symbol resolution issues can cause the runtime to crash.
+		"firstmoduledata",
 	},
 	"sync": {
-		"runtime_LoadAcquintptr":  true, // go1.25
-		"runtime_StoreReluintptr": true, // go1.25
+		"runtime_LoadAcquintptr", "runtime_StoreReluintptr",
 	},
+	"internal/sync": {},
 	"sync/atomic": {
-		"AddInt32":              true, // go1.25
-		"AddInt64":              true, // go1.25
-		"AddUint32":             true, // go1.25
-		"AddUint64":             true, // go1.25
-		"AddUintptr":            true, // go1.25
-		"AndInt32":              true, // go1.25
-		"AndInt64":              true, // go1.25
-		"AndUint32":             true, // go1.25
-		"AndUint64":             true, // go1.25
-		"AndUintptr":            true, // go1.25
-		"CompareAndSwapInt32":   true, // go1.25
-		"CompareAndSwapInt64":   true, // go1.25
-		"CompareAndSwapUint32":  true, // go1.25
-		"CompareAndSwapUint64":  true, // go1.25
-		"CompareAndSwapUintptr": true, // go1.25
-		"LoadInt32":             true, // go1.25
-		"LoadInt64":             true, // go1.25
-		"LoadPointer":           true, // go1.25
-		"LoadUint32":            true, // go1.25
-		"LoadUint64":            true, // go1.25
-		"LoadUintptr":           true, // go1.25
-		"OrInt32":               true, // go1.25
-		"OrInt64":               true, // go1.25
-		"OrUint32":              true, // go1.25
-		"OrUint64":              true, // go1.25
-		"OrUintptr":             true, // go1.25
-		"StoreInt32":            true, // go1.25
-		"StoreInt64":            true, // go1.25
-		"StoreUint32":           true, // go1.25
-		"StoreUint64":           true, // go1.25
-		"StoreUintptr":          true, // go1.25
-		"SwapInt32":             true, // go1.25
-		"SwapInt64":             true, // go1.25
-		"SwapUint32":            true, // go1.25
-		"SwapUint64":            true, // go1.25
-		"SwapUintptr":           true, // go1.25
+		"AddInt32", "AddInt64", "AddUint32", "AddUint64", "AddUintptr",
+		"AndInt32", "AndInt64", "AndUint32", "AndUint64", "AndUintptr",
+		"CompareAndSwapInt32", "CompareAndSwapInt64", "CompareAndSwapUint32",
+		"CompareAndSwapUint64", "CompareAndSwapUintptr",
+		"LoadInt32", "LoadInt64", "LoadPointer", "LoadUint32", "LoadUint64", "LoadUintptr",
+		"OrInt32", "OrInt64", "OrUint32", "OrUint64", "OrUintptr",
+		"StoreInt32", "StoreInt64", "StoreUint32", "StoreUint64", "StoreUintptr",
+		"SwapInt32", "SwapInt64", "SwapUint32", "SwapUint64", "SwapUintptr",
 	},
+}
+
+// builtinSymbols lists symbols that the linker references by name.
+// These are compiled into object files and looked up during linking.
+var builtinSymbols = map[string][]string{
+	"runtime": {
+		// From cmd/internal/goobj/builtinlist.go
+		"newobject", "mallocgc", "panicdivide", "panicshift",
+		"panicmakeslicelen", "panicmakeslicecap", "throwinit", "panicwrap",
+		"gopanic", "gorecover", "goschedguarded",
+		"goPanicIndex", "goPanicIndexU", "goPanicSliceAlen", "goPanicSliceAlenU",
+		"goPanicSliceAcap", "goPanicSliceAcapU", "goPanicSliceB", "goPanicSliceBU",
+		"goPanicSlice3Alen", "goPanicSlice3AlenU", "goPanicSlice3Acap", "goPanicSlice3AcapU",
+		"goPanicSlice3B", "goPanicSlice3BU", "goPanicSlice3C", "goPanicSlice3CU",
+		"goPanicSliceConvert",
+		"printbool", "printfloat", "printint", "printhex", "printuint",
+		"printcomplex", "printstring", "printpointer", "printuintptr",
+		"printiface", "printeface", "printslice", "printnl", "printsp",
+		"printlock", "printunlock",
+		"concatstring2", "concatstring3", "concatstring4", "concatstring5", "concatstrings",
+		"concatbyte2", "concatbyte3", "concatbyte4", "concatbyte5", "concatbytes",
+		"cmpstring", "intstring", "slicebytetostring", "slicebytetostringtmp",
+		"slicerunetostring", "stringtoslicebyte", "stringtoslicerune",
+		"decoderune", "countrunes",
+		"convT", "convT16", "convT32", "convT64", "convTnoptr", "convTslice", "convTstring",
+		"assertE2I", "assertE2I2", "panicdottypeE", "panicdottypeI", "panicnildottype",
+		"interfaceSwitch", "typeAssert", "ifaceeq", "efaceeq",
+		"deferproc", "deferprocStack", "deferreturn", "deferrangefunc",
+		"makemap", "makemap64", "makemap_small", "mapaccess1", "mapaccess1_fast32",
+		"mapaccess1_fast64", "mapaccess1_faststr", "mapaccess1_fat",
+		"mapaccess2", "mapaccess2_fast32", "mapaccess2_fast64", "mapaccess2_faststr", "mapaccess2_fat",
+		"mapassign", "mapassign_fast32", "mapassign_fast32ptr", "mapassign_fast64",
+		"mapassign_fast64ptr", "mapassign_faststr", "mapdelete", "mapdelete_fast32",
+		"mapdelete_fast64", "mapdelete_faststr", "mapiterinit", "mapiternext",
+		"mapIterStart", "mapIterNext", "mapclear", "mapinitnoop",
+		"makechan", "makechan64", "chanrecv1", "chanrecv2", "chansend1", "closechan", "selectgo",
+		"selectnbsend", "selectnbrecv", "selectsetpc",
+		"makeslice", "makeslice64", "makeslicecopy", "growslice", "slicecopy",
+		"memclrNoHeapPointers", "memclrHasPointers", "memmove", "memequal",
+		"memequal0", "memequal8", "memequal16", "memequal32", "memequal64", "memequal128",
+		"memequal_varlen", "memhash", "memhash0", "memhash8", "memhash16", "memhash_varlen",
+		"memhash32", "memhash64", "memhash128", "strhash", "strequal",
+		"f32equal", "f32hash", "f64equal", "f64hash",
+		"c64equal", "c64hash", "c128equal", "c128hash",
+		"nilinterequal", "nilinterhash", "interequal", "interhash",
+		"typedmemclr", "typedmemmove", "typedslicecopy",
+		"newproc", "sigpanic", "morestack", "morestack_noctxt", "morestackc",
+		"gcWriteBarrier",
+		"gcWriteBarrier1", "gcWriteBarrier2", "gcWriteBarrier3", "gcWriteBarrier4",
+		"gcWriteBarrier5", "gcWriteBarrier6", "gcWriteBarrier7", "gcWriteBarrier8",
+		"gcWriteBarrierBP", "gcWriteBarrierBX", "gcWriteBarrierCX",
+		"gcWriteBarrierDX", "gcWriteBarrierR8", "gcWriteBarrierR9", "gcWriteBarrierSI",
+		"duffcopy", "duffzero",
+		"int64div", "int64mod", "uint64div", "uint64mod",
+		"float64toint64", "float64touint64", "float64touint32",
+		"int64tofloat64", "int64tofloat32", "uint64tofloat64", "uint64tofloat32", "uint32tofloat64",
+		"complex128div",
+		"racefuncenter", "racefuncexit", "raceread", "racewrite", "racereadrange", "racewriterange",
+		"msanread", "msanwrite", "msanmove", "asanread", "asanwrite", "asanregisterglobals",
+		"checkptrAlignment", "checkptrArithmetic",
+		"panicunsafeslicelen", "panicunsafeslicenilptr", "panicunsafestringlen", "panicunsafestringnilptr",
+		"unsafeslicecheckptr", "unsafestringcheckptr",
+		"libfuzzerTraceCmp1", "libfuzzerTraceCmp2", "libfuzzerTraceCmp4", "libfuzzerTraceCmp8",
+		"libfuzzerTraceConstCmp1", "libfuzzerTraceConstCmp2", "libfuzzerTraceConstCmp4",
+		"libfuzzerTraceConstCmp8", "libfuzzerHookStrCmp", "libfuzzerHookEqualFold",
+		"panicoverflow", "panicrangestate",
+		"rand", "rand32",
+		"panicIndex", "panicIndexU",
+		"panicSliceAlen", "panicSliceAlenU", "panicSliceAcap", "panicSliceAcapU",
+		"panicSliceB", "panicSliceBU",
+		"panicSlice3Alen", "panicSlice3AlenU", "panicSlice3Acap", "panicSlice3AcapU",
+		"panicSlice3B", "panicSlice3BU", "panicSlice3C", "panicSlice3CU",
+		"panicSliceConvert",
+		"panicExtendIndex", "panicExtendIndexU",
+		"panicExtendSliceAlen", "panicExtendSliceAlenU",
+		"panicExtendSliceAcap", "panicExtendSliceAcapU",
+		"panicExtendSliceB", "panicExtendSliceBU",
+		"panicExtendSlice3Alen", "panicExtendSlice3AlenU",
+		"panicExtendSlice3Acap", "panicExtendSlice3AcapU",
+		"panicExtendSlice3B", "panicExtendSlice3BU",
+		"panicExtendSlice3C", "panicExtendSlice3CU",
+		// Write barrier helpers
+		"wbZero", "wbMove", "zeroVal",
+		// Other referenced symbols
+		"writeBarrier", "block", "unreachableMethod",
+		"emptyInterfaceSwitchCache", "emptyTypeAssert", "emptyTypeAssertCache", "addCovMeta",
+		"staticuint64s", "udiv",
+		// Global data symbols
+		"zerobase", "bss", "ebss", "data", "edata", "gcbss", "egcbss", "gcdata", "egcdata",
+		"noptrbss", "enoptrbss", "noptrdata", "enoptrdata",
+		"rodata", "erodata", "text", "etext", "types", "etypes",
+		"symtab", "esymtab", "pclntab", "epclntab", "functab", "funcnametab",
+		"cutab", "filetab", "pctab", "pcheader", "findfunctab",
+		"moduledata", "firstmoduledata", "lastmoduledatap", "modulehash",
+		"textsectionmap", "typelink", "itablink", "buildVersion",
+		"modinfo", "runtime_inittasks",
+		"tlsg",
+		// CPU feature flags
+		"arm64HasATOMICS", "armHasVFPv4", "loong64HasLAMCAS", "loong64HasLAM_BH", "loong64HasLSX",
+		"riscv64HasZbb", "x86HasFMA", "x86HasPOPCNT", "x86HasSSE41",
+		"goarm", "goarmsoftfp", "isarchive", "islibrary", "covctrs", "ecovctrs",
+	},
+	"internal/runtime/maps": {
+		"newobject",
+	},
+}
+
+// isIntrinsicSymbol returns true if the given symbol name in the given package
+// is a compiler intrinsic that should not be obfuscated.
+// These symbols must keep their original names for the compiler to recognize them.
+func isIntrinsicSymbol(pkgPath, name string) bool {
+	if syms, ok := intrinsicSymbols[pkgPath]; ok {
+		for _, s := range syms {
+			if s == name {
+				if name == "firstmoduledata" && flagDebug {
+					fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: isIntrinsicSymbol(%q, %q) = true\n", pkgPath, name)
+				}
+				return true
+			}
+		}
+	}
+	if name == "firstmoduledata" && flagDebug {
+		fmt.Fprintf(os.Stderr, "GARBLE_DEBUG: isIntrinsicSymbol(%q, %q) = false\n", pkgPath, name)
+	}
+	return false
 }
 
 var reflectSkipPkg = map[string]bool{
