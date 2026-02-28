@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	mathrand "math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -305,16 +307,38 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 
 	flags = alterTrimpath(flags)
 
-	// The assembler runs twice; the first with -gensymabis,
-	// where we continue below and we obfuscate all the source.
-	// The second time, without -gensymabis, we reconstruct the paths to the
-	// obfuscated source files and reuse them to avoid work.
+	// Add the original source directory to the include path so that
+	// local header files like "abi_amd64.h" can still be found.
+	if len(paths) > 0 {
+		flags = append(flags, "-I", filepath.Dir(paths[0]))
+	}
+
+	// The assembler runs twice: first with -gensymabis to generate symbol ABIs,
+	// then without it to assemble. On the second pass, we apply struct offset
+	// mappings computed during compile to fix references like "Args_fieldName".
 	newPaths := make([]string, 0, len(paths))
 	if !slices.Contains(args, "-gensymabis") {
+		structMappings, err := tf.loadAsmStructOffsetMappings()
+		if err != nil {
+			return nil, err
+		}
 		for _, path := range paths {
 			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
 			pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir())
 			newPath := filepath.Join(pkgDir, name)
+
+			if len(structMappings) > 0 {
+				content, err := os.ReadFile(newPath)
+				if err != nil {
+					return nil, err
+				}
+				newContent := replaceStructOffsetConstants(content, structMappings)
+				if !bytes.Equal(content, newContent) {
+					if err := os.WriteFile(newPath, newContent, 0o666); err != nil {
+						return nil, err
+					}
+				}
+			}
 			newPaths = append(newPaths, newPath)
 		}
 		return append(flags, newPaths...), nil
@@ -323,9 +347,10 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	const missingHeader = "missing header path"
 	newHeaderPaths := make(map[string]string)
 	var buf, includeBuf bytes.Buffer
-	for _, path := range paths {
+	for _, asmPath := range paths {
 		buf.Reset()
-		f, err := os.Open(path)
+		asmDir := filepath.Dir(asmPath)
+		f, err := os.Open(asmPath)
 		if err != nil {
 			return nil, err
 		}
@@ -349,11 +374,11 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 			// For example: #include "foo.h"
 			if quoted, ok := strings.CutPrefix(line, "#include"); ok {
 				quoted = strings.TrimSpace(quoted)
-				path, err := strconv.Unquote(quoted)
+				headerPath, err := strconv.Unquote(quoted)
 				if err != nil { // note that strconv.Unquote errors do not include the input string
 					return nil, fmt.Errorf("cannot unquote %q: %v", quoted, err)
 				}
-				newPath := newHeaderPaths[path]
+				newPath := newHeaderPaths[headerPath]
 				switch newPath {
 				case missingHeader: // no need to try again
 					buf.WriteString(line)
@@ -361,9 +386,15 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 					continue
 				case "": // first time we see this header
 					includeBuf.Reset()
-					content, err := os.ReadFile(path)
+					// Resolve relative header paths to absolute paths using
+					// the directory of the assembly file that includes them.
+					headerFullPath := headerPath
+					if !filepath.IsAbs(headerPath) {
+						headerFullPath = filepath.Join(asmDir, headerPath)
+					}
+					content, err := os.ReadFile(headerFullPath)
 					if errors.Is(err, fs.ErrNotExist) {
-						newHeaderPaths[path] = missingHeader
+						newHeaderPaths[headerPath] = missingHeader
 						buf.WriteString(line)
 						buf.WriteByte('\n')
 						continue // a header file provided by Go or the system
@@ -376,13 +407,13 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 					// The different name ensures we don't use the unobfuscated file.
 					// This is far from perfect, but does the job for the time being.
 					// In the future, use a randomized name.
-					basename := filepath.Base(path)
+					basename := filepath.Base(headerPath)
 					newPath = "garbled_" + basename
 
 					if _, err := tf.writeSourceFile(basename, newPath, includeBuf.Bytes()); err != nil {
 						return nil, err
 					}
-					newHeaderPaths[path] = newPath
+					newHeaderPaths[headerPath] = newPath
 				}
 				buf.WriteString("#include ")
 				buf.WriteString(strconv.Quote(newPath))
@@ -401,12 +432,12 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 		// With assembly files, we obfuscate the filename in the temporary
 		// directory, as assembly files do not support `/*line` directives.
 		// TODO(mvdan): per cmd/asm/internal/lex, they do support `#line`.
-		basename := filepath.Base(path)
+		basename := filepath.Base(asmPath)
 		newName := hashWithPackage(tf.curPkg, basename) + ".s"
-		if path, err := tf.writeSourceFile(basename, newName, buf.Bytes()); err != nil {
+		if newAsmPath, err := tf.writeSourceFile(basename, newName, buf.Bytes()); err != nil {
 			return nil, err
 		} else {
-			newPaths = append(newPaths, path)
+			newPaths = append(newPaths, newAsmPath)
 		}
 		f.Close() // do not keep len(paths) files open
 	}
@@ -528,6 +559,115 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	}
 }
 
+// replaceStructOffsetConstants replaces struct offset constants in assembly code
+// with their obfuscated versions using the provided mappings.
+// It uses word boundaries to avoid replacing substrings of other identifiers.
+func replaceStructOffsetConstants(content []byte, mappings map[string]string) []byte {
+	if len(mappings) == 0 {
+		return content
+	}
+	keys := make([]string, 0, len(mappings))
+	for k := range mappings {
+		keys = append(keys, regexp.QuoteMeta(k))
+	}
+	re := regexp.MustCompile(`\b(` + strings.Join(keys, "|") + `)\b`)
+	return re.ReplaceAllFunc(content, func(match []byte) []byte {
+		if replacement, ok := mappings[string(match)]; ok {
+			return []byte(replacement)
+		}
+		return match
+	})
+}
+
+// asmStructOffsetMappingsFile returns the path to the file that stores
+// the struct offset mappings for assembly files.
+func (tf *transformer) asmStructOffsetMappingsFile() string {
+	return filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir(), "asm_struct_mappings.gob")
+}
+
+// saveAsmStructOffsetMappings computes and saves mappings for struct offset constants.
+//
+// When a Go package has assembly files, the compiler generates go_asm.h with
+// constants like "syscall15Args_a1" (field offset) and "syscall15Args__size"
+// (struct size) based on the original struct definitions. When garble obfuscates
+// the struct type and field names, go_asm.h gets regenerated with obfuscated names,
+// but the assembly source files still reference the original names.
+//
+// This function creates a mapping from original to obfuscated names, which is
+// then applied to the assembly files in the second asm pass (without -gensymabis).
+func (tf *transformer) saveAsmStructOffsetMappings() error {
+	mappings := make(map[string]string)
+
+	scope := tf.pkg.Scope()
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		typeName, ok := obj.(*types.TypeName)
+		if !ok {
+			continue
+		}
+		structType, ok := typeName.Type().Underlying().(*types.Struct)
+		if !ok {
+			continue
+		}
+
+		var obfuscatedTypeName string
+		if tf.curPkg.ToObfuscate {
+			obfuscatedTypeName = hashWithPackage(tf.curPkg, name)
+		} else {
+			obfuscatedTypeName = name
+		}
+
+		// StructName__size
+		mappings[name+"__size"] = obfuscatedTypeName + "__size"
+
+		// StructName_FieldName for each field
+		for i := 0; i < structType.NumFields(); i++ {
+			field := structType.Field(i)
+			fieldName := field.Name()
+
+			var obfuscatedFieldName string
+			if tf.curPkg.ToObfuscate {
+				obfuscatedFieldName = hashWithStruct(structType, field)
+			} else {
+				obfuscatedFieldName = fieldName
+			}
+			mappings[name+"_"+fieldName] = obfuscatedTypeName + "_" + obfuscatedFieldName
+		}
+	}
+
+	if len(mappings) == 0 {
+		return nil
+	}
+
+	pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir())
+	if err := os.MkdirAll(pkgDir, 0o777); err != nil {
+		return err
+	}
+	f, err := os.Create(tf.asmStructOffsetMappingsFile())
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return gob.NewEncoder(f).Encode(mappings)
+}
+
+func (tf *transformer) loadAsmStructOffsetMappings() (map[string]string, error) {
+	f, err := os.Open(tf.asmStructOffsetMappingsFile())
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var mappings map[string]string
+	if err := gob.NewDecoder(f).Decode(&mappings); err != nil {
+		return nil, err
+	}
+	return mappings, nil
+}
+
 // writeSourceFile is a mix between os.CreateTemp and os.WriteFile, as it writes a
 // named source file in sharedTempDir given an input buffer.
 //
@@ -629,6 +769,13 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 
 	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
 	tf.fieldToStruct = computeFieldToStruct(tf.info)
+
+	if len(tf.curPkg.SFiles) > 0 {
+		if err := tf.saveAsmStructOffsetMappings(); err != nil {
+			return nil, err
+		}
+	}
+
 	if flagLiterals {
 		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg); err != nil {
 			return nil, err

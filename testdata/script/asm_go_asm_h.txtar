@@ -1,0 +1,87 @@
+# Test for go_asm.h struct offset constants in assembly.
+# This tests that garble correctly transforms struct offset constants
+# like "Args_a1" and "Args__size" when struct types are obfuscated.
+# See: https://github.com/burrowers/garble/issues/948
+[!amd64] [!arm64] skip 'the assembly is only written for amd64 and arm64'
+
+exec garble build
+exec ./main
+cmp stderr main.stderr
+
+[short] stop
+
+# Also test with -tiny
+exec garble -tiny build
+exec ./main
+cmp stderr main.stderr
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- main.go --
+package main
+
+// Args holds arguments for the assembly function.
+// The Go compiler generates go_asm.h with constants like:
+// - Args_a1 (offset of field a1)
+// - Args_a2 (offset of field a2)
+// - Args_a3 (offset of field a3)
+// - Args__size (size of the struct)
+type Args struct {
+	a1, a2, a3 int64
+}
+
+func asmFunc(args *Args) int64
+func getStructSize() int64
+
+func main() {
+	args := &Args{a1: 10, a2: 20, a3: 5}
+	result := asmFunc(args)
+	println(result)
+	size := getStructSize()
+	println(size)
+}
+-- main_amd64.s --
+#include "textflag.h"
+#include "go_asm.h"
+
+// asmFunc computes (a1 + a2) - a3 using go_asm.h constants
+TEXT ·asmFunc(SB), NOSPLIT, $0-16
+	MOVQ args+0(FP), R11
+	MOVQ Args_a1(R11), AX
+	MOVQ Args_a2(R11), BX
+	ADDQ BX, AX
+	MOVQ Args_a3(R11), BX
+	SUBQ BX, AX
+	MOVQ AX, ret+8(FP)
+	RET
+
+// getStructSize returns the size of Args struct using go_asm.h constant
+TEXT ·getStructSize(SB), NOSPLIT, $0-8
+	MOVQ $Args__size, AX
+	MOVQ AX, ret+0(FP)
+	RET
+-- main_arm64.s --
+#include "textflag.h"
+#include "go_asm.h"
+
+// asmFunc computes (a1 + a2) - a3 using go_asm.h constants
+TEXT ·asmFunc(SB), NOSPLIT, $0-16
+	MOVD args+0(FP), R0
+	MOVD Args_a1(R0), R1
+	MOVD Args_a2(R0), R2
+	ADD R2, R1, R1
+	MOVD Args_a3(R0), R2
+	SUB R2, R1, R1
+	MOVD R1, ret+8(FP)
+	RET
+
+// getStructSize returns the size of Args struct using go_asm.h constant
+TEXT ·getStructSize(SB), NOSPLIT, $0-8
+	MOVD $Args__size, R0
+	MOVD R0, ret+0(FP)
+	RET
+-- main.stderr --
+25
+24

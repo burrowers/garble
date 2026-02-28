@@ -1,0 +1,57 @@
+# Test for local header files in assembly that define struct offsets.
+# This is similar to how purego defines syscall15Args_* macros.
+# See: https://github.com/burrowers/garble/issues/948
+[!amd64] skip 'the assembly is only written for amd64'
+
+exec garble build
+exec ./main
+cmp stderr main.stderr
+
+[short] stop
+
+# Also test with -tiny
+exec garble -tiny build
+exec ./main
+cmp stderr main.stderr
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- main.go --
+package main
+
+// Args holds arguments for the assembly function.
+type Args struct {
+	a1, a2, a3 int64
+}
+
+func asmFunc(args *Args) int64
+
+func main() {
+	args := &Args{a1: 10, a2: 20, a3: 5}
+	result := asmFunc(args)
+	println(result)
+}
+-- offsets_amd64.h --
+// Local header file defining struct field offsets.
+// This mimics how purego defines syscall15Args_* macros.
+#define Args_a1(r) 0(r)
+#define Args_a2(r) 8(r)
+#define Args_a3(r) 16(r)
+-- main_amd64.s --
+#include "textflag.h"
+#include "offsets_amd64.h"
+
+// asmFunc computes (a1 + a2) - a3 using macros from local header
+TEXT ·asmFunc(SB), NOSPLIT, $0-16
+	MOVQ args+0(FP), R11
+	MOVQ Args_a1(R11), AX
+	MOVQ Args_a2(R11), BX
+	ADDQ BX, AX
+	MOVQ Args_a3(R11), BX
+	SUBQ BX, AX
+	MOVQ AX, ret+8(FP)
+	RET
+-- main.stderr --
+25
