@@ -68,6 +68,12 @@ func main() {
 	tmpl := template.Must(template.New("").Parse("Hello {{.Name}}."))
 	_ = tmpl.Execute(os.Stdout, struct{ Name string }{Name: "Dave"})
 	fmt.Println() // Always print a newline.
+	_ = genericRenderTemplate("name: {{.Name}} value: {{.Value}} port: {{.Port}}", GenericTemplateData{
+		Name:  "test",
+		Value: "example",
+		Port:  8080,
+	})
+	fmt.Println() // Always print a newline.
 
 	// Another complex case, involving embedding and another package.
 	outer := &importedpkg.EmbeddingOuter{}
@@ -204,6 +210,20 @@ type RecursiveStruct struct {
 
 // This could crash or hang if we don't deal with loops.
 var _ = reflect.TypeOf(RecursiveStruct{})
+
+type GenericTemplateData struct {
+	Name  string
+	Value string
+	Port  int
+}
+
+func genericRenderTemplate[T any](src string, data T) error {
+	tmpl, err := template.New("").Parse(src)
+	if err != nil {
+		return err
+	}
+	return tmpl.Execute(os.Stdout, data)
+}
 
 type IndirectReflection struct {
 	ReflectionField string
@@ -627,6 +647,7 @@ ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
 {"Foo":3}
 Hello Dave.
+name: test value: example port: 8080
 {"InnerField":3,"Anon":{"AnonField":0}}
 {downstream}
 {sibling}
