@@ -142,25 +142,25 @@ func debugDirNeedsRebuild() (bool, error) {
 		return false, err
 	}
 	sawBuildInputs := false
+	missingArtifacts := false
 	for _, lpkg := range sharedCache.ListedPackages {
 		if len(lpkg.GarbleActionID) == 0 {
 			continue
 		}
 		if len(lpkg.CompiledGoFiles) > 0 {
 			sawBuildInputs = true
-			if debugArtifactsExistForPkg(fsCache, lpkg, debugCacheKindCompile) {
-				return false, nil
+			if !debugArtifactsExistForPkg(fsCache, lpkg, debugCacheKindCompile) {
+				missingArtifacts = true
 			}
 		}
 		if len(lpkg.SFiles) > 0 {
 			sawBuildInputs = true
-			if debugArtifactsExistForPkg(fsCache, lpkg, debugCacheKindAsm) {
-				return false, nil
+			if !debugArtifactsExistForPkg(fsCache, lpkg, debugCacheKindAsm) {
+				missingArtifacts = true
 			}
 		}
 	}
-	// If no debug artifacts exist yet, force one full rebuild to warm cache.
-	// Once at least one cache entry exists, incremental builds can repopulate
-	// from cache + newly rebuilt packages without forcing -a.
-	return sawBuildInputs, nil
+	// For -debugdir to be complete, we either need artifacts in cache for every
+	// package input, or we need to force one full rebuild with -a.
+	return sawBuildInputs && missingArtifacts, nil
 }

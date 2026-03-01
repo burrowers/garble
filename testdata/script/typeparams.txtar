@@ -16,6 +16,11 @@ func main() {
 
 	g2 := GenericGraph[*[]byte]{Content: new([]byte)}
 	g2.Edges = make([]GenericGraph[*[]byte], 1)
+
+	var ga genericAlias
+	ga.list = nil
+	var gan genericAliasNamed
+	gan.list = nil
 }
 
 func GenericFunc[GenericParamA, B any](x GenericParamA, y B) {}
@@ -66,3 +71,10 @@ func (w *AsyncResult[oldT, newT]) AsResult() Result[newT] {
 }
 
 func (w *AsyncResult[oldT, newT]) Redirect(struct {ret newT}) {}
+
+type genericAlias = generic[int]
+type generic[T any] struct {
+	list *T
+}
+
+type genericAliasNamed genericAlias

@@ -166,10 +166,11 @@ func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStru
 		origin := origin.(*types.Struct)
 		for i := range used.NumFields() {
 			field := used.Field(i)
-			fieldToStruct[field] = origin
+			fieldToStruct[field.Origin()] = origin
 
 			if field.Embedded() {
-				recordType(field.Type(), origin.Field(i).Type(), done, fieldToStruct)
+				originField := origin.Field(i)
+				recordType(field.Type(), originField.Type(), done, fieldToStruct)
 			}
 		}
 	}
@@ -1237,11 +1238,12 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			// any field is unexported. If that is done, add a test
 			// that ensures unexported fields from different
 			// packages result in different obfuscated names.
-			strct := tf.fieldToStruct[obj]
+			originObj := obj.Origin()
+			strct := tf.fieldToStruct[originObj]
 			if strct == nil {
 				panic("could not find struct for field " + name)
 			}
-			node.Name = hashWithStruct(strct, obj)
+			node.Name = hashWithStruct(strct, originObj)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("%s %q hashed with struct fields to %q", debugName, name, node.Name)
 			}
