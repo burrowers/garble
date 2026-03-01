@@ -20,8 +20,8 @@ import (
 )
 
 type (
-	funcFullName = string // as per go/types.Func.FullName
-	objectString = string // as per recordedObjectString
+	funcFullName = string // the result of [types.Func.FullName] plus [stripTypeArgs]
+	objectString = string // the result of [reflectInspector.obfuscatedObjectName]
 )
 
 // pkgCache contains information about a package that will be stored in fsCache.
@@ -43,17 +43,6 @@ type pkgCache struct {
 func (c *pkgCache) CopyFrom(c2 pkgCache) {
 	maps.Copy(c.ReflectAPIs, c2.ReflectAPIs)
 	maps.Copy(c.ReflectObjectNames, c2.ReflectObjectNames)
-}
-
-func decodePkgCache(r io.Reader, dst *pkgCache) error {
-	// Decode into a fresh value first: gob merges into non-nil maps, so decoding
-	// directly into dst can leave stale entries in nested maps.
-	var decoded pkgCache
-	if err := gob.NewDecoder(r).Decode(&decoded); err != nil {
-		return fmt.Errorf("gob decode: %w", err)
-	}
-	dst.CopyFrom(decoded)
-	return nil
 }
 
 func ssaBuildPkg(pkg *types.Package, files []*ast.File, info *types.Info) *ssa.Package {
@@ -190,7 +179,8 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 					return err
 				}
 				defer f.Close()
-				if err := decodePkgCache(f, &computed); err != nil {
+				// The gob decoder
+				if err := gob.NewDecoder(f).Decode(&computed); err != nil {
 					return err
 				}
 				return nil

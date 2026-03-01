@@ -106,9 +106,6 @@ One can reverse a captured panic stack trace as follows:
 						originObj := obj.Origin()
 						strct := fieldToStruct[originObj]
 						if strct == nil {
-							strct = fieldToStruct[obj]
-						}
-						if strct == nil {
 							panic("could not find struct for field " + name.Name)
 						}
 						replaces = append(replaces, hashWithStruct(strct, originObj), name.Name)

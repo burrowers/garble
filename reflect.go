@@ -235,11 +235,7 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 	// 	fun.WriteTo(os.Stdout)
 	// }
 
-	originFun := fun.Origin()
-	if originFun == nil {
-		originFun = fun
-	}
-	f, _ := originFun.Object().(*types.Func)
+	f, _ := ssaFuncOrigin(fun).Object().(*types.Func)
 	var funcName string
 	genericFunc := false
 	if f != nil {
@@ -281,16 +277,8 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 			case *ssa.Call:
 				callName := ""
 				if callee := inst.Call.StaticCallee(); callee != nil {
-					if obj, ok := callee.Object().(*types.Func); ok && obj != nil {
+					if obj, ok := ssaFuncOrigin(callee).Object().(*types.Func); ok && obj != nil {
 						callName = obj.FullName()
-					} else {
-						originCallee := callee.Origin()
-						if originCallee == nil {
-							originCallee = callee
-						}
-						if obj, ok := originCallee.Object().(*types.Func); ok && obj != nil {
-							callName = obj.FullName()
-						}
 					}
 				}
 				if callName == "" && inst.Call.Method != nil {
@@ -647,4 +635,11 @@ func stripTypeArgs(name string) (string, bool) {
 		}
 	}
 	return b.String(), true
+}
+
+func ssaFuncOrigin(fn *ssa.Function) *ssa.Function {
+	if orig := fn.Origin(); orig != nil {
+		return orig
+	}
+	return fn
 }
