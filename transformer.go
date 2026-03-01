@@ -322,17 +322,28 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 
 	const missingHeader = "missing header path"
 	newHeaderPaths := make(map[string]string)
+	var debugArtifacts cachedDebugArtifacts
+	if flagDebugDir != "" {
+		debugArtifacts.SourceFiles = make(map[string][]byte)
+		debugArtifacts.GarbledFiles = make(map[string][]byte)
+	}
 	var buf, includeBuf bytes.Buffer
 	for _, path := range paths {
 		buf.Reset()
+		var asmContent bytes.Buffer
 		f, err := os.Open(path)
 		if err != nil {
 			return nil, err
 		}
+		basename := filepath.Base(path)
 		defer f.Close() // in case of error
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
 			line := scanner.Text()
+			if flagDebugDir != "" {
+				asmContent.WriteString(line)
+				asmContent.WriteByte('\n')
+			}
 
 			// Whole-line comments might be directives, leave them in place.
 			// For example: //go:build race
@@ -349,11 +360,11 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 			// For example: #include "foo.h"
 			if quoted, ok := strings.CutPrefix(line, "#include"); ok {
 				quoted = strings.TrimSpace(quoted)
-				path, err := strconv.Unquote(quoted)
+				includePath, err := strconv.Unquote(quoted)
 				if err != nil { // note that strconv.Unquote errors do not include the input string
 					return nil, fmt.Errorf("cannot unquote %q: %v", quoted, err)
 				}
-				newPath := newHeaderPaths[path]
+				newPath := newHeaderPaths[includePath]
 				switch newPath {
 				case missingHeader: // no need to try again
 					buf.WriteString(line)
@@ -361,14 +372,21 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 					continue
 				case "": // first time we see this header
 					includeBuf.Reset()
-					content, err := os.ReadFile(path)
+					content, err := os.ReadFile(includePath)
 					if errors.Is(err, fs.ErrNotExist) {
-						newHeaderPaths[path] = missingHeader
+						newHeaderPaths[includePath] = missingHeader
 						buf.WriteString(line)
 						buf.WriteByte('\n')
 						continue // a header file provided by Go or the system
 					} else if err != nil {
 						return nil, err
+					}
+					basename := filepath.Base(includePath)
+					if flagDebugDir != "" {
+						debugArtifacts.SourceFiles[basename] = content
+						if err := writeDebugDirFile(debugDirSourceSubdir, tf.curPkg, basename, content); err != nil {
+							return nil, err
+						}
 					}
 					tf.replaceAsmNames(&includeBuf, content)
 
@@ -376,13 +394,15 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 					// The different name ensures we don't use the unobfuscated file.
 					// This is far from perfect, but does the job for the time being.
 					// In the future, use a randomized name.
-					basename := filepath.Base(path)
 					newPath = "garbled_" + basename
-
-					if _, err := tf.writeSourceFile(basename, newPath, includeBuf.Bytes()); err != nil {
+					content = includeBuf.Bytes()
+					if _, err := tf.writeSourceFile(basename, newPath, content); err != nil {
 						return nil, err
 					}
-					newHeaderPaths[path] = newPath
+					if flagDebugDir != "" {
+						debugArtifacts.GarbledFiles[basename] = content
+					}
+					newHeaderPaths[includePath] = newPath
 				}
 				buf.WriteString("#include ")
 				buf.WriteString(strconv.Quote(newPath))
@@ -397,18 +417,32 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 		if err := scanner.Err(); err != nil {
 			return nil, err
 		}
+		f.Close() // do not keep len(paths) files open
+		if flagDebugDir != "" {
+			content := asmContent.Bytes()
+			debugArtifacts.SourceFiles[basename] = content
+			if err := writeDebugDirFile(debugDirSourceSubdir, tf.curPkg, basename, content); err != nil {
+				return nil, err
+			}
+		}
+
+		content := buf.Bytes()
 
 		// With assembly files, we obfuscate the filename in the temporary
 		// directory, as assembly files do not support `/*line` directives.
 		// TODO(mvdan): per cmd/asm/internal/lex, they do support `#line`.
-		basename := filepath.Base(path)
 		newName := hashWithPackage(tf.curPkg, basename) + ".s"
-		if path, err := tf.writeSourceFile(basename, newName, buf.Bytes()); err != nil {
+		if path, err := tf.writeSourceFile(basename, newName, content); err != nil {
 			return nil, err
 		} else {
 			newPaths = append(newPaths, path)
 		}
-		f.Close() // do not keep len(paths) files open
+		if flagDebugDir != "" {
+			debugArtifacts.GarbledFiles[basename] = content
+		}
+	}
+	if err := saveDebugArtifactsForPkg(tf.curPkg, debugCacheKindAsm, debugArtifacts); err != nil {
+		return nil, err
 	}
 
 	return append(flags, newPaths...), nil
@@ -538,12 +572,7 @@ func (tf *transformer) writeSourceFile(basename, obfuscated string, content []by
 	// fmt.Fprintf(os.Stderr, "\n-- %s/%s --\n%s", curPkg.ImportPath, basename, content)
 
 	if flagDebugDir != "" {
-		pkgDir := filepath.Join(flagDebugDir, filepath.FromSlash(tf.curPkg.ImportPath))
-		if err := os.MkdirAll(pkgDir, 0o755); err != nil {
-			return "", err
-		}
-		dstPath := filepath.Join(pkgDir, basename)
-		if err := os.WriteFile(dstPath, content, 0o666); err != nil {
+		if err := writeDebugDirFile(debugDirGarbledSubdir, tf.curPkg, basename, content); err != nil {
 			return "", err
 		}
 	}
@@ -563,6 +592,22 @@ func (tf *transformer) writeSourceFile(basename, obfuscated string, content []by
 
 func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	flags, paths := splitFlagsFromFiles(args, ".go")
+	var debugArtifacts cachedDebugArtifacts
+	if flagDebugDir != "" {
+		debugArtifacts.SourceFiles = make(map[string][]byte)
+		debugArtifacts.GarbledFiles = make(map[string][]byte)
+		for _, path := range paths {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			basename := filepath.Base(path)
+			debugArtifacts.SourceFiles[basename] = content
+			if err := writeDebugDirFile(debugDirSourceSubdir, tf.curPkg, basename, content); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	// We will force the linker to drop DWARF via -w, so don't spend time
 	// generating it.
@@ -682,6 +727,12 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		} else {
 			newPaths = append(newPaths, path)
 		}
+		if flagDebugDir != "" {
+			debugArtifacts.GarbledFiles[basename] = src
+		}
+	}
+	if err := saveDebugArtifactsForPkg(tf.curPkg, debugCacheKindCompile, debugArtifacts); err != nil {
+		return nil, err
 	}
 	flags = flagSetValue(flags, "-importcfg", newImportCfg)
 

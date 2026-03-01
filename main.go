@@ -124,7 +124,7 @@ func init() {
 	flagSet.BoolVar(&flagLiterals, "literals", false, "Obfuscate literals such as strings")
 	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
-	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write the obfuscated source to a directory, e.g. -debugdir=out")
+	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write source and obfuscated trees to a directory, e.g. -debugdir=out")
 	flagSet.Var(&flagSeed, "seed", "Provide a base64-encoded seed, e.g. -seed=o9WDTZ4CN4w\nFor a random seed, provide -seed=random")
 }
 
@@ -276,7 +276,10 @@ func mainErr(args []string) error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		log.Printf("calling via toolexec: %s", cmd)
-		return cmd.Run()
+		if err := cmd.Run(); err != nil {
+			return err
+		}
+		return restoreDebugDirFromCache()
 
 	case "toolexec":
 		_, tool := filepath.Split(args[0])
@@ -479,10 +482,15 @@ This command wraps "go %s". Below is its help:
 		goArgs = append(goArgs, "-debug-actiongraph", filepath.Join(sharedTempDir, actionGraphFileName))
 	}
 	if flagDebugDir != "" {
-		// In case the user deletes the debug directory,
-		// and a previous build is cached,
-		// rebuild all packages to re-fill the debug dir.
-		goArgs = append(goArgs, "-a")
+		needsRebuild, err := debugDirNeedsRebuild()
+		if err != nil {
+			return nil, err
+		}
+		if needsRebuild {
+			// Warm up debugdir cache entries on first run.
+			// Subsequent runs can reuse cache and avoid forcing rebuilds.
+			goArgs = append(goArgs, "-a")
+		}
 	}
 	if command == "test" {
 		// vet is generally not useful on obfuscated code; keep it

@@ -7,25 +7,25 @@ exec ./main
 cmp stderr main.stderr
 
 # simple check to ensure that control flow will work. Must be a minimum of 10 goto's
-grep 'goto _s2a_l10' $WORK/debug/test/main/GARBLE_controlflow.go
+grep 'goto _s2a_l10' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 
 # obfuscated function must be removed from original file
-! grep 'main\(\)' $WORK/debug/test/main/garble_main.go
+! grep 'main\(\)' $WORK/debug/garbled/test/main/garble_main.go
 # original file must contains empty function
-grep '\_\(\)' $WORK/debug/test/main/garble_main.go
+grep '\_\(\)' $WORK/debug/garbled/test/main/garble_main.go
 
 # obfuscated file must contains interface for unexported interface emulation
-grep 'GoString\(\) string' $WORK/debug/test/main/GARBLE_controlflow.go
-grep 'String\(\) string' $WORK/debug/test/main/GARBLE_controlflow.go
+grep 'GoString\(\) string' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
+grep 'String\(\) string' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 
 # control flow obfuscation should work correctly with literals obfuscation
 ! binsubstr main$exe 'correct name'
 
 
 # check xor hardening
-grep '\(\w+ \^ \d+\)' $WORK/debug/test/main/GARBLE_controlflow.go
+grep '\(\w+ \^ \d+\)' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 # check delegate table hardening
-grep 'func\(int\) int' $WORK/debug/test/main/GARBLE_controlflow.go
+grep 'func\(int\) int' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 
 -- go.mod --
 module test/main

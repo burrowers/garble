@@ -1,11 +1,18 @@
 exec garble -debugdir=debug1 build
-exists 'debug1/test/main/imported/imported.go' 'debug1/test/main/main.go' 'debug1/reflect/type.go'
-exists 'debug1/runtime/error.go' 'debug1/runtime/funcdata.h' 'debug1/runtime/asm.s'
-[amd64] exists 'debug1/runtime/cpuflags_amd64.go' 'debug1/runtime/asm_amd64.s'
-[!amd64] ! exists 'debug1/runtime/cpuflags_amd64.go' 'debug1/runtime/asm_amd64.s'
-! grep ImportedFunc $WORK/debug1/test/main/imported/imported.go
-! grep ImportedFunc $WORK/debug1/test/main/main.go
-! grep 'some comment' $WORK/debug1/test/main/main.go
+exists 'debug1/source/test/main/imported/imported.go' 'debug1/source/test/main/main.go' 'debug1/source/reflect/type.go'
+exists 'debug1/source/runtime/error.go' 'debug1/source/runtime/funcdata.h' 'debug1/source/runtime/asm.s'
+[amd64] exists 'debug1/source/runtime/cpuflags_amd64.go' 'debug1/source/runtime/asm_amd64.s'
+[!amd64] ! exists 'debug1/source/runtime/cpuflags_amd64.go' 'debug1/source/runtime/asm_amd64.s'
+exists 'debug1/garbled/test/main/imported/imported.go' 'debug1/garbled/test/main/main.go' 'debug1/garbled/reflect/type.go'
+exists 'debug1/garbled/runtime/error.go' 'debug1/garbled/runtime/funcdata.h' 'debug1/garbled/runtime/asm.s'
+[amd64] exists 'debug1/garbled/runtime/cpuflags_amd64.go' 'debug1/garbled/runtime/asm_amd64.s'
+[!amd64] ! exists 'debug1/garbled/runtime/cpuflags_amd64.go' 'debug1/garbled/runtime/asm_amd64.s'
+grep ImportedFunc $WORK/debug1/source/test/main/imported/imported.go
+grep ImportedFunc $WORK/debug1/source/test/main/main.go
+grep 'some comment' $WORK/debug1/source/test/main/main.go
+! grep ImportedFunc $WORK/debug1/garbled/test/main/imported/imported.go
+! grep ImportedFunc $WORK/debug1/garbled/test/main/main.go
+! grep 'some comment' $WORK/debug1/garbled/test/main/main.go
 
 # We should refuse to delete non-empty directories which weren't created
 # by an earlier invocation of garble -debugdir, as that could lead to data loss.
@@ -17,11 +24,11 @@ exists notdebug/subdir/important_data.txt
 [short] stop
 
 # Sources from previous builds should be deleted
-cp $WORK/debug1/test/main/main.go $WORK/debug1/some_file_from_prev_build.go
+cp $WORK/debug1/garbled/test/main/main.go $WORK/debug1/some_file_from_prev_build.go
 
-exec garble -debugdir=debug1 build -v
-stderr 'test/main' # we force rebuilds with -debugdir
+exec garble -debugdir=debug1 build
 ! exists $WORK/debug1/some_file_from_prev_build.go
+exists 'debug1/source/test/main/main.go' 'debug1/garbled/test/main/main.go'
 
 -- notdebug/important_data.txt --
 This file should not be deleted by -debugdir.
