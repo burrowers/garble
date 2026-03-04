@@ -44,7 +44,7 @@ func writeDebugDirFile(subdir string, pkg *listedPackage, relPath string, conten
 		return err
 	}
 	dstPath := filepath.Join(pkgDir, relPath)
-	return os.WriteFile(dstPath, content, 0o666)
+	return os.WriteFile(dstPath, content, 0o644)
 }
 
 func saveDebugArtifactsForPkg(lpkg *listedPackage, kind string, artifacts cachedDebugArtifacts) error {

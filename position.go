@@ -14,11 +14,10 @@ import (
 	"strings"
 )
 
-var printBuf1, printBuf2 bytes.Buffer
-
 // printFile prints a Go file to a buffer, while also removing non-directive
 // comments and adding extra compiler directives to obfuscate position information.
 func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
+	var printBuf1, printBuf2 bytes.Buffer
 	if lpkg.ToObfuscate {
 		// Omit comments from the final Go code.
 		// Keep directives, as they affect the build.

@@ -89,11 +89,6 @@ func alterToolVersion(tool string, args []string) error {
 	return nil
 }
 
-var (
-	hasher    = sha256.New()
-	sumBuffer [sha256.Size]byte
-)
-
 // addGarbleToHash takes some arbitrary input bytes,
 // typically a hash such as an action ID or a content ID,
 // and returns a new hash which also contains garble's own deterministic inputs.
@@ -104,7 +99,7 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 	// Join the two content IDs together into a single base64-encoded sha256
 	// sum. This includes the original tool's content ID, and garble's own
 	// content ID.
-	hasher.Reset()
+	hasher := sha256.New()
 	hasher.Write(inputHash)
 	if len(sharedCache.BinaryContentID) == 0 {
 		panic("missing binary content ID")
@@ -116,8 +111,8 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 	// separate the env vars and flags, to reduce the chances of collisions.
 	fmt.Fprintf(hasher, " GOGARBLE=%s", sharedCache.GOGARBLE)
 	appendFlags(hasher, true)
-	// addGarbleToHash returns the sum buffer, so we need a new copy.
-	// Otherwise the next use of the global sumBuffer would conflict.
+	// addGarbleToHash returns the sum buffer, so we use a local copy
+	// to avoid any potential conflicts across callers.
 	var sumBuffer [sha256.Size]byte
 	hasher.Sum(sumBuffer[:0])
 	return sumBuffer
@@ -182,8 +177,6 @@ var (
 	// Such a lossy encoding is fine, since we never decode hashes.
 	// We don't need padding either, as we take a short prefix anyway.
 	nameBase64 = base64.URLEncoding.WithPadding(base64.NoPadding)
-
-	b64NameBuffer [12]byte // nameBase64.EncodedLen(neededSumBytes) = 12
 )
 
 // These funcs mimic the unicode package API, but byte-based since we know
@@ -196,13 +189,14 @@ func toLower(b byte) byte { return b + ('a' - 'A') }
 func toUpper(b byte) byte { return b - ('a' - 'A') }
 
 func runtimeHashWithCustomSalt(salt []byte) uint32 {
-	hasher.Reset()
+	hasher := sha256.New()
 	if !flagSeed.present() {
 		hasher.Write(sharedCache.ListedPackages["runtime"].GarbleActionID[:])
 	} else {
 		hasher.Write(flagSeed.bytes)
 	}
 	hasher.Write(salt)
+	var sumBuffer [sha256.Size]byte
 	sum := hasher.Sum(sumBuffer[:0])
 	return binary.LittleEndian.Uint32(sum)
 }
@@ -328,20 +322,22 @@ func hashWithCustomSalt(salt []byte, name string) string {
 		panic("hashWithCustomSalt: empty name")
 	}
 
-	hasher.Reset()
+	hasher := sha256.New()
 	hasher.Write(salt)
 	hasher.Write(flagSeed.bytes)
 	io.WriteString(hasher, name)
+	var sumBuffer [sha256.Size]byte
 	sum := hasher.Sum(sumBuffer[:0])
 
 	// The byte after neededSumBytes is never used as part of the name,
 	// but it is still deterministic and hard to predict,
 	// so it provides us with useful randomness between 0 and 255.
-	// We want the number to be between 0 and hashLenthRange-1 as well,
+	// We want the number to be between 0 and hashLengthRange-1 as well,
 	// so we use a remainder operation.
 	hashLengthRandomness := sum[neededSumBytes] % ((maxHashLength - minHashLength) + 1)
 	hashLength := minHashLength + hashLengthRandomness
 
+	var b64NameBuffer [12]byte // nameBase64.EncodedLen(neededSumBytes) = 12
 	nameBase64.Encode(b64NameBuffer[:], sum[:neededSumBytes])
 	b64Name := b64NameBuffer[:hashLength]
 
