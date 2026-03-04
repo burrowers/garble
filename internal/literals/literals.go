@@ -10,8 +10,10 @@ import (
 	"go/token"
 	"go/types"
 	mathrand "math/rand"
+	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
+
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
@@ -38,8 +40,24 @@ type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
 // Obfuscate replaces literals with obfuscated anonymous functions.
 func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
 	obfRand := newObfRand(rand, file, nameFunc)
+
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
+		case *ast.FuncDecl:
+			// Obfuscating literals in nosplit functions can push
+			// the stack frame over the nosplit limit (800 bytes),
+			// as the injected decryption code adds stack usage.
+			// Hoisting to package-level functions also fails because
+			// the generated bounds-check code (panicBounds) creates
+			// nosplit call chains that exceed the limit on some
+			// platforms (notably windows/amd64 in reflect).
+			if node.Doc != nil {
+				for _, comment := range node.Doc.List {
+					if strings.HasPrefix(comment.Text, "//go:nosplit") {
+						return false
+					}
+				}
+			}
 		case *ast.GenDecl:
 			// constants are obfuscated by replacing all references with the obfuscated value
 			if node.Tok == token.CONST {
@@ -59,6 +77,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	}
 
 	post := func(cursor *astutil.Cursor) bool {
+
 		node, ok := cursor.Node().(ast.Expr)
 		if !ok {
 			return true
