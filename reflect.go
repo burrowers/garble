@@ -168,7 +168,7 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 	}
 }
 
-// Exported methods with unnamed structs as paramters may be "used" in interface declarations
+// Exported methods with unnamed structs as parameters may be "used" in interface declarations
 // elsewhere, these interfaces will break if any method uses reflection on the same parameter.
 //
 // Therefore never obfuscate unnamed structs which are used as a method parameter
@@ -373,7 +373,7 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 // recordArgReflected finds the type(s) of a function argument, which is being used in reflection
 // and excludes these types from obfuscation
-// It also checks if this argument has any relation to a function paramter and returns it if found.
+// It also checks if this argument has any relation to a function parameter and returns it if found.
 func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 	// make sure we visit every val only once, otherwise there will be infinite recursion
 	if visited[val] {
@@ -443,8 +443,8 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 	return nil
 }
 
-// relatedParam checks if a route to a function paramter can be constructed
-// from a ssa.Value, and returns the paramter if it found one.
+// relatedParam checks if a route to a function parameter can be constructed
+// from a ssa.Value, and returns the parameter if it found one.
 func relatedParam(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 	// every val should only be visited once to prevent infinite recursion
 	if visited[val] {
@@ -457,7 +457,7 @@ func relatedParam(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 
 	switch x := val.(type) {
 	case *ssa.Parameter:
-		// a paramter has been found
+		// a parameter has been found
 		return x
 	case *ssa.UnOp:
 		if param := relatedParam(x.X, visited); param != nil {
@@ -548,8 +548,8 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
 	}
 }
 
-// obfuscatedObjectName returns the obfucated name of a types.Object,
-// parent is needed to correctly get the obfucated name of struct fields
+// obfuscatedObjectName returns the obfuscated name of a types.Object,
+// parent is needed to correctly get the obfuscated name of struct fields
 func (ri *reflectInspector) obfuscatedObjectName(obj types.Object, parent *types.Struct) string {
 	pkg := obj.Pkg()
 	if pkg == nil {

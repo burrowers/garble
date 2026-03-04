@@ -110,7 +110,7 @@ func operatorToReversedBinaryExpr(t token.Token, x, y ast.Expr) *ast.BinaryExpr 
 	var op token.Token
 	switch t {
 	case token.XOR:
-		op = token.XOR
+		op = token.XOR // XOR is self-inverse: (a ^ b) ^ b = a
 	case token.ADD:
 		op = token.SUB
 	case token.SUB:
@@ -234,7 +234,7 @@ func dataToByteSliceWithExtKeys(rand *mathrand.Rand, data []byte, extKeys []*ext
 	return ah.LambdaCall(nil, ah.ByteSliceType(), ah.BlockStmt(stmts...), nil)
 }
 
-// dataToByteSliceWithExtKeys scramble and turns a byte into an AST expression like:
+// byteLitWithExtKey scrambles a byte value into an AST expression like:
 //
 //	byte(<obfuscated value>) <random operator> byte(<external key> >> <random shift>)
 func byteLitWithExtKey(rand *mathrand.Rand, val byte, extKeys []*externalKey, extKeyProb externalKeyProbability) ast.Expr {
@@ -272,7 +272,7 @@ func (r *obfRand) nextLinearTimeObfuscator() obfuscator {
 	if r.testObfuscator != nil {
 		return r.testObfuscator
 	}
-	return Obfuscators[r.Intn(len(LinearTimeObfuscators))]
+	return LinearTimeObfuscators[r.Intn(len(LinearTimeObfuscators))]
 }
 
 func newObfRand(rand *mathrand.Rand, file *ast.File, nameFunc NameProviderFunc) *obfRand {

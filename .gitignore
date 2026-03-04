@@ -3,3 +3,11 @@
 /bincmp_output/
 debug
 .DS_Store
+
+# 测试/验证用临时文件 - 不提交
+/nosplit-test/
+/garble-verify/
+/garble-orig
+/garble-test
+/proof.sh
+/verify.sh
