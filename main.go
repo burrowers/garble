@@ -334,6 +334,12 @@ func mainErr(args []string) error {
 			}
 
 			log.Printf("replaced linker with: %s", executablePath)
+
+			// Garble obfuscates package paths, which breaks the linker's
+			// linkname access control (checkLinkname) introduced in Go 1.23.
+			// Disable the check via the official flag, as garble already
+			// handles linkname resolution internally.
+			transformed = append([]string{"-checklinkname=0"}, transformed...)
 		}
 
 		cmd := exec.Command(executablePath, transformed...)
