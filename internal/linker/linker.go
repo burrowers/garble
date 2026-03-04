@@ -16,7 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
@@ -96,8 +95,6 @@ func fileExists(path string) bool {
 	return !stat.IsDir()
 }
 
-// TODO(pagran): Remove git dependency in future
-// more information in README.md
 func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [][]byte) (map[string]string, error) {
 	mod := make(map[string]string)
 	for fileName := range modFiles {
@@ -110,23 +107,30 @@ func applyPatches(srcDir, workingDir string, modFiles map[string]bool, patches [
 		}
 	}
 
-	// If one of parent folders of workingDir contains repository, set current directory is not enough because git
-	// by default treats workingDir as a subfolder of repository, so it will break git apply. Adding --git-dir flag blocks this behavior.
-	cmd := exec.Command("git", "--git-dir", workingDir, "apply", "--verbose")
-	cmd.Dir = workingDir
-	// Ensure that the output messages are in plain English.
-	cmd.Env = append(cmd.Env, "LC_ALL=C")
-	cmd.Stdin = bytes.NewReader(bytes.Join(patches, []byte("\n")))
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("failed to 'git apply' patches: %v:\n%s", err, out)
-	}
+	for _, patchBytes := range patches {
+		files, _, err := gitdiff.Parse(bytes.NewReader(patchBytes))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse patch: %v", err)
+		}
+		for _, f := range files {
+			targetPath := filepath.Join(workingDir, f.OldName)
 
-	// Running git without errors does not guarantee that all patches have been applied.
-	// Make sure that all passed patches have been applied correctly.
-	rx := regexp.MustCompile(`(?m)^Applied patch .+ cleanly\.$`)
-	if appliedPatches := len(rx.FindAllIndex(out, -1)); appliedPatches != len(patches) {
-		return nil, fmt.Errorf("expected %d applied patches, actually %d:\n\n%s", len(patches), appliedPatches, string(out))
+			src, err := os.Open(targetPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to open %s for patching: %v", f.OldName, err)
+			}
+
+			var dst bytes.Buffer
+			if err := gitdiff.Apply(&dst, src, f); err != nil {
+				src.Close()
+				return nil, fmt.Errorf("failed to apply patch to %s: %v", f.OldName, err)
+			}
+			src.Close()
+
+			if err := os.WriteFile(targetPath, dst.Bytes(), 0o644); err != nil {
+				return nil, fmt.Errorf("failed to write patched %s: %v", f.OldName, err)
+			}
+		}
 	}
 	return mod, nil
 }
