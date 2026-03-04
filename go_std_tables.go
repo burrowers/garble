@@ -7,36 +7,37 @@ package main
 // runtimeAndDeps contains the runtime package and all of its transitive dependencies
 // as reported by 'go list -deps'.
 var runtimeAndDeps = map[string]bool{
-	"internal/abi":                   true, // go1.26
-	"internal/asan":                  true, // go1.26
-	"internal/bytealg":               true, // go1.26
-	"internal/byteorder":             true, // go1.26
-	"internal/chacha8rand":           true, // go1.26
-	"internal/coverage/rtcov":        true, // go1.26
-	"internal/cpu":                   true, // go1.26
-	"internal/goarch":                true, // go1.26
-	"internal/godebugs":              true, // go1.26
-	"internal/goexperiment":          true, // go1.26
-	"internal/goos":                  true, // go1.26
-	"internal/msan":                  true, // go1.26
-	"internal/profilerecord":         true, // go1.26
-	"internal/race":                  true, // go1.26
-	"internal/runtime/atomic":        true, // go1.26
-	"internal/runtime/cgroup":        true, // go1.26
-	"internal/runtime/exithook":      true, // go1.26
-	"internal/runtime/gc":            true, // go1.26
-	"internal/runtime/gc/scan":       true, // go1.26
-	"internal/runtime/maps":          true, // go1.26
-	"internal/runtime/math":          true, // go1.26
-	"internal/runtime/pprof/label":   true, // go1.26
-	"internal/runtime/sys":           true, // go1.26
-	"internal/runtime/syscall/linux": true, // go1.26
-	"internal/strconv":               true, // go1.26
-	"internal/stringslite":           true, // go1.26
-	"internal/trace/tracev2":         true, // go1.26
-	"math/bits":                      true, // go1.26
-	"runtime":                        true, // go1.26
-	"unsafe":                         true, // go1.26
+	"internal/abi":                     true, // go1.26
+	"internal/asan":                    true, // go1.26
+	"internal/bytealg":                 true, // go1.26
+	"internal/byteorder":               true, // go1.26
+	"internal/chacha8rand":             true, // go1.26
+	"internal/coverage/rtcov":          true, // go1.26
+	"internal/cpu":                     true, // go1.26
+	"internal/goarch":                  true, // go1.26
+	"internal/godebugs":                true, // go1.26
+	"internal/goexperiment":            true, // go1.26
+	"internal/goos":                    true, // go1.26
+	"internal/msan":                    true, // go1.26
+	"internal/profilerecord":           true, // go1.26
+	"internal/race":                    true, // go1.26
+	"internal/runtime/atomic":          true, // go1.26
+	"internal/runtime/exithook":        true, // go1.26
+	"internal/runtime/gc":              true, // go1.26
+	"internal/runtime/gc/scan":         true, // go1.26
+	"internal/runtime/maps":            true, // go1.26
+	"internal/runtime/math":            true, // go1.26
+	"internal/runtime/pprof/label":     true, // go1.26
+	"internal/runtime/cgroup":          true, // go1.26, linux
+	"internal/runtime/syscall/linux":   true, // go1.26, linux
+	"internal/runtime/syscall/windows": true, // go1.26, windows
+	"internal/runtime/sys":             true, // go1.26
+	"internal/strconv":                 true, // go1.26
+	"internal/stringslite":             true, // go1.26
+	"internal/trace/tracev2":           true, // go1.26
+	"math/bits":                        true, // go1.26
+	"runtime":                          true, // go1.26
+	"unsafe":                           true, // go1.26
 }
 
 // runtimeAndLinknamed contains the runtime package and all the packages
@@ -100,6 +101,10 @@ var runtimeAndLinknamed = []string{
 }
 
 var compilerIntrinsics = map[string]map[string]bool{
+	"crypto/internal/constanttime": {
+		"Select":      true, // go1.26
+		"boolToUint8": true, // go1.26
+	},
 	"internal/runtime/atomic": {
 		"And":             true, // go1.26
 		"And32":           true, // go1.26
