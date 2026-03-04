@@ -6,7 +6,7 @@ go env GOVERSION
 setenvfile GOVERSION_UPGRADE stdout
 cd mod
 go mod init test
-go mod edit -go=${GOVERSION_UPGRADE}
+go mod edit -go=1.23 -toolchain=${GOVERSION_UPGRADE}
 cd ..
 
 # To test that garble works with transparent upgrades via GOTOOLCHAIN,

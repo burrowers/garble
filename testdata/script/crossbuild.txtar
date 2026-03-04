@@ -9,14 +9,14 @@
 # and it recognizes which functions via the package path and func name.
 # If we obfuscate those package paths without adjusting the compiler,
 # intrinsics aren't applied, causing performance loss or build errors.
-# We use the math/bits package, as its Len64 intrinsic is present in both arm
-# and arm64, and it is not part of the runtime nor its dependencies.
+# We use the math/bits package, as its TrailingZeros32 intrinsic is present
+# in both 386 and amd64, and it is not part of the runtime nor its dependencies.
 [!windows] env GOOS=windows
 [windows] env GOOS=linux
 [!386] env GOARCH=386
 [386] env GOARCH=amd64
 exec garble build -gcflags=math/bits=-d=ssa/intrinsics/debug=1
-stderr 'intrinsic substitution for Len64.*BitLen64'
+stderr 'intrinsic substitution for TrailingZeros32.*Ctz32'
 
 # As a last step, also test building for MacOS if we're not already on it.
 # We already cover Windows and Linux above, and MacOS is the other major OS.
