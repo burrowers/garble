@@ -55,7 +55,7 @@ func loadLinkerPatches(majorGoVersion string) (version string, modFiles map[stri
 		}
 		for _, file := range files {
 			if file.IsNew || file.IsDelete || file.IsCopy || file.IsRename {
-				panic("only modification patch is supported")
+				return fmt.Errorf("unsupported patch type for %s: only modification patches are supported", file.OldName)
 			}
 			modFiles[file.OldName] = true
 		}
@@ -70,7 +70,7 @@ func loadLinkerPatches(majorGoVersion string) (version string, modFiles map[stri
 
 func copyFile(src, target string) error {
 	targetDir := filepath.Dir(target)
-	if err := os.MkdirAll(targetDir, 0o777); err != nil {
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return err
 	}
 	srcFile, err := os.Open(src)
@@ -83,9 +83,11 @@ func copyFile(src, target string) error {
 	if err != nil {
 		return err
 	}
-	defer targetFile.Close()
-	_, err = io.Copy(targetFile, srcFile)
-	return err
+	if _, err = io.Copy(targetFile, srcFile); err != nil {
+		targetFile.Close()
+		return err
+	}
+	return targetFile.Close()
 }
 
 func fileExists(path string) bool {
@@ -136,7 +138,7 @@ func cachePath(cacheDir string) (string, error) {
 	// Name it "tool", like Go's pkg/tool, as we might want to rebuild
 	// other Go toolchain programs like the compiler or assembler in the future.
 	cacheDir = filepath.Join(cacheDir, "tool")
-	if err := os.MkdirAll(cacheDir, 0o777); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", err
 	}
 	goExe := ""
@@ -177,7 +179,7 @@ func checkVersion(linkerPath, goVersion, patchesVer string) (bool, error) {
 
 func writeVersion(linkerPath, goVersion, patchesVer string) error {
 	versionPath := linkerPath + versionExt
-	return os.WriteFile(versionPath, []byte(getCurrentVersion(goVersion, patchesVer)), 0o777)
+	return os.WriteFile(versionPath, []byte(getCurrentVersion(goVersion, patchesVer)), 0o644)
 }
 
 func buildLinker(goRoot, workingDir string, overlay map[string]string, outputLinkPath string) error {
@@ -186,7 +188,7 @@ func buildLinker(goRoot, workingDir string, overlay map[string]string, outputLin
 		return err
 	}
 	overlayPath := filepath.Join(workingDir, "overlay.json")
-	if err := os.WriteFile(overlayPath, file, 0o777); err != nil {
+	if err := os.WriteFile(overlayPath, file, 0o644); err != nil {
 		return err
 	}
 
