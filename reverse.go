@@ -156,7 +156,6 @@ One can reverse a captured panic stack trace as follows:
 		if err != nil {
 			return err
 		}
-		defer f.Close()
 		modified, err := reverseContent(os.Stdout, f, repl)
 		if err != nil {
 			return err
