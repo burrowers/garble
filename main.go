@@ -656,7 +656,7 @@ func filterForwardBuildFlags(flags []string) (filtered []string, firstUnknown st
 // "compile" or "link", since their arguments are predictable.
 //
 // We iterate from the end rather than from the start, to better protect
-// oursrelves from flag arguments that may look like paths, such as:
+// ourselves from flag arguments that may look like paths, such as:
 //
 //	compile [flags...] -p pkg/path.go [more flags...] file1.go file2.go
 //
