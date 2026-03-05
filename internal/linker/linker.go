@@ -83,9 +83,11 @@ func copyFile(src, target string) error {
 	if err != nil {
 		return err
 	}
-	defer targetFile.Close()
-	_, err = io.Copy(targetFile, srcFile)
-	return err
+	if _, err := io.Copy(targetFile, srcFile); err != nil {
+		targetFile.Close()
+		return err
+	}
+	return targetFile.Close()
 }
 
 func fileExists(path string) bool {
