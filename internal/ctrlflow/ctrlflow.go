@@ -39,24 +39,24 @@ const (
 
 type directiveParamMap map[string]string
 
-func (m directiveParamMap) GetInt(name string, def, max int) int {
+func (m directiveParamMap) GetInt(name string, def, max int) (int, error) {
 	rawVal, ok := m[name]
 	if !ok {
-		return def
+		return def, nil
 	}
 
 	if rawVal == "max" {
-		return max
+		return max, nil
 	}
 
 	val, err := strconv.Atoi(rawVal)
 	if err != nil {
-		panic(fmt.Errorf("invalid flag %q format: %v", name, err))
+		return 0, fmt.Errorf("invalid flag %q format: %v", name, err)
 	}
 	if val > max {
-		panic(fmt.Errorf("too big flag %q value: %d (max: %d)", name, val, max))
+		return 0, fmt.Errorf("too big flag %q value: %d (max: %d)", name, val, max)
 	}
-	return val
+	return val, nil
 }
 
 func (m directiveParamMap) StringSlice(name string) []string {
@@ -183,15 +183,27 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
 
-		split := params.GetInt("block_splits", defaultBlockSplits, maxBlockSplits)
-		junkCount := params.GetInt("junk_jumps", defaultJunkJumps, maxJunkJumps)
-		passes := params.GetInt("flatten_passes", defaultFlattenPasses, maxFlattenPasses)
+		split, err := params.GetInt("block_splits", defaultBlockSplits, maxBlockSplits)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: %w", ssaFunc, err)
+		}
+		junkCount, err := params.GetInt("junk_jumps", defaultJunkJumps, maxJunkJumps)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: %w", ssaFunc, err)
+		}
+		passes, err := params.GetInt("flatten_passes", defaultFlattenPasses, maxFlattenPasses)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: %w", ssaFunc, err)
+		}
 		if passes == 0 {
 			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
 		}
 		flattenHardening := params.StringSlice("flatten_hardening")
 
-		trashBlockCount := params.GetInt("trash_blocks", defaultTrashBlocks, maxTrashBlocks)
+		trashBlockCount, err := params.GetInt("trash_blocks", defaultTrashBlocks, maxTrashBlocks)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: %w", ssaFunc, err)
+		}
 		if trashBlockCount > 0 && trashGen == nil {
 			trashGen = newTrashGenerator(ssaPkg.Prog, funcConfig.ImportNameResolver, obfRand)
 		}
