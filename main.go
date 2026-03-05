@@ -531,10 +531,11 @@ func (f *seedFlag) Set(s string) error {
 			return fmt.Errorf("error decoding seed: %v", err)
 		}
 
-		// TODO: Note that we always use 8 bytes; any bytes after that are
-		// entirely ignored. That may be confusing to the end user.
 		if len(seed) < 8 {
 			return fmt.Errorf("-seed needs at least 8 bytes, have %d", len(seed))
+		}
+		if len(seed) > 8 {
+			fmt.Fprintf(os.Stderr, "warning: -seed only uses the first 8 bytes, ignoring %d extra bytes\n", len(seed)-8)
 		}
 		f.bytes = seed
 	}
