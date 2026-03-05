@@ -55,7 +55,7 @@ func loadLinkerPatches(majorGoVersion string) (version string, modFiles map[stri
 		}
 		for _, file := range files {
 			if file.IsNew || file.IsDelete || file.IsCopy || file.IsRename {
-				panic("only modification patch is supported")
+				return fmt.Errorf("unsupported patch type for %s: only modification patches are supported", file.OldName)
 			}
 			modFiles[file.OldName] = true
 		}
