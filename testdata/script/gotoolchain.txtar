@@ -1,12 +1,13 @@
 # We want the upgraded toolchain to match the garble binary
 # which we will exec below, as otherwise garble will complain.
-# Tell GOTOOLCHAIN to upgrade to the same version thanks to `go mod init`
+# Tell GOTOOLCHAIN to upgrade to the same version by
 # setting up a `go` directive with its Go version.
-cd mod
-go mod init test
-cd ..
 go env GOVERSION
 setenvfile GOVERSION_UPGRADE stdout
+cd mod
+go mod init test
+go mod edit -go=${GOVERSION_UPGRADE}
+cd ..
 
 # To test that garble works with transparent upgrades via GOTOOLCHAIN,
 # use a relatively old version, but still new enough to support GOTOOLCHAIN.

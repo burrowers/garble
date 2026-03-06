@@ -544,8 +544,8 @@ func (f *seedFlag) Set(s string) error {
 
 func goVersionOK() bool {
 	const (
-		minGoVersion  = "go1.25.0" // the minimum Go version we support; could be a bugfix release if needed
-		unsupportedGo = "go1.26"   // the first major version we don't support
+		minGoVersion  = "go1.26.0" // the minimum Go version we support; could be a bugfix release if needed
+		unsupportedGo = "go1.27"   // the first major version we don't support
 	)
 
 	toolchainVersion := sharedCache.GoEnv.GOVERSION
