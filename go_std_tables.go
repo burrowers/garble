@@ -7,33 +7,33 @@ package main
 // runtimeAndDeps contains the runtime package and all of its transitive dependencies
 // as reported by 'go list -deps'.
 var runtimeAndDeps = map[string]bool{
-	"internal/abi":              true, // go1.25
-	"internal/asan":             true, // go1.25
-	"internal/bytealg":          true, // go1.25
-	"internal/byteorder":        true, // go1.25
-	"internal/chacha8rand":      true, // go1.25
-	"internal/coverage/rtcov":   true, // go1.25
-	"internal/cpu":              true, // go1.25
-	"internal/goarch":           true, // go1.25
-	"internal/godebugs":         true, // go1.25
-	"internal/goexperiment":     true, // go1.25
-	"internal/goos":             true, // go1.25
-	"internal/msan":             true, // go1.25
-	"internal/profilerecord":    true, // go1.25
-	"internal/race":             true, // go1.25
-	"internal/runtime/atomic":   true, // go1.25
-	"internal/runtime/cgroup":   true, // go1.25
-	"internal/runtime/exithook": true, // go1.25
-	"internal/runtime/gc":       true, // go1.25
-	"internal/runtime/maps":     true, // go1.25
-	"internal/runtime/math":     true, // go1.25
-	"internal/runtime/strconv":  true, // go1.25
-	"internal/runtime/sys":      true, // go1.25
-	"internal/runtime/syscall":  true, // go1.25
-	"internal/stringslite":      true, // go1.25
-	"internal/trace/tracev2":    true, // go1.25
-	"runtime":                   true, // go1.25
-	"unsafe":                    true, // go1.25
+	"internal/abi":              true, // go1.25 linux/amd64
+	"internal/asan":             true, // go1.25 linux/amd64
+	"internal/bytealg":          true, // go1.25 linux/amd64
+	"internal/byteorder":        true, // go1.25 linux/amd64
+	"internal/chacha8rand":      true, // go1.25 linux/amd64
+	"internal/coverage/rtcov":   true, // go1.25 linux/amd64
+	"internal/cpu":              true, // go1.25 linux/amd64
+	"internal/goarch":           true, // go1.25 linux/amd64
+	"internal/godebugs":         true, // go1.25 linux/amd64
+	"internal/goexperiment":     true, // go1.25 linux/amd64
+	"internal/goos":             true, // go1.25 linux/amd64
+	"internal/msan":             true, // go1.25 linux/amd64
+	"internal/profilerecord":    true, // go1.25 linux/amd64
+	"internal/race":             true, // go1.25 linux/amd64
+	"internal/runtime/atomic":   true, // go1.25 linux/amd64
+	"internal/runtime/cgroup":   true, // go1.25 linux/amd64
+	"internal/runtime/exithook": true, // go1.25 linux/amd64
+	"internal/runtime/gc":       true, // go1.25 linux/amd64
+	"internal/runtime/maps":     true, // go1.25 linux/amd64
+	"internal/runtime/math":     true, // go1.25 linux/amd64
+	"internal/runtime/strconv":  true, // go1.25 linux/amd64
+	"internal/runtime/sys":      true, // go1.25 linux/amd64
+	"internal/runtime/syscall":  true, // go1.25 linux/amd64
+	"internal/stringslite":      true, // go1.25 linux/amd64
+	"internal/trace/tracev2":    true, // go1.25 linux/amd64
+	"runtime":                   true, // go1.25 linux/amd64
+	"unsafe":                    true, // go1.25 linux/amd64
 }
 
 // runtimeAndLinknamed contains the runtime package and all the packages
@@ -46,51 +46,51 @@ var runtimeAndDeps = map[string]bool{
 // but not transitively imported on some platforms, even though they are used
 // from the runtime package via //go:linkname directives on those platforms.
 // To make sure we have coverage on all platforms, we allow duplicates.
-var runtimeAndLinknamed = []string{
-	"arena",                         // go1.25
-	"crypto/internal/boring",        // go1.25
-	"crypto/internal/boring/bcache", // go1.25
-	"crypto/internal/fips140",       // go1.25
-	"crypto/internal/sysrand",       // go1.25
-	"crypto/rand",                   // go1.25
-	"crypto/x509/internal/macos",    // go1.25
-	"internal/bytealg",              // go1.25
-	"internal/coverage/cfile",       // go1.25
-	"internal/cpu",                  // go1.25
-	"internal/godebug",              // go1.25
-	"internal/poll",                 // go1.25
-	"internal/race",                 // go1.25
-	"internal/reflectlite",          // go1.25
-	"internal/runtime/atomic",       // go1.25
-	"internal/runtime/cgroup",       // go1.25
-	"internal/runtime/maps",         // go1.25
-	"internal/sync",                 // go1.25
-	"internal/synctest",             // go1.25
-	"internal/syscall/unix",         // go1.25
-	"internal/syscall/windows",      // go1.25
-	"maps",                          // go1.25
-	"os",                            // go1.25
-	"os/signal",                     // go1.25
-	"plugin",                        // go1.25
-	"reflect",                       // go1.25
-	"runtime",                       // go1.25
-	"runtime/debug",                 // go1.25
-	"runtime/metrics",               // go1.25
-	"runtime/pprof",                 // go1.25
-	"runtime/trace",                 // go1.25
-	"sync",                          // go1.25
-	"sync/atomic",                   // go1.25
-	"sync_test",                     // go1.25
-	"syscall",                       // go1.25
-	"syscall/js",                    // go1.25
-	"time",                          // go1.25
-	"unique",                        // go1.25
-	"weak",                          // go1.25
+var runtimeAndLinknamed = map[string]bool{
+	"arena":                         true, // go1.25
+	"crypto/internal/boring":        true, // go1.25
+	"crypto/internal/boring/bcache": true, // go1.25
+	"crypto/internal/fips140":       true, // go1.25
+	"crypto/internal/sysrand":       true, // go1.25
+	"crypto/rand":                   true, // go1.25
+	"crypto/x509/internal/macos":    true, // go1.25
+	"internal/bytealg":              true, // go1.25
+	"internal/coverage/cfile":       true, // go1.25
+	"internal/cpu":                  true, // go1.25
+	"internal/godebug":              true, // go1.25
+	"internal/poll":                 true, // go1.25
+	"internal/race":                 true, // go1.25
+	"internal/reflectlite":          true, // go1.25
+	"internal/runtime/atomic":       true, // go1.25
+	"internal/runtime/cgroup":       true, // go1.25
+	"internal/runtime/maps":         true, // go1.25
+	"internal/sync":                 true, // go1.25
+	"internal/synctest":             true, // go1.25
+	"internal/syscall/unix":         true, // go1.25
+	"internal/syscall/windows":      true, // go1.25
+	"maps":                          true, // go1.25
+	"os":                            true, // go1.25
+	"os/signal":                     true, // go1.25
+	"plugin":                        true, // go1.25
+	"reflect":                       true, // go1.25
+	"runtime":                       true, // go1.25
+	"runtime/debug":                 true, // go1.25
+	"runtime/metrics":               true, // go1.25
+	"runtime/pprof":                 true, // go1.25
+	"runtime/trace":                 true, // go1.25
+	"sync":                          true, // go1.25
+	"sync/atomic":                   true, // go1.25
+	"sync_test":                     true, // go1.25
+	"syscall":                       true, // go1.25
+	"syscall/js":                    true, // go1.25
+	"time":                          true, // go1.25
+	"unique":                        true, // go1.25
+	"weak":                          true, // go1.25
 	// The net package linknames to the runtime, not the other way around.
-	"net",
+	"net": true,
 	// The testing package uses a //go:linkname directive pointing to testing/synctest,
 	// but it doesn't import the package, presumably to avoid an import cycle.
-	"testing/synctest",
+	"testing/synctest": true,
 }
 
 var compilerIntrinsics = map[string]map[string]bool{

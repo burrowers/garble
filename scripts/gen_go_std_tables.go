@@ -21,6 +21,22 @@ import (
 	"text/template"
 )
 
+type goPlatform struct {
+	GOOS, GOARCH string
+	Priority     int // smaller wins when deduplicating
+}
+
+func (p goPlatform) String() string {
+	return fmt.Sprintf("%s/%s", p.GOOS, p.GOARCH)
+}
+
+// Cover the three main OSes and a variety of x86/Arm and 64/32 bit platforms
+// when calling `go list` commands to ensure we find all relevant packages.
+var goPlatforms = []goPlatform{
+	{"linux", "amd64", 1},
+	{"darwin", "arm64", 2},
+	{"windows", "386", 3},
+}
 var goVersions = []string{"go1.25.8"}
 
 var tmplTables = template.Must(template.New("").Parse(`
@@ -34,7 +50,7 @@ package main
 // as reported by 'go list -deps'.
 var runtimeAndDeps = map[string]bool{
 {{- range $path := .RuntimeAndDeps }}
-	"{{ $path.String }}": true, // {{ $path.GoVersionLang }}
+	"{{ $path.String }}": true, // {{ $path.GoVersionLang }} {{ $path.Platform }}
 {{- end }}
 }
 
@@ -48,15 +64,15 @@ var runtimeAndDeps = map[string]bool{
 // but not transitively imported on some platforms, even though they are used
 // from the runtime package via //go:linkname directives on those platforms.
 // To make sure we have coverage on all platforms, we allow duplicates.
-var runtimeAndLinknamed = []string{
+var runtimeAndLinknamed = map[string]bool{
 {{- range $path := .RuntimeAndLinknamed }}
-	"{{ $path.String }}", // {{ $path.GoVersionLang }}
+	"{{ $path.String }}": true, // {{ $path.GoVersionLang }}
 {{- end }}
 	// The net package linknames to the runtime, not the other way around.
-	"net",
+	"net": true,
 	// The testing package uses a //go:linkname directive pointing to testing/synctest,
 	// but it doesn't import the package, presumably to avoid an import cycle.
-	"testing/synctest",
+	"testing/synctest": true,
 }
 
 var compilerIntrinsics = map[string]map[string]bool{
@@ -97,6 +113,7 @@ func (t tmplIntrinsic) Equal(t2 tmplIntrinsic) bool {
 type versionedString struct {
 	String        string
 	GoVersionLang string
+	Platform      goPlatform
 }
 
 func (v versionedString) Compare(v2 versionedString) int {
@@ -104,7 +121,11 @@ func (v versionedString) Compare(v2 versionedString) int {
 		return c
 	}
 	// Negated so that newer Go versions go first.
-	return -cmp.Compare(v.GoVersionLang, v2.GoVersionLang)
+	if c := -cmp.Compare(v.GoVersionLang, v2.GoVersionLang); c != 0 {
+		return c
+	}
+	// Platforms with a lower priority go first.
+	return cmp.Compare(v.Platform.Priority, v2.Platform.Priority)
 }
 
 func (v versionedString) Equal(v2 versionedString) bool {
@@ -113,9 +134,12 @@ func (v versionedString) Equal(v2 versionedString) bool {
 	return v.String == v2.String
 }
 
-func cmdGo(goVersion string, args ...string) versionedString {
+func cmdGo(goVersion string, platform goPlatform, args ...string) versionedString {
 	cmd := exec.Command("go", args...)
 	cmd.Env = append(cmd.Environ(), "GOTOOLCHAIN="+goVersion)
+	if platform.GOOS != "" {
+		cmd.Env = append(cmd.Env, "GOOS="+platform.GOOS, "GOARCH="+platform.GOARCH)
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		panic(err)
@@ -123,6 +147,7 @@ func cmdGo(goVersion string, args ...string) versionedString {
 	return versionedString{
 		String:        string(bytes.TrimSpace(out)), // no trailing newline
 		GoVersionLang: version.Lang(goVersion),
+		Platform:      platform,
 	}
 }
 
@@ -141,6 +166,7 @@ func lines(vs versionedString) []versionedString {
 		versioned = append(versioned, versionedString{
 			String:        s,
 			GoVersionLang: vs.GoVersionLang,
+			Platform:      vs.Platform,
 		})
 	}
 	return versioned
@@ -152,14 +178,16 @@ var rxIntrinsic = regexp.MustCompile(`\b(addF|alias)\("([^"]*)", "([^"]*)",`)
 func main() {
 	var runtimeAndDeps []versionedString
 	for _, goVersion := range goVersions {
-		runtimeAndDeps = append(runtimeAndDeps, lines(cmdGo(goVersion, "list", "-deps", "runtime"))...)
+		for _, platform := range goPlatforms {
+			runtimeAndDeps = append(runtimeAndDeps, lines(cmdGo(goVersion, platform, "list", "-deps", "runtime"))...)
+		}
 	}
 	slices.SortFunc(runtimeAndDeps, versionedString.Compare)
 	runtimeAndDeps = slices.CompactFunc(runtimeAndDeps, versionedString.Equal)
 
 	var goroots []versionedString
 	for _, goVersion := range goVersions {
-		goroots = append(goroots, cmdGo(goVersion, "env", "GOROOT"))
+		goroots = append(goroots, cmdGo(goVersion, goPlatform{}, "env", "GOROOT"))
 	}
 
 	// All packages that the runtime linknames to, except runtime and its dependencies.
