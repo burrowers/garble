@@ -387,7 +387,12 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// We do not support obfuscating the runtime nor its dependencies.
 		case runtimeAndDeps[path],
 			// "unknown pc" crashes on windows in the cgo test otherwise.
-			path == "runtime/cgo":
+			path == "runtime/cgo",
+			// Obfuscating any of the fips140 packages breaks builds,
+			// not just because their import paths get special treatment,
+			// but also because they have special vars like "RODATA"
+			// and forbid relocations caused by literal obfuscation.
+			path == "crypto/internal/fips140", strings.HasPrefix(path, "crypto/internal/fips140/"):
 
 		// No point in obfuscating empty packages, like OS-specific ones that don't match.
 		case len(pkg.CompiledGoFiles) == 0:
