@@ -445,7 +445,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 		}
 		startTime := time.Now()
 		missing := make([]string, 0, len(runtimeAndLinknamed))
-		for _, linknamed := range runtimeAndLinknamed {
+		for linknamed := range runtimeAndLinknamed {
 			switch {
 			case sharedCache.ListedPackages[linknamed] != nil:
 				// We already have it; skip.
@@ -457,6 +457,8 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 				missing = append(missing, linknamed)
 			}
 		}
+		slices.Sort(missing) // ensure determinism after the map iteration above
+
 		// We don't need any information about their dependencies, in this case.
 		if err := appendListedPackages(missing, false); err != nil {
 			return nil, fmt.Errorf("failed to load missing runtime-linknamed packages: %v", err)
