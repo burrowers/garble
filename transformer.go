@@ -695,15 +695,19 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
 		log.Printf("obfuscating %s", basename)
-		if tf.curPkg.ImportPath == "runtime" {
+		switch tf.curPkg.ImportPath {
+		case "runtime":
 			if flagTiny {
 				// strip unneeded runtime code
 				stripRuntime(basename, file)
 				tf.useAllImports(file)
 			}
 			if basename == "symtab.go" {
-				updateMagicValue(file, magicValue())
 				updateEntryOffset(file, entryOffKey())
+			}
+		case "internal/abi":
+			if basename == "symtab.go" {
+				updateMagicValue(file, magicValue())
 			}
 		}
 		if err := tf.transformDirectives(file.Comments); err != nil {

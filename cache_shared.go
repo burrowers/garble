@@ -243,9 +243,6 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	case "runtime", "reflect", "embed",
 		// TODO: collect directly from cmd/internal/objabi/pkgspecial.go,
 		// in this particular case from allowAsmABIPkgs.
-		"syscall",
-		"internal/bytealg",
-		"internal/chacha8rand",
 		"internal/runtime/syscall/linux",
 		"internal/runtime/syscall/windows",
 		"internal/runtime/startlinetest":
@@ -255,6 +252,17 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	if _, ok := compilerIntrinsics[p.ImportPath]; ok {
 		return p.ImportPath
 	}
+	// The linker forbids linknaming to certain runtime declarations
+	// unless a package is known to be allowed by import path string.
+	// The alternative would be to use -checklinkname=false, but that disables all checks entirely.
+	//
+	// TODO: we could probably remove this once we obfuscate the runtime,
+	// because then these runtime package and declaration names will be obfuscated too,
+	// so the linker will stop recognising them for the extra checks.
+	if _, ok := runtimeAndLinknamed[p.ImportPath]; ok {
+		return p.ImportPath
+	}
+
 	newPath := hashWithPackage(p, p.ImportPath)
 	log.Printf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
 	return newPath
@@ -445,7 +453,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 		}
 		startTime := time.Now()
 		missing := make([]string, 0, len(runtimeAndLinknamed))
-		for _, linknamed := range runtimeAndLinknamed {
+		for linknamed := range runtimeAndLinknamed {
 			switch {
 			case sharedCache.ListedPackages[linknamed] != nil:
 				// We already have it; skip.
@@ -457,6 +465,8 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 				missing = append(missing, linknamed)
 			}
 		}
+		slices.Sort(missing) // ensure determinism after the map iteration above
+
 		// We don't need any information about their dependencies, in this case.
 		if err := appendListedPackages(missing, false); err != nil {
 			return nil, fmt.Errorf("failed to load missing runtime-linknamed packages: %v", err)

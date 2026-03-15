@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"go/types"
 	mathrand "math/rand"
+	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
 	ah "mvdan.cc/garble/internal/asthelper"
@@ -40,6 +41,17 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	obfRand := newObfRand(rand, file, nameFunc)
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
+		case *ast.FuncDecl:
+			// Obfuscating literals can push the stack frame over the //go:nosplit limit,
+			// which is just 800 bytes. These funcs are mostly in the runtime,
+			// so obfuscating strings in these is less important in any case.
+			if node.Doc != nil {
+				for _, comment := range node.Doc.List {
+					if strings.HasPrefix(comment.Text, "//go:nosplit") {
+						return false
+					}
+				}
+			}
 		case *ast.GenDecl:
 			// constants are obfuscated by replacing all references with the obfuscated value
 			if node.Tok == token.CONST {
