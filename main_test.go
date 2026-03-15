@@ -208,8 +208,6 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 	for _, arg := range args {
 		switch arg {
 		case "stdout", "stderr":
-			// Note that the diffoscope call below would not deal with
-			// stdout/stderr either.
 			ts.Fatalf("bincmp is for binary files. did you mean cmp?")
 		}
 	}
@@ -222,15 +220,6 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 		return
 	}
 	if data1 != data2 {
-		if _, err := exec.LookPath("diffoscope"); err == nil {
-			// We'll error below; ignore the exec error here.
-			ts.Exec("diffoscope",
-				"--diff-context", "2", // down from 7 by default
-				"--max-text-report-size", "4096", // no limit (in bytes) by default; avoid huge output
-				ts.MkAbs(args[0]), ts.MkAbs(args[1]))
-		} else {
-			ts.Logf("diffoscope not found; skipping")
-		}
 		outDir := "bincmp_output"
 		err := os.MkdirAll(outDir, 0o777)
 		ts.Check(err)
@@ -249,9 +238,10 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 		err = file2.Close()
 		ts.Check(err)
 
-		ts.Logf("wrote files to %s and %s", file1.Name(), file2.Name())
+		ts.Logf("wrote files to %s and %s; try inspecting with diffoscope",
+			file1.Name(), file2.Name())
 		sizeDiff := len(data2) - len(data1)
-		ts.Fatalf("%s and %s differ; diffoscope above, size diff: %+d",
+		ts.Fatalf("%s and %s differ; size diff: %+d",
 			args[0], args[1], sizeDiff)
 	}
 }
