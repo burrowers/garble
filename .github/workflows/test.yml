@@ -24,6 +24,9 @@ name: Test
 jobs:
   test:
     strategy:
+      # We mainly develop on Linux, so being able to see MacOS and Windows failures
+      # is useful even if we already know at least one job will fail.
+      fail-fast: false
       matrix:
         go-version: [1.26.x]
         # TODO: re-enable windows once https://github.com/golang/go/issues/77975 is resolved
