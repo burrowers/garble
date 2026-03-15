@@ -90,6 +90,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"runtime/pprof"
 	"syscall"
 	"testing"
 	"time"
@@ -109,6 +110,7 @@ func main() {
 		time.Now()
 		syscall.Listen(0, 1)
 		testing.MainStart(nil, nil, nil, nil, nil)
+		pprof.StartCPUProfile(nil)
 	}
 }
 
