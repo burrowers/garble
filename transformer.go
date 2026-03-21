@@ -166,11 +166,18 @@ func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStru
 		origin := origin.(*types.Struct)
 		for i := range used.NumFields() {
 			field := used.Field(i)
-			fieldToStruct[field.Origin()] = origin
-
+			originField := field.Origin()
+			// Similarly to the Named case above, if we have an anonymous
+			// struct inside a generic function like
+			//
+			//	func foo[T any]() struct { Bar T }
+			//
+			// then we want the hashing to use the original "Bar T".
+			if originField == field || fieldToStruct[originField] == nil {
+				fieldToStruct[originField] = origin
+			}
 			if field.Embedded() {
-				originField := origin.Field(i)
-				recordType(field.Type(), originField.Type(), done, fieldToStruct)
+				recordType(field.Type(), origin.Field(i).Type(), done, fieldToStruct)
 			}
 		}
 	}
