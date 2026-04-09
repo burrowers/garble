@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"go/printer"
 	"go/token"
 	"io/fs"
@@ -147,6 +148,7 @@ func TestScript(t *testing.T) {
 			"setenvfile":        setenvfile,
 			"grepfiles":         grepfiles,
 			"setup-go":          setupGo,
+			"transform-directives": transformDirectivesCmd,
 		},
 		UpdateScripts:       *update,
 		RequireExplicitExec: true,
@@ -399,6 +401,37 @@ func setupGo(ts *testscript.TestScript, neg bool, args []string) {
 	// Remove GOROOT from the environment, as it is unnecessary and gets in the way
 	// when we want to test GOTOOLCHAIN upgrades, which will need different GOROOTs.
 	ts.Setenv("GOROOT", "")
+}
+
+func transformDirectivesCmd(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("unsupported: ! transform-directives")
+	}
+	if len(args) != 3 {
+		ts.Fatalf("usage: transform-directives importpath input.go output.txt")
+	}
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, ts.MkAbs(args[1]), nil, parser.SkipObjectResolution|parser.ParseComments)
+	ts.Check(err)
+
+	pkg := &listedPackage{
+		ImportPath: args[0],
+		ToObfuscate: true,
+	}
+	pkg.GarbleActionID[0] = 1
+
+	tf := &transformer{curPkg: pkg}
+	ts.Check(tf.transformDirectives(file.Comments))
+
+	outFile := createFile(ts, args[2])
+	defer outFile.Close()
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			_, err := fmt.Fprintln(outFile, comment.Text)
+			ts.Check(err)
+		}
+	}
 }
 
 func TestSplitFlagsFromArgs(t *testing.T) {

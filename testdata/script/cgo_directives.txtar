@@ -1,0 +1,19 @@
+transform-directives syscall input.go directives.txt
+
+grep '^//go:cgo_import_dynamic syscall\.[[:word:]]+ LoadLibraryExW%3 "kernel32\.dll"$' directives.txt
+grep '^//go:cgo_import_static syscall\.[[:word:]]+$' directives.txt
+grep '^//go:cgo_import_dynamic libc_fdopendir fdopendir "/usr/lib/libSystem\.B\.dylib"$' directives.txt
+grep '^//go:cgo_export_dynamic exportedDynamic$' directives.txt
+grep '^//go:cgo_export_static exportedStatic$' directives.txt
+
+! grep 'syscall\.__LoadLibraryExW' directives.txt
+! grep 'syscall\.__GetProcAddress' directives.txt
+
+-- input.go --
+package syscall
+
+//go:cgo_import_dynamic syscall.__LoadLibraryExW LoadLibraryExW%3 "kernel32.dll"
+//go:cgo_import_static syscall.__GetProcAddress
+//go:cgo_import_dynamic libc_fdopendir fdopendir "/usr/lib/libSystem.B.dylib"
+//go:cgo_export_dynamic exportedDynamic
+//go:cgo_export_static exportedStatic
