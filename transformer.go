@@ -726,62 +726,75 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
-// transformDirectives rewrites //go:linkname toolchain directives in comments
-// to replace names with their obfuscated versions.
+// transformDirectives rewrites toolchain directives in comments to replace
+// local names with their obfuscated versions.
 func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 	for _, group := range comments {
 		for _, comment := range group.List {
-			if !strings.HasPrefix(comment.Text, "//go:linkname ") {
-				continue
-			}
-
-			// We can have either just one argument:
-			//
-			//	//go:linkname localName
-			//
-			// Or two arguments, where the second may refer to a name in a
-			// different package:
-			//
-			//	//go:linkname localName newName
-			//	//go:linkname localName pkg.newName
-			fields := strings.Fields(comment.Text)
-			localName := fields[1]
-			newName := ""
-			if len(fields) == 3 {
-				newName = fields[2]
-			}
-			switch newName {
-			case "runtime.lastmoduledatap", "runtime.moduledataverify1":
-				// Linknaming to the var and function above is used by github.com/bytedance/sonic/loader
-				// to inject functions into the runtime, but that breaks as garble patches
-				// the runtime to change the function header magic number.
+			switch {
+			case strings.HasPrefix(comment.Text, "//go:linkname "):
+				// We can have either just one argument:
 				//
-				// Given that Go is locking down access to runtime internals via go:linkname,
-				// and what sonic does was never supported and is a hack,
-				// refuse to build before the user sees confusing run-time panics.
-				return fmt.Errorf("garble does not support packages with a //go:linkname to %s", newName)
-			}
+				//	//go:linkname localName
+				//
+				// Or two arguments, where the second may refer to a name in a
+				// different package:
+				//
+				//	//go:linkname localName newName
+				//	//go:linkname localName pkg.newName
+				fields := strings.Fields(comment.Text)
+				localName := fields[1]
+				newName := ""
+				if len(fields) == 3 {
+					newName = fields[2]
+				}
+				switch newName {
+				case "runtime.lastmoduledatap", "runtime.moduledataverify1":
+					// Linknaming to the var and function above is used by github.com/bytedance/sonic/loader
+					// to inject functions into the runtime, but that breaks as garble patches
+					// the runtime to change the function header magic number.
+					//
+					// Given that Go is locking down access to runtime internals via go:linkname,
+					// and what sonic does was never supported and is a hack,
+					// refuse to build before the user sees confusing run-time panics.
+					return fmt.Errorf("garble does not support packages with a //go:linkname to %s", newName)
+				}
 
-			localName, newName = tf.transformLinkname(localName, newName)
-			fields[1] = localName
-			if len(fields) == 3 {
-				fields[2] = newName
-			}
+				localName, newName = tf.transformLinkname(localName, newName)
+				fields[1] = localName
+				if len(fields) == 3 {
+					fields[2] = newName
+				}
 
-			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
-				log.Printf("linkname %q changed to %q", comment.Text, strings.Join(fields, " "))
+				if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
+					log.Printf("linkname %q changed to %q", comment.Text, strings.Join(fields, " "))
+				}
+				comment.Text = strings.Join(fields, " ")
+			case strings.HasPrefix(comment.Text, "//go:cgo_import_dynamic "),
+				strings.HasPrefix(comment.Text, "//go:cgo_import_static "):
+				fields := strings.Fields(comment.Text)
+				if len(fields) < 2 {
+					continue
+				}
+				if localNamePart, ok := strings.CutPrefix(fields[1], tf.curPkg.ImportPath+"."); ok {
+					fields[1] = tf.curPkg.obfuscatedImportPath() + "." + tf.directiveLocalName(localNamePart)
+				}
+				comment.Text = strings.Join(fields, " ")
 			}
-			comment.Text = strings.Join(fields, " ")
 		}
 	}
 	return nil
 }
 
-func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
-	// obfuscate the local name, if the current package is obfuscated
+func (tf *transformer) directiveLocalName(localName string) string {
 	if tf.curPkg.ToObfuscate && !compilerIntrinsics[tf.curPkg.ImportPath][localName] {
-		localName = hashWithPackage(tf.curPkg, localName)
+		return hashWithPackage(tf.curPkg, localName)
 	}
+	return localName
+}
+
+func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
+	localName = tf.directiveLocalName(localName)
 	if newName == "" {
 		return localName, ""
 	}
