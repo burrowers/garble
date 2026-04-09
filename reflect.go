@@ -557,7 +557,7 @@ func (ri *reflectInspector) obfuscatedObjectName(obj types.Object, parent *types
 	}
 
 	if v, ok := obj.(*types.Var); ok && parent != nil {
-		return hashWithStruct(parent, v)
+		return hashWithStruct(identityStruct(parent, nil), v.Origin())
 	}
 
 	return hashWithPackage(ri.lpkg, obj.Name())

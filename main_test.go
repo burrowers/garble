@@ -141,13 +141,13 @@ func TestScript(t *testing.T) {
 			return false, fmt.Errorf("unknown condition")
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
-			"sleep":             sleep,
-			"binsubstr":         binsubstr,
-			"bincmp":            bincmp,
-			"generate-literals": generateLiterals,
-			"setenvfile":        setenvfile,
-			"grepfiles":         grepfiles,
-			"setup-go":          setupGo,
+			"sleep":                sleep,
+			"binsubstr":            binsubstr,
+			"bincmp":               bincmp,
+			"generate-literals":    generateLiterals,
+			"setenvfile":           setenvfile,
+			"grepfiles":            grepfiles,
+			"setup-go":             setupGo,
 			"transform-directives": transformDirectivesCmd,
 		},
 		UpdateScripts:       *update,
@@ -416,7 +416,7 @@ func transformDirectivesCmd(ts *testscript.TestScript, neg bool, args []string) 
 	ts.Check(err)
 
 	pkg := &listedPackage{
-		ImportPath: args[0],
+		ImportPath:  args[0],
 		ToObfuscate: true,
 	}
 	pkg.GarbleActionID[0] = 1

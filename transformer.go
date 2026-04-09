@@ -126,15 +126,42 @@ func computeFieldToStruct(info *types.Info) map[*types.Var]*types.Struct {
 	return fieldToStruct
 }
 
+// identityStruct returns the struct shape which should determine field hashing.
+// For instantiated anonymous generic structs, rebuild a struct from field origins
+// so all equivalent instances hash like their original generic form.
+func identityStruct(used *types.Struct, origin types.Type) *types.Struct {
+	if origin != nil {
+		return origin.(*types.Struct)
+	}
+	fields := make([]*types.Var, used.NumFields())
+	tags := make([]string, used.NumFields())
+	needsClone := false
+	anyTags := false
+	for i := range used.NumFields() {
+		field := used.Field(i)
+		fields[i] = field.Origin()
+		if fields[i] != field {
+			needsClone = true
+		}
+		tags[i] = used.Tag(i)
+		anyTags = anyTags || tags[i] != ""
+	}
+	if !needsClone {
+		return used
+	}
+	if !anyTags {
+		tags = nil
+	}
+	return types.NewStruct(fields, tags)
+}
+
 // recordType visits every reachable type after typechecking a package.
 // Right now, all it does is fill the fieldToStruct map.
 // Since types can be recursive, we need a map to avoid cycles.
 // We only need to track named types as done, as all cycles must use them.
 func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStruct map[*types.Var]*types.Struct) {
 	used = types.Unalias(used)
-	if origin == nil {
-		origin = used
-	} else {
+	if origin != nil {
 		origin = types.Unalias(origin)
 		// origin may be a [*types.TypeParam].
 		// For now, we haven't found a need to recurse in that case.
@@ -147,7 +174,11 @@ func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStru
 	type Container interface{ Elem() types.Type }
 	switch used := used.(type) {
 	case Container:
-		recordType(used.Elem(), origin.(Container).Elem(), done, fieldToStruct)
+		if origin == nil {
+			recordType(used.Elem(), nil, done, fieldToStruct)
+		} else {
+			recordType(used.Elem(), origin.(Container).Elem(), done, fieldToStruct)
+		}
 	case *types.Named:
 		if done[used] {
 			return
@@ -163,7 +194,7 @@ func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStru
 		// Ensure we record the original generic struct, if there is one.
 		recordType(used.Underlying(), used.Origin().Underlying(), done, fieldToStruct)
 	case *types.Struct:
-		origin := origin.(*types.Struct)
+		origin := identityStruct(used, origin)
 		for i := range used.NumFields() {
 			field := used.Field(i)
 			originField := field.Origin()
