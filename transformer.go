@@ -104,80 +104,55 @@ func typecheck(pkgPath string, files []*ast.File, origImporter importerWithMap) 
 	return pkg, info, err
 }
 
+// computeFieldToStruct visits every reachable type after typechecking a package
+// to map from a struct field back to its containing struct type.
+// We only record uninstantiated or "origin" fields and types,
+// given that a generic type and its instance must share names.
+//
+// Since types can be recursive, we need a map to avoid cycles.
+// We only need to track named types as done, as all cycles must use them.
 func computeFieldToStruct(info *types.Info) map[*types.Var]*types.Struct {
 	done := make(map[*types.Named]bool)
 	fieldToStruct := make(map[*types.Var]*types.Struct)
 
-	// Run recordType on all types reachable via types.Info.
-	// A bit hacky, but I could not find an easier way to do this.
-	for _, obj := range info.Uses {
-		if obj != nil {
-			recordType(obj.Type(), nil, done, fieldToStruct)
-		}
-	}
-	for _, obj := range info.Defs {
-		if obj != nil {
-			recordType(obj.Type(), nil, done, fieldToStruct)
-		}
-	}
+	// Run recordType on all types reachable via [types.Info].
 	for _, tv := range info.Types {
-		recordType(tv.Type, nil, done, fieldToStruct)
+		recordFieldToStruct(tv.Type, done, fieldToStruct)
 	}
 	return fieldToStruct
 }
 
-// recordType visits every reachable type after typechecking a package.
-// Right now, all it does is fill the fieldToStruct map.
-// Since types can be recursive, we need a map to avoid cycles.
-// We only need to track named types as done, as all cycles must use them.
-func recordType(used, origin types.Type, done map[*types.Named]bool, fieldToStruct map[*types.Var]*types.Struct) {
-	used = types.Unalias(used)
-	if origin == nil {
-		origin = used
-	} else {
-		origin = types.Unalias(origin)
-		// origin may be a [*types.TypeParam].
-		// For now, we haven't found a need to recurse in that case.
-		// We can edit this code in the future if we find an example,
-		// because we panic if a field is not in fieldToStruct.
-		if _, ok := origin.(*types.TypeParam); ok {
-			return
-		}
-	}
-	type Container interface{ Elem() types.Type }
-	switch used := used.(type) {
-	case Container:
-		recordType(used.Elem(), origin.(Container).Elem(), done, fieldToStruct)
+func recordFieldToStruct(typ types.Type, done map[*types.Named]bool, fieldToStruct map[*types.Var]*types.Struct) {
+	switch typ := typ.(type) {
+	case interface{ Elem() types.Type }:
+		recordFieldToStruct(typ.Elem(), done, fieldToStruct)
+	case *types.Alias:
+		recordFieldToStruct(typ.Rhs(), done, fieldToStruct)
 	case *types.Named:
-		if done[used] {
+		if done[typ] {
 			return
 		}
-		done[used] = true
-		// If we have a generic struct like
-		//
-		//	type Foo[T any] struct { Bar T }
-		//
-		// then we want the hashing to use the original "Bar T",
-		// because otherwise different instances like "Bar int" and "Bar bool"
-		// will result in different hashes and the field names will break.
-		// Ensure we record the original generic struct, if there is one.
-		recordType(used.Underlying(), used.Origin().Underlying(), done, fieldToStruct)
+		done[typ] = true
+		recordFieldToStruct(typ.Underlying(), done, fieldToStruct)
 	case *types.Struct:
-		origin := origin.(*types.Struct)
-		for i := range used.NumFields() {
-			field := used.Field(i)
-			originField := field.Origin()
-			// Similarly to the Named case above, if we have an anonymous
-			// struct inside a generic function like
-			//
-			//	func foo[T any]() struct { Bar T }
-			//
-			// then we want the hashing to use the original "Bar T".
-			if originField == field || fieldToStruct[originField] == nil {
-				fieldToStruct[originField] = origin
+		for field := range typ.Fields() {
+			if field != field.Origin() {
+				// Part of this struct is instantiated; do not record it at all.
+				// TODO: can we discard these types earlier on in the recursion?
+				return
+			}
+		}
+		for field := range typ.Fields() {
+			prev := fieldToStruct[field]
+			if prev == nil {
+				fieldToStruct[field] = typ
+			} else if prev != typ {
+				// If this struct field is already done, ensure we got the same result.
+				// If we didn't, then this is most likely a bug we need to fix.
+				panic(fmt.Sprintf("inconsistent fieldToStruct results: %s vs %s", prev, typ))
 			}
 			if field.Embedded() {
-				recordType(field.Type(), origin.Field(i).Type(), done, fieldToStruct)
+				recordFieldToStruct(field.Type(), done, fieldToStruct)
 			}
 		}
 	}
@@ -279,7 +254,7 @@ type transformer struct {
 	linkerVariableStrings map[*types.Var]string
 
 	// fieldToStruct helps locate struct types from any of their field
-	// objects. Useful when obfuscating field names.
+	// objects. Useful when obfuscating field names. See [computeFieldToStruct].
 	fieldToStruct map[*types.Var]*types.Struct
 
 	// obfRand is initialized by transformCompile and used during obfuscation.
