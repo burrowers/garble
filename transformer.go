@@ -56,11 +56,11 @@ func computeLinkerVariableStrings(pkg *types.Package) (map[*types.Var]string, er
 	if err != nil {
 		return nil, err
 	}
-	flagValueIter(ldflags, "-X", func(val string) {
+	for val := range flagValues(ldflags, "-X") {
 		// val is in the form of "foo.com/bar.name=value".
 		fullName, stringValue, found := strings.Cut(val, "=")
 		if !found {
-			return // invalid
+			continue // invalid
 		}
 
 		// fullName is "foo.com/bar.name"
@@ -69,15 +69,15 @@ func computeLinkerVariableStrings(pkg *types.Package) (map[*types.Var]string, er
 
 		// Note that package main always has import path "main" as part of a build.
 		if path != pkg.Path() && (path != "main" || pkg.Name() != "main") {
-			return // not the current package
+			continue // not the current package
 		}
 
 		obj, _ := pkg.Scope().Lookup(name).(*types.Var)
 		if obj == nil {
-			return // no such variable; skip
+			continue // no such variable; skip
 		}
 		linkerVariableStrings[obj] = stringValue
-	})
+	}
 	return linkerVariableStrings, nil
 }
 
@@ -1329,11 +1329,11 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 	// Make sure -X works with obfuscated identifiers.
 	// To cover both obfuscated and non-obfuscated names,
 	// duplicate each flag with a obfuscated version.
-	flagValueIter(flags, "-X", func(val string) {
+	for val := range flagValues(flags, "-X") {
 		// val is in the form of "foo.com/bar.name=value".
 		fullName, stringValue, found := strings.Cut(val, "=")
 		if !found {
-			return // invalid
+			continue // invalid
 		}
 
 		// fullName is "foo.com/bar.name"
@@ -1350,11 +1350,11 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 			// We couldn't find the package.
 			// Perhaps a typo, perhaps not part of the build.
 			// cmd/link ignores those, so we should too.
-			return
+			continue
 		}
 		newName := hashWithPackage(lpkg, name)
 		flags = append(flags, fmt.Sprintf("-X=%s.%s=%s", lpkg.obfuscatedImportPath(), newName, stringValue))
-	})
+	}
 
 	// Starting in Go 1.17, Go's version is implicitly injected by the linker.
 	// It's the same method as -X, so we can override it with an extra flag.

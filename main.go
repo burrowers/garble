@@ -17,6 +17,7 @@ import (
 	"go/version"
 	"io"
 	"io/fs"
+	"iter"
 	"log"
 	"os"
 	"os/exec"
@@ -679,25 +680,31 @@ func splitFlagsFromFiles(all []string, ext string) (flags, paths []string) {
 // the last value is returned.
 func flagValue(flags []string, name string) string {
 	lastVal := ""
-	flagValueIter(flags, name, func(val string) {
+	for val := range flagValues(flags, name) {
 		lastVal = val
-	})
+	}
 	return lastVal
 }
 
-// flagValueIter retrieves all the values for a flag such as "-foo", like
+// flagValues retrieves all the values for a flag such as "-foo", like
 // flagValue. The difference is that it allows handling complex flags, such as
 // those whose values compose a list.
-func flagValueIter(flags []string, name string, fn func(string)) {
-	for i, arg := range flags {
-		if val, ok := strings.CutPrefix(arg, name+"="); ok {
-			// -name=value
-			fn(val)
-		}
-		if arg == name { // -name ...
-			if i+1 < len(flags) {
-				// -name value
-				fn(flags[i+1])
+func flagValues(flags []string, name string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for i, arg := range flags {
+			if val, ok := strings.CutPrefix(arg, name+"="); ok {
+				// -name=value
+				if !yield(val) {
+					return
+				}
+			}
+			if arg == name { // -name ...
+				if i+1 < len(flags) {
+					// -name value
+					if !yield(flags[i+1]) {
+						return
+					}
+				}
 			}
 		}
 	}
