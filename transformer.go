@@ -3,7 +3,10 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +15,7 @@ import (
 	"go/types"
 	"io/fs"
 	"log"
+	"maps"
 	mathrand "math/rand"
 	"os"
 	"path/filepath"
@@ -294,10 +298,36 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	// obfuscated source files and reuse them to avoid work.
 	newPaths := make([]string, 0, len(paths))
 	if !slices.Contains(args, "-gensymabis") {
+		// Replace go_asm.h constant names; see [saveGoAsmNames].
+		// This can't be done in the gensymabis pass as the compiler hasn't run by then.
+		var replacer *strings.Replacer
+		if nameMap := loadGoAsmNames(tf.curPkg); len(nameMap) > 0 {
+			// Note that we sort the names from longest to shortest,
+			// so that a shorter name doesn't match a prefix of a longer one.
+			origNames := slices.SortedFunc(maps.Keys(nameMap), func(a, b string) int {
+				return cmp.Compare(len(b), len(a))
+			})
+			pairs := make([]string, 0, 2*len(nameMap))
+			for _, orig := range origNames {
+				pairs = append(pairs, orig, nameMap[orig])
+			}
+			replacer = strings.NewReplacer(pairs...)
+		}
 		for _, path := range paths {
 			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
 			pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir())
 			newPath := filepath.Join(pkgDir, name)
+			if replacer != nil {
+				content, err := os.ReadFile(newPath)
+				if err != nil {
+					return nil, err
+				}
+				if new := replacer.Replace(string(content)); new != string(content) {
+					if err := os.WriteFile(newPath, []byte(new), 0o666); err != nil {
+						return nil, err
+					}
+				}
+			}
 			newPaths = append(newPaths, newPath)
 		}
 		return append(flags, newPaths...), nil
@@ -429,6 +459,75 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	}
 
 	return append(flags, newPaths...), nil
+}
+
+// saveGoAsmNames saves go_asm.h constant name mappings to the build cache;
+// see https://go.dev/doc/asm#data-offsets.
+func (tf *transformer) saveGoAsmNames() error {
+	nameMap := make(map[string]string) // original -> obfuscated
+	scope := tf.pkg.Scope()
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		tn, ok := obj.(*types.TypeName)
+		if !ok {
+			continue
+		}
+		strct, ok := tn.Type().Underlying().(*types.Struct)
+		if !ok {
+			continue
+		}
+		obfTypeName := hashWithPackage(tf.curPkg, name)
+		nameMap[name+"__size"] = obfTypeName + "__size"
+		for field := range strct.Fields() {
+			obfFieldName := hashWithStruct(strct, field)
+			nameMap[name+"_"+field.Name()] = obfTypeName + "_" + obfFieldName
+		}
+	}
+	if len(nameMap) == 0 {
+		return nil
+	}
+	fsCache, err := openCache()
+	if err != nil {
+		return err
+	}
+	// TODO: if we end up with an "obfuscated name map" artifact per package,
+	// then use that directly.
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(nameMap); err != nil {
+		return err
+	}
+	return fsCache.PutBytes(goAsmCacheID(tf.curPkg.GarbleActionID), buf.Bytes())
+}
+
+func goAsmCacheID(garbleActionID [sha256.Size]byte) [sha256.Size]byte {
+	hasher := sha256.New()
+	hasher.Write(garbleActionID[:])
+	hasher.Write([]byte("\x00go-asm-names-v1\x00"))
+	var sum [sha256.Size]byte
+	hasher.Sum(sum[:0])
+	return sum
+}
+
+// loadGoAsmNames loads the go_asm.h name mapping saved by [transformer.saveGoAsmNames].
+func loadGoAsmNames(lpkg *listedPackage) map[string]string {
+	fsCache, err := openCache()
+	if err != nil {
+		return nil
+	}
+	filename, _, err := fsCache.GetFile(goAsmCacheID(lpkg.GarbleActionID))
+	if err != nil {
+		return nil
+	}
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var nameMap map[string]string
+	if err := gob.NewDecoder(f).Decode(&nameMap); err != nil {
+		return nil
+	}
+	return nameMap
 }
 
 func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
@@ -659,6 +758,12 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	tf.fieldToStruct = computeFieldToStruct(tf.info)
 	if flagLiterals {
 		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(tf.curPkg.SFiles) > 0 && tf.curPkg.ToObfuscate {
+		if err := tf.saveGoAsmNames(); err != nil {
 			return nil, err
 		}
 	}

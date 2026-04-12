@@ -50,6 +50,21 @@ var goData = [4]uint64{1, 2, 3, 4}
 func modifyGoData()
 func modifyGoData2()
 
+// Args holds arguments for the assembly function.
+// The Go compiler generates go_asm.h with constants like:
+// - Args_a12 (offset of field a12)
+// - Args__size (size of the struct)
+type Args struct {
+	// Note that "a1" is a prefix of both "a12" and "a123".
+	// A naive search-and-replace would incorrectly match prefixes.
+	a12, a1, a123 int64
+}
+
+// addArgs computes a12 + a1 + a123 using go_asm.h constants
+func addArgs(args *Args) int64
+// argsSize returns the size of Args struct using go_asm.h constant
+func argsSize() int64
+
 func main() {
 	println(addJmpPkgPath(1, 2))
 	println(addJmpPkgName(1, 2))
@@ -61,11 +76,14 @@ func main() {
 	println(goData[0], goData[1])
 
 	println(imported.AddImpl(3, 4))
+
+	println(addArgs(&Args{a12: 5, a1: 10, a123: 20}))
+	println(argsSize())
 }
 
 -- garble_main_amd64.s --
+#include "go_asm.h"
 #include "garble_define_amd64.h"
-
 #include "extra/garble_define2_amd64.h" // Inline: many·special∕asm·runes.
 
 // A comment may include many·special∕asm·runes and it's okay.
@@ -89,6 +107,21 @@ TEXT ·modifyGoData(SB),$0-16
 TEXT ·modifyGoData2(SB),$0-16
 	addGoDataTo2($12)
 	ADDL $34,·goData+8(SB) // note the lack of a space
+	RET
+
+TEXT ·addArgs(SB), $0-16
+	MOVQ args+0(FP), R11
+	MOVQ Args_a12(R11), AX
+	MOVQ Args_a1(R11), BX
+	ADDQ BX, AX
+	MOVQ Args_a123(R11), BX
+	ADDQ BX, AX
+	MOVQ AX, ret+8(FP)
+	RET
+
+TEXT ·argsSize(SB), $0-8
+	MOVQ $Args__size, AX
+	MOVQ AX, ret+0(FP)
 	RET
 
 -- garble_define_amd64.h --
@@ -154,4 +187,6 @@ TEXT ·AddImpl(SB),$0-16
 13 36
 25 70
 7
+35
+24
 -- empty-reverse.txt --
