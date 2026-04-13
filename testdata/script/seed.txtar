@@ -64,6 +64,7 @@ cp stderr importedpkg-seed-static-2
 # Use a random seed, which should always trigger a full build.
 exec garble -seed=random build -v
 stderr -count=1 '^-seed chosen at random: .+'
+! stderr 'warning: -seed only uses the first 8 bytes'
 stderr -count=1 '^runtime$'
 stderr -count=1 '^test/main$'
 exec ./main$exe
@@ -80,6 +81,7 @@ cp main$exe main_random$exe
 rm main$exe
 exec garble -seed=random build -v
 stderr .
+! stderr 'warning: -seed only uses the first 8 bytes'
 ! bincmp main$exe main_random$exe
 
 exec ./main$exe test/main/imported

@@ -518,7 +518,7 @@ func (f *seedFlag) Set(s string) error {
 	if s == "random" {
 		f.random = true // to show the random seed we chose
 
-		f.bytes = make([]byte, 16) // random 128 bit seed
+		f.bytes = make([]byte, 8) // random 64 bit seed
 		if _, err := cryptorand.Read(f.bytes); err != nil {
 			return fmt.Errorf("error generating random seed: %v", err)
 		}
