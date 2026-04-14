@@ -21,11 +21,6 @@ modules=(
 	# Note that the latest tag does not build on Go 1.23.
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 
-	# Lo helps cover generics.
-	# TODO: would be nice to find a more popular alternative,
-	# at least once generics are more widespread.
-	github.com/samber/lo v1.47.0
-
 	# Brotli is a compression algorithm popular with HTTP.
 	# It's also transpiled from C with a gitlab.com/cznic/ccgo,
 	# so this helps stress garble with Go code that few humans would write.
@@ -45,7 +40,7 @@ exit_code=0
 
 show() {
 	echo "> ${@}"
-	if ! "${@}"; then
+	if ! time "${@}"; then
 		echo "FAIL"
 		return 1
 	fi

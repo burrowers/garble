@@ -48,11 +48,6 @@ jobs:
 
     # Static checks from this point forward. Only run on one Go version and on
     # linux, since it's the fastest platform, and the tools behave the same.
-    - name: Test third-party project builds
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.26.x'
-      run: |
-        go install
-        ./scripts/check-third-party.sh
     - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.26.x'
       run: ./scripts/crlf-test.sh
     - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.26.x'
@@ -95,3 +90,14 @@ jobs:
         go-version: 1.26.x
         cache: false
     - run: go test -short -race ./...
+
+  test-third-party:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.26.x
+        cache: false
+    - run: go install
+    - run: ./scripts/check-third-party.sh
