@@ -26,6 +26,7 @@ import (
 	"github.com/rogpeppe/go-internal/testscript"
 
 	ah "mvdan.cc/garble/internal/asthelper"
+	"mvdan.cc/garble/internal/literals"
 )
 
 var proxyURL string
@@ -248,23 +249,10 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 
 var testRand = mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
 
-func generateStringLit(minSize int) *ast.BasicLit {
-	buffer := make([]byte, minSize)
-	_, err := testRand.Read(buffer)
-	if err != nil {
-		panic(err)
-	}
+const uniqueLitString = "garble_unique_string"
 
-	return ah.StringLit(string(buffer) + "a_unique_string_that_is_part_of_all_extra_literals")
-}
-
-// generateLiterals creates a new source code file with a few random literals inside.
-// All literals contain the string "a_unique_string_that_is_part_of_all_extra_literals"
-// so we can later check if they are all obfuscated by looking for this substring.
-// The code is designed such that the Go compiler does not optimize away the literals,
-// which would destroy the test.
-// This is achieved by defining a global variable `var x = ""` and an `init` function
-// which appends all literals to `x`.
+// generateLiterals creates a source file with random string literals appended
+// to a global var in init, preventing the compiler from optimizing them away.
 func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 	if neg {
 		ts.Fatalf("unsupported: ! generate-literals")
@@ -290,29 +278,32 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 
 	var statements []ast.Stmt
 
-	// Assignments which append 100 random small literals to x: `x += "the_small_random_literal"`
+	// 100 literals up to MaxSize, all containing uniqueLitString.
 	for range 100 {
+		randSize := testRand.Intn(literals.MaxSize - len(uniqueLitString) + 1)
+		buffer := make([]byte, randSize)
+		testRand.Read(buffer)
 		statements = append(
 			statements,
 			&ast.AssignStmt{
 				Lhs: []ast.Expr{ast.NewIdent("x")},
 				Tok: token.ADD_ASSIGN,
-				Rhs: []ast.Expr{generateStringLit(1 + testRand.Intn(255))},
+				Rhs: []ast.Expr{ah.StringLit(string(buffer) + uniqueLitString)},
 			},
 		)
 	}
 
-	// Assignments which append 5 random huge literals to x: `x += "the_huge_random_literal"`
-	// We add huge literals to make sure we obfuscate them fast.
-	// 5 * 128KiB is large enough that it would take a very, very long time
-	// to obfuscate those literals if too complex obfuscators are used.
+	// 5 huge literals past MaxSize, without uniqueLitString; not obfuscated.
 	for range 5 {
+		size := literals.MaxSize + 1 + testRand.Intn(128<<10)
+		buffer := make([]byte, size)
+		testRand.Read(buffer)
 		statements = append(
 			statements,
 			&ast.AssignStmt{
 				Lhs: []ast.Expr{ast.NewIdent("x")},
 				Tok: token.ADD_ASSIGN,
-				Rhs: []ast.Expr{generateStringLit(128 << 10)},
+				Rhs: []ast.Expr{ah.StringLit(string(buffer))},
 			},
 		)
 	}

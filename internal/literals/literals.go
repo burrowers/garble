@@ -21,10 +21,12 @@ import (
 // moderate, this also decreases the likelihood for performance slowdowns.
 const MinSize = 8
 
-// maxSize is the upper limit of the size of string-like literals
-// which we will obfuscate with any of the available obfuscators.
-// Beyond that we apply only a subset of obfuscators which are guaranteed to run efficiently.
-const maxSize = 2 << 10 // KiB
+// MaxSize is the upper limit of the size of string-like literals we will obfuscate.
+const MaxSize = 2 << 10 // 2 KiB
+
+// MaxSizeExpensive is the upper limit for using expensive obfuscators (split, seed).
+// Above this size, only cheap obfuscators are used.
+const MaxSizeExpensive = 256
 
 const (
 	// minStringJunkBytes defines the minimum number of junk bytes to prepend or append during string obfuscation.
@@ -83,7 +85,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 
 		if typeAndValue.Type == types.Typ[types.String] && typeAndValue.Value != nil {
 			value := constant.StringVal(typeAndValue.Value)
-			if len(value) < MinSize {
+			if len(value) < MinSize || len(value) > MaxSize {
 				return true
 			}
 
@@ -143,7 +145,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 //
 // If the input node cannot be obfuscated nil is returned.
 func handleCompositeLiteral(obfRand *obfRand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
-	if len(node.Elts) < MinSize {
+	if len(node.Elts) < MinSize || len(node.Elts) > MaxSize {
 		return nil
 	}
 
@@ -357,9 +359,11 @@ func obfuscateByteArray(obfRand *obfRand, isPointer bool, data []byte, length in
 }
 
 func getNextObfuscator(obfRand *obfRand, size int) obfuscator {
-	if size <= maxSize {
-		return obfRand.nextObfuscator()
-	} else {
-		return obfRand.nextLinearTimeObfuscator()
+	if size < MinSize || size > MaxSize {
+		panic(fmt.Sprintf("getNextObfuscator called with size %d outside [%d, %d]", size, MinSize, MaxSize))
 	}
+	if size <= MaxSizeExpensive {
+		return obfRand.nextObfuscator()
+	}
+	return obfRand.nextCheapObfuscator()
 }
