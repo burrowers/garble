@@ -1,5 +1,3 @@
-env GOGARBLE=*
-
 exec garble build
 ! binsubstr main$exe ${WORK} 'garble_main.go' 'GenericFunc' 'GenericVector' 'PredeclaredSignedInteger' 'StringableSignedInteger' 'CombineEmbeds' 'GenericParam'
 -- go.mod --
