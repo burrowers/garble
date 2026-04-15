@@ -1,0 +1,64 @@
+env GOGARBLE=*
+
+exec garble build
+exec ./main
+cmp stdout expected-stdout
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- expected-stdout --
+k v
+-- lib/lib.go --
+package lib
+
+import "encoding"
+
+type Pair[Key, Value any] struct {
+	Key   Key
+	Value Value
+}
+
+type Result[TData any] struct {
+	Data TData
+	Err  error
+}
+
+type Entry[TKey ~string, TData encoding.BinaryMarshaler, TPtr interface {
+	*TData
+	encoding.BinaryUnmarshaler
+}] struct {
+	Key  TKey
+	Data TData
+}
+
+func Load[TKey ~string, TData encoding.BinaryMarshaler, TPtr interface {
+	*TData
+	encoding.BinaryUnmarshaler
+}](e Entry[TKey, TData, TPtr]) Result[Pair[TKey, TData]] {
+	return Result[Pair[TKey, TData]]{
+		Data: Pair[TKey, TData]{Key: e.Key, Value: e.Data},
+	}
+}
+-- main.go --
+package main
+
+import (
+	"fmt"
+
+	"test/main/lib"
+)
+
+type Blob []byte
+
+func (b Blob) MarshalBinary() ([]byte, error)  { return b, nil }
+func (b *Blob) UnmarshalBinary(d []byte) error { *b = append((*b)[:0], d...); return nil }
+
+type Name string
+
+func main() {
+	e := lib.Entry[Name, Blob, *Blob]{Key: "k", Data: Blob("v")}
+	r := lib.Load[Name, Blob, *Blob](e)
+	fmt.Println(r.Data.Key, string(r.Data.Value))
+}

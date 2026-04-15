@@ -137,6 +137,14 @@ func recordFieldToStruct(typ types.Type, done map[*types.Named]bool, fieldToStru
 			return
 		}
 		done[typ] = true
+		// For an instantiated named type, also visit its origin so that the
+		// uninstantiated struct (whose fields satisfy field == field.Origin())
+		// is recorded. Otherwise the *types.Struct case below returns early
+		// on the instantiated underlying, and looking up the origin field at
+		// rewrite time fails with "could not find struct for field X".
+		if orig := typ.Origin(); orig != typ {
+			recordFieldToStruct(orig, done, fieldToStruct)
+		}
 		recordFieldToStruct(typ.Underlying(), done, fieldToStruct)
 	case *types.Struct:
 		for field := range typ.Fields() {
