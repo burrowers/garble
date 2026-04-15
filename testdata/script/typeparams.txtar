@@ -1,3 +1,5 @@
+env GOGARBLE=*
+
 exec garble build
 ! binsubstr main$exe ${WORK} 'garble_main.go' 'GenericFunc' 'GenericVector' 'PredeclaredSignedInteger' 'StringableSignedInteger' 'CombineEmbeds' 'GenericParam'
 -- go.mod --
@@ -6,6 +8,15 @@ module test/main
 go 1.23
 -- garble_main.go --
 package main
+
+import "test/main/lib"
+
+type Blob []byte
+
+func (b Blob) MarshalBinary() ([]byte, error)  { return b, nil }
+func (b *Blob) UnmarshalBinary(d []byte) error { *b = append((*b)[:0], d...); return nil }
+
+type Name string
 
 func main() {
 	GenericFunc[int, int](1, 2)
@@ -21,6 +32,11 @@ func main() {
 	ga.list = nil
 	var gan genericAliasNamed
 	gan.list = nil
+
+	e := lib.Entry[Name, Blob, *Blob]{Key: "k", Data: Blob("v")}
+	r := lib.Load[Name, Blob, *Blob](e)
+	_ = r.Data.Key
+	_ = r.Data.Value
 }
 
 func GenericFunc[GenericParamA, B any](x GenericParamA, y B) {}
@@ -97,3 +113,34 @@ func byKeys[T any](m map[string]T) []struct {
 }
 
 var _ = byKeys(map[string]int{"one": 1})
+-- lib/lib.go --
+package lib
+
+import "encoding"
+
+type Pair[Key, Value any] struct {
+	Key   Key
+	Value Value
+}
+
+type Result[TData any] struct {
+	Data TData
+	Err  error
+}
+
+type Entry[TKey ~string, TData encoding.BinaryMarshaler, TPtr interface {
+	*TData
+	encoding.BinaryUnmarshaler
+}] struct {
+	Key  TKey
+	Data TData
+}
+
+func Load[TKey ~string, TData encoding.BinaryMarshaler, TPtr interface {
+	*TData
+	encoding.BinaryUnmarshaler
+}](e Entry[TKey, TData, TPtr]) Result[Pair[TKey, TData]] {
+	return Result[Pair[TKey, TData]]{
+		Data: Pair[TKey, TData]{Key: e.Key, Value: e.Data},
+	}
+}
