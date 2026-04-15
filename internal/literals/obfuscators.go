@@ -178,7 +178,7 @@ func extKeysToParams(objRand *obfRand, keys []*externalKey) (params *ast.FieldLi
 		params.List = append(params.List, ah.Field(key.Type(), name))
 
 		var extKeyExpr ast.Expr = ah.UintLit(key.value)
-		if lowProb.Try(objRand.Rand) {
+		if lowProb.Try(objRand.rnd) {
 			extKeyExpr = objRand.proxyDispatcher.HideValue(extKeyExpr, ast.NewIdent(key.typ))
 		}
 		args = append(args, extKeyExpr)
@@ -255,24 +255,10 @@ func byteLitWithExtKey(rand *mathrand.Rand, val byte, extKeys []*externalKey, ex
 }
 
 type obfRand struct {
-	*mathrand.Rand
-	testObfuscator obfuscator
+	rnd *mathrand.Rand
 
+	testObfuscator  obfuscator
 	proxyDispatcher *proxyDispatcher
-}
-
-func (r *obfRand) nextObfuscator() obfuscator {
-	if r.testObfuscator != nil {
-		return r.testObfuscator
-	}
-	return Obfuscators[r.Intn(len(Obfuscators))]
-}
-
-func (r *obfRand) nextCheapObfuscator() obfuscator {
-	if r.testObfuscator != nil {
-		return r.testObfuscator
-	}
-	return CheapObfuscators[r.Intn(len(CheapObfuscators))]
 }
 
 func newObfRand(rand *mathrand.Rand, file *ast.File, nameFunc NameProviderFunc) *obfRand {
