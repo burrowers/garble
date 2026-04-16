@@ -1,6 +1,6 @@
 # garble
 
-	go install mvdan.cc/garble@latest
+	go install mvdan.cc/garble@latest # or @master
 
 Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.26 or later.
 
@@ -10,8 +10,6 @@ The tool also supports `garble test` to run tests with obfuscated code,
 `garble run` to obfuscate and execute simple programs,
 and `garble reverse` to de-obfuscate text such as stack traces.
 Run `garble -h` to see all available commands and flags.
-
-You can also use `go install mvdan.cc/garble@master` to install the latest development version.
 
 ### Purpose
 
@@ -29,11 +27,9 @@ The tool is designed to be:
 The tool wraps calls to the Go compiler and linker to transform the Go build, in
 order to:
 
-* Replace as many useful identifiers as possible with short base64 hashes
-* Replace package paths with short base64 hashes
-* Replace filenames and position information with short base64 hashes
-* Remove all [build](https://go.dev/pkg/runtime/#Version) and [module](https://go.dev/pkg/runtime/debug/#ReadBuildInfo) information
-* Strip debugging information and symbol tables via `-ldflags="-w -s"`
+* Replace identifiers and package paths with short base64 hashes
+* Replace position information with short base64 hashed filenames
+* Remove all [build](https://go.dev/pkg/runtime/#Version), [module](https://go.dev/pkg/runtime/debug/#ReadBuildInfo), and debug information
 * [Obfuscate literals](#literal-obfuscation), if the `-literals` flag is given
 * Remove [extra information](#tiny-mode), if the `-tiny` flag is given
 
@@ -43,15 +39,7 @@ a comma-separated list of glob patterns matching package path prefixes.
 This format is borrowed from `GOPRIVATE`; see `go help private`.
 
 Note that commands like `garble build` will use the `go` version found in your
-`$PATH`. To use different versions of Go, you can
-[install them](https://go.dev/doc/manage-install#installing-multiple)
-and set up `$PATH` with them. For example, for Go 1.17.1:
-
-```sh
-$ go install golang.org/dl/go1.17.1@latest
-$ go1.17.1 download
-$ PATH=$(go1.17.1 env GOROOT)/bin:${PATH} garble build
-```
+`$PATH`. To use different versions of Go, you can [use `GOTOOLCHAIN`](https://go.dev/doc/toolchain).
 
 ### Use cases
 
@@ -175,7 +163,8 @@ to document the current shortcomings of this tool.
 
 * APIs like [`runtime.GOROOT`](https://pkg.go.dev/runtime#GOROOT)
   and [`runtime/debug.ReadBuildInfo`](https://pkg.go.dev/runtime/debug#ReadBuildInfo)
-  will not work in obfuscated binaries. This [can affect loading timezones](https://github.com/golang/go/issues/51473#issuecomment-2490564684), for example.
+  will not work in obfuscated binaries. This can affect
+  [loading timezones](https://github.com/golang/go/issues/51473#issuecomment-2490564684), for example.
 
 ### Contributing
 
