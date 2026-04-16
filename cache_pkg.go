@@ -38,11 +38,18 @@ type pkgCache struct {
 	// ReflectObjectNames maps obfuscated names which are reflected to their original
 	// non-obfuscated names.
 	ReflectObjectNames map[objectString]string
+
+	// ReflectFieldByNames is the set of string literals passed to
+	// reflect.(Value|Type).FieldByName across all analyzed packages. Fields
+	// of foreign-package structs are preserved only when their name appears
+	// here, since the literal is already in the binary at the call site.
+	ReflectFieldByNames map[string]bool
 }
 
 func (c *pkgCache) CopyFrom(c2 pkgCache) {
 	maps.Copy(c.ReflectAPIs, c2.ReflectAPIs)
 	maps.Copy(c.ReflectObjectNames, c2.ReflectObjectNames)
+	maps.Copy(c.ReflectFieldByNames, c2.ReflectFieldByNames)
 }
 
 func ssaBuildPkg(pkg *types.Package, files []*ast.File, info *types.Info) *ssa.Package {
@@ -155,7 +162,8 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			"reflect.TypeOf":  {0: true},
 			"reflect.ValueOf": {0: true},
 		},
-		ReflectObjectNames: map[objectString]string{},
+		ReflectObjectNames:  map[objectString]string{},
+		ReflectFieldByNames: map[string]bool{},
 	}
 	for _, imp := range lpkg.Imports {
 		if imp == "C" {
@@ -216,6 +224,10 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		propagatedInstr: map[ssa.Instruction]bool{},
 		result:          computed, // append the results
 	}
+	// Collect reflect.FieldByName string literals from the syntax tree before
+	// any reflect propagation walks types, so foreign-package field
+	// preservation has the full literal set when it runs.
+	inspector.collectFieldByNameLiterals(files, info)
 	if ssaPkg == nil {
 		ssaPkg = ssaBuildPkg(pkg, files, info)
 	}

@@ -100,6 +100,20 @@ func main() {
 		SiblingObfuscated: "sibling",
 	})
 
+	// A foreign-package generic wrapper whose field is looked up by name.
+	// cloudflare-go's query encoder uses this pattern with param.Field[T] and
+	// used to panic because the walk stopped at the package boundary, so
+	// FieldByName("Value") returned a zero StructField with a nil Type. The
+	// field name has to survive obfuscation even though it lives in another
+	// package, because the literal is already in the binary at the call site.
+	wrapped := importedpkg2.FieldByNameWrapper[string]{Value: "wrapped"}
+	wt := reflect.TypeOf(wrapped)
+	sf, ok := wt.FieldByName("Value")
+	if !ok {
+		panic("FieldByNameWrapper.Value not found")
+	}
+	fmt.Printf("wrapper field: %s %s %s\n", sf.Name, sf.Type.Kind(), reflect.ValueOf(wrapped).FieldByName("Value").String())
+
 	// Using type aliases as both regular fields, and embedded fields.
 	var emb EmbeddingIndirect
 	emb.With.IndirectUnobfuscated = "indirect-with"
@@ -619,6 +633,14 @@ type ReflectInSiblingImport struct {
 	SiblingObfuscated string
 }
 
+// A generic wrapper mirroring cloudflare-go's param.Field[T].
+// It lives in a different package from where reflect.FieldByName("Value") is
+// called on it, exercising the foreign-package field preservation path.
+type FieldByNameWrapper[T any] struct {
+	Value   T
+	Present bool
+}
+
 -- importedpkg/indirect/indirect.go --
 package indirect
 
@@ -651,6 +673,7 @@ name: test value: example port: 8080
 {"InnerField":3,"Anon":{"AnonField":0}}
 {downstream}
 {sibling}
+wrapper field: Value string wrapped
 {{indirect-with 3} {indirect-without 4} { 0}}
 IndirectNamedWithReflect{IndirectUnobfuscated:"indirect-with", DuplicateFieldName:3}
 ReflectionField
