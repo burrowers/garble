@@ -9,13 +9,6 @@ package main
 
 import "test/main/lib"
 
-type Blob []byte
-
-func (b Blob) MarshalBinary() ([]byte, error)  { return b, nil }
-func (b *Blob) UnmarshalBinary(d []byte) error { *b = append((*b)[:0], d...); return nil }
-
-type Name string
-
 func main() {
 	GenericFunc[int, int](1, 2)
 	var _ GenericVector[int]
@@ -31,10 +24,9 @@ func main() {
 	var gan genericAliasNamed
 	gan.list = nil
 
-	e := lib.Entry[Name, Blob, *Blob]{Key: "k", Data: Blob("v")}
-	r := lib.Load[Name, Blob, *Blob](e)
-	_ = r.Data.Key
-	_ = r.Data.Value
+	e := lib.Entry[string, int]{Key: "foo", Data: 123}
+	r := lib.Load[string, int](e)
+	_ = r.Data
 }
 
 func GenericFunc[GenericParamA, B any](x GenericParamA, y B) {}
@@ -114,31 +106,15 @@ var _ = byKeys(map[string]int{"one": 1})
 -- lib/lib.go --
 package lib
 
-import "encoding"
-
-type Pair[Key, Value any] struct {
-	Key   Key
-	Value Value
+type Result[Data any] struct {
+	Data Data
 }
 
-type Result[TData any] struct {
-	Data TData
-	Err  error
+type Entry[Key ~string, Data any] struct {
+	Key  Key
+	Data Data
 }
 
-type Entry[TKey ~string, TData encoding.BinaryMarshaler, TPtr interface {
-	*TData
-	encoding.BinaryUnmarshaler
-}] struct {
-	Key  TKey
-	Data TData
-}
-
-func Load[TKey ~string, TData encoding.BinaryMarshaler, TPtr interface {
-	*TData
-	encoding.BinaryUnmarshaler
-}](e Entry[TKey, TData, TPtr]) Result[Pair[TKey, TData]] {
-	return Result[Pair[TKey, TData]]{
-		Data: Pair[TKey, TData]{Key: e.Key, Value: e.Data},
-	}
+func Load[Key ~string, Data any](e Entry[Key, Data]) Result[Data] {
+	return Result[Data]{Data: e.Data}
 }
