@@ -507,44 +507,51 @@ func relatedParam(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 // recursivelyRecordUsedForReflect calls recordUsedForReflect on any named
 // types and fields under typ.
 //
-// Only the names declared in the current package are recorded. This is to ensure
-// that reflection detection only happens within the package declaring a type.
-// Detecting it in downstream packages could result in inconsistencies.
+// Named types and fields reachable via reflection are recorded.
+// Foreign named types use the declaring package's hash salt, while fields use
+// [hashWithStruct], which is consistent across packages.
 func (ri *reflectInspector) recursivelyRecordUsedForReflect(t types.Type) {
+	ri.recursivelyRecordUsedForReflectImpl(t, make(map[types.Type]bool))
+}
+
+func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, visited map[types.Type]bool) {
+	if t == nil || visited[t] {
+		return
+	}
+	visited[t] = true
+
 	switch t := t.(type) {
+	case *types.Alias:
+		ri.recursivelyRecordUsedForReflectImpl(t.Rhs(), visited)
+
 	case *types.Named:
 		obj := t.Obj()
-		if obj.Pkg() == nil || obj.Pkg() != ri.pkg {
-			return // not from the specified package
+		if obj.Pkg() == nil {
+			return
 		}
 		if ri.usedForReflect(obj) {
 			return // prevent endless recursion
 		}
 		ri.recordUsedForReflect(obj, nil)
-
-		// Record the underlying type, too.
-		ri.recursivelyRecordUsedForReflect(t.Underlying())
+		// Match [computeFieldToStruct]: use the generic/origin struct, not an
+		// instantiated underlying, so field identities line up with [hashWithStruct].
+		ri.recursivelyRecordUsedForReflectImpl(t.Origin().Underlying(), visited)
 
 	case *types.Struct:
 		for i := range t.NumFields() {
 			field := t.Field(i)
-
-			// This check is similar to the one in *types.Named.
-			// It's necessary for unnamed struct types,
-			// as they aren't named but still have named fields.
-			if field.Pkg() == nil || field.Pkg() != ri.pkg {
-				return // not from the specified package
+			if field.Pkg() != nil {
+				// Preserve every field on a struct reached via reflection, including
+				// fields declared in other packages
+				originField := field.Origin()
+				ri.recordUsedForReflect(originField, t)
 			}
-
-			// Record the field itself, too.
-			ri.recordUsedForReflect(field, t)
-
-			ri.recursivelyRecordUsedForReflect(field.Type())
+			ri.recursivelyRecordUsedForReflectImpl(field.Type(), visited)
 		}
 
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
-		ri.recursivelyRecordUsedForReflect(t.Elem())
+		ri.recursivelyRecordUsedForReflectImpl(t.Elem(), visited)
 	}
 }
 
@@ -560,15 +567,20 @@ func (ri *reflectInspector) obfuscatedObjectName(obj types.Object, parent *types
 		return hashWithStruct(parent, v)
 	}
 
-	return hashWithPackage(ri.lpkg, obj.Name())
+	lpkg := ri.lpkg
+	if pkg != ri.pkg {
+		var ok bool
+		lpkg, ok = sharedCache.ListedPackages[pkg.Path()]
+		if !ok {
+			panic("missing listed package for foreign reflected object: " + pkg.Path())
+		}
+	}
+	return hashWithPackage(lpkg, obj.Name())
 }
 
 // recordUsedForReflect records the objects whose names we cannot obfuscate due to reflection.
 // We currently record named types and fields.
 func (ri *reflectInspector) recordUsedForReflect(obj types.Object, parent *types.Struct) {
-	if obj.Pkg() != ri.pkg {
-		panic("called recordUsedForReflect with a foreign object")
-	}
 	obfName := ri.obfuscatedObjectName(obj, parent)
 	if obfName == "" {
 		return

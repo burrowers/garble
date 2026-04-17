@@ -2,8 +2,8 @@ exec garble build
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.' 'DownstreamObfuscated' 'SiblingObfuscated' 'IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField' 'LocalObfuscated'
-binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect'
+! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.','IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField' 'LocalObfuscated'
+binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect' 'ForeignNamedType' 'DownstreamField' 'SiblingField'
 
 [short] stop # no need to verify this with -short
 
@@ -49,6 +49,7 @@ func main() {
 	// Type names are not obfuscated either, when reflection is used.
 	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOf(2))
 	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOfIndirect(4))
+	fmt.Println(reflect.TypeOf(importedpkg2.ForeignNamedType{}).Name())
 
 	// More complex use of reflect.
 	v := importedpkg.ReflectValueOfVar
@@ -87,18 +88,43 @@ func main() {
 	// As such, we should obfuscate the field name.
 	// Simply using the field name here used to cause build failures.
 	_ = reflect.TypeOf(importedpkg.UnnamedWithDownstreamReflect{})
-	fmt.Printf("%v\n", importedpkg.UnnamedWithDownstreamReflect{
-		DownstreamObfuscated: "downstream",
+	fmt.Printf("%#v\n", importedpkg.UnnamedWithDownstreamReflect{
+		DownstreamField: "downstream",
 	})
 
 	// An edge case; the struct type is defined in package importedpkg2.
-	// importedpkg2 does not use reflection on it, so it's not obfuscated there.
-	// importedpkg uses reflection on a type containing ReflectInSiblingImport.
-	// If our logic is incorrect, we might inconsistently obfuscate the type.
-	// We should not obfuscate it when building any package.
-	fmt.Printf("%v\n", importedpkg2.ReflectInSiblingImport{
-		SiblingObfuscated: "sibling",
-	})
+	// importedpkg uses reflect.TypeOf on ReflectInDefined, which embeds
+	// ReflectInSiblingImport, so all reachable fields (including SiblingField)
+	// must keep real names for reflection
+	sibling := importedpkg2.ReflectInSiblingImport{
+		SiblingField: "sibling",
+	}
+	st := reflect.TypeOf(sibling)
+	sf2 := reflect.ValueOf(sibling).Field(0)
+	fmt.Printf("%s:%q\n", st.Field(0).Name, sf2.String())
+
+	// Foreign generic wrapper (cf. cloudflare-go param.Field): all fields reachable
+	// from reflect.TypeOf must keep real names, including for dynamic FieldByName.
+	wrapped := importedpkg2.FieldByNameWrapper[string]{Value: "wrapped", Present: true}
+	wt := reflect.TypeOf(wrapped)
+	for _, name := range []string{"Value", "Present"} {
+		sf, ok := wt.FieldByName(name)
+		if !ok {
+			panic("FieldByNameWrapper missing field " + name)
+		}
+		if sf.Name != name {
+			panic("unexpected StructField name")
+		}
+	}
+	dynField := "Value"
+	sf, ok := wt.FieldByName(dynField)
+	if !ok || sf.Type.Kind() != reflect.String {
+		panic("dynamic FieldByName on wrapper failed")
+	}
+	fmt.Printf("wrapper: %v %v\n",
+		reflect.ValueOf(wrapped).FieldByName("Value").Interface(),
+		reflect.ValueOf(wrapped).FieldByName("Present").Bool(),
+	)
 
 	// Using type aliases as both regular fields, and embedded fields.
 	var emb EmbeddingIndirect
@@ -578,7 +604,7 @@ type EmbeddingInner struct {
 }
 
 type UnnamedWithDownstreamReflect = struct {
-	DownstreamObfuscated string
+	DownstreamField string
 }
 
 type (
@@ -616,7 +642,16 @@ func (ReflectUnnamedStruct) UnnamedStructMethod(s struct{ UnnamedStructField str
 package importedpkg2
 
 type ReflectInSiblingImport struct {
-	SiblingObfuscated string
+	SiblingField string
+}
+
+type ForeignNamedType struct{}
+
+// FieldByNameWrapper is a generic struct in another package; callers may use
+// reflect.FieldByName (including with a non-constant name) on values of this type.
+type FieldByNameWrapper[T any] struct {
+	Value   T
+	Present bool
 }
 
 -- importedpkg/indirect/indirect.go --
@@ -643,14 +678,16 @@ type IndirectNamedWithoutReflect struct {
 {5 0 {}}
 ReflectTypeOf
 ReflectTypeOfIndirect
+ForeignNamedType
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
 {"Foo":3}
 Hello Dave.
 name: test value: example port: 8080
 {"InnerField":3,"Anon":{"AnonField":0}}
-{downstream}
-{sibling}
+struct { DownstreamField string }{DownstreamField:"downstream"}
+SiblingField:"sibling"
+wrapper: wrapped true
 {{indirect-with 3} {indirect-without 4} { 0}}
 IndirectNamedWithReflect{IndirectUnobfuscated:"indirect-with", DuplicateFieldName:3}
 ReflectionField
