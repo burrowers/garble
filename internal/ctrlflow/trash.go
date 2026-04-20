@@ -178,8 +178,8 @@ func isSupportedSig(m *types.Func) bool {
 	if isGenericType(sig) {
 		return false
 	}
-	for i := range sig.Params().Len() {
-		if !isSupportedType(sig.Params().At(i).Type()) {
+	for v := range sig.Params().Variables() {
+		if !isSupportedType(v.Type()) {
 			return false
 		}
 	}
@@ -472,10 +472,10 @@ func (t *trashGenerator) generateCall(vars map[string]*definedVar) ast.Stmt {
 		Rhs: []ast.Expr{callExpr},
 	}
 
-	for i := range results.Len() {
+	for v := range results.Variables() {
 		ident := ast.NewIdent(getRandomName(t.rand))
 		vars[ident.Name] = &definedVar{
-			Type:   results.At(i).Type(),
+			Type:   v.Type(),
 			Ident:  ident,
 			Assign: assignStmt,
 		}

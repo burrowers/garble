@@ -58,8 +58,7 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 	case *types.Interface:
 		methods := &ast.FieldList{}
 		hasComparable := false
-		for i := range typ.NumEmbeddeds() {
-			embeddedType := typ.EmbeddedType(i)
+		for embeddedType := range typ.EmbeddedTypes() {
 			if namedType, ok := embeddedType.(*types.Named); ok && namedType.String() == "comparable" {
 				hasComparable = true
 			}
@@ -74,8 +73,7 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 		if !hasComparable && typ.IsComparable() {
 			methods.List = append(methods.List, &ast.Field{Type: ast.NewIdent("comparable")})
 		}
-		for i := range typ.NumExplicitMethods() {
-			method := typ.ExplicitMethod(i)
+		for method := range typ.ExplicitMethods() {
 			methodSig, err := tc.Convert(method.Type())
 			if err != nil {
 				return nil, err
@@ -112,8 +110,7 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 			// reference to unexported named emulated through new interface with explicit declarated methods
 			if !token.IsExported(obj.Name()) {
 				var methods []*types.Func
-				for i := range typ.NumMethods() {
-					method := typ.Method(i)
+				for method := range typ.Methods() {
 					if token.IsExported(method.Name()) {
 						methods = append(methods, method)
 					}
@@ -139,8 +136,7 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 			return &ast.IndexExpr{X: namedExpr, Index: typeParamExpr}, nil
 		}
 		genericExpr := &ast.IndexListExpr{X: namedExpr}
-		for i := range typeParams.Len() {
-			typeArgs := typeParams.At(i)
+		for typeArgs := range typeParams.Types() {
 			typeParamExpr, err := tc.Convert(typeArgs)
 			if err != nil {
 				return nil, err
@@ -185,8 +181,7 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 		}
 		if sigResults := typ.Results(); sigResults != nil {
 			funcSigExpr.Results = &ast.FieldList{}
-			for i := range sigResults.Len() {
-				result := sigResults.At(i)
+			for result := range sigResults.Variables() {
 				resultExpr, err := tc.Convert(result.Type())
 				if err != nil {
 					return nil, err
@@ -201,8 +196,7 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 		}
 		if typeParams := typ.TypeParams(); typeParams != nil {
 			funcSigExpr.TypeParams = &ast.FieldList{}
-			for i := range typeParams.Len() {
-				typeParam := typeParams.At(i)
+			for typeParam := range typeParams.TypeParams() {
 				resultExpr, err := tc.Convert(typeParam.Constraint().Underlying())
 				if err != nil {
 					return nil, err
@@ -240,8 +234,7 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 		return ast.NewIdent(typ.Obj().Name()), nil
 	case *types.Union:
 		var unionExpr ast.Expr
-		for i := range typ.Len() {
-			term := typ.Term(i)
+		for term := range typ.Terms() {
 			expr, err := tc.Convert(term.Type())
 			if err != nil {
 				return nil, err

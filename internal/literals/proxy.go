@@ -77,7 +77,7 @@ func (d *proxyDispatcher) initialize() {
 
 		childCount := min(d.rand.Intn(maxChildCount-minChildCount)+minChildCount, len(unassigned))
 
-		for i := 0; i < childCount; i++ {
+		for range childCount {
 			child := unassigned[0]
 			unassigned = unassigned[1:]
 

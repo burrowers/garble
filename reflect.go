@@ -538,8 +538,7 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 		ri.recursivelyRecordUsedForReflectImpl(t.Origin().Underlying(), visited)
 
 	case *types.Struct:
-		for i := range t.NumFields() {
-			field := t.Field(i)
+		for field := range t.Fields() {
 			if field.Pkg() != nil {
 				// Preserve every field on a struct reached via reflection, including
 				// fields declared in other packages
