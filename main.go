@@ -254,6 +254,8 @@ func mainErr(args []string) error {
 		return nil
 	case "reverse":
 		return commandReverse(args)
+	case "bug":
+		return commandBug(args)
 	case "build", "test", "run":
 		cmd, err := toolexecCmd(command, args)
 		defer func() {
@@ -608,6 +610,7 @@ The following commands are supported:
 	test           replace "go test"
 	run            replace "go run"
 	reverse        de-obfuscate output such as stack traces
+	bug            start a bug report
 	version        print the version and build settings of the garble binary
 
 To learn more about a command, run "garble help <command>".
