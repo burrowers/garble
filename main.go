@@ -261,7 +261,7 @@ func mainErr(args []string) error {
 				fmt.Fprintf(os.Stderr, "could not clean up GARBLE_SHARED: %v\n", err)
 			}
 			// skip the trim if we didn't even start a build
-			if sharedCache != nil {
+			if sharedCache != nil && sharedCache.CacheDir != "" {
 				fsCache, err := openCache()
 				if err == nil {
 					err = fsCache.Trim()
