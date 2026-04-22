@@ -8,10 +8,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/pkg/browser"
@@ -29,13 +30,10 @@ func commandBug(args []string) error {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, `
-Usage of 'garble bug':
+usage: garble bug
 
-	garble bug
-
-Opens a web browser with a pre-filled bug report on the garble issue tracker.
-The report includes the output of 'garble version', 'go version', and
-'go env -changed'.
+Opens a web browser with a pre-filled bug report on the GitHub issue tracker.
+The report includes 'garble version', 'go version', and 'go env -changed'.
 `[1:])
 	}
 	if err := fs.Parse(args); err != nil {
@@ -79,8 +77,7 @@ The report includes the output of 'garble version', 'go version', and
 		return c.Run()
 	}
 	if err := browser.OpenURL(target); err != nil {
-		fmt.Fprintf(os.Stderr, "Could not open browser: %v\n", err)
-		return errJustExit(1)
+		return err
 	}
 	return nil
 }
@@ -98,13 +95,8 @@ func collectGoEnv() (string, error) {
 	if err := json.Unmarshal(out, &env); err != nil {
 		return "", fmt.Errorf("parsing `go env -changed -json` output: %w", err)
 	}
-	keys := make([]string, 0, len(env))
-	for k := range env {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 	var buf strings.Builder
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(env)) {
 		fmt.Fprintf(&buf, "%s=%q\n", k, env[k])
 	}
 	return buf.String(), nil

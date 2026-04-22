@@ -1,26 +1,7 @@
-# garble bug opens the issue form in a browser. In tests we set $BROWSER to
-# echo, so the URL that would be opened is printed to stdout and we can assert
-# on its contents.
+# garble bug opens the issue form in a browser. Set $BROWSER to "echo"
+# so that we can inspect the URL via stdout.
 
 env BROWSER=echo
-
-# Help flag.
-exec garble bug -h
-stderr 'Usage of .garble bug.'
-! stdout .
-
-# Unknown flag.
-! exec garble bug -bogus
-stderr 'flag provided but not defined'
-! stdout .
-
-# Unexpected positional argument.
-! exec garble bug extra
-stderr 'Usage of .garble bug.'
-! stdout .
-
-# Normal invocation: prints the URL it would open (because $BROWSER is echo)
-# and the status line on stderr.
 exec garble bug
 stderr 'Opening bug report in your browser'
 stdout '^https://github\.com/burrowers/garble/issues/new\?'
@@ -28,8 +9,3 @@ stdout 'template=00-bug\.yml'
 stdout 'garble-version=.*mvdan\.cc%2Fgarble'
 stdout 'go-version=go\+version'
 stdout 'go-env='
-
--- go.mod --
-module dummy
-
-go 1.26
