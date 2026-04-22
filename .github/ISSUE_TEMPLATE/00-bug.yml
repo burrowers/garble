@@ -18,10 +18,18 @@ body:
     validations:
       required: true
 
+  - type: input
+    id: go-version
+    attributes:
+      label: "Output of `go version`:"
+      placeholder: "go version go1.26 linux/amd64"
+    validations:
+      required: true
+
   - type: textarea
     id: go-env
     attributes:
-      label: "Output of `go env` in your module/workspace:"
+      label: "Output of `go env -changed` in your module/workspace:"
       placeholder: |
         GO111MODULE=""
         GOARCH="arm64"

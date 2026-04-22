@@ -1,8 +1,12 @@
+# garble bug opens the issue form in a browser. In tests we set $BROWSER to
+# echo, so the URL that would be opened is printed to stdout and we can assert
+# on its contents.
+
+env BROWSER=echo
+
 # Help flag.
 exec garble bug -h
 stderr 'Usage of .garble bug.'
-stderr '-n'
-stderr '-full-env'
 ! stdout .
 
 # Unknown flag.
@@ -15,26 +19,15 @@ stderr 'flag provided but not defined'
 stderr 'Usage of .garble bug.'
 ! stdout .
 
-# -n prints a Markdown-rendered bug report to stdout.
-exec garble bug -n
-stdout 'Output of .garble version.'
-stdout 'Output of .go env. in your module/workspace'
-stdout 'What did you do'
-stdout 'What did you see happen'
-stdout 'What did you expect to see'
-stdout 'mvdan.cc/garble'
-stdout 'GOOS='
-stdout 'GOARCH='
-! stderr .
-
-# -n -full-env includes variables not in the default whitelist.
-exec garble bug -n -full-env
-stdout 'GOCACHE='
-
-# By default, path-heavy variables are excluded.
-exec garble bug -n
-! stdout 'GOCACHE='
-! stdout 'GOMODCACHE='
+# Normal invocation: prints the URL it would open (because $BROWSER is echo)
+# and the status line on stderr.
+exec garble bug
+stderr 'Opening bug report in your browser'
+stdout '^https://github\.com/burrowers/garble/issues/new\?'
+stdout 'template=00-bug\.yml'
+stdout 'garble-version=.*mvdan\.cc%2Fgarble'
+stdout 'go-version=go\+version'
+stdout 'go-env='
 
 -- go.mod --
 module dummy

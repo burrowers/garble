@@ -225,32 +225,7 @@ func mainErr(args []string) error {
 			fmt.Fprintf(os.Stderr, "usage: garble version\n")
 			return errJustExit(2)
 		}
-		info, ok := debug.ReadBuildInfo()
-		if !ok {
-			// The build binary was stripped of build info?
-			// Could be the case if garble built itself.
-			fmt.Println("unknown")
-			return nil
-		}
-		mod := &info.Main
-		if mod.Replace != nil {
-			mod = mod.Replace
-		}
-
-		fmt.Printf("%s %s\n\n", mod.Path, mod.Version)
-		fmt.Printf("Build settings:\n")
-		for _, setting := range info.Settings {
-			if setting.Value == "" {
-				continue // do empty build settings even matter?
-			}
-			// The padding helps keep readability by aligning:
-			//
-			//   veryverylong.key value
-			//          short.key some-other-value
-			//
-			// Empirically, 16 is enough; the longest key seen is "vcs.revision".
-			fmt.Printf("%16s %s\n", setting.Key, setting.Value)
-		}
+		writeGarbleVersion(os.Stdout)
 		return nil
 	case "reverse":
 		return commandReverse(args)
@@ -809,4 +784,35 @@ func hasHelpFlag(flags []string) bool {
 		}
 	}
 	return false
+}
+
+// writeGarbleVersion writes garble's version information to w, in the same
+// format printed by the `version` subcommand.
+func writeGarbleVersion(w io.Writer) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		// The build binary was stripped of build info?
+		// Could be the case if garble built itself.
+		fmt.Fprintln(w, "unknown")
+		return
+	}
+	mod := &info.Main
+	if mod.Replace != nil {
+		mod = mod.Replace
+	}
+
+	fmt.Fprintf(w, "%s %s\n\n", mod.Path, mod.Version)
+	fmt.Fprintf(w, "Build settings:\n")
+	for _, setting := range info.Settings {
+		if setting.Value == "" {
+			continue // do empty build settings even matter?
+		}
+		// The padding helps keep readability by aligning:
+		//
+		//   veryverylong.key value
+		//          short.key some-other-value
+		//
+		// Empirically, 16 is enough; the longest key seen is "vcs.revision".
+		fmt.Fprintf(w, "%16s %s\n", setting.Key, setting.Value)
+	}
 }
