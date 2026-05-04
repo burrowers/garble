@@ -498,7 +498,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 	// since those are always an implicit dependency.
 	// We need to handle this ourselves as runtime does not appear in Deps.
 	// TODO: it might be faster to bring back a "runtimeAndDeps" map or func.
-	if pkg.ImportPath == "runtime" {
+	if pkg.ImportPath == "runtime" || pkg.ImportPath == "runtime/cgo" {
 		return pkg, nil
 	}
 	if sharedCache.ListedPackages["runtime"].hasDep(pkg.ImportPath) {
