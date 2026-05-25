@@ -38,8 +38,9 @@ func (h typeutil_Hasher) Hash(t types.Type) uint32 {
 // typeParamIDs assigns deterministic traversal-local IDs to free type params,
 // making hashes stable across alpha-renaming in equivalent generic contexts.
 type typeutil_hasher struct {
-	inGenericSig bool
-	typeParamIDs map[*types.TypeParam]uint32
+	inGenericSig  bool
+	inStructField bool // NOTE(garble): skip type args from named types when hashing struct field types
+	typeParamIDs  map[*types.TypeParam]uint32
 }
 
 // hashString computes the Fowler–Noll–Vo hash of s.
@@ -78,7 +79,10 @@ func (h typeutil_hasher) hash(t types.Type) uint32 {
 			// NOTE(garble): we must not hash struct field tags, as they do not affect type identity.
 			// hash += typeutil_hashString(t.Tag(i))
 			hash += typeutil_hashString(f.Name()) // (ignore f.Pkg)
-			hash += h.hash(f.Type())
+			// NOTE(garble): strip type args from named types to keep hashes stable across packages.
+			h2 := h
+			h2.inStructField = true
+			hash += h2.hash(f.Type())
 		}
 		return hash
 
@@ -139,9 +143,12 @@ func (h typeutil_hasher) hash(t types.Type) uint32 {
 
 	case *types.Named:
 		hash := h.hashTypeName(t.Obj())
-		targs := t.TypeArgs()
-		for targ := range targs.Types() {
-			hash += 2 * h.hash(targ)
+		// NOTE(garble): skip type args for struct fields; see inStructField.
+		if !h.inStructField {
+			targs := t.TypeArgs()
+			for targ := range targs.Types() {
+				hash += 2 * h.hash(targ)
+			}
 		}
 		return hash
 
