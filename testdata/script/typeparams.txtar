@@ -27,6 +27,8 @@ func main() {
 	e := lib.Entry[string, int]{Key: "foo", Data: 123}
 	r := lib.Load[string, int](e)
 	_ = r.Data
+
+	_ = lib.SelectWhere.Users.Name
 }
 
 func GenericFunc[GenericParamA, B any](x GenericParamA, y B) {}
@@ -118,3 +120,13 @@ type Entry[Key ~string, Data any] struct {
 func Load[Key ~string, Data any](e Entry[Key, Data]) Result[Data] {
 	return Result[Data]{Data: e.Data}
 }
+
+type Filter[Q any] struct{ Name Q }
+
+func Where[Q any]() struct {
+	Users Filter[Q]
+} {
+	return struct{ Users Filter[Q] }{}
+}
+
+var SelectWhere = Where[int]()
