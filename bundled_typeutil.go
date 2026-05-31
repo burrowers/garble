@@ -138,12 +138,12 @@ func (h typeutil_hasher) hash(t types.Type) uint32 {
 		return 9127 + 2*uint32(t.Dir()) + 3*h.hash(t.Elem())
 
 	case *types.Named:
-		hash := h.hashTypeName(t.Obj())
-		targs := t.TypeArgs()
-		for targ := range targs.Types() {
-			hash += 2 * h.hash(targ)
-		}
-		return hash
+		// NOTE(garble): we skip the type arguments here, unlike upstream.
+		// This salt obfuscates struct field names (see hashWithStruct) and must
+		// be stable across instantiations: an anonymous struct{F G[T]} returned
+		// by a generic function has no origin to recover T, so hashing T versus
+		// its instantiation such as int would obfuscate F to two different names.
+		return h.hashTypeName(t.Obj())
 
 	case *types.TypeParam:
 		return h.hashTypeParam(t)
