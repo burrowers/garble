@@ -29,6 +29,11 @@ func main() {
 	_ = r.Data
 
 	_ = lib.SelectWhere.Users.Name
+	_ = lib.SelectIdentity.Value
+
+	// A plain struct is convertible to a generic instantiation whose origin
+	// underlying uses a type parameter; both fields must obfuscate alike.
+	_ = lib.Box[int](struct{ Contents int }{})
 }
 
 func GenericFunc[GenericParamA, B any](x GenericParamA, y B) {}
@@ -130,3 +135,13 @@ func Where[Q any]() struct {
 }
 
 var SelectWhere = Where[int]()
+
+func Identity[Q any]() struct {
+	Value Q
+} {
+	return struct{ Value Q }{}
+}
+
+var SelectIdentity = Identity[int]()
+
+type Box[T any] struct{ Contents T }
