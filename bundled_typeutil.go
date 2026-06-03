@@ -77,8 +77,15 @@ func (h typeutil_hasher) hash(t types.Type) uint32 {
 			}
 			// NOTE(garble): we must not hash struct field tags, as they do not affect type identity.
 			// hash += typeutil_hashString(t.Tag(i))
-			hash += typeutil_hashString(f.Name()) // (ignore f.Pkg)
-			hash += h.hash(f.Type())
+			//
+			// NOTE(garble): unlike upstream, we fold in the field position rather
+			// than the field type, as this salt obfuscates field names (see
+			// hashWithStruct) and must be stable across instantiations: an anonymous
+			// struct{F Q} returned by a generic function has no origin to recover Q,
+			// so a consuming package only sees an instantiation such as struct{F int}.
+			// Positions still keep reordered structs distinct without the type.
+			// hash += h.hash(f.Type())
+			hash += (1 + uint32(i)) * typeutil_hashString(f.Name()) // (ignore f.Pkg)
 		}
 		return hash
 
@@ -138,12 +145,12 @@ func (h typeutil_hasher) hash(t types.Type) uint32 {
 		return 9127 + 2*uint32(t.Dir()) + 3*h.hash(t.Elem())
 
 	case *types.Named:
-		// NOTE(garble): we skip the type arguments here, unlike upstream.
-		// This salt obfuscates struct field names (see hashWithStruct) and must
-		// be stable across instantiations: an anonymous struct{F G[T]} returned
-		// by a generic function has no origin to recover T, so hashing T versus
-		// its instantiation such as int would obfuscate F to two different names.
-		return h.hashTypeName(t.Obj())
+		hash := h.hashTypeName(t.Obj())
+		targs := t.TypeArgs()
+		for targ := range targs.Types() {
+			hash += 2 * h.hash(targ)
+		}
+		return hash
 
 	case *types.TypeParam:
 		return h.hashTypeParam(t)
