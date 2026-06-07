@@ -5,8 +5,6 @@
 cd mod
 go mod init test
 cd ..
-go env GOVERSION
-setenvfile GOVERSION_UPGRADE stdout
 
 # To test that garble works with transparent upgrades via GOTOOLCHAIN,
 # use a relatively old version, but still new enough to support GOTOOLCHAIN.
@@ -26,10 +24,12 @@ exec go version
 stdout 'go version '${GOVERSION_BASE@R}
 
 # The builds inside the module use the upgraded toolchain.
+# Note that a host toolchain like go1.26.4-X:nodwarf5
+# will be upgraded to just go1.26.4 via GOTOOLCHAIN.
 cd mod
 
 exec go run .
-stderr 'hello from '${GOVERSION_UPGRADE@R}
+stderr 'hello from go1.26\.'
 
 # Note that garble hides runtime.Version by design, but we know that it requires
 # the Go toolchain version to match the exact same version that built garble,
