@@ -247,7 +247,8 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 	}
 }
 
-var testRand = mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+// Ensure deterministic randomness between test runs.
+var testRand = mathrand.New(mathrand.NewSource(12345678))
 
 const uniqueLitString = "garble_unique_string"
 
