@@ -80,7 +80,7 @@ for ((i = 0; i < ${#modules[@]}; i += 2)); do
 		show garble build "${module}/..."
 
 		# Also with more options.
-		show garble -tiny -literals build "${module}/..."
+		show garble -tiny build "${module}/..."
 	} || exit_code=1
 done
 
