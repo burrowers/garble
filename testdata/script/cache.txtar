@@ -2,9 +2,6 @@
 # when it comes to caching. If any cache file is missing, garble should redo
 # the work and write the cache file again. See the docs below.
 
-[short] stop # This step is slow by design, since it starts with an empty cache.
-
-env GOCACHE=${WORK}/go-cache
 env GARBLE_CACHE=${WORK}/garble-cache
 
 # level1a has the regular Go build cached.
