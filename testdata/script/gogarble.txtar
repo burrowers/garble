@@ -14,7 +14,7 @@ binsubstr main$exe 'some long string to not obfuscate'
 # Some of the imported std packages use "import maps" due to vendoring,
 # and a past bug made this case fail for "garble build".
 env GOGARBLE=test/main
-exec garble build -o=main$exe ./stdimporter
+exec garble build -o=main$exe ./std_importer
 
 [short] stop # rebuilding std is slow
 
@@ -31,10 +31,10 @@ env GOGARBLE='*'
 exec garble build std
 ! stderr . # no warnings
 
-# Link a binary importing net/http, which will catch whether or not we
-# support ImportMap when linking.
+# Link a binary importing a good chunk of the standard library,
+# which will catch whether or not we support ImportMap when linking.
 # Also ensure we are obfuscating low-level std packages.
-exec garble build -o=main$exe ./stdimporter
+exec garble build -o=main$exe ./std_importer
 ! stderr . # no warnings
 ! binsubstr main$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
 
@@ -42,21 +42,23 @@ exec garble build -o=main$exe ./stdimporter
 # Note that testscript sets GOROOT explicitly, which we don't want to use.
 env GOROOT=
 exec ./main$exe
-cmp stdout stdimporter.stdout
+cmp stdout std_importer.stdout
 
 # The same low-level std packages appear in plain sight in regular builds.
-go build -o=main_regular$exe ./stdimporter
+go build -o=main_regular$exe ./std_importer
 binsubstr main_regular$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
 
 # Also check that a full rebuild is reproducible, via a new GOCACHE.
 # This is slow, but necessary to uncover bugs hidden by the build cache.
 # We also forcibly rebuild runtime on its own, given it used to be non-reproducible
 # due to its use of linknames pointing at std packages it doesn't depend upon.
+# We don't use std_importer as rebuilding so much of std is unnecessary.
 [darwin] skip 'see https://github.com/burrowers/garble/issues/609'
+exec garble build -o=debug$exe ./debug_importer
 env GOCACHE=${WORK}/gocache-empty
-exec garble build -a runtime
-exec garble build -o=main_rebuild$exe ./stdimporter
-bincmp main_rebuild$exe main$exe
+exec garble build runtime
+exec garble build -o=debug_rebuild$exe ./debug_importer
+bincmp debug_rebuild$exe debug$exe
 -- go.mod --
 module test/main
 
@@ -81,7 +83,7 @@ package imported
 
 var LongString = "some long string to obfuscate"
 
--- stdimporter/main.go --
+-- std_importer/main.go --
 package main
 
 import (
@@ -104,8 +106,6 @@ func main() {
 	// We just want to ensure these build and link OK, but we don't need to run them.
 	if len(os.Args) > 5 {
 		http.ListenAndServe("", nil)
-		// debug.WriteHeapDump is particularly interesting,
-		// as it is implemented by runtime via a linkname.
 		debug.WriteHeapDump(1)
 		time.Now()
 		syscall.Listen(0, 1)
@@ -113,7 +113,16 @@ func main() {
 		pprof.StartCPUProfile(nil)
 	}
 }
+-- debug_importer/main.go --
+package main
 
--- stdimporter.stdout --
+import "runtime/debug"
+
+func main() {
+	// debug.WriteHeapDump is particularly interesting,
+	// as it is implemented by runtime via a linkname.
+	debug.WriteHeapDump(1)
+}
+-- std_importer.stdout --
 runtime.GOROOT: ""
 runtime.Version: "unknown"
