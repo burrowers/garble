@@ -157,6 +157,10 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		},
 		ReflectObjectNames: map[objectString]string{},
 	}
+	// Stop early if we don't import reflect, e.g. much of std.
+	if !lpkg.hasDep("reflect") {
+		return computed, nil
+	}
 	for _, imp := range lpkg.Imports {
 		if imp == "C" {
 			// `go list -json` shows "C" in Imports but not Deps.
@@ -183,6 +187,10 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 				if err := gob.NewDecoder(f).Decode(&computed); err != nil {
 					return err
 				}
+				return nil
+			}
+			// Avoid parsing and typechecking if the dependency doesn't import reflect.
+			if !lpkg.hasDep("reflect") {
 				return nil
 			}
 			// Missing or corrupted entry in the cache for a dependency.
