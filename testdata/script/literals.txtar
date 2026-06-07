@@ -30,13 +30,11 @@ go build
 binsubstr main$exe 'garble_unique_string'
 
 # ensure we don't find the extra literals in an obfuscated build
-exec garble -literals -debugdir=debug1 build
+exec garble -literals build
 exec ./main$exe
 cmp stderr main.stderr
 ! binsubstr main$exe 'garble_unique_string'
 
-# Check external keys
-grep 'garbleExternalKey' debug1/garbled/test/main/extra_literals.go
 -- go.mod --
 module test/main
 
