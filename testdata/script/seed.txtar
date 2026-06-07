@@ -72,21 +72,19 @@ cmp stderr main.stderr
 binsubstr main$exe 'teststring' 'imported var value'
 ! binsubstr main$exe 'ImportedVar'
 
-exec ./main$exe test/main/imported
-cp stderr importedpkg-seed-random-1
-! bincmp importedpkg-seed-random-1 importedpkg-seed-static-1
-
-# Also check that the random binary is not reproducible.
-cp main$exe main_random$exe
-rm main$exe
-exec garble -seed=random build -v
-stderr .
-! stderr 'warning: -seed only uses the first 8 bytes'
-! bincmp main$exe main_random$exe
+# Also check that random seeds are different each time.
+# Do this with a dummy build that fails.
+! exec garble -seed=random build ./nosuchpkg
+stderr -count=1 '^-seed chosen at random: .+'
+cp stderr random_stderr1
+! exec garble -seed=random build ./nosuchpkg
+stderr -count=1 '^-seed chosen at random: .+'
+cp stderr random_stderr2
+! cmp random_stderr1 random_stderr2
 
 exec ./main$exe test/main/imported
-cp stderr importedpkg-seed-random-2
-! bincmp importedpkg-seed-random-2 importedpkg-seed-random-1
+cp stderr importedpkg-seed-random
+! bincmp importedpkg-seed-random importedpkg-seed-static-1
 
 # Finally, ensure that our runtime and reflect test code does what we think.
 go build
