@@ -13,9 +13,11 @@ import (
 
 type shuffle struct{}
 
-// check that the obfuscator interface is implemented
-var _ obfuscator = shuffle{}
-
+// check that the Obfuscator interface is implemented
+var _ Obfuscator = shuffle{}
+func (shuffle) isCheap() bool {
+	return false;
+}
 func (shuffle) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	key := make([]byte, len(data))
 	rand.Read(key)

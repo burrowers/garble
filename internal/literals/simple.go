@@ -13,8 +13,12 @@ import (
 
 type simple struct{}
 
-// check that the obfuscator interface is implemented
-var _ obfuscator = simple{}
+// check that the Obfuscator interface is implemented
+var _ Obfuscator = simple{}
+
+func (simple) isCheap() bool {
+	return true;
+}
 
 func (simple) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	key := make([]byte, len(data))

@@ -54,30 +54,31 @@ func (k *externalKey) IsUsed() bool {
 	return k.refs > 0
 }
 
-// obfuscator takes a byte slice and converts it to a ast.BlockStmt
-type obfuscator interface {
-	obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt
+// Obfuscator takes a byte slice and converts it to a ast.BlockStmt
+type Obfuscator interface {
+	obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt;
+	isCheap() bool
 }
 
 var (
-	// Obfuscators contains all types which implement the obfuscator Interface.
-	Obfuscators = []obfuscator{
-		simple{},
-		swap{},
-		split{},
-		shuffle{},
-		seed{},
+	// Obfuscators contains all types which implement the Obfuscator Interface.
+	Obfuscators = map[string]Obfuscator{
+		"simple": simple{},
+		"swap": swap{},
+		"split": split{},
+		"shuffle": shuffle{},
+		"seed": seed{},
 	}
 
 	// CheapObfuscators contains obfuscators safe to use on large literals.
 	// The expensive obfuscators scale poorly, so they are excluded here.
-	CheapObfuscators = []obfuscator{
-		simple{},
-		swap{},
+	CheapObfuscators = map[string]Obfuscator{
+		"simple": simple{},
+		"swap": swap{},
 	}
 
 	TestObfuscator         string
-	testPkgToObfuscatorMap map[string]obfuscator
+	testPkgToObfuscatorMap map[string]Obfuscator
 )
 
 func genRandIntSlice(obfRand *mathrand.Rand, max, count int) []int {
@@ -257,11 +258,19 @@ func byteLitWithExtKey(rand *mathrand.Rand, val byte, extKeys []*externalKey, ex
 type obfRand struct {
 	rnd *mathrand.Rand
 
-	testObfuscator  obfuscator
+	testObfuscator  Obfuscator
 	proxyDispatcher *proxyDispatcher
+	literalObfuscators []Obfuscator
+	cheapLiteralObfuscators []Obfuscator
 }
 
-func newObfRand(rand *mathrand.Rand, file *ast.File, nameFunc NameProviderFunc) *obfRand {
+func newObfRand(rand *mathrand.Rand, file *ast.File, nameFunc NameProviderFunc, obfuscators []Obfuscator) *obfRand {
 	testObf := testPkgToObfuscatorMap[file.Name.Name]
-	return &obfRand{rand, testObf, newProxyDispatcher(rand, nameFunc)}
+	var cheapLiteralObfuscators []Obfuscator;
+	for _, o := range obfuscators {
+		if o.isCheap() {
+			cheapLiteralObfuscators = append(cheapLiteralObfuscators, o);
+		}
+	}
+	return &obfRand{rand, testObf, newProxyDispatcher(rand, nameFunc), obfuscators, cheapLiteralObfuscators}
 }

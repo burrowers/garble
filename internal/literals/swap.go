@@ -14,8 +14,12 @@ import (
 
 type swap struct{}
 
-// check that the obfuscator interface is implemented
-var _ obfuscator = swap{}
+// check that the Obfuscator interface is implemented
+var _ Obfuscator = swap{}
+
+func (swap) isCheap() bool {
+	return true;
+}
 
 func getIndexType(dataLen int64) string {
 	switch {

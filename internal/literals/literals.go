@@ -39,8 +39,8 @@ const (
 type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
 
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
-	or := newObfRand(rand, file, nameFunc)
+func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, obfuscators []Obfuscator, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
+	or := newObfRand(rand, file, nameFunc, obfuscators)
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.FuncDecl:
@@ -358,15 +358,15 @@ func obfuscateByteArray(or *obfRand, isPointer bool, data []byte, length int64) 
 	return ah.LambdaCall(params, arrayType, block, args)
 }
 
-func (or *obfRand) pickObfuscator(size int) obfuscator {
+func (or *obfRand) pickObfuscator(size int) Obfuscator {
 	if size < MinSize || size > MaxSize {
 		panic(fmt.Sprintf("nextObfuscator called with size %d outside [%d, %d]", size, MinSize, MaxSize))
 	}
 	if or.testObfuscator != nil {
 		return or.testObfuscator
 	}
-	if size <= MaxSizeExpensive {
-		return Obfuscators[or.rnd.Intn(len(Obfuscators))]
+	if size <= MaxSizeExpensive || len(or.cheapLiteralObfuscators) == 0 {
+		return or.literalObfuscators[or.rnd.Intn(len(or.literalObfuscators))]
 	}
-	return CheapObfuscators[or.rnd.Intn(len(CheapObfuscators))]
+	return or.cheapLiteralObfuscators[or.rnd.Intn(len(or.cheapLiteralObfuscators))]
 }

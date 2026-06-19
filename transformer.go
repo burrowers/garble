@@ -268,6 +268,10 @@ type transformer struct {
 	// if it is used for any other purpose, we may lose determinism.
 	obfRand *mathrand.Rand
 
+	// literalObfuscators provides the Obfuscators to use when obfuscating literals in a Go syntax
+	// file.
+	literalObfuscators []literals.Obfuscator
+
 	// origImporter is a go/types importer which uses the original versions
 	// of packages, without any obfuscation. This is helpful to make
 	// decisions on how to obfuscate our input code.
@@ -1216,7 +1220,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && tf.curPkg.ToObfuscate {
-		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings, randomName)
+		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.literalObfuscators, tf.linkerVariableStrings, randomName)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
 		tf.useAllImports(file)

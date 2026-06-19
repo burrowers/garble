@@ -20,8 +20,12 @@ const (
 // then encrypts them using xor.
 type split struct{}
 
-// check that the obfuscator interface is implemented
-var _ obfuscator = split{}
+// check that the Obfuscator interface is implemented
+var _ Obfuscator = split{}
+
+func (split) isCheap() bool {
+	return false;
+}
 
 func splitIntoRandomChunks(obfRand *mathrand.Rand, data []byte) [][]byte {
 	if len(data) == 1 {

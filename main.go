@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"iter"
 	"log"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,11 +27,13 @@ import (
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"mvdan.cc/garble/internal/linker"
+	"mvdan.cc/garble/internal/literals"
 )
 
 const actionGraphFileName = "action-graph.json"
@@ -103,7 +106,7 @@ var booleanFlags = map[string]bool{
 }
 
 var flagSet = flag.NewFlagSet("garble", flag.ExitOnError)
-var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed)(?:$|=)`)
+var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed|literalObfuscators)(?:$|=)`)
 
 var (
 	flagLiterals bool
@@ -111,6 +114,7 @@ var (
 	flagDebug    bool
 	flagDebugDir string
 	flagSeed     seedFlag
+	flagLiteralObfuscators string
 	// TODO(pagran): in the future, when control flow obfuscation will be stable migrate to flag
 	flagControlFlow = os.Getenv("GARBLE_EXPERIMENTAL_CONTROLFLOW") == "1"
 
@@ -123,6 +127,7 @@ var (
 func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagLiterals, "literals", false, "Obfuscate literals such as strings")
+	flagSet.StringVar(&flagLiteralObfuscators, "literalObfuscators", "", "Comma-separated list of literal obfuscators to use, e.g. \"seed,shuffle,simple,split,swap\" (default uses all).")
 	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write source and obfuscated trees to a directory, e.g. -debugdir=out")
@@ -280,6 +285,32 @@ func mainErr(args []string) error {
 				return alterToolVersion(tool, args)
 			}
 			var tf transformer
+
+			if flagLiterals {
+				var selectedLiteralObfuscatorsMap = literals.Obfuscators
+				if flagLiteralObfuscators != "" {
+					selectedLiteralObfuscatorsMap = make(map[string]literals.Obfuscator)
+					for _, obfuscatorName := range strings.Split(flagLiteralObfuscators, ",") {
+						obfuscator, contains := literals.Obfuscators[obfuscatorName]
+						if !contains {
+							return fmt.Errorf("unknown literal obfuscator: %s", obfuscatorName)
+						}
+						selectedLiteralObfuscatorsMap[obfuscatorName] = obfuscator
+					}
+				}
+				// To ensure a reproducible build, we need to order the obfuscators deterministically.
+				// We sort them by name
+				var selectedLiteralObfuscators []literals.Obfuscator;
+				for _, obfuscatorName := range slices.Sorted(maps.Keys(selectedLiteralObfuscatorsMap)) {
+					selectedLiteralObfuscators = append(selectedLiteralObfuscators, selectedLiteralObfuscatorsMap[obfuscatorName])
+				}
+				tf.literalObfuscators = selectedLiteralObfuscators
+			} else {
+				if flagLiteralObfuscators != "" {
+					return fmt.Errorf("specified literalObfuscators, but not obfuscating literals")
+				}
+			}
+
 			toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
 			tf.curPkg = sharedCache.ListedPackages[toolexecImportPath]
 			if tf.curPkg == nil {
@@ -431,6 +462,10 @@ This command wraps "go %s". Below is its help:
 		if err := os.WriteFile(sentinel, nil, 0o666); err != nil {
 			return nil, fmt.Errorf("could not create debugdir sentinel: %v", err)
 		}
+	}
+
+	if !flagLiterals && flagLiteralObfuscators != "" {
+		return nil, fmt.Errorf("specified literalObfuscators, but not obfuscating literals")
 	}
 
 	goArgs := append([]string{command}, garbleBuildFlags...)

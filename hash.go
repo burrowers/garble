@@ -130,6 +130,8 @@ func appendFlags(w io.Writer, forBuildHash bool) {
 	if flagLiterals {
 		io.WriteString(w, " -literals")
 	}
+	io.WriteString(w, " -literalObfuscators=")
+	io.WriteString(w, flagLiteralObfuscators)
 	if flagTiny {
 		io.WriteString(w, " -tiny")
 	}

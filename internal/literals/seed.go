@@ -13,8 +13,12 @@ import (
 
 type seed struct{}
 
-// check that the obfuscator interface is implemented
-var _ obfuscator = seed{}
+// check that the Obfuscator interface is implemented
+var _ Obfuscator = seed{}
+
+func (seed) isCheap() bool {
+	return false;
+}
 
 func (seed) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	seed := byte(obfRand.Uint32())
