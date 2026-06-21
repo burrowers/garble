@@ -166,7 +166,8 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-			fmt.Fprintf(f, "%d\n", memStats.Mallocs)
+			// The alloc count followed by the total bytes allocated.
+			fmt.Fprintf(f, "%d %d\n", memStats.Mallocs, memStats.TotalAlloc)
 			if err := f.Close(); err != nil {
 				panic(err)
 			}
