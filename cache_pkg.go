@@ -213,7 +213,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 				return err
 			}
 			origImporter := importerForPkg(lpkg)
-			pkg, info, err := typecheck(lpkg.ImportPath, files, origImporter)
+			pkg, info, err := typecheck(lpkg.ImportPath, files, origImporter, true)
 			if err != nil {
 				return err
 			}

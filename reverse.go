@@ -81,7 +81,7 @@ One can reverse a captured panic stack trace as follows:
 			return err
 		}
 		origImporter := importerForPkg(lpkg)
-		_, info, err := typecheck(lpkg.ImportPath, files, origImporter)
+		_, info, err := typecheck(lpkg.ImportPath, files, origImporter, false)
 		if err != nil {
 			return err
 		}

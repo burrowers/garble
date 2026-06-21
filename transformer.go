@@ -84,15 +84,22 @@ func computeLinkerVariableStrings(pkg *types.Package) (map[*types.Var]string, er
 	return linkerVariableStrings, nil
 }
 
-func typecheck(pkgPath string, files []*ast.File, origImporter importerWithMap) (*types.Package, *types.Info, error) {
+// typecheck type-checks the package, populating only the [types.Info] maps that
+// garble actually consumes. Types, Defs, and Uses drive the renaming and literal
+// passes; Implicits is read by [types.Info.PkgNameOf]. Selections and Instances
+// are only read by the go/ssa builder, so they are requested via withSSAInfo for
+// the packages that build SSA (control flow obfuscation and reflect detection).
+// Scopes is deliberately omitted, as nothing reads it.
+func typecheck(pkgPath string, files []*ast.File, origImporter importerWithMap, withSSAInfo bool) (*types.Package, *types.Info, error) {
 	info := &types.Info{
-		Types:      make(map[ast.Expr]types.TypeAndValue),
-		Defs:       make(map[*ast.Ident]types.Object),
-		Uses:       make(map[*ast.Ident]types.Object),
-		Implicits:  make(map[ast.Node]types.Object),
-		Scopes:     make(map[ast.Node]*types.Scope),
-		Selections: make(map[*ast.SelectorExpr]*types.Selection),
-		Instances:  make(map[*ast.Ident]types.Instance),
+		Types:     make(map[ast.Expr]types.TypeAndValue),
+		Defs:      make(map[*ast.Ident]types.Object),
+		Uses:      make(map[*ast.Ident]types.Object),
+		Implicits: make(map[ast.Node]types.Object),
+	}
+	if withSSAInfo {
+		info.Selections = make(map[*ast.SelectorExpr]*types.Selection)
+		info.Instances = make(map[*ast.Ident]types.Instance)
 	}
 	origTypesConfig := types.Config{
 		// Note that we don't set GoVersion here. Any Go language version checks
@@ -712,7 +719,10 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	// We could potentially avoid this by saving the type info we need in the cache,
 	// although in general that wouldn't help much, since it's rare for Go's cache
 	// to miss on a package and for our cache to hit.
-	if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter); err != nil {
+	// The go/ssa builder needs Selections and Instances; we build SSA for control
+	// flow obfuscation, and in computePkgCache for reflect-importing packages.
+	withSSAInfo := flagControlFlow || tf.curPkg.hasDep("reflect")
+	if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, withSSAInfo); err != nil {
 		return nil, err
 	}
 
@@ -734,7 +744,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			for _, file := range affectedFiles {
 				tf.useAllImports(file)
 			}
-			if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter); err != nil {
+			if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, false); err != nil {
 				return nil, err
 			}
 
