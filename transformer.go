@@ -132,6 +132,30 @@ func computeFieldToStruct(info *types.Info) map[*types.Var]*types.Struct {
 	return fieldToStruct
 }
 
+// transformerForListedPackage parses and type-checks an already-listed package,
+// returning a transformer primed for [transformer.obfuscatedObjectName]. It is for
+// commands like reverse and map which inspect names without compiling, so it skips
+// the SSA, literal, and caching setup that transformCompile does.
+func transformerForListedPackage(lpkg *listedPackage) (*transformer, []*ast.File, error) {
+	files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles)
+	if err != nil {
+		return nil, nil, err
+	}
+	origImporter := importerForPkg(lpkg)
+	pkg, info, err := typecheck(lpkg.ImportPath, files, origImporter, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	tf := &transformer{
+		curPkg:        lpkg,
+		pkg:           pkg,
+		info:          info,
+		origImporter:  origImporter,
+		fieldToStruct: computeFieldToStruct(info),
+	}
+	return tf, files, nil
+}
+
 func recordFieldToStruct(typ types.Type, done map[*types.Named]bool, fieldToStruct map[*types.Var]*types.Struct) {
 	switch typ := typ.(type) {
 	case interface{ Elem() types.Type }:
