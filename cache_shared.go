@@ -407,6 +407,25 @@ func (p *listedPackage) obfuscatedImportPath() string {
 // "go build", "go list", or "go test".
 var garbleBuildFlags = []string{"-trimpath", "-buildvcs=false"}
 
+// linknamedToList returns the runtimeAndLinknamed packages to list on the
+// current GOOS, sorted for determinism. They are reached via runtime linkname
+// rather than imports, so they don't show up in the dependency graph.
+func linknamedToList() []string {
+	linknamed := make([]string, 0, len(runtimeAndLinknamed))
+	for path := range runtimeAndLinknamed {
+		switch {
+		case sharedCache.GoEnv.GOOS != "js" && path == "syscall/js":
+			// GOOS-specific package.
+		case sharedCache.GoEnv.GOOS != "darwin" && sharedCache.GoEnv.GOOS != "ios" && path == "crypto/x509/internal/macos":
+			// GOOS-specific package.
+		default:
+			linknamed = append(linknamed, path)
+		}
+	}
+	slices.Sort(linknamed)
+	return linknamed
+}
+
 // appendListedPackages gets information about the current package
 // and all of its dependencies
 func appendListedPackages(packages []string, mainBuild bool) error {
@@ -435,6 +454,21 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		args = slices.DeleteFunc(args, func(arg string) bool {
 			return strings.HasPrefix(arg, "-mod=") || strings.HasPrefix(arg, "-modfile=")
 		})
+	}
+
+	// `go list` cannot mix .go file arguments with package paths, so the rare
+	// file-argument build lists the linknamed packages separately, below.
+	fileMode := mainBuild && len(packages) > 0 && strings.HasSuffix(packages[0], ".go")
+	if mainBuild && !fileMode {
+		if len(packages) == 0 {
+			// With no arguments the build targets the current directory; make
+			// that explicit so the appended packages don't displace it.
+			packages = []string{"."}
+		}
+		// Fold in the linknamed packages so each compile subprocess finds them
+		// in the shared cache instead of spawning its own `go list`. `go list`
+		// dedups them against the deps and `-mod` flags are harmless for std.
+		packages = append(packages, linknamedToList()...)
 	}
 
 	args = append(args, packages...)
@@ -466,11 +500,15 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		}
 
 		if perr := pkg.Error; perr != nil {
-			if !mainBuild && strings.Contains(perr.Err, "build constraints exclude all Go files") {
+			// Folded-in linknamed packages may fail benignly, like sync_test
+			// being "not in std"; ignore those, but still report errors for the
+			// user's own packages.
+			lenient := !mainBuild || runtimeAndLinknamed[pkg.ImportPath]
+			if lenient && strings.Contains(perr.Err, "build constraints exclude all Go files") {
 				// Some packages in runtimeAndLinknamed need a build tag to be importable,
 				// like crypto/internal/boring/fipstls with boringcrypto,
 				// so any pkg.Error should be ignored when the build tag isn't set.
-			} else if !mainBuild && strings.Contains(perr.Err, "is not in std") {
+			} else if lenient && strings.Contains(perr.Err, "is not in std") {
 				// When we support multiple Go versions at once, some packages may only
 				// exist in the newer version, so we fail to list them with the older.
 			} else {
@@ -552,10 +590,19 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		return fmt.Errorf("GOGARBLE=%q does not match any packages to be built", sharedCache.GOGARBLE)
 	}
 
+	if fileMode {
+		// The fold above couldn't run, so list the still-missing linknamed
+		// packages here in the parent for the compile subprocesses to reuse.
+		missing := slices.DeleteFunc(linknamedToList(), sharedCache.ListedPackages.has)
+		if len(missing) > 0 {
+			if err := appendListedPackages(missing, false); err != nil {
+				return fmt.Errorf("failed to load missing runtime-linknamed packages: %v", err)
+			}
+		}
+	}
+
 	return nil
 }
-
-var listedRuntimeAndLinknamed = false
 
 var ErrNotFound = errors.New("not found")
 
@@ -580,44 +627,13 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 	// This is due to how runtime linkname-implements std packages,
 	// such as sync/atomic or reflect, without importing them in any way.
 	// A few other cases don't involve runtime, like time/tzdata linknaming to time,
-	// but luckily those few cases are covered by runtimeAndLinknamed as well.
-	//
-	// If ListedPackages lacks such a package we fill it via runtimeAndLinknamed.
-	// TODO: can we instead add runtimeAndLinknamed to the top-level "go list" args?
+	// but luckily those few cases are covered by runtimeAndLinknamed as well,
+	// which appendListedPackages folds into the top-level `go list`.
 	if from.Standard {
 		if ok {
 			return pkg, nil
 		}
-		if listedRuntimeAndLinknamed {
-			return nil, fmt.Errorf("package %q still missing after go list call", path)
-		}
-		startTime := time.Now()
-		missing := make([]string, 0, len(runtimeAndLinknamed))
-		for linknamed := range runtimeAndLinknamed {
-			switch {
-			case sharedCache.ListedPackages.has(linknamed):
-				// We already have it; skip.
-			case sharedCache.GoEnv.GOOS != "js" && linknamed == "syscall/js":
-				// GOOS-specific package.
-			case sharedCache.GoEnv.GOOS != "darwin" && sharedCache.GoEnv.GOOS != "ios" && linknamed == "crypto/x509/internal/macos":
-				// GOOS-specific package.
-			default:
-				missing = append(missing, linknamed)
-			}
-		}
-		slices.Sort(missing) // ensure determinism after the map iteration above
-
-		// We don't need any information about their dependencies, in this case.
-		if err := appendListedPackages(missing, false); err != nil {
-			return nil, fmt.Errorf("failed to load missing runtime-linknamed packages: %v", err)
-		}
-		pkg, ok := sharedCache.ListedPackages.get(path)
-		if !ok {
-			return nil, fmt.Errorf("std listed another std package that we can't find: %s", path)
-		}
-		listedRuntimeAndLinknamed = true
-		log.Printf("listed %d missing runtime-linknamed packages in %s", len(missing), debugSince(startTime))
-		return pkg, nil
+		return nil, fmt.Errorf("std listed another std package that we can't find: %s", path)
 	}
 	if !ok {
 		return nil, fmt.Errorf("list %s: %w", path, ErrNotFound)
