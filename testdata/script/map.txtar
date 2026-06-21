@@ -1,0 +1,85 @@
+# 'garble map' without packages prints usage and fails.
+! exec garble map
+stderr 'usage: garble \[garble flags\] map'
+
+# Unknown build flags should result in errors, like 'garble reverse'.
+! exec garble map -badflag=foo .
+stderr 'flag provided but not defined'
+
+# Only obfuscate our own module, so the output is small and deterministic;
+# the default GOGARBLE='*' would dump every dependency.
+env GOGARBLE=test/main
+env SEED=OQg9kACEECQ
+
+# A fixed seed makes the obfuscated names deterministic, so we can compare
+# against a golden file.
+exec garble -seed=${SEED} map ./...
+cmp stdout map.golden
+
+[short] stop # the extra checks below don't need a real build
+
+# The obfuscated import path of an imported package replaces the original,
+# while a main package keeps its 'main' path.
+stdout '"test/main/lib"'
+! stdout '"path": "test/main/lib"'
+stdout '"path": "main"'
+
+# Exported methods may implement an interface, so they are not obfuscated and
+# get no entry; only the unexported method shows up, as Type.M1 rather than M0.
+! stdout '"Type.M0"'
+
+# Non-exported funcs have no object path, so they never appear.
+! stdout 'unexportedFunc'
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- main.go --
+package main
+
+import "test/main/lib"
+
+func main() {
+	t := lib.Type{Exported: 1}
+	t.Method()
+	lib.Func()
+}
+-- lib/lib.go --
+package lib
+
+// Type is an exported type with a mix of exported and unexported members.
+type Type struct {
+	Exported   int
+	unexported int
+}
+
+func (Type) Method()           {}
+func (Type) unexportedMethod() {}
+
+// Func is an exported function.
+func Func() {}
+
+func unexportedFunc() {}
+
+// hidden is an unexported type, still referenceable via objectpath.
+type hidden struct{ Field int }
+-- map.golden --
+{
+	"test/main": {
+		"path": "main",
+		"objects": {}
+	},
+	"test/main/lib": {
+		"path": "oe8YBK",
+		"objects": {
+			"Func": "WyCltOQD7",
+			"Type": "DhGKDlt9JmL",
+			"Type.M1": "gjmYsc0O8lJ",
+			"Type.UF0": "C8xgTKGxp",
+			"Type.UF1": "bY3gZ_F_i",
+			"hidden": "b5SrWf",
+			"hidden.UF0": "NjPGe8"
+		}
+	}
+}
