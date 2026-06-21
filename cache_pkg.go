@@ -57,20 +57,14 @@ func (c *pkgCache) CopyFrom(c2 pkgCache) {
 }
 
 func ssaBuildPkg(pkg *types.Package, files []*ast.File, info *types.Info) *ssa.Package {
-	// Create SSA packages for all imports. Order is not significant.
+	// Create SSA packages only for pkg's direct imports. pkg's syntax can only
+	// name objects from those, so the builder's package-level lookups never need
+	// the transitive closure; methods of types from deeper packages are created
+	// on demand by go/ssa (see Program.objectMethod).
 	ssaProg := ssa.NewProgram(fset, 0)
-	created := make(map[*types.Package]bool)
-	var createAll func(pkgs []*types.Package)
-	createAll = func(pkgs []*types.Package) {
-		for _, p := range pkgs {
-			if !created[p] {
-				created[p] = true
-				ssaProg.CreatePackage(p, nil, nil, true)
-				createAll(p.Imports())
-			}
-		}
+	for _, p := range pkg.Imports() {
+		ssaProg.CreatePackage(p, nil, nil, true)
 	}
-	createAll(pkg.Imports())
 
 	ssaPkg := ssaProg.CreatePackage(pkg, files, info, false)
 	ssaPkg.Build()
