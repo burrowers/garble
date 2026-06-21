@@ -57,7 +57,7 @@ One can reverse a captured panic stack trace as follows:
 	// so it's unnecessary to try to avoid this cost.
 	var replaces []string
 
-	for _, lpkg := range sharedCache.ListedPackages {
+	for _, lpkg := range sharedCache.ListedPackages.all() {
 		if !lpkg.ToObfuscate {
 			continue
 		}

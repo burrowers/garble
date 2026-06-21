@@ -108,13 +108,14 @@ func restoreDebugDirFromCache() error {
 	if err != nil {
 		return err
 	}
-	importPaths := make([]string, 0, len(sharedCache.ListedPackages))
-	for importPath := range sharedCache.ListedPackages {
+	listed := sharedCache.ListedPackages.all()
+	importPaths := make([]string, 0, len(listed))
+	for importPath := range listed {
 		importPaths = append(importPaths, importPath)
 	}
 	slices.Sort(importPaths)
 	for _, importPath := range importPaths {
-		lpkg := sharedCache.ListedPackages[importPath]
+		lpkg := listed[importPath]
 		if len(lpkg.GarbleActionID) == 0 {
 			continue
 		}
@@ -143,7 +144,7 @@ func debugDirNeedsRebuild() (bool, error) {
 	}
 	sawBuildInputs := false
 	missingArtifacts := false
-	for _, lpkg := range sharedCache.ListedPackages {
+	for _, lpkg := range sharedCache.ListedPackages.all() {
 		if len(lpkg.GarbleActionID) == 0 {
 			continue
 		}
