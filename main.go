@@ -159,10 +159,17 @@ func main() {
 				panic(err)
 			}
 		}
-		if os.Getenv("GARBLE_WRITE_ALLOCS") == "true" {
+		if dir := os.Getenv("GARBLE_WRITE_ALLOCS"); dir != "" {
 			var memStats runtime.MemStats
 			runtime.ReadMemStats(&memStats)
-			fmt.Fprintf(os.Stderr, "garble allocs: %d\n", memStats.Mallocs)
+			f, err := os.CreateTemp(dir, "garble-allocs-*.txt")
+			if err != nil {
+				panic(err)
+			}
+			fmt.Fprintf(f, "%d\n", memStats.Mallocs)
+			if err := f.Close(); err != nil {
+				panic(err)
+			}
 		}
 	}()
 	flagSet.Parse(os.Args[1:])
