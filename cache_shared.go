@@ -100,11 +100,11 @@ type pkgRange struct {
 	Offset, Length uint64
 }
 
-// listedPackagesData is the serialized form of listedPackages: the index of
-// byte ranges plus the concatenated per-package payloads.
+// listedPackagesData is the serialized index of listedPackages: each import
+// path to the byte range of its payload. The concatenated payloads follow the
+// index in the blob; see [listedPackages.MarshalMsg].
 type listedPackagesData struct {
 	Index map[string]pkgRange
-	Data  []byte
 }
 
 func newListedPackages() *listedPackages {
@@ -153,19 +153,25 @@ func (l *listedPackages) all() map[string]*listedPackage {
 	return l.entries
 }
 
-// MarshalMsg implements msgp.Marshaler, encoding a byte-range index plus the
-// concatenated per-package payloads.
+// MarshalMsg implements msgp.Marshaler, encoding the byte-range index followed
+// by the concatenated per-package payloads. The payloads are appended as a raw
+// bytes value so UnmarshalMsg can alias them rather than copying.
 func (l *listedPackages) MarshalMsg(b []byte) ([]byte, error) {
 	blob := listedPackagesData{Index: make(map[string]pkgRange, len(l.entries))}
+	var data []byte
 	for path, pkg := range l.entries {
-		start := len(blob.Data)
+		start := len(data)
 		var err error
-		if blob.Data, err = pkg.MarshalMsg(blob.Data); err != nil {
+		if data, err = pkg.MarshalMsg(data); err != nil {
 			return nil, err
 		}
-		blob.Index[path] = pkgRange{uint64(start), uint64(len(blob.Data) - start)}
+		blob.Index[path] = pkgRange{uint64(start), uint64(len(data) - start)}
 	}
-	return blob.MarshalMsg(b)
+	b, err := blob.MarshalMsg(b)
+	if err != nil {
+		return nil, err
+	}
+	return msgp.AppendBytes(b, data), nil
 }
 
 // UnmarshalMsg implements msgp.Unmarshaler, loading the index and payload bytes;
@@ -177,7 +183,13 @@ func (l *listedPackages) UnmarshalMsg(b []byte) ([]byte, error) {
 		return o, err
 	}
 	l.index = blob.Index
-	l.data = blob.Data
+	// ReadBytesZC aliases the input rather than copying, so l.data points into
+	// the caller's buffer; loadSharedCache passes a fresh os.ReadFile buffer that
+	// lives as long as l.data. Do not pool or mutate that buffer.
+	l.data, o, err = msgp.ReadBytesZC(o)
+	if err != nil {
+		return o, err
+	}
 	l.entries = make(map[string]*listedPackage)
 	return o, nil
 }

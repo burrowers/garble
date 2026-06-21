@@ -329,9 +329,9 @@ func (z *listedPackage) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *listedPackagesData) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 2
+	// map header, size 1
 	// string "Index"
-	o = append(o, 0x82, 0xa5, 0x49, 0x6e, 0x64, 0x65, 0x78)
+	o = append(o, 0x81, 0xa5, 0x49, 0x6e, 0x64, 0x65, 0x78)
 	o = msgp.AppendMapHeader(o, uint32(len(z.Index)))
 	for za0001, za0002 := range z.Index {
 		o = msgp.AppendString(o, za0001)
@@ -343,9 +343,6 @@ func (z *listedPackagesData) MarshalMsg(b []byte) (o []byte, err error) {
 		o = append(o, 0xa6, 0x4c, 0x65, 0x6e, 0x67, 0x74, 0x68)
 		o = msgp.AppendUint64(o, za0002.Length)
 	}
-	// string "Data"
-	o = append(o, 0xa4, 0x44, 0x61, 0x74, 0x61)
-	o = msgp.AppendBytes(o, z.Data)
 	return
 }
 
@@ -424,12 +421,6 @@ func (z *listedPackagesData) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				}
 				z.Index[za0001] = za0002
 			}
-		case "Data":
-			z.Data, bts, err = msgp.ReadBytesBytes(bts, z.Data)
-			if err != nil {
-				err = msgp.WrapError(err, "Data")
-				return
-			}
 		default:
 			bts, err = msgp.Skip(bts)
 			if err != nil {
@@ -451,7 +442,6 @@ func (z *listedPackagesData) Msgsize() (s int) {
 			s += msgp.StringPrefixSize + len(za0001) + 1 + 7 + msgp.Uint64Size + 7 + msgp.Uint64Size
 		}
 	}
-	s += 5 + msgp.BytesPrefixSize + len(z.Data)
 	return
 }
 
