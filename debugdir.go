@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"encoding/gob"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,11 +16,6 @@ const (
 	debugCacheKindCompile = "compile"
 	debugCacheKindAsm     = "asm"
 )
-
-type cachedDebugArtifacts struct {
-	SourceFiles  map[string][]byte
-	GarbledFiles map[string][]byte
-}
 
 func (a cachedDebugArtifacts) empty() bool {
 	return len(a.SourceFiles) == 0 && len(a.GarbledFiles) == 0
@@ -58,11 +51,11 @@ func saveDebugArtifactsForPkg(lpkg *listedPackage, kind string, artifacts cached
 	if err != nil {
 		return err
 	}
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(artifacts); err != nil {
+	data, err := artifacts.MarshalMsg(nil)
+	if err != nil {
 		return err
 	}
-	return fsCache.PutBytes(debugArtifactsCacheID(lpkg.GarbleActionID, kind), buf.Bytes())
+	return fsCache.PutBytes(debugArtifactsCacheID(lpkg.GarbleActionID, kind), data)
 }
 
 func loadDebugArtifactsForPkg(fsCache *cache.Cache, lpkg *listedPackage, kind string) (cachedDebugArtifacts, bool, error) {
@@ -70,13 +63,12 @@ func loadDebugArtifactsForPkg(fsCache *cache.Cache, lpkg *listedPackage, kind st
 	if err != nil {
 		return cachedDebugArtifacts{}, false, nil // cache miss is expected
 	}
-	f, err := os.Open(filename)
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return cachedDebugArtifacts{}, false, err
 	}
-	defer f.Close()
 	var artifacts cachedDebugArtifacts
-	if err := gob.NewDecoder(f).Decode(&artifacts); err != nil {
+	if _, err := artifacts.UnmarshalMsg(data); err != nil {
 		return cachedDebugArtifacts{}, false, err
 	}
 	return artifacts, true, nil
