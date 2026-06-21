@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
 	"fmt"
 	"go/ast"
 	"go/importer"
@@ -19,10 +17,22 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-type (
-	funcFullName = string // the result of [types.Func.FullName] plus [stripTypeArgs]
-	objectString = string // the result of [reflectInspector.obfuscatedObjectName]
-)
+// "maps binkeys" lets pkgCache.ReflectAPIs use its int-keyed inner map.
+//go:generate go tool msgp -file=$GOFILE -o=cache_pkg_gen.go -io=false -tests=false -unexported -d "maps binkeys"
+
+// importerWithMap holds func fields and is never serialized.
+//msgp:ignore importerWithMap
+
+// goAsmNames maps go_asm.h names to obfuscated ones. It is a named type so msgp
+// can generate its marshalers; see [transformer.saveGoAsmNames].
+type goAsmNames map[string]string
+
+// cachedDebugArtifacts is defined here, rather than in debugdir.go, so msgp
+// generates its marshalers alongside the other cache types; see debugdir.go.
+type cachedDebugArtifacts struct {
+	SourceFiles  map[string][]byte
+	GarbledFiles map[string][]byte
+}
 
 // pkgCache contains information about a package that will be stored in fsCache.
 // Note that pkgCache is "deep", containing information about all packages
@@ -30,14 +40,15 @@ type (
 type pkgCache struct {
 	// ReflectAPIs is a static record of what std APIs use reflection on their
 	// parameters, so we can avoid obfuscating types used with them.
+	// The key is a [types.Func.FullName] plus [stripTypeArgs].
 	//
 	// TODO: we're not including fmt.Printf, as it would have many false positives,
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
-	ReflectAPIs map[funcFullName]map[int]bool
+	ReflectAPIs map[string]map[int]bool
 
 	// ReflectObjectNames maps obfuscated names which are reflected to their original
-	// non-obfuscated names.
-	ReflectObjectNames map[objectString]string
+	// non-obfuscated names. The key is a [reflectInspector.obfuscatedObjectName].
+	ReflectObjectNames map[string]string
 }
 
 func (c *pkgCache) CopyFrom(c2 pkgCache) {
@@ -130,14 +141,13 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 	filename, _, err := fsCache.GetFile(lpkg.GarbleActionID)
 	// Already in the cache; load it directly.
 	if err == nil {
-		f, err := os.Open(filename)
+		data, err := os.ReadFile(filename)
 		if err != nil {
 			return pkgCache{}, err
 		}
-		defer f.Close()
 		var loaded pkgCache
-		if err := gob.NewDecoder(f).Decode(&loaded); err != nil {
-			return pkgCache{}, fmt.Errorf("gob decode: %w", err)
+		if _, err := loaded.UnmarshalMsg(data); err != nil {
+			return pkgCache{}, fmt.Errorf("msgp decode: %w", err)
 		}
 		return loaded, nil
 	}
@@ -151,11 +161,11 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 	// for example, a file might exist but be empty if another process
 	// is filling the same cache entry concurrently.
 	computed := pkgCache{
-		ReflectAPIs: map[funcFullName]map[int]bool{
+		ReflectAPIs: map[string]map[int]bool{
 			"reflect.TypeOf":  {0: true},
 			"reflect.ValueOf": {0: true},
 		},
-		ReflectObjectNames: map[objectString]string{},
+		ReflectObjectNames: map[string]string{},
 	}
 	// Stop early if we don't import reflect, e.g. much of std.
 	if !lpkg.hasDep("reflect") {
@@ -177,16 +187,18 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		}
 		if err := func() error { // function literal for the deferred close
 			if filename, _, err := fsCache.GetFile(lpkg.GarbleActionID); err == nil {
-				// Cache hit; append new entries to computed.
-				f, err := os.Open(filename)
+				// Cache hit; merge its entries into computed. We decode into a
+				// fresh value rather than onto computed, as msgp replaces maps
+				// rather than merging into them.
+				data, err := os.ReadFile(filename)
 				if err != nil {
 					return err
 				}
-				defer f.Close()
-				// The gob decoder
-				if err := gob.NewDecoder(f).Decode(&computed); err != nil {
+				var loaded pkgCache
+				if _, err := loaded.UnmarshalMsg(data); err != nil {
 					return err
 				}
+				computed.CopyFrom(loaded)
 				return nil
 			}
 			// Avoid parsing and typechecking if the dependency doesn't import reflect.
@@ -229,12 +241,11 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 	}
 	inspector.recordReflection(ssaPkg)
 
-	// Unlikely that we could stream the gob encode, as cache.Put wants an io.ReadSeeker.
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(computed); err != nil {
+	data, err := computed.MarshalMsg(nil)
+	if err != nil {
 		return pkgCache{}, err
 	}
-	if err := fsCache.PutBytes(lpkg.GarbleActionID, buf.Bytes()); err != nil {
+	if err := fsCache.PutBytes(lpkg.GarbleActionID, data); err != nil {
 		return pkgCache{}, err
 	}
 	return computed, nil

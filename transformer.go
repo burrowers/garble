@@ -6,7 +6,6 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,7 +38,7 @@ import (
 
 // computeLinkerVariableStrings iterates over the -ldflags arguments,
 // filling a map with all the string values set via the linker's -X flag.
-// TODO: can we put this in sharedCache, using objectString as a key?
+// TODO: can we put this in sharedCache, using the obfuscated object name as a key?
 func computeLinkerVariableStrings(pkg *types.Package) (map[*types.Var]string, error) {
 	linkerVariableStrings := make(map[*types.Var]string)
 
@@ -464,7 +463,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 // saveGoAsmNames saves go_asm.h constant name mappings to the build cache;
 // see https://go.dev/doc/asm#data-offsets.
 func (tf *transformer) saveGoAsmNames() error {
-	nameMap := make(map[string]string) // original -> obfuscated
+	nameMap := make(goAsmNames) // original -> obfuscated
 	scope := tf.pkg.Scope()
 	for _, name := range scope.Names() {
 		obj := scope.Lookup(name)
@@ -492,11 +491,11 @@ func (tf *transformer) saveGoAsmNames() error {
 	}
 	// TODO: if we end up with an "obfuscated name map" artifact per package,
 	// then use that directly.
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(nameMap); err != nil {
+	data, err := nameMap.MarshalMsg(nil)
+	if err != nil {
 		return err
 	}
-	return fsCache.PutBytes(goAsmCacheID(tf.curPkg.GarbleActionID), buf.Bytes())
+	return fsCache.PutBytes(goAsmCacheID(tf.curPkg.GarbleActionID), data)
 }
 
 func goAsmCacheID(garbleActionID [sha256.Size]byte) [sha256.Size]byte {
@@ -518,13 +517,12 @@ func loadGoAsmNames(lpkg *listedPackage) map[string]string {
 	if err != nil {
 		return nil
 	}
-	f, err := os.Open(filename)
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
-	var nameMap map[string]string
-	if err := gob.NewDecoder(f).Decode(&nameMap); err != nil {
+	var nameMap goAsmNames
+	if _, err := nameMap.UnmarshalMsg(data); err != nil {
 		return nil
 	}
 	return nameMap
