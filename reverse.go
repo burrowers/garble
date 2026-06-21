@@ -76,16 +76,10 @@ One can reverse a captured panic stack trace as follows:
 			replaces = append(replaces, newName, name)
 		}
 
-		files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles)
+		tf, files, err := transformerForListedPackage(lpkg)
 		if err != nil {
 			return err
 		}
-		origImporter := importerForPkg(lpkg)
-		_, info, err := typecheck(lpkg.ImportPath, files, origImporter, false)
-		if err != nil {
-			return err
-		}
-		fieldToStruct := computeFieldToStruct(info)
 		for i, file := range files {
 			goFile := lpkg.CompiledGoFiles[i]
 			for node := range ast.Preorder(file) {
@@ -99,12 +93,12 @@ One can reverse a captured panic stack trace as follows:
 					addHashedWithPackage(node.Name.Name)
 				case *ast.Field:
 					for _, name := range node.Names {
-						obj, _ := info.ObjectOf(name).(*types.Var)
+						obj, _ := tf.info.ObjectOf(name).(*types.Var)
 						if obj == nil || !obj.IsField() {
 							continue
 						}
 						originObj := obj.Origin()
-						strct := fieldToStruct[originObj]
+						strct := tf.fieldToStruct[originObj]
 						if strct == nil {
 							panic("could not find struct for field " + name.Name)
 						}
