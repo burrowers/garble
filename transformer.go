@@ -137,7 +137,7 @@ func computeFieldToStruct(info *types.Info) map[*types.Var]*types.Struct {
 // commands like reverse and map which inspect names without compiling, so it skips
 // the SSA, literal, and caching setup that transformCompile does.
 func transformerForListedPackage(lpkg *listedPackage) (*transformer, []*ast.File, error) {
-	files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles)
+	files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -725,7 +725,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	flags = append(flags, "-dwarf=false")
 
 	// The Go file paths given to the compiler are always absolute paths.
-	files, err := parseFiles(tf.curPkg, "", paths)
+	files, err := parseFiles(tf.curPkg, "", paths, true)
 	if err != nil {
 		return nil, err
 	}

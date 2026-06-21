@@ -84,11 +84,13 @@ var openCache = sync.OnceValues(func() (*cache.Cache, error) {
 	return cache.Open(dir)
 })
 
-// parseFiles parses a list of Go files.
-// It supports relative file paths, such as those found in listedPackage.CompiledGoFiles,
-// as long as dir is set to listedPackage.Dir.
-func parseFiles(lpkg *listedPackage, dir string, paths []string) (files []*ast.File, err error) {
-	mainPackage := lpkg.Name == "main" && lpkg.ForTest == ""
+// parseFiles parses the given Go files of lpkg. It supports relative file paths,
+// such as those found in listedPackage.CompiledGoFiles, as long as dir is set to
+// listedPackage.Dir. When mainPatch is true and lpkg is a main package, garble's
+// reflection support code is patched in; needed when compiling, not when only
+// inspecting names as reverse and map do.
+func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool) (files []*ast.File, err error) {
+	mainPackage := mainPatch && lpkg.Name == "main" && lpkg.ForTest == ""
 
 	for _, path := range paths {
 		if !filepath.IsAbs(path) {
@@ -205,7 +207,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			// Missing or corrupted entry in the cache for a dependency.
 			// Could happen if GARBLE_CACHE was emptied but GOCACHE was not.
 			// Compute it, which can recurse if many entries are missing.
-			files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles)
+			files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles, true)
 			if err != nil {
 				return err
 			}
