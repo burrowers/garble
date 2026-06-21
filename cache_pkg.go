@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/rogpeppe/go-internal/cache"
 	"golang.org/x/tools/go/ast/astutil"
@@ -71,7 +72,9 @@ func ssaBuildPkg(pkg *types.Package, files []*ast.File, info *types.Info) *ssa.P
 	return ssaPkg
 }
 
-func openCache() (*cache.Cache, error) {
+// openCache opens the hashed build cache, memoized per process since
+// sharedCache.CacheDir is fixed and it is called several times per compile.
+var openCache = sync.OnceValues(func() (*cache.Cache, error) {
 	// Use a subdirectory for the hashed build cache, to clarify what it is,
 	// and to allow us to have other directories or files later on without mixing.
 	dir := filepath.Join(sharedCache.CacheDir, "build")
@@ -79,7 +82,7 @@ func openCache() (*cache.Cache, error) {
 		return nil, err
 	}
 	return cache.Open(dir)
-}
+})
 
 // parseFiles parses a list of Go files.
 // It supports relative file paths, such as those found in listedPackage.CompiledGoFiles,
