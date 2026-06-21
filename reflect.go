@@ -570,7 +570,7 @@ func (ri *reflectInspector) obfuscatedObjectName(obj types.Object, parent *types
 	lpkg := ri.lpkg
 	if pkg != ri.pkg {
 		var ok bool
-		lpkg, ok = sharedCache.ListedPackages[pkg.Path()]
+		lpkg, ok = sharedCache.ListedPackages.get(pkg.Path())
 		if !ok {
 			panic("missing listed package for foreign reflected object: " + pkg.Path())
 		}

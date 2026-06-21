@@ -288,7 +288,7 @@ func mainErr(args []string) error {
 			}
 			var tf transformer
 			toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
-			tf.curPkg = sharedCache.ListedPackages[toolexecImportPath]
+			tf.curPkg, _ = sharedCache.ListedPackages.get(toolexecImportPath)
 			if tf.curPkg == nil {
 				return fmt.Errorf("TOOLEXEC_IMPORTPATH package not found in listed packages: %s", toolexecImportPath)
 			}
@@ -359,8 +359,8 @@ This command wraps "go %s". Below is its help:
 	}
 
 	// Here is the only place we initialize the cache.
-	// The sub-processes will parse it from a shared gob file.
-	sharedCache = &sharedCacheType{}
+	// The sub-processes will parse it from a shared file.
+	sharedCache = &sharedCacheType{ListedPackages: newListedPackages()}
 
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.

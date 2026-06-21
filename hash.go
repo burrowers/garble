@@ -198,7 +198,8 @@ func toUpper(b byte) byte { return b - ('a' - 'A') }
 func runtimeHashWithCustomSalt(salt []byte) uint32 {
 	hasher.Reset()
 	if !flagSeed.present() {
-		hasher.Write(sharedCache.ListedPackages["runtime"].GarbleActionID[:])
+		runtimePkg, _ := sharedCache.ListedPackages.get("runtime")
+		hasher.Write(runtimePkg.GarbleActionID[:])
 	} else {
 		hasher.Write(flagSeed.bytes)
 	}

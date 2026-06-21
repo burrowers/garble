@@ -6,7 +6,6 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,16 +17,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinylib/msgp/msgp"
 	"golang.org/x/mod/module"
 )
 
 //go:generate go run scripts/gen_go_std_tables.go
 
+// msgp generates the MessagePack marshalers in cache_shared_gen.go. -unexported
+// is needed since our types are unexported; `msg:"-"` skips a field.
+//go:generate go tool msgp -file=$GOFILE -o=cache_shared_gen.go -io=false -tests=false -unexported
+
+// listedPackages is ignored as it has hand-written marshalers for its lazy index.
+//msgp:ignore listedPackages
+
 // sharedCacheType is shared as a read-only cache between the many garble toolexec
 // sub-processes.
 //
 // Note that we fill this cache once from the root process in saveListedPackages,
-// store it into a temporary file via gob encoding, and then reuse that file
+// store it into a temporary file via msgp encoding, and then reuse that file
 // in each of the garble toolexec sub-processes.
 type sharedCacheType struct {
 	ForwardBuildFlags []string // build flags fed to the original "garble ..." command
@@ -37,7 +44,7 @@ type sharedCacheType struct {
 	// ListedPackages contains data obtained via 'go list -json -export -deps'.
 	// This allows us to obtain the non-obfuscated export data of all dependencies,
 	// useful for type checking of the packages as we obfuscate them.
-	ListedPackages map[string]*listedPackage
+	ListedPackages *listedPackages
 
 	// We can't use garble's own module version, as it may not exist.
 	// We can't use the stamped VCS information either,
@@ -66,28 +73,152 @@ type sharedCacheType struct {
 
 var sharedCache *sharedCacheType
 
+// listedPackages holds the listedPackage entries obtained via 'go list'.
+//
+// The root process fills it eagerly. Each toolexec sub-process only needs a few
+// packages, so the serialized blob is an index of byte offsets plus concatenated
+// per-package payloads, decoded lazily on first access; decode cost then scales
+// with the packages a sub-process touches, not the whole graph.
+//
+// The payloads use msgp rather than gob: a fresh gob.Decoder compiles a decoding
+// engine per call, which lazy per-entry decoding would pay once per package.
+type listedPackages struct {
+	// entries holds decoded packages. In the root process it holds every
+	// package; in a sub-process it is populated lazily by get, and also holds
+	// any packages added dynamically via appendListedPackages.
+	entries map[string]*listedPackage
+
+	// index and data back the lazy decoding in sub-processes. index maps an
+	// import path to the byte range of its payload within data. Both are nil
+	// in the root process, where entries already holds everything.
+	index map[string]pkgRange
+	data  []byte
+}
+
+// pkgRange locates a single package's payload within the packages data blob.
+type pkgRange struct {
+	Offset, Length uint64
+}
+
+// listedPackagesData is the serialized form of listedPackages: the index of
+// byte ranges plus the concatenated per-package payloads.
+type listedPackagesData struct {
+	Index map[string]pkgRange
+	Data  []byte
+}
+
+func newListedPackages() *listedPackages {
+	return &listedPackages{entries: make(map[string]*listedPackage)}
+}
+
+// get returns the listed package for an import path, decoding it from the
+// lazy blob on first access. The boolean reports whether the package is known,
+// mirroring a map lookup.
+func (l *listedPackages) get(path string) (*listedPackage, bool) {
+	if pkg, ok := l.entries[path]; ok {
+		return pkg, true
+	}
+	r, ok := l.index[path]
+	if !ok {
+		return nil, false
+	}
+	pkg := new(listedPackage)
+	if _, err := pkg.UnmarshalMsg(l.data[r.Offset : r.Offset+r.Length]); err != nil {
+		panic(fmt.Sprintf("cannot decode listed package %q: %v", path, err))
+	}
+	l.entries[path] = pkg
+	return pkg, true
+}
+
+// has reports whether a package is known without decoding it.
+func (l *listedPackages) has(path string) bool {
+	if _, ok := l.entries[path]; ok {
+		return true
+	}
+	_, ok := l.index[path]
+	return ok
+}
+
+// set records a package, used while filling the cache via 'go list'.
+func (l *listedPackages) set(path string, pkg *listedPackage) {
+	l.entries[path] = pkg
+}
+
+// all decodes every package and returns the full map. It is only used by cold
+// paths such as -debugdir and 'garble reverse', so forcing a full decode is fine.
+func (l *listedPackages) all() map[string]*listedPackage {
+	for path := range l.index {
+		l.get(path)
+	}
+	return l.entries
+}
+
+// MarshalMsg implements msgp.Marshaler, encoding a byte-range index plus the
+// concatenated per-package payloads.
+func (l *listedPackages) MarshalMsg(b []byte) ([]byte, error) {
+	blob := listedPackagesData{Index: make(map[string]pkgRange, len(l.entries))}
+	for path, pkg := range l.entries {
+		start := len(blob.Data)
+		var err error
+		if blob.Data, err = pkg.MarshalMsg(blob.Data); err != nil {
+			return nil, err
+		}
+		blob.Index[path] = pkgRange{uint64(start), uint64(len(blob.Data) - start)}
+	}
+	return blob.MarshalMsg(b)
+}
+
+// UnmarshalMsg implements msgp.Unmarshaler, loading the index and payload bytes;
+// individual packages are decoded lazily by get.
+func (l *listedPackages) UnmarshalMsg(b []byte) ([]byte, error) {
+	var blob listedPackagesData
+	o, err := blob.UnmarshalMsg(b)
+	if err != nil {
+		return o, err
+	}
+	l.index = blob.Index
+	l.data = blob.Data
+	l.entries = make(map[string]*listedPackage)
+	return o, nil
+}
+
+// Msgsize estimates the encoded size, used by msgp to preallocate. It need not
+// be exact, as the buffer grows on demand.
+func (l *listedPackages) Msgsize() int {
+	rangeSize := pkgRange{}.Msgsize()
+	s := msgp.MapHeaderSize + msgp.BytesPrefixSize
+	for path, pkg := range l.entries {
+		s += msgp.StringPrefixSize + len(path) + rangeSize + pkg.Msgsize()
+	}
+	return s
+}
+
+// sharedCacheFilename is the msgp-encoded cache file in the GARBLE_SHARED dir.
+const sharedCacheFilename = "main-cache.bin"
+
 // loadSharedCache the shared data passed from the entry garble process
 func loadSharedCache() error {
 	if sharedCache != nil {
 		panic("shared cache loaded twice?")
 	}
 	startTime := time.Now()
-	f, err := os.Open(filepath.Join(sharedTempDir, "main-cache.gob"))
+	path := filepath.Join(sharedTempDir, sharedCacheFilename)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf(`cannot open shared file: %v\ndid you run "go [command] -toolexec=garble" instead of "garble [command]"?`, err)
 	}
 	defer func() {
-		log.Printf("shared cache loaded in %s from %s", debugSince(startTime), f.Name())
+		log.Printf("shared cache loaded in %s from %s", debugSince(startTime), path)
 	}()
-	defer f.Close()
-	if err := gob.NewDecoder(f).Decode(&sharedCache); err != nil {
+	sharedCache = new(sharedCacheType)
+	if _, err := sharedCache.UnmarshalMsg(data); err != nil {
 		return fmt.Errorf("cannot decode shared file: %v", err)
 	}
 	return nil
 }
 
 // saveSharedCache creates a temporary directory to share between garble processes.
-// This directory also includes the gob-encoded cache global.
+// This directory also includes the msgp-encoded cache global.
 func saveSharedCache() (string, error) {
 	if sharedCache == nil {
 		panic("saving a missing cache?")
@@ -97,8 +228,11 @@ func saveSharedCache() (string, error) {
 		return "", err
 	}
 
-	cachePath := filepath.Join(dir, "main-cache.gob")
-	if err := writeGobExclusive(cachePath, &sharedCache); err != nil {
+	data, err := sharedCache.MarshalMsg(nil)
+	if err != nil {
+		return "", err
+	}
+	if err := writeFileExclusive(filepath.Join(dir, sharedCacheFilename), data); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -114,19 +248,6 @@ func writeFileExclusive(name string, data []byte) error {
 		return err
 	}
 	_, err = f.Write(data)
-	if err2 := f.Close(); err == nil {
-		err = err2
-	}
-	return err
-}
-
-func writeGobExclusive(name string, val any) error {
-	f, err := createExclusive(name)
-	if err != nil {
-		return err
-	}
-	// Always close the file, and return the first error we get.
-	err = gob.NewEncoder(f).Encode(val)
 	if err2 := f.Close(); err == nil {
 		err = err2
 	}
@@ -158,7 +279,8 @@ type listedPackage struct {
 	// allDeps is like the Deps field given by 'go list', but in the form of a map
 	// for the sake of fast lookups. It's also unnecessary to consume or store Deps
 	// as returned by 'go list', as it can be reconstructed from Imports.
-	allDeps map[string]struct{}
+	// Not serialized: rebuilt lazily by hasDep.
+	allDeps map[string]struct{} `msg:"-"`
 
 	// GarbleActionID is a hash combining the Action ID from BuildID,
 	// with Garble's own inputs as per addGarbleToHash.
@@ -194,7 +316,8 @@ func (p *listedPackage) addImportsFrom(from *listedPackage) {
 			continue // already added
 		}
 		p.allDeps[path] = struct{}{}
-		p.addImportsFrom(sharedCache.ListedPackages[path])
+		dep, _ := sharedCache.ListedPackages.get(path)
+		p.addImportsFrom(dep)
 	}
 }
 
@@ -322,10 +445,8 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 	}
 
 	dec := json.NewDecoder(stdout)
-	if sharedCache.ListedPackages == nil {
-		sharedCache.ListedPackages = make(map[string]*listedPackage)
-	}
 	var pkgErrors strings.Builder
+	anyToObfuscate := false
 	for dec.More() {
 		var pkg listedPackage
 		if err := dec.Decode(&pkg); err != nil {
@@ -359,7 +480,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// because some like crypto/internal/boring/fipstls simply fall under
 		// "build constraints exclude all Go files" and can be ignored.
 		// Real build errors will still be surfaced by `go build -toolexec` later.
-		if sharedCache.ListedPackages[pkg.ImportPath] != nil {
+		if sharedCache.ListedPackages.has(pkg.ImportPath) {
 			return fmt.Errorf("duplicate package: %q", pkg.ImportPath)
 		}
 		if pkg.BuildID != "" {
@@ -367,19 +488,10 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 			pkg.GarbleActionID = addGarbleToHash(actionID)
 		}
 
-		sharedCache.ListedPackages[pkg.ImportPath] = &pkg
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("go list error: %v:\nargs: %q\n%s", err, args, stderr.Bytes())
-	}
-	if pkgErrors.Len() > 0 {
-		return errors.New(pkgErrors.String())
-	}
-
-	anyToObfuscate := false
-	for path, pkg := range sharedCache.ListedPackages {
+		// Decide ToObfuscate as we read each package, to avoid a second pass
+		// that would force a full decode of the lazy map in sub-processes.
 		// If "GOGARBLE=foo/bar", "foo/bar_test" should also match.
+		path := pkg.ImportPath
 		if pkg.ForTest != "" {
 			path = pkg.ForTest
 		}
@@ -410,10 +522,21 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 				return fmt.Errorf("package %q to be obfuscated lacks build id?", pkg.ImportPath)
 			}
 		}
+
+		sharedCache.ListedPackages.set(pkg.ImportPath, &pkg)
 	}
 
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("go list error: %v:\nargs: %q\n%s", err, args, stderr.Bytes())
+	}
+	if pkgErrors.Len() > 0 {
+		return errors.New(pkgErrors.String())
+	}
+
+	// Only the top-level build must match packages to obfuscate; the later
+	// runtime-linknamed std fill need not.
 	// Don't error if the user ran: GOGARBLE='*' garble build runtime
-	if !anyToObfuscate && !module.MatchPrefixPatterns(sharedCache.GOGARBLE, "runtime") {
+	if mainBuild && !anyToObfuscate && !module.MatchPrefixPatterns(sharedCache.GOGARBLE, "runtime") {
 		return fmt.Errorf("GOGARBLE=%q does not match any packages to be built", sharedCache.GOGARBLE)
 	}
 
@@ -439,7 +562,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 		path = path2
 	}
 
-	pkg, ok := sharedCache.ListedPackages[path]
+	pkg, ok := sharedCache.ListedPackages.get(path)
 
 	// A std package may list any other package in std, even those it doesn't depend on.
 	// This is due to how runtime linkname-implements std packages,
@@ -460,7 +583,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 		missing := make([]string, 0, len(runtimeAndLinknamed))
 		for linknamed := range runtimeAndLinknamed {
 			switch {
-			case sharedCache.ListedPackages[linknamed] != nil:
+			case sharedCache.ListedPackages.has(linknamed):
 				// We already have it; skip.
 			case sharedCache.GoEnv.GOOS != "js" && linknamed == "syscall/js":
 				// GOOS-specific package.
@@ -476,7 +599,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 		if err := appendListedPackages(missing, false); err != nil {
 			return nil, fmt.Errorf("failed to load missing runtime-linknamed packages: %v", err)
 		}
-		pkg, ok := sharedCache.ListedPackages[path]
+		pkg, ok := sharedCache.ListedPackages.get(path)
 		if !ok {
 			return nil, fmt.Errorf("std listed another std package that we can't find: %s", path)
 		}
@@ -501,7 +624,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 	if pkg.ImportPath == "runtime" {
 		return pkg, nil
 	}
-	if sharedCache.ListedPackages["runtime"].hasDep(pkg.ImportPath) {
+	if runtimePkg, _ := sharedCache.ListedPackages.get("runtime"); runtimePkg.hasDep(pkg.ImportPath) {
 		return pkg, nil
 	}
 

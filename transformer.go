@@ -1449,7 +1449,7 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 		// package we are linking. Otherwise, find it in the cache.
 		lpkg := tf.curPkg
 		if path != "main" {
-			lpkg = sharedCache.ListedPackages[path]
+			lpkg, _ = sharedCache.ListedPackages.get(path)
 		}
 		if lpkg == nil {
 			// We couldn't find the package.
