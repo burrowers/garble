@@ -14,7 +14,11 @@ stderr 'funcStructExported false funcStructUnexported true'
 [short] stop # no need to verify this with -short
 
 # Default mode
+# An inherited internal linker variable must not enable tiny linker behavior
+# when the user did not pass -tiny.
+env GARBLE_LINK_TINY=true
 exec garble build
+env GARBLE_LINK_TINY=
 ! exec ./main$exe
 stderr '^caller: [[:word:]]+\.go [1-9]'
 stderr '^recovered: ya like jazz?'
