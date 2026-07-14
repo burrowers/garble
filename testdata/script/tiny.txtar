@@ -1,6 +1,7 @@
 # Tiny mode
 exec garble -tiny build
 ! binsubstr main$exe 'garble_main.go' 'fmt/print.go'
+! binsubstr main$exe 'fatal: morestack on g0'
 ! exec ./main$exe
 stderr '^\(0x[[:xdigit:]]+,0x[[:xdigit:]]+\)' # interfaces/pointers print correctly
 # With -tiny, all line numbers are reset to 1.
