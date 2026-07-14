@@ -183,13 +183,6 @@ func stripRuntime(basename string, file *ast.File) {
 			if funcDecl.Name.Name == "schedtrace" {
 				funcDecl.Body.List = nil
 			}
-		case "runtime1.go":
-			switch funcDecl.Name.Name {
-			case "setTraceback":
-				// tracebacks are completely hidden, no
-				// sense keeping this function
-				funcDecl.Body.List = nil
-			}
 		case "traceback.go":
 			// only used for printing tracebacks
 			switch funcDecl.Name.Name {
