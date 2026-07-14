@@ -1,0 +1,15 @@
+# Linux exposes Go runtime VMA labels via /proc/PID/maps. Cross-build on every
+# host so this cleanup does not silently lose coverage on Windows or macOS.
+env GOOS=linux
+env GOARCH=amd64
+exec garble -tiny build -o=main
+! binsubstr main ' Go: '
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- main.go --
+package main
+
+func main() {}
