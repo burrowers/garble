@@ -123,7 +123,8 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 // stripRuntime removes unnecessary code from the runtime,
 // such as panic and fatal error printing, and code that
 // prints trace/debug info of the runtime.
-func stripRuntime(basename string, file *ast.File) {
+func stripRuntime(basename string, file *ast.File) bool {
+	strippedVMAName := false
 	stripPrints := func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
@@ -190,6 +191,14 @@ func stripRuntime(basename string, file *ast.File) {
 				// sense keeping this function
 				funcDecl.Body.List = nil
 			}
+		case "set_vma_name_linux.go":
+			// Linux exposes anonymous VMA names through /proc/PID/maps. They are
+			// diagnostic-only labels such as "Go: heap arena", not correctness
+			// metadata, and would otherwise remain as an OS-visible runtime trace.
+			if funcDecl.Name.Name == "setVMAName" {
+				funcDecl.Body.List = nil
+				strippedVMAName = true
+			}
 		case "traceback.go":
 			// only used for printing tracebacks
 			switch funcDecl.Name.Name {
@@ -209,13 +218,14 @@ func stripRuntime(basename string, file *ast.File) {
 
 	if basename == "print.go" {
 		file.Decls = append(file.Decls, hidePrintDecl)
-		return
+		return strippedVMAName
 	}
 
 	// replace all 'print' and 'println' statements in
 	// the runtime with an empty func, which will be
 	// optimized out by the compiler
 	ast.Inspect(file, stripPrints)
+	return strippedVMAName
 }
 
 var hidePrintDecl = &ast.FuncDecl{
