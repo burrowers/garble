@@ -26,6 +26,9 @@ const (
 	minJunkArraySize = 1
 	// maxJunkArraySize defines the maximum size of a randomized byte array for junk data generation.
 	maxJunkArraySize = 8
+	// maxProxyValuesPerRoot bounds the number of real hidden values in one
+	// independently initialized proxy tree.
+	maxProxyValuesPerRoot = 256
 )
 
 // proxyValue represents a named field with a type and value used in a proxy structure.
@@ -44,30 +47,35 @@ type proxyStruct struct {
 	parent   *proxyStruct
 }
 
+type proxyRoot struct {
+	root           *proxyStruct
+	flattenStructs []*proxyStruct
+	hiddenCount    int
+}
+
 type proxyDispatcher struct {
 	rand     *mathrand.Rand
 	nameFunc NameProviderFunc
 
-	root           *proxyStruct
-	flattenStructs []*proxyStruct
+	roots []*proxyRoot
 }
 
-func (d *proxyDispatcher) initialize() {
+func (d *proxyDispatcher) initialize() *proxyRoot {
+	rootIndex := strconv.Itoa(len(d.roots))
 	flattenStructs := make([]*proxyStruct, d.rand.Intn(maxStructCount-minStructCount)+minStructCount)
 	for i := range flattenStructs {
 		flattenStructs[i] = &proxyStruct{
-			typeName:  d.nameFunc(d.rand, "proxyStructName"+strconv.Itoa(i)),
-			name:      d.nameFunc(d.rand, "proxyStructFieldName"+strconv.Itoa(i)),
+			typeName:  d.nameFunc(d.rand, "proxyRoot"+rootIndex+"StructName"+strconv.Itoa(i)),
+			name:      d.nameFunc(d.rand, "proxyRoot"+rootIndex+"StructFieldName"+strconv.Itoa(i)),
 			isPointer: d.rand.Intn(2) == 0,
 		}
 	}
 
 	root := &proxyStruct{
-		name:     d.nameFunc(d.rand, "rootStructName"),
-		typeName: d.nameFunc(d.rand, "rootStructType"),
+		name:     d.nameFunc(d.rand, "proxyRoot"+rootIndex+"Name"),
+		typeName: d.nameFunc(d.rand, "proxyRoot"+rootIndex+"Type"),
 		parent:   nil,
 	}
-	d.root = root
 
 	unassigned := append([]*proxyStruct(nil), flattenStructs...)
 	queue := []*proxyStruct{root}
@@ -87,7 +95,12 @@ func (d *proxyDispatcher) initialize() {
 		}
 	}
 
-	d.flattenStructs = append(flattenStructs, root)
+	proxyRoot := &proxyRoot{
+		root:           root,
+		flattenStructs: append(flattenStructs, root),
+	}
+	d.roots = append(d.roots, proxyRoot)
+	return proxyRoot
 }
 
 // buildPath creates an AST expression that represents a field access path
@@ -114,17 +127,22 @@ func buildPath(strct *proxyStruct, valueName string) ast.Expr {
 }
 
 func (d *proxyDispatcher) HideValue(val, typ ast.Expr) ast.Expr {
-	if d.root == nil {
-		d.initialize()
+	var root *proxyRoot
+	if len(d.roots) > 0 {
+		root = d.roots[len(d.roots)-1]
+	}
+	if root == nil || root.hiddenCount >= maxProxyValuesPerRoot {
+		root = d.initialize()
 	}
 
-	strct := d.flattenStructs[d.rand.Intn(len(d.flattenStructs))]
+	strct := root.flattenStructs[d.rand.Intn(len(root.flattenStructs))]
 	valueName := d.nameFunc(d.rand, strct.name+"_"+strct.typeName+"_"+strconv.Itoa(len(strct.values)))
 	strct.values = append(strct.values, &proxyValue{
 		name: valueName,
 		typ:  typ,
 		val:  val,
 	})
+	root.hiddenCount++
 	return buildPath(strct, valueName)
 }
 
@@ -185,55 +203,57 @@ func (d *proxyDispatcher) junkValue() *proxyValue {
 }
 
 func (d *proxyDispatcher) AddToFile(file *ast.File) {
-	if d.root == nil {
+	if len(d.roots) == 0 {
 		return
 	}
 
-	for _, strct := range d.flattenStructs {
-		dummyCount := d.rand.Intn(maxJunkValueCount-minJunkValueCount+1) + minJunkValueCount
-		for range dummyCount {
-			strct.values = append(strct.values, d.junkValue())
-		}
-
-		structType := &ast.StructType{Fields: &ast.FieldList{}}
-		for _, child := range strct.children {
-			var typ ast.Expr = ast.NewIdent(child.typeName)
-			if child.isPointer {
-				typ = &ast.StarExpr{X: typ}
+	for _, root := range d.roots {
+		for _, strct := range root.flattenStructs {
+			dummyCount := d.rand.Intn(maxJunkValueCount-minJunkValueCount+1) + minJunkValueCount
+			for range dummyCount {
+				strct.values = append(strct.values, d.junkValue())
 			}
-			structType.Fields.List = append(structType.Fields.List, &ast.Field{
-				Names: []*ast.Ident{ast.NewIdent(child.name)},
-				Type:  typ,
+
+			structType := &ast.StructType{Fields: &ast.FieldList{}}
+			for _, child := range strct.children {
+				var typ ast.Expr = ast.NewIdent(child.typeName)
+				if child.isPointer {
+					typ = &ast.StarExpr{X: typ}
+				}
+				structType.Fields.List = append(structType.Fields.List, &ast.Field{
+					Names: []*ast.Ident{ast.NewIdent(child.name)},
+					Type:  typ,
+				})
+			}
+
+			for _, value := range strct.values {
+				structType.Fields.List = append(structType.Fields.List, &ast.Field{
+					Names: []*ast.Ident{ast.NewIdent(value.name)},
+					Type:  value.typ,
+				})
+			}
+
+			d.rand.Shuffle(len(structType.Fields.List), func(i, j int) {
+				structType.Fields.List[i], structType.Fields.List[j] = structType.Fields.List[j], structType.Fields.List[i]
+			})
+
+			file.Decls = append(file.Decls, &ast.GenDecl{
+				Tok: token.TYPE,
+				Specs: []ast.Spec{&ast.TypeSpec{
+					Name: ast.NewIdent(strct.typeName),
+					Type: structType,
+				}},
 			})
 		}
-
-		for _, value := range strct.values {
-			structType.Fields.List = append(structType.Fields.List, &ast.Field{
-				Names: []*ast.Ident{ast.NewIdent(value.name)},
-				Type:  value.typ,
-			})
-		}
-
-		d.rand.Shuffle(len(structType.Fields.List), func(i, j int) {
-			structType.Fields.List[i], structType.Fields.List[j] = structType.Fields.List[j], structType.Fields.List[i]
-		})
 
 		file.Decls = append(file.Decls, &ast.GenDecl{
-			Tok: token.TYPE,
-			Specs: []ast.Spec{&ast.TypeSpec{
-				Name: ast.NewIdent(strct.typeName),
-				Type: structType,
+			Tok: token.VAR,
+			Specs: []ast.Spec{&ast.ValueSpec{
+				Names:  []*ast.Ident{ast.NewIdent(root.root.name)},
+				Values: []ast.Expr{d.generateStructLiteral(root.root)},
 			}},
 		})
 	}
-
-	file.Decls = append(file.Decls, &ast.GenDecl{
-		Tok: token.VAR,
-		Specs: []ast.Spec{&ast.ValueSpec{
-			Names:  []*ast.Ident{ast.NewIdent(d.root.name)},
-			Values: []ast.Expr{d.generateStructLiteral(d.root)},
-		}},
-	})
 }
 
 func newProxyDispatcher(rand *mathrand.Rand, nameFunc NameProviderFunc) *proxyDispatcher {

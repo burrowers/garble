@@ -255,13 +255,20 @@ func byteLitWithExtKey(rand *mathrand.Rand, val byte, extKeys []*externalKey, ex
 }
 
 type obfRand struct {
-	rnd *mathrand.Rand
-
+	rnd             *mathrand.Rand
 	testObfuscator  obfuscator
+	nameFunc        NameProviderFunc
+	liftedFuncSeq   int
+	liftedFuncs     []ast.Decl
 	proxyDispatcher *proxyDispatcher
 }
 
 func newObfRand(rand *mathrand.Rand, file *ast.File, nameFunc NameProviderFunc) *obfRand {
 	testObf := testPkgToObfuscatorMap[file.Name.Name]
-	return &obfRand{rand, testObf, newProxyDispatcher(rand, nameFunc)}
+	return &obfRand{
+		rnd:             rand,
+		testObfuscator:  testObf,
+		nameFunc:        nameFunc,
+		proxyDispatcher: newProxyDispatcher(rand, nameFunc),
+	}
 }
