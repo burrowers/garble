@@ -1,0 +1,44 @@
+[!windows] skip 'this test checks Windows Error Reporting behavior'
+
+# Tiny mode suppresses traceback output, but runtime/debug.SetTraceback still
+# has non-printing semantics. In particular, "wer" must enable Windows Error
+# Reporting by clearing SEM_NOGPFAULTERRORBOX.
+exec garble -tiny run .
+stderr '^before true$'
+stderr '^after false$'
+
+-- go.mod --
+module test/main
+
+go 1.26
+-- main.go --
+package main
+
+import (
+	"runtime/debug"
+	"syscall"
+)
+
+const semNoGPFaultErrorBox = 0x0002
+
+var (
+	kernel32     = syscall.NewLazyDLL("kernel32.dll")
+	getErrorMode = kernel32.NewProc("GetErrorMode")
+	setErrorMode = kernel32.NewProc("SetErrorMode")
+)
+
+func errorBoxSuppressed() bool {
+	mode, _, _ := getErrorMode.Call()
+	return mode&semNoGPFaultErrorBox != 0
+}
+
+func main() {
+	originalMode, _, _ := getErrorMode.Call()
+	println("before", errorBoxSuppressed())
+	debug.SetTraceback("wer")
+	println("after", errorBoxSuppressed())
+
+	// Avoid changing process behavior after the assertion above.
+	debug.SetTraceback("system")
+	setErrorMode.Call(originalMode)
+}
