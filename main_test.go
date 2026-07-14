@@ -4,6 +4,7 @@
 package main
 
 import (
+	"debug/elf"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -144,6 +145,7 @@ func TestScript(t *testing.T) {
 			"sleep":             sleep,
 			"binsubstr":         binsubstr,
 			"bincmp":            bincmp,
+			"elfsection":        elfsection,
 			"generate-literals": generateLiterals,
 			"setenvfile":        setenvfile,
 			"grepfiles":         grepfiles,
@@ -244,6 +246,24 @@ func bincmp(ts *testscript.TestScript, neg bool, args []string) {
 		sizeDiff := len(data2) - len(data1)
 		ts.Fatalf("%s and %s differ; size diff: %+d",
 			args[0], args[1], sizeDiff)
+	}
+}
+
+func elfsection(ts *testscript.TestScript, neg bool, args []string) {
+	if len(args) != 2 {
+		ts.Fatalf("usage: elfsection file section")
+	}
+	file, err := elf.Open(ts.MkAbs(args[0]))
+	if err != nil {
+		ts.Fatalf("opening ELF %s: %v", args[0], err)
+	}
+	defer file.Close()
+	found := file.Section(args[1]) != nil
+	if found == neg {
+		if neg {
+			ts.Fatalf("unexpected ELF section %s in %s", args[1], args[0])
+		}
+		ts.Fatalf("expected ELF section %s in %s", args[1], args[0])
 	}
 }
 
@@ -494,4 +514,31 @@ func TestFlagValue(t *testing.T) {
 			qt.Assert(t, qt.DeepEquals(got, test.want))
 		})
 	}
+}
+
+func TestStripLinkerIdentities(t *testing.T) {
+	t.Parallel()
+	flags := stripLinkerIdentities([]string{
+		"-buildid=first-go-identity",
+		"-B", "0x1122",
+		"-other=value",
+		"-buildid", "second-go-identity",
+		"-B=0x3344",
+	})
+	qt.Assert(t, qt.Equals(flagValue(flags, "-buildid"), ""))
+	qt.Assert(t, qt.Equals(flagValue(flags, "-B"), "none"))
+	qt.Assert(t, qt.DeepEquals(flags, []string{"-other=value", "-buildid=", "-B=none"}))
+}
+
+func TestStripLinuxExternalBuildIDOverride(t *testing.T) {
+	t.Parallel()
+	flags := stripLinuxExternalBuildIDOverride([]string{
+		"-extldflags=-Wl,--build-id=sha1 -Wl,--as-needed",
+		"-other=value",
+		"-extldflags", "'-Wl,--build-id=0x1122' -static",
+	})
+	qt.Assert(t, qt.DeepEquals(flags, []string{
+		"-other=value",
+		"-extldflags='-Wl,--build-id=0x1122' -static -Wl,--build-id=none",
+	}))
 }
