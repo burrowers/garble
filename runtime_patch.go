@@ -4,8 +4,10 @@
 package main
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"strconv"
 	"strings"
 
@@ -120,10 +122,182 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 	}
 }
 
+func stripFatalStringFragments(expr ast.Expr) {
+	switch expr := expr.(type) {
+	case *ast.BasicLit:
+		if expr.Kind == token.STRING {
+			expr.Value = `""`
+		}
+	case *ast.ParenExpr:
+		stripFatalStringFragments(expr.X)
+	case *ast.BinaryExpr:
+		if expr.Op == token.ADD {
+			stripFatalStringFragments(expr.X)
+			stripFatalStringFragments(expr.Y)
+		}
+	}
+}
+
+// stripFatalMessageText blanks messages passed to the named package-level
+// functions. Go 1.26 routes a number of standard-library fatal paths into
+// runtime.throw/runtime.fatal via linkname, so limiting this operation to the
+// runtime package leaves those diagnostics in the final binary.
+//
+// Computed expressions are still evaluated to preserve local-variable uses and
+// side effects. Only a zero-length view is passed to the fatal function.
+func stripFatalMessageText(basename string, file *ast.File, info *types.Info, callNames ...string) int {
+	// Package tests can declare local helpers with the same short names. Tiny
+	// mode should only rewrite calls in production source files.
+	if strings.HasSuffix(basename, "_test.go") {
+		return 0
+	}
+
+	matchesName := func(name string) bool {
+		for _, callName := range callNames {
+			if name == callName {
+				return true
+			}
+		}
+		return false
+	}
+
+	stripped := 0
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) != 1 {
+			return true
+		}
+		id, ok := call.Fun.(*ast.Ident)
+		if !ok || !matchesName(id.Name) {
+			return true
+		}
+		if info != nil {
+			obj := info.Uses[id]
+			if obj == nil || obj.Pkg() == nil || obj.Parent() != obj.Pkg().Scope() {
+				// A local shadow with the same short name is unrelated to the
+				// package-level function or variable wired into the runtime.
+				return true
+			}
+		}
+		message := call.Args[0]
+		stripFatalStringFragments(message)
+		if literal, ok := message.(*ast.BasicLit); ok && literal.Kind == token.STRING {
+			literal.Value = `""`
+		} else {
+			call.Args[0] = &ast.SliceExpr{
+				X:    &ast.ParenExpr{X: message},
+				High: &ast.BasicLit{Kind: token.INT, Value: "0"},
+			}
+		}
+		stripped++
+		return false
+	})
+	return stripped
+}
+
+type runtimeDependencyStrips struct {
+	fatalMessages int
+	cgroupPrints  int
+}
+
+// These functions are either linknamed to runtime.throw/runtime.fatal or, in
+// exithook's case, populated with runtime.throw during runtime initialization.
+// Keep the allowlist exact: rewriting an arbitrary function named fatal in a
+// normal package would be an unacceptable semantic change.
+var runtimeFatalCallNames = map[string][]string{
+	"crypto/internal/fips140":   {"fatal"},
+	"crypto/internal/sysrand":   {"fatal"},
+	"crypto/rand":               {"fatal"},
+	"internal/runtime/cgroup":   {"throw"},
+	"internal/runtime/exithook": {"Throw"},
+	"internal/runtime/maps":     {"fatal"},
+	"internal/sync":             {"throw", "fatal"},
+	"sync":                      {"throw", "fatal"},
+}
+
+var requiredRuntimeFatalMessageCounts = map[string]int{
+	"crypto/internal/fips140":   2,
+	"crypto/internal/sysrand":   1,
+	"crypto/rand":               1,
+	"internal/runtime/cgroup":   6,
+	"internal/runtime/exithook": 2,
+	"internal/runtime/maps":     42,
+	"internal/sync":             3,
+	"sync":                      5,
+}
+
+// stripCgroupFatalPrint removes the one Linux cgroup diagnostic which writes
+// directly through the print builtin immediately before calling runtime.throw.
+// Its replacement has the same concrete parameter types, so all arguments are
+// still evaluated without adding interface conversions or a package-level
+// declaration. The exact shape deliberately fails closed if Go changes it.
+func stripCgroupFatalPrint(basename string, file *ast.File) int {
+	if basename != "cgroup_linux.go" {
+		return 0
+	}
+	stripped := 0
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) != 4 {
+			return true
+		}
+		id, ok := call.Fun.(*ast.Ident)
+		if !ok || id.Name != "println" {
+			return true
+		}
+		first, ok := call.Args[0].(*ast.BasicLit)
+		if !ok || first.Kind != token.STRING || first.Value != `"runtime: cgroup buffer length"` {
+			return true
+		}
+		third, ok := call.Args[2].(*ast.BasicLit)
+		if !ok || third.Kind != token.STRING || third.Value != `"want"` {
+			return true
+		}
+		first.Value = `""`
+		third.Value = `""`
+		call.Fun = &ast.FuncLit{
+			Type: &ast.FuncType{Params: &ast.FieldList{List: []*ast.Field{
+				{Type: ast.NewIdent("string")},
+				{Type: ast.NewIdent("int")},
+				{Type: ast.NewIdent("string")},
+				{Type: ast.NewIdent("int")},
+			}}},
+			Body: &ast.BlockStmt{},
+		}
+		stripped++
+		return false
+	})
+	return stripped
+}
+
+func stripRuntimeDependency(importPath, basename string, file *ast.File, info *types.Info) runtimeDependencyStrips {
+	var result runtimeDependencyStrips
+	result.fatalMessages = stripFatalMessageText(basename, file, info, runtimeFatalCallNames[importPath]...)
+	if importPath == "internal/runtime/cgroup" {
+		result.cgroupPrints = stripCgroupFatalPrint(basename, file)
+	}
+	return result
+}
+
+func validateRuntimeDependencyStripping(importPath string, strippedByFile map[string]runtimeDependencyStrips) {
+	var totals runtimeDependencyStrips
+	for _, result := range strippedByFile {
+		totals.fatalMessages += result.fatalMessages
+		totals.cgroupPrints += result.cgroupPrints
+	}
+	want := requiredRuntimeFatalMessageCounts[importPath]
+	if totals.fatalMessages != want {
+		panic(fmt.Sprintf("runtime-linked fatal stripping matched %d calls in %s, want %d", totals.fatalMessages, importPath, want))
+	}
+	if importPath == "internal/runtime/cgroup" && totals.cgroupPrints != 1 {
+		panic(fmt.Sprintf("runtime cgroup print stripping matched %d calls, want 1", totals.cgroupPrints))
+	}
+}
+
 // stripRuntime removes unnecessary code from the runtime,
 // such as panic and fatal error printing, and code that
 // prints trace/debug info of the runtime.
-func stripRuntime(basename string, file *ast.File) {
+func stripRuntime(basename string, file *ast.File, info *types.Info) {
 	stripPrints := func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
@@ -207,7 +381,11 @@ func stripRuntime(basename string, file *ast.File) {
 
 	}
 
+	stripFatalMessageText(basename, file, info, "throw", "fatal")
 	if basename == "print.go" {
+		// print.go implements application-facing print/println support; rewriting
+		// its internal calls breaks interface and pointer formatting. The helper
+		// declaration is needed by calls rewritten in the other runtime files.
 		file.Decls = append(file.Decls, hidePrintDecl)
 		return
 	}

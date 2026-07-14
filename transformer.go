@@ -810,6 +810,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	flags = flagSetValue(flags, "-p", tf.curPkg.obfuscatedImportPath())
 
 	newPaths := make([]string, 0, len(files))
+	runtimeDependencyStrippedByFile := make(map[string]runtimeDependencyStrips)
 
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
@@ -818,7 +819,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		case "runtime":
 			if flagTiny {
 				// strip unneeded runtime code
-				stripRuntime(basename, file)
+				stripRuntime(basename, file, tf.info)
 				tf.useAllImports(file)
 			}
 			if basename == "symtab.go" {
@@ -827,6 +828,11 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		case "internal/abi":
 			if basename == "symtab.go" {
 				updateMagicValue(file, magicValue())
+			}
+		}
+		if flagTiny {
+			if _, ok := runtimeFatalCallNames[tf.curPkg.ImportPath]; ok {
+				runtimeDependencyStrippedByFile[basename] = stripRuntimeDependency(tf.curPkg.ImportPath, basename, file, tf.info)
 			}
 		}
 		if err := tf.transformDirectives(file.Comments); err != nil {
@@ -853,6 +859,11 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		}
 		if flagDebugDir != "" {
 			debugArtifacts.GarbledFiles[basename] = src
+		}
+	}
+	if flagTiny {
+		if _, ok := runtimeFatalCallNames[tf.curPkg.ImportPath]; ok {
+			validateRuntimeDependencyStripping(tf.curPkg.ImportPath, runtimeDependencyStrippedByFile)
 		}
 	}
 	if err := saveDebugArtifactsForPkg(tf.curPkg, debugCacheKindCompile, debugArtifacts); err != nil {
