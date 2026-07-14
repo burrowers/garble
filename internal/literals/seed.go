@@ -40,14 +40,15 @@ func (seed) obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*externalKe
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.CallExprByName("byte", byteLitWithExtKey(obfRand, originalSeed, extKeys, highProb))},
 		},
-		&ast.DeclStmt{
-			Decl: &ast.GenDecl{
-				Tok: token.VAR,
-				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{ast.NewIdent("data")},
-					Type:  &ast.ArrayType{Elt: ast.NewIdent("byte")},
-				}},
-			},
+		&ast.AssignStmt{
+			Lhs: []ast.Expr{ast.NewIdent("data")},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{ah.CallExpr(
+				ast.NewIdent("make"),
+				&ast.ArrayType{Elt: ast.NewIdent("byte")},
+				ah.IntLit(0),
+				ah.IntLit(len(data)),
+			)},
 		},
 		&ast.DeclStmt{
 			Decl: &ast.GenDecl{

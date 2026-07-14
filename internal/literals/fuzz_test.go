@@ -35,6 +35,8 @@ func main() {
 	println("--")
 	println(string(byt))
 	println(string(*bytPtr))
+	println(len(byt), cap(byt))
+	println(len(*bytPtr), cap(*bytPtr))
 }
 `[1:]
 
@@ -102,7 +104,7 @@ func FuzzObfuscate(f *testing.F) {
 		// Run the binary, expecting the output to match.
 		out, err := exec.Command(binPath).CombinedOutput()
 		qt.Assert(t, qt.IsNil(err))
-		want := fmt.Sprintf("%[1]s\nx%[1]sy\n--\n%[1]s\n%[1]s\n", in)
+		want := fmt.Sprintf("%[1]s\nx%[1]sy\n--\n%[1]s\n%[1]s\n%[2]d %[2]d\n%[2]d %[2]d\n", in, len(in))
 		qt.Assert(t, qt.Equals(string(out), want))
 	})
 }
