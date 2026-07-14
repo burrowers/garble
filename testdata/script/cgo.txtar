@@ -2,9 +2,17 @@
 
 exec garble build
 ! stderr 'warning' # check that the C toolchain is happy
+[linux] ! elfsection main$exe .note.gnu.build-id
 exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'PortedField' 'test/main'
+
+# Force the host-linker path on Linux, including an explicit user build ID
+# which must not override Garble's final no-identity setting.
+[linux] exec garble build -o=main-external$exe -ldflags=-linkmode=external
+[linux] ! elfsection main-external$exe .note.gnu.build-id
+[linux] exec garble build -o=main-external-override$exe -ldflags='-linkmode=external -extldflags=-Wl,--build-id=sha1'
+[linux] ! elfsection main-external-override$exe .note.gnu.build-id
 
 [short] stop # no need to verify this with -short
 

@@ -1509,13 +1509,68 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 	// It's the same method as -X, so we can override it with an extra flag.
 	flags = append(flags, "-X=runtime.buildVersion=unknown")
 
-	// Ensure we strip the -buildid flag, to not leak any build IDs for the
-	// link operation or the main package's compilation.
-	flags = flagSetValue(flags, "-buildid", "")
+	flags = stripLinkerIdentities(flags)
 
 	// Strip debug information and symbol tables.
 	flags = append(flags, "-w", "-s")
 
 	flags = flagSetValue(flags, "-importcfg", newImportCfg)
 	return append(flags, args...), nil
+}
+
+// stripLinkerIdentities removes both Go's build ID and the host linker's native
+// identity note. Clearing -buildid alone is insufficient for external ELF
+// links because common GCC specs add a fresh GNU build ID. Go's -B=none is the
+// portable linker-level request for no ELF NT_GNU_BUILD_ID or Mach-O UUID.
+func stripLinkerIdentities(flags []string) []string {
+	flags = flagForceFinalValue(flags, "-buildid", "")
+	flags = flagForceFinalValue(flags, "-B", "none")
+	if sharedCache != nil && sharedCache.GoEnv.GOOS == "linux" {
+		flags = stripLinuxExternalBuildIDOverride(flags)
+	}
+	return flags
+}
+
+// stripLinuxExternalBuildIDOverride prevents an explicit host-linker flag from
+// overriding -B=none later in cmd/link's external-link command. We only add
+// the GNU/LLVM driver spelling when the user already supplied a --build-id
+// option, so unrelated extldflags keep working with unusual Linux linkers.
+func stripLinuxExternalBuildIDOverride(flags []string) []string {
+	value, ok := flagLastValue(flags, "-extldflags")
+	if !ok || !strings.Contains(value, "--build-id") {
+		return flags
+	}
+	value = strings.TrimSpace(value + " -Wl,--build-id=none")
+	return flagForceFinalValue(flags, "-extldflags", value)
+}
+
+func flagLastValue(flags []string, name string) (string, bool) {
+	var value string
+	found := false
+	for value = range flagValues(flags, name) {
+		found = true
+	}
+	return value, found
+}
+
+// flagForceFinalValue removes every joined or separated occurrence before
+// appending one authoritative final value. Go's flag package lets the last
+// repeated string flag win, so merely rewriting the first occurrence leaves a
+// bypass such as "-B=none -B=0x1234".
+func flagForceFinalValue(flags []string, name, value string) []string {
+	result := make([]string, 0, len(flags)+1)
+	for i := 0; i < len(flags); i++ {
+		arg := flags[i]
+		if strings.HasPrefix(arg, name+"=") {
+			continue
+		}
+		if arg == name {
+			if i+1 < len(flags) {
+				i++
+			}
+			continue
+		}
+		result = append(result, arg)
+	}
+	return append(result, name+"="+value)
 }
