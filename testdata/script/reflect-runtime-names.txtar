@@ -1,0 +1,186 @@
+# reflect's generated call stubs need their exact runtime names so that the
+# runtime can select their dynamic GC argument maps.
+exec garble build -ldflags=-checklinkname=0 -o=regular$exe
+exec ./regular$exe
+stdout '^makefunc.name=reflect\.makeFuncStub$'
+stdout '^methodvalue.name=reflect\.methodValueCall$'
+stdout '^reflect.gc.ok=true make.value=7 method.value=13$'
+stdout '^wrapper.recovered=true$'
+stdout '^runtime.sentinels.goexit=true gopanic=true$'
+
+# Tiny mode keeps those exact reflect names, and keeps a parseable canonical
+# name for value-method wrappers so runtime.panicwrap can raise a normal,
+# recoverable panic rather than a fatal runtime throw.
+exec garble -tiny build -ldflags=-checklinkname=0 -o=tiny$exe
+exec ./tiny$exe
+stdout '^makefunc.name=reflect\.makeFuncStub$'
+stdout '^methodvalue.name=reflect\.methodValueCall$'
+stdout '^reflect.gc.ok=true make.value=7 method.value=13$'
+stdout '^wrapper.name=_\.\(\*_\)\._$'
+stdout '^wrapper.recovered=true$'
+stdout '^systemgoroutines.hidden=true count=1$'
+stdout '^runtime.sentinels.goexit=true gopanic=true$'
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- internal/forcegc/forcegc.go --
+package forcegc
+
+import (
+	_ "reflect"
+	_ "unsafe"
+)
+
+// This is the same testing switch used by reflect's own tests. It forces a
+// collection while reflect's generated call stub is holding live arguments.
+//go:linkname callGC reflect.callGC
+var callGC bool
+
+func Set(enabled bool) {
+	callGC = enabled
+}
+-- main.go --
+package main
+
+import (
+	"fmt"
+	"reflect"
+	"runtime"
+
+	"test/main/internal/forcegc"
+)
+
+type pointerPayload struct {
+	value uint64
+	pad   [64]byte
+}
+
+type magicLastArgument struct{}
+
+type methodReceiver struct{ delta uint64 }
+
+// Transform is invoked through a reflected method value. The collection
+// leaves reflect.methodValueCall on the stack while its spill area is live.
+//go:noinline
+func (receiver *methodReceiver) Transform(payload *pointerPayload, _ magicLastArgument) *pointerPayload {
+	runtime.GC()
+	payload.value += receiver.delta
+	return payload
+}
+
+type wrapperReceiver struct{}
+
+func (wrapperReceiver) valueMethod() {}
+
+//go:noinline
+func callNilValueMethod() {
+	wrapper := (*wrapperReceiver).valueMethod
+	wrapper(nil)
+}
+
+func checkWrapperPanic() {
+	wrapper := (*wrapperReceiver).valueMethod
+	name := runtime.FuncForPC(reflect.ValueOf(wrapper).Pointer()).Name()
+	fmt.Printf("wrapper.name=%s\n", name)
+
+	recovered := false
+	func() {
+		defer func() {
+			recovered = recover() != nil
+		}()
+		callNilValueMethod()
+	}()
+	fmt.Printf("wrapper.recovered=%v\n", recovered)
+	if !recovered {
+		panic("nil value-method wrapper did not panic")
+	}
+}
+
+func stackContainsName(target string) bool {
+	pcs := make([]uintptr, 64)
+	n := runtime.Callers(0, pcs)
+	frames := runtime.CallersFrames(pcs[:n])
+	for {
+		frame, more := frames.Next()
+		if frame.Function == target {
+			return true
+		}
+		if !more {
+			return false
+		}
+	}
+}
+
+func checkRuntimeSentinelNames() {
+	goexitResult := make(chan bool)
+	go func() {
+		goexitResult <- stackContainsName("runtime.goexit")
+	}()
+	goexitOK := <-goexitResult
+
+	gopanicOK := false
+	func() {
+		defer func() {
+			if recover() == nil {
+				panic("sentinel panic was not recovered")
+			}
+			gopanicOK = stackContainsName("runtime.gopanic")
+		}()
+		panic("sentinel")
+	}()
+
+	fmt.Printf("runtime.sentinels.goexit=%v gopanic=%v\n", goexitOK, gopanicOK)
+	if !goexitOK || !gopanicOK {
+		panic("runtime sentinel name was changed")
+	}
+}
+
+func main() {
+	profileCount, _ := runtime.GoroutineProfile(nil)
+	fmt.Printf("systemgoroutines.hidden=%v count=%d\n", profileCount == 1, profileCount)
+	if profileCount != 1 {
+		panic("runtime system goroutines leaked into GoroutineProfile")
+	}
+
+	makeType := reflect.TypeOf((func(*pointerPayload, magicLastArgument) *pointerPayload)(nil))
+	makeValue := reflect.MakeFunc(makeType, func(values []reflect.Value) []reflect.Value {
+		payload := values[0].Interface().(*pointerPayload)
+		payload.value += 7
+		return values[:1]
+	})
+	makeName := runtime.FuncForPC(makeValue.Pointer()).Name()
+	fmt.Printf("makefunc.name=%s\n", makeName)
+	if makeName != "reflect.makeFuncStub" {
+		panic("reflect.makeFuncStub name was changed")
+	}
+
+	makeFunc := makeValue.Interface().(func(*pointerPayload, magicLastArgument) *pointerPayload)
+	forcegc.Set(true)
+	makeOutput := makeFunc(new(pointerPayload), magicLastArgument{})
+	forcegc.Set(false)
+	runtime.GC()
+	if makeOutput.value != 7 {
+		panic("reflect MakeFunc forced-GC liveness failure")
+	}
+
+	receiver := &methodReceiver{delta: 13}
+	methodValue := reflect.ValueOf(receiver).MethodByName("Transform")
+	methodName := runtime.FuncForPC(methodValue.Pointer()).Name()
+	fmt.Printf("methodvalue.name=%s\n", methodName)
+	if methodName != "reflect.methodValueCall" {
+		panic("reflect.methodValueCall name was changed")
+	}
+
+	methodFunc := methodValue.Interface().(func(*pointerPayload, magicLastArgument) *pointerPayload)
+	methodOutput := methodFunc(new(pointerPayload), magicLastArgument{})
+	runtime.GC()
+	if methodOutput.value != 13 {
+		panic("reflect method-value forced-GC liveness failure")
+	}
+	fmt.Printf("reflect.gc.ok=true make.value=%d method.value=%d\n", makeOutput.value, methodOutput.value)
+
+	checkWrapperPanic()
+	checkRuntimeSentinelNames()
+}

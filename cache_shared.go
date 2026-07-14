@@ -387,6 +387,12 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	if _, ok := compilerIntrinsics[p.ImportPath]; ok {
 		return p.ImportPath
 	}
+	// Declarations whose linker names are consumed by the runtime need both
+	// halves of that name preserved. Keeping only the declaration while
+	// hashing its package path would still change the full linker symbol.
+	if _, ok := toolchainNameDependencies[p.ImportPath]; ok {
+		return p.ImportPath
+	}
 	// The linker forbids linknaming to certain runtime declarations
 	// unless a package is known to be allowed by import path string.
 	// The alternative would be to use -checklinkname=false, but that disables all checks entirely.
