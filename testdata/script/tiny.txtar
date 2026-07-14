@@ -3,9 +3,11 @@ exec garble -tiny build
 ! binsubstr main$exe 'garble_main.go' 'fmt/print.go'
 ! exec ./main$exe
 stderr '^\(0x[[:xdigit:]]+,0x[[:xdigit:]]+\)' # interfaces/pointers print correctly
-# With -tiny, all line numbers are reset to 1.
-# Unfortunately, line comment directives don't allow erasing line numbers entirely.
-stderr '^caller: \?\? 1$' # position info is removed
+# Tiny binaries have no Go source-file or source-line mappings.
+stderr '^caller: \? 0$'
+stderr '^funcline.local: \? 0$'
+stderr '^funcline.stdlib: \? 0$'
+stderr '^callersframes.removed true$'
 stderr '^recovered: ya like jazz?'
 ! stderr 'panic: oh noes' # panics are hidden
 stderr 'funcExported false funcUnexported true'
@@ -16,7 +18,10 @@ stderr 'funcStructExported false funcStructUnexported true'
 # Default mode
 exec garble build
 ! exec ./main$exe
-stderr '^caller: [[:word:]]+\.go [1-9]'
+stderr '^caller: [^[:space:]]+ [1-9][0-9]*$'
+stderr '^funcline.local: [^[:space:]]+ [1-9][0-9]*$'
+stderr '^funcline.stdlib: [^[:space:]]+ [1-9][0-9]*$'
+stderr '^callersframes.removed false$'
 stderr '^recovered: ya like jazz?'
 stderr 'panic: oh noes'
 stderr 'funcExported false funcUnexported false'
@@ -48,6 +53,35 @@ func isEmptyFuncName(i interface{}) bool {
 	return len(name) == 0
 }
 
+//go:noinline
+func printPositionInfo() {
+	pc, file, line, _ := runtime.Caller(0)
+	println("caller:", file, line)
+
+	localFunc := runtime.FuncForPC(pc)
+	file, line = localFunc.FileLine(localFunc.Entry())
+	println("funcline.local:", file, line)
+
+	stdlibFunc := runtime.FuncForPC(reflect.ValueOf(runtime.GOMAXPROCS).Pointer())
+	file, line = stdlibFunc.FileLine(stdlibFunc.Entry())
+	println("funcline.stdlib:", file, line)
+
+	pcs := make([]uintptr, 32)
+	n := runtime.Callers(0, pcs)
+	frames := runtime.CallersFrames(pcs[:n])
+	allRemoved := n > 0
+	for {
+		frame, more := frames.Next()
+		if frame.File != "?" || frame.Line != 0 {
+			allRemoved = false
+		}
+		if !more {
+			break
+		}
+	}
+	println("callersframes.removed", allRemoved)
+}
+
 func main() {
 	println("funcExported", isEmptyFuncName(ExportedFunc), "funcUnexported", isEmptyFuncName(unexportedFunc))
 
@@ -64,8 +98,7 @@ func main() {
 		}
 	}()
 
-	_, file, line, _ := runtime.Caller(0)
-	println("caller:", file, line)
+	printPositionInfo()
 
 	panic("ya like jazz?")
 }
