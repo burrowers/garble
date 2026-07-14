@@ -30,12 +30,14 @@ func (p goPlatform) String() string {
 	return fmt.Sprintf("%s/%s", p.GOOS, p.GOARCH)
 }
 
-// Cover the three main OSes and a variety of x86/Arm and 64/32 bit platforms
-// when calling `go list` commands to ensure we find all relevant packages.
+// Cover the three main OSes, WASI, and a variety of x86/Arm and 64/32 bit
+// platforms when calling `go list` commands to ensure we find all relevant
+// packages.
 var goPlatforms = []goPlatform{
 	{"linux", "amd64", 1},
 	{"darwin", "arm64", 2},
 	{"windows", "386", 3},
+	{"wasip1", "wasm", 4},
 }
 var goVersions = []string{"go1.26.1"}
 

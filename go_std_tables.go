@@ -37,6 +37,7 @@ var runtimeAndDeps = map[string]bool{
 	"internal/trace/tracev2":           true, // go1.26 linux/amd64
 	"math/bits":                        true, // go1.26 linux/amd64
 	"runtime":                          true, // go1.26 linux/amd64
+	"structs":                          true, // go1.26 wasip1/wasm
 	"unsafe":                           true, // go1.26 linux/amd64
 }
 
