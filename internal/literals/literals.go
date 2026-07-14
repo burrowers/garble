@@ -41,6 +41,7 @@ type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
 // Obfuscate replaces literals with obfuscated anonymous functions.
 func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
 	or := newObfRand(rand, file, nameFunc)
+	addressed := addressedCompositeLiterals(file, info)
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.FuncDecl:
@@ -67,6 +68,24 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 					// TODO: support obfuscating those injected strings, too.
 					return false
 				}
+			}
+		case *ast.UnaryExpr:
+			addressedLiteral, ok := addressed[node]
+			if !ok {
+				return true
+			}
+			if addressedLiteral.constantContext {
+				// A constant len/cap expression does not evaluate its array
+				// operand. Leave the entire address expression unchanged.
+				return false
+			}
+			newnode := handleCompositeLiteral(or, true, addressedLiteral.literal, info)
+			if newnode != nil {
+				// Replace the entire address expression before visiting its
+				// child. In particular, a parenthesized composite must never
+				// first become &(decoder()), since a call is not addressable.
+				cursor.Replace(newnode)
+				return false
 			}
 		}
 		return true
@@ -137,6 +156,54 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
 	or.proxyDispatcher.AddToFile(newFile)
 	return newFile
+}
+
+type addressedCompositeLiteral struct {
+	literal         *ast.CompositeLit
+	constantContext bool
+}
+
+// addressedCompositeLiterals finds address expressions whose operand is a
+// composite literal, allowing any number of parentheses around the literal.
+// It records constant ancestors so the rewrite does not turn a constant
+// len/cap expression into a runtime call.
+func addressedCompositeLiterals(root ast.Node, info *types.Info) map[*ast.UnaryExpr]addressedCompositeLiteral {
+	result := make(map[*ast.UnaryExpr]addressedCompositeLiteral)
+	var stack []ast.Node
+	ast.Inspect(root, func(node ast.Node) bool {
+		if node == nil {
+			stack = stack[:len(stack)-1]
+			return false
+		}
+		if unary, ok := node.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+			if literal := unwrapCompositeLiteral(unary.X); literal != nil {
+				constantContext := false
+				for _, ancestor := range stack {
+					if expr, ok := ancestor.(ast.Expr); ok && info.Types[expr].Value != nil {
+						constantContext = true
+						break
+					}
+				}
+				result[unary] = addressedCompositeLiteral{literal: literal, constantContext: constantContext}
+			}
+		}
+		stack = append(stack, node)
+		return true
+	})
+	return result
+}
+
+func unwrapCompositeLiteral(expr ast.Expr) *ast.CompositeLit {
+	for {
+		switch node := expr.(type) {
+		case *ast.CompositeLit:
+			return node
+		case *ast.ParenExpr:
+			expr = node.X
+		default:
+			return nil
+		}
+	}
 }
 
 // handleCompositeLiteral checks if the input node is []byte or [...]byte and

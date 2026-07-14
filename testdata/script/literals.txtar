@@ -3,7 +3,7 @@ exec ./main$exe
 cmp stderr main.stderr
 
 binsubstr main$exe 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const' 'sz<min'
-! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this'
+! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'parens!!'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -88,6 +88,8 @@ const arrayLen = 4
 var array [arrayLen]byte
 
 type typeAlias [arrayLen]byte
+
+type parenthesizedArrayPointerLen [len(&(([8]byte{1, 2, 3, 4, 5, 6, 7, 8})))]byte
 
 func main() {
 	empty := ""
@@ -278,6 +280,20 @@ func byteTest() {
 			print(elm, ",")
 		}
 	}(&[9]byte{99, 104, 117, 110, 103, 117, 115, 117, 115})
+	println()
+
+	// Parentheses used to make the literal rewriter leave an invalid
+	// &(decoder()) expression behind.
+	func(s *[]byte) {
+		print(string(*s))
+	}(&([]byte{112, 97, 114, 101, 110, 115, '!', '!'}))
+	println()
+
+	func(s *[9]byte) {
+		for _, elm := range s {
+			print(elm, ",")
+		}
+	}(&(([9]byte{112, 97, 114, 101, 110, 115, 101, 115, 33})))
 	println()
 }
 
@@ -487,6 +503,8 @@ big chungus
 chungus!!
 99,104,117,110,103,117,115,117,115,
 99,104,117,110,103,117,115,117,115,
+parens!!
+112,97,114,101,110,115,101,115,33,
 obfuscated with shadowed builtins (vars)
 obfuscated with shadowed builtins (types)
 const str from dot imported var
