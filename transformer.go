@@ -810,6 +810,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	flags = flagSetValue(flags, "-p", tf.curPkg.obfuscatedImportPath())
 
 	newPaths := make([]string, 0, len(files))
+	runtimeStrippedByFile := make(map[string]map[string]bool)
 
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
@@ -818,7 +819,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		case "runtime":
 			if flagTiny {
 				// strip unneeded runtime code
-				stripRuntime(basename, file)
+				runtimeStrippedByFile[basename] = stripRuntime(basename, file)
 				tf.useAllImports(file)
 			}
 			if basename == "symtab.go" {
@@ -854,6 +855,9 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		if flagDebugDir != "" {
 			debugArtifacts.GarbledFiles[basename] = src
 		}
+	}
+	if tf.curPkg.ImportPath == "runtime" && flagTiny {
+		validateDirectRuntimeStripping(runtimeStrippedByFile)
 	}
 	if err := saveDebugArtifactsForPkg(tf.curPkg, debugCacheKindCompile, debugArtifacts); err != nil {
 		return nil, err
