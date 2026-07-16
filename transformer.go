@@ -661,7 +661,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		name := string(remaining[:nameEnd])
 		remaining = remaining[nameEnd:]
 
-		if lpkg.ToObfuscate && !compilerIntrinsics[lpkg.ImportPath][name] {
+		if lpkg.ToObfuscate && !isToolchainNameDependency(lpkg.ImportPath, name) {
 			newName := hashWithPackage(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, tf.curPkg.GarbleActionID, newName)
@@ -928,7 +928,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 }
 
 func (tf *transformer) directiveLocalName(localName string) string {
-	if tf.curPkg.ToObfuscate && !compilerIntrinsics[tf.curPkg.ImportPath][localName] {
+	if tf.curPkg.ToObfuscate && !isToolchainNameDependency(tf.curPkg.ImportPath, localName) {
 		return hashWithPackage(tf.curPkg, localName)
 	}
 	return localName
@@ -995,7 +995,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		panic(err) // shouldn't happen
 	}
 
-	if !lpkg.ToObfuscate || compilerIntrinsics[lpkg.ImportPath][foreignName] {
+	if !lpkg.ToObfuscate || isToolchainNameDependency(lpkg.ImportPath, foreignName) {
 		// We're not obfuscating that package or name.
 		return localName, newName
 	}
@@ -1333,7 +1333,7 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 	case *types.TypeName:
 		debugName = "type"
 	case *types.Func:
-		if compilerIntrinsics[path][name] {
+		if isToolchainNameDependency(path, name) {
 			return "", false
 		}
 
