@@ -135,8 +135,95 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	}
 
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
+	newFile.Decls = append(newFile.Decls, or.liftedFuncs...)
 	or.proxyDispatcher.AddToFile(newFile)
 	return newFile
+}
+
+// liftCall moves a literal decoder out of its owner function and makes it a
+// top-level function. The function value remains hidden in the proxy tree, so
+// calls stay indirect and the compiler cannot inline the decoder back into its
+// owner. Literal-heavy owners therefore no longer accumulate thousands of
+// decoder closures or their inlined bodies.
+func (r *obfRand) liftCall(params *ast.FieldList, resultType ast.Expr, block *ast.BlockStmt, args []ast.Expr) *ast.CallExpr {
+	name := r.nextLiftedFuncName("literalDecoder")
+	results := &ast.FieldList{List: []*ast.Field{{Type: resultType}}}
+	r.liftedFuncs = append(r.liftedFuncs, &ast.FuncDecl{
+		Name: ast.NewIdent(name),
+		Type: &ast.FuncType{
+			Params:  params,
+			Results: results,
+		},
+		Body: block,
+	})
+	hiddenType := &ast.FuncType{
+		Params:  unnamedFieldList(params),
+		Results: unnamedFieldList(results),
+	}
+	callee := r.proxyDispatcher.HideValue(ast.NewIdent(name), hiddenType)
+	return ah.CallExpr(callee, args...)
+}
+
+// liftFuncValue turns a generated function literal into an independently
+// compiled top-level function while still returning it through the proxy
+// dispatcher. In particular, this keeps thousands of []byte-to-string helper
+// bodies out of the proxy root's global initializer; the initializer retains
+// only their function values.
+func (r *obfRand) liftFuncValue(funcVal *ast.FuncLit) ast.Expr {
+	name := r.nextLiftedFuncName("literalHelper")
+	r.liftedFuncs = append(r.liftedFuncs, &ast.FuncDecl{
+		Name: ast.NewIdent(name),
+		Type: funcVal.Type,
+		Body: funcVal.Body,
+	})
+	return ast.NewIdent(name)
+}
+
+func unnamedFieldList(fields *ast.FieldList) *ast.FieldList {
+	if fields == nil {
+		return nil
+	}
+	result := &ast.FieldList{}
+	for _, field := range fields.List {
+		count := max(1, len(field.Names))
+		for range count {
+			result.List = append(result.List, &ast.Field{Type: cloneGeneratedType(field.Type)})
+		}
+	}
+	return result
+}
+
+// cloneGeneratedType copies the small set of type expressions emitted by the
+// literal obfuscator. Keeping the proxy field's function type independent from
+// the lifted declaration avoids sharing AST nodes between two syntax parents.
+func cloneGeneratedType(expr ast.Expr) ast.Expr {
+	switch expr := expr.(type) {
+	case *ast.Ident:
+		return ast.NewIdent(expr.Name)
+	case *ast.BasicLit:
+		return &ast.BasicLit{Kind: expr.Kind, Value: expr.Value}
+	case *ast.ArrayType:
+		var length ast.Expr
+		if expr.Len != nil {
+			length = cloneGeneratedType(expr.Len)
+		}
+		return &ast.ArrayType{Len: length, Elt: cloneGeneratedType(expr.Elt)}
+	case *ast.StarExpr:
+		return &ast.StarExpr{X: cloneGeneratedType(expr.X)}
+	case *ast.FuncType:
+		return &ast.FuncType{
+			Params:  unnamedFieldList(expr.Params),
+			Results: unnamedFieldList(expr.Results),
+		}
+	default:
+		panic(fmt.Sprintf("unsupported generated literal type %T", expr))
+	}
+}
+
+func (r *obfRand) nextLiftedFuncName(base string) string {
+	name := r.nameFunc(r.rnd, fmt.Sprintf("%s%d", base, r.liftedFuncSeq))
+	r.liftedFuncSeq++
+	return name
 }
 
 // handleCompositeLiteral checks if the input node is []byte or [...]byte and
@@ -289,8 +376,16 @@ func obfuscateString(or *obfRand, data string) *ast.CallExpr {
 			),
 		),
 	}
-	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(or.proxyDispatcher.HideValue(funcVal, funcTyp), ast.NewIdent("data"))))
-	return ah.LambdaCall(params, ast.NewIdent("string"), block, args)
+	castFunc := or.liftFuncValue(funcVal)
+	hiddenCastFunc := or.proxyDispatcher.HideValue(castFunc, funcTyp)
+	const castParamName = "garbleStringCaster"
+	params.List = append(params.List, &ast.Field{
+		Names: []*ast.Ident{ast.NewIdent(castParamName)},
+		Type:  cloneGeneratedType(funcTyp),
+	})
+	args = append(args, hiddenCastFunc)
+	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent(castParamName), ast.NewIdent("data"))))
+	return or.liftCall(params, ast.NewIdent("string"), block, args)
 }
 
 func obfuscateByteSlice(or *obfRand, isPointer bool, data []byte) *ast.CallExpr {
@@ -304,11 +399,11 @@ func obfuscateByteSlice(or *obfRand, isPointer bool, data []byte) *ast.CallExpr 
 		block.List = append(block.List, ah.ReturnStmt(
 			ah.UnaryExpr(token.AND, ast.NewIdent("data")),
 		))
-		return ah.LambdaCall(params, ah.StarExpr(ah.ByteSliceType()), block, args)
+		return or.liftCall(params, ah.StarExpr(ah.ByteSliceType()), block, args)
 	}
 
 	block.List = append(block.List, ah.ReturnStmt(ast.NewIdent("data")))
-	return ah.LambdaCall(params, ah.ByteSliceType(), block, args)
+	return or.liftCall(params, ah.ByteSliceType(), block, args)
 }
 
 func obfuscateByteArray(or *obfRand, isPointer bool, data []byte, length int64) *ast.CallExpr {
@@ -352,10 +447,10 @@ func obfuscateByteArray(or *obfRand, isPointer bool, data []byte, length int64) 
 	block.List = append(block.List, sliceToArray...)
 
 	if isPointer {
-		return ah.LambdaCall(params, ah.StarExpr(arrayType), block, args)
+		return or.liftCall(params, ah.StarExpr(arrayType), block, args)
 	}
 
-	return ah.LambdaCall(params, arrayType, block, args)
+	return or.liftCall(params, arrayType, block, args)
 }
 
 func (or *obfRand) pickObfuscator(size int) obfuscator {
