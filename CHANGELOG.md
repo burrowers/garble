@@ -1,5 +1,23 @@
 # Changelog
 
+## [v0.17.0] - 2026-07-26
+
+This release continues support for Go 1.26.
+
+The new `garble map` command describes how each original name is obfuscated
+as JSON, meant for devtools which need to predict garble's name obfuscation,
+such as binding generators. See #849.
+
+The new `garble bug` command pre-fills a bug report with environment details.
+
+Builds are now a little faster and use less memory, thanks to a number of
+improvements to caching, package listing, and literal obfuscation.
+
+A number of fixes are also included:
+* Obfuscate Go constant names used via `go_asm.h` in assembly files
+* Fix more bugs relating to obfuscating generic struct types
+* Fix the reflection detection for foreign types and aliases
+
 ## [v0.16.0] - 2026-04-12
 
 This release adds support for Go 1.26 and drops support for Go 1.25.
@@ -363,6 +381,7 @@ Known bugs:
 * obfuscating the standard library with `GOPRIVATE=*` is not well supported yet
 * `garble test` is temporarily disabled, as it is currently broken
 
+[v0.17.0]: https://github.com/burrowers/garble/releases/tag/v0.17.0
 [v0.16.0]: https://github.com/burrowers/garble/releases/tag/v0.16.0
 [v0.15.0]: https://github.com/burrowers/garble/releases/tag/v0.15.0
 [v0.14.2]: https://github.com/burrowers/garble/releases/tag/v0.14.2
