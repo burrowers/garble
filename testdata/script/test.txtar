@@ -8,6 +8,7 @@ binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
 exec ./bar.test -test.v
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
+stdout 'PASS.*TestMockedFoo'
 stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
 ! stdout 'OriginalFuncName'
@@ -34,6 +35,7 @@ stdout 'SKIP.*TestWithFlag'
 stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
 ! stdout 'OriginalFuncName'
+stdout '\?\s+test/bar/mocks\s'
 stdout '\?\s+test/bar/somemain\s'
 stdout 'ok\s+test/bar/somemaintest\s'
 stdout 'ok\s+test/bar/sometest\s'
@@ -92,6 +94,7 @@ import (
 	"testing"
 
 	"test/bar"
+	"test/bar/mocks"
 )
 
 var withFlag = flag.Bool("withflag", false, "")
@@ -102,6 +105,12 @@ func TestSeparateFoo(t *testing.T) {
 		t.FailNow()
 	}
 	t.Logf("package bar_test, func name: %s", bar.OriginalFuncName())
+}
+
+func TestMockedFoo(t *testing.T) {
+	if mocks.Foo() != "Foo" {
+		t.FailNow()
+	}
 }
 
 func TestWithFlag(t *testing.T) {
@@ -162,3 +171,14 @@ package exporttest_test
 import "testing"
 
 func TestFoo(t *testing.T) {}
+
+-- mocks/mock.go --
+// Package mocks imports bar while also being imported by bar's external test.
+// Since bar has in-package tests, mocks is compiled only as a test variant
+// "test/bar/mocks [test/bar.test]", which garble must resolve from its bare
+// import path when building the test binary.
+package mocks
+
+import "test/bar"
+
+func Foo() string { return bar.LocalFoo() }
