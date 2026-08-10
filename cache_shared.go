@@ -635,14 +635,24 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 		}
 		return nil, fmt.Errorf("std listed another std package that we can't find: %s", path)
 	}
-	if !ok {
-		return nil, fmt.Errorf("list %s: %w", path, ErrNotFound)
-	}
 
 	// Packages outside std can list any package,
 	// as long as they depend on it directly or indirectly.
-	if from.hasDep(pkg.ImportPath) {
+	if ok && from.hasDep(pkg.ImportPath) {
 		return pkg, nil
+	}
+
+	// A test binary "foo.test" depends on the test variants of its packages,
+	// compiled under a "path [foo.test]" key, but refers to some of them by
+	// their bare import path. The bare path may be unknown, or belong to a
+	// non-variant package which the test binary does not depend on. Resolve
+	// to the variant so we use its obfuscated import path.
+	if variant, ok := sharedCache.ListedPackages.get(path + " [" + from.ImportPath + "]"); ok && from.hasDep(variant.ImportPath) {
+		return variant, nil
+	}
+
+	if !ok {
+		return nil, fmt.Errorf("list %s: %w", path, ErrNotFound)
 	}
 
 	// As a special case, any package can list runtime or its dependencies,
