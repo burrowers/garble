@@ -810,7 +810,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	flags = flagSetValue(flags, "-p", tf.curPkg.obfuscatedImportPath())
 
 	newPaths := make([]string, 0, len(files))
-	runtimeVMAStrippedByFile := make(map[string]bool)
+	runtimeStrippedByFile := make(map[string]map[string]bool)
 
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
@@ -819,7 +819,11 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		case "runtime":
 			if flagTiny {
 				// strip unneeded runtime code
-				runtimeVMAStrippedByFile[basename] = stripRuntime(basename, file)
+				strippedFunctions, strippedVMAName := stripRuntime(basename, file)
+				runtimeStrippedByFile[basename] = strippedFunctions
+				if basename == "set_vma_name_linux.go" && sharedCache.GoEnv.GOOS == "linux" && !strippedVMAName {
+					panic("runtime stripping rule did not match set_vma_name_linux.go:setVMAName")
+				}
 				tf.useAllImports(file)
 			}
 			if basename == "symtab.go" {
@@ -856,10 +860,8 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			debugArtifacts.GarbledFiles[basename] = src
 		}
 	}
-	if tf.curPkg.ImportPath == "runtime" && flagTiny && sharedCache.GoEnv.GOOS == "linux" {
-		if !runtimeVMAStrippedByFile["set_vma_name_linux.go"] {
-			panic("runtime stripping rule did not match set_vma_name_linux.go:setVMAName")
-		}
+	if tf.curPkg.ImportPath == "runtime" && flagTiny {
+		validateDirectRuntimeStripping(runtimeStrippedByFile)
 	}
 	if err := saveDebugArtifactsForPkg(tf.curPkg, debugCacheKindCompile, debugArtifacts); err != nil {
 		return nil, err

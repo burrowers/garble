@@ -3,7 +3,7 @@
 env GOOS=linux
 env GOARCH=amd64
 exec garble -tiny build -o=main
-! binsubstr main ' Go: '
+! binsubstr main 'Go:'
 
 -- go.mod --
 module test/main
