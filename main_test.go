@@ -518,16 +518,34 @@ func TestFlagValue(t *testing.T) {
 
 func TestStripLinkerIdentities(t *testing.T) {
 	t.Parallel()
-	flags := stripLinkerIdentities([]string{
+	input := []string{
 		"-buildid=first-go-identity",
 		"-B", "0x1122",
 		"-other=value",
 		"-buildid", "second-go-identity",
 		"-B=0x3344",
-	})
+	}
+
+	// Nil/non-darwin sharedCache: clear Go build IDs and force -B=none.
+	flags := stripLinkerIdentities(append([]string(nil), input...))
 	qt.Assert(t, qt.Equals(flagValue(flags, "-buildid"), ""))
 	qt.Assert(t, qt.Equals(flagValue(flags, "-B"), "none"))
 	qt.Assert(t, qt.DeepEquals(flags, []string{"-other=value", "-buildid=", "-B=none"}))
+
+	// Darwin must keep LC_UUID, so -B=none must not be forced.
+	prev := sharedCache
+	t.Cleanup(func() { sharedCache = prev })
+	sharedCache = &sharedCacheType{}
+	sharedCache.GoEnv.GOOS = "darwin"
+	flags = stripLinkerIdentities(append([]string(nil), input...))
+	qt.Assert(t, qt.Equals(flagValue(flags, "-buildid"), ""))
+	qt.Assert(t, qt.Equals(flagValue(flags, "-B"), "0x3344"))
+	qt.Assert(t, qt.DeepEquals(flags, []string{
+		"-B", "0x1122",
+		"-other=value",
+		"-B=0x3344",
+		"-buildid=",
+	}))
 }
 
 func TestStripLinuxExternalBuildIDOverride(t *testing.T) {

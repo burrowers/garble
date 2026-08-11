@@ -1525,11 +1525,21 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 // stripLinkerIdentities removes both Go's build ID and the host linker's native
 // identity note. Clearing -buildid alone is insufficient for external ELF
 // links because common GCC specs add a fresh GNU build ID. Go's -B=none is the
-// portable linker-level request for no ELF NT_GNU_BUILD_ID or Mach-O UUID.
+// linker-level request for no ELF NT_GNU_BUILD_ID (and also no Mach-O UUID).
+//
+// Do not pass -B=none when targeting darwin: modern macOS dyld requires an
+// LC_UUID load command and aborts with "missing LC_UUID load command" if it
+// is absent (burrowers/garble#1058 macOS CI failure).
 func stripLinkerIdentities(flags []string) []string {
 	flags = flagForceFinalValue(flags, "-buildid", "")
-	flags = flagForceFinalValue(flags, "-B", "none")
-	if sharedCache != nil && sharedCache.GoEnv.GOOS == "linux" {
+	goos := ""
+	if sharedCache != nil {
+		goos = sharedCache.GoEnv.GOOS
+	}
+	if goos != "darwin" {
+		flags = flagForceFinalValue(flags, "-B", "none")
+	}
+	if goos == "linux" {
 		flags = stripLinuxExternalBuildIDOverride(flags)
 	}
 	return flags
