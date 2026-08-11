@@ -3,6 +3,8 @@ exec ./main$exe
 cmp stderr main.stderr
 
 binsubstr main$exe 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const' 'sz<min'
+# constant-context-secret: only referenced from folded constant exprs (should not remain as a runtime literal payload).
+# max-concat-secret: eligible child under an oversize concat (must still be obfuscated).
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'constant-context-secret' 'max-concat-secret'
 
 [short] stop # checking that the build is reproducible is slow
@@ -89,8 +91,14 @@ var array [arrayLen]byte
 
 type typeAlias [arrayLen]byte
 
+// Broke before: rewriting "constant-context-secret" under len()/conversions
+// made array lengths and keyed indexes stop being constants (build failure),
+// and left dead decoders for strings that only feed folded constant exprs.
 const constantContextString string = "constant-context-secret"
 
+// Padding so that string("max-concat-secret") + padding exceeds MaxSize.
+// Broke before: a too-large parent concat suppressed the eligible child, so
+// "max-concat-secret" stayed plaintext in the -literals binary.
 const maxConcatPadding128 = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
 const maxConcatPadding256 = maxConcatPadding128 + maxConcatPadding128
 const maxConcatPadding512 = maxConcatPadding256 + maxConcatPadding256
@@ -98,12 +106,17 @@ const maxConcatPadding1024 = maxConcatPadding512 + maxConcatPadding512
 const maxConcatPadding2048 = maxConcatPadding1024 + maxConcatPadding1024
 
 type constantContextAlias string
+// Broke before: len(constant string) as an array length stopped compiling
+// when the string below was rewritten to a runtime decoder call.
 type constantContextArray [len(constantContextString)]byte
 
 var constantContextValue [len(constantContextString)]byte
 var constantContextNamed [len(constantContextAlias(constantContextString))]byte
+// Broke before: keyed index len(s)-1 must stay a constant; rewriting s broke it.
 var constantContextKeyed = [len(constantContextString)]byte{len(constantContextString) - 1: 1}
 
+// Broke before: len/cap/& of a byte array literal under a constant array length
+// was rewritten to a decoder, so the length was no longer constant.
 type constantArrayLiteralLen [len([8]byte{1, 2, 3, 4, 5, 6, 7, 8})]byte
 type constantArrayLiteralCap [cap([8]byte{1, 2, 3, 4, 5, 6, 7, 8})]byte
 type constantArrayPointerLen [len(&[8]byte{1, 2, 3, 4, 5, 6, 7, 8})]byte
@@ -118,6 +131,8 @@ func main() {
 	reassign = "second assign"
 
 	add := "totally long" + "unnecessarily added string"
+	// Child "max-concat-secret" is eligible; parent concat is above MaxSize so
+	// the child must still be obfuscated (see binsubstr checks above).
 	maxConcat := string("max-concat-secret") + maxConcatPadding2048
 
 	println(cnst, boolean)
@@ -146,6 +161,8 @@ func main() {
 	println("another literal")
 	println(mixedBlock, iotaBlock)
 	println(i, foo, bar)
+	// Exercise the constant-context types/vars so a regression fails at build
+	// or at runtime rather than being dead-code eliminated.
 	println(len(constantContextArray{}), len(constantContextValue), len(constantContextNamed), len(constantContextKeyed))
 	println(len(constantArrayLiteralLen{}), len(constantArrayLiteralCap{}), len(constantArrayPointerLen{}))
 	typedTest()

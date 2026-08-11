@@ -41,7 +41,9 @@ type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
 // Obfuscate replaces literals with obfuscated anonymous functions.
 func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
 	or := newObfRand(rand, file, nameFunc)
-	parents := nodeParents(file)
+	// Ancestors of the node currently being visited by astutil.Apply.
+	// Built from the cursor walk so parent checks do not need a separate map.
+	var ancestors []ast.Node
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.FuncDecl:
@@ -70,10 +72,15 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 				}
 			}
 		}
+		ancestors = append(ancestors, cursor.Node())
 		return true
 	}
 
 	post := func(cursor *astutil.Cursor) bool {
+		defer func() {
+			ancestors = ancestors[:len(ancestors)-1]
+		}()
+
 		node, ok := cursor.Node().(ast.Expr)
 		if !ok {
 			return true
@@ -84,7 +91,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 			return true
 		}
 
-		if value, ok := obfuscatableString(node, info, parents); ok {
+		if value, ok := obfuscatableString(cursor, info, ancestors); ok {
 			cursor.Replace(withPos(obfuscateString(or, value), node.Pos()))
 			return true
 		}
@@ -99,7 +106,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 			if node.Op != token.AND {
 				return true
 			}
-			if hasConstantValueAncestor(node, info, parents) {
+			if hasConstantValueAncestor(info, ancestors) {
 				return true
 			}
 
@@ -118,7 +125,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 			// replacing the node we're currently visiting, and the pointer variant
 			// requires us to move the ampersand operator.
 
-			if hasConstantValueAncestor(node, info, parents) {
+			if hasConstantValueAncestor(info, ancestors) {
 				// Constant len/cap/unsafe.Sizeof expressions do not evaluate an
 				// array operand. A decoder would be needless and can make an
 				// array length or keyed index stop being a constant.
@@ -144,35 +151,17 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	return newFile
 }
 
-// nodeParents records the original syntax ancestry before rewrites begin. It
-// lets string selection account for constant expressions above the immediate
-// astutil cursor parent without depending on already-replaced child nodes.
-func nodeParents(root ast.Node) map[ast.Node]ast.Node {
-	parents := make(map[ast.Node]ast.Node)
-	var stack []ast.Node
-	ast.Inspect(root, func(node ast.Node) bool {
-		if node == nil {
-			stack = stack[:len(stack)-1]
-			return false
-		}
-		if len(stack) > 0 {
-			parents[node] = stack[len(stack)-1]
-		}
-		stack = append(stack, node)
-		return true
-	})
-	return parents
-}
-
 // obfuscatableString selects only maximal materialized string constants.
 //
-// A larger eligible string expression will be rewritten when its post-order
-// turn arrives, so generating decoders for its children would only leave dead
-// generated expressions and proxy entries. Conversely, a surrounding constant
-// expression with a non-string result (for example len(s), a comparison, or
-// unsafe.Sizeof) is folded by the compiler. Rewriting a string below it is both
-// unnecessary and can make constant-required uses such as array lengths fail.
-func obfuscatableString(node ast.Expr, info *types.Info, parents map[ast.Node]ast.Node) (string, bool) {
+// Parent expressions are walked from the astutil.Apply cursor ancestry.
+// Exit conditions:
+//   - a constant non-string parent (len, comparison, sizeof, …): do not rewrite
+//   - an eligible parent string: rewrite that parent instead of this child
+func obfuscatableString(cursor *astutil.Cursor, info *types.Info, ancestors []ast.Node) (string, bool) {
+	node, ok := cursor.Node().(ast.Expr)
+	if !ok {
+		return "", false
+	}
 	typeAndValue := info.Types[node]
 	if typeAndValue.Type != types.Typ[types.String] || typeAndValue.Value == nil {
 		return "", false
@@ -182,10 +171,12 @@ func obfuscatableString(node ast.Expr, info *types.Info, parents map[ast.Node]as
 		return "", false
 	}
 
-	for parent := parents[node]; parent != nil; parent = parents[parent] {
-		expr, ok := parent.(ast.Expr)
+	// ancestors[len-1] is the cursor node; parents are below it toward the root.
+	for i := len(ancestors) - 2; i >= 0; i-- {
+		expr, ok := ancestors[i].(ast.Expr)
 		if !ok {
-			continue
+			// Left the expression tree (statement, decl, or file).
+			break
 		}
 		parentValue := info.Types[expr]
 		if parentValue.Value == nil || parentValue.Type == nil {
@@ -209,9 +200,16 @@ func isStringLike(typ types.Type) bool {
 	return ok && basic.Info()&types.IsString != 0
 }
 
-func hasConstantValueAncestor(node ast.Node, info *types.Info, parents map[ast.Node]ast.Node) bool {
-	for parent := parents[node]; parent != nil; parent = parents[parent] {
-		if expr, ok := parent.(ast.Expr); ok && info.Types[expr].Value != nil {
+// hasConstantValueAncestor reports whether any expression parent in the
+// astutil.Apply ancestry is a folded constant. Stops at the first
+// non-expression ancestor.
+func hasConstantValueAncestor(info *types.Info, ancestors []ast.Node) bool {
+	for i := len(ancestors) - 2; i >= 0; i-- {
+		expr, ok := ancestors[i].(ast.Expr)
+		if !ok {
+			break
+		}
+		if info.Types[expr].Value != nil {
 			return true
 		}
 	}
