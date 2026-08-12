@@ -317,9 +317,9 @@ func mainErr(args []string) error {
 			executablePath = modifiedLinkPath
 			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
 			os.Setenv(linker.EntryOffKeyEnv, strconv.FormatUint(uint64(entryOffKey()), 10))
-			if flagTiny {
-				os.Setenv(linker.TinyEnv, "true")
-			}
+			// Do not allow a value inherited from the caller to select tiny
+			// linker behavior for a regular build.
+			os.Setenv(linker.TinyEnv, strconv.FormatBool(flagTiny))
 
 			log.Printf("replaced linker with: %s", executablePath)
 		}
