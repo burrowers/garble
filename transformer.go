@@ -819,7 +819,11 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		case "runtime":
 			if flagTiny {
 				// strip unneeded runtime code
-				runtimeStrippedByFile[basename] = stripRuntime(basename, file)
+				strippedFunctions, strippedVMAName := stripRuntime(basename, file)
+				runtimeStrippedByFile[basename] = strippedFunctions
+				if basename == "set_vma_name_linux.go" && sharedCache.GoEnv.GOOS == "linux" && !strippedVMAName {
+					panic("runtime stripping rule did not match set_vma_name_linux.go:setVMAName")
+				}
 				tf.useAllImports(file)
 			}
 			if basename == "symtab.go" {
