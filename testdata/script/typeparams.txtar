@@ -1,13 +1,23 @@
 exec garble build
-! binsubstr main$exe ${WORK} 'garble_main.go' 'GenericFunc' 'GenericVector' 'PredeclaredSignedInteger' 'StringableSignedInteger' 'CombineEmbeds' 'GenericParam'
+! binsubstr main$exe ${WORK} 'garble_main.go' 'GenericFunc' 'GenericVector' 'PredeclaredSignedInteger' 'StringableSignedInteger' 'CombineEmbeds' 'GenericParam' 'GenAlias'
+
+# Literal obfuscation adds import references via useAllImports;
+# aliaslib exports only generic types, which are not valid for an
+# uninstantiated "var _ pkg.Name" reference.
+exec garble -literals build
 -- go.mod --
 module test/main
 
-go 1.23
+go 1.24
 -- garble_main.go --
 package main
 
-import "test/main/lib"
+import (
+	"test/main/aliaslib"
+	"test/main/lib"
+)
+
+var _ aliaslib.GenAlias[int]
 
 func main() {
 	GenericFunc[int, int](1, 2)
@@ -110,6 +120,10 @@ func byKeys[T any](m map[string]T) []struct {
 }
 
 var _ = byKeys(map[string]int{"one": 1})
+-- aliaslib/aliaslib.go --
+package aliaslib
+
+type GenAlias[T any] = func(T)
 -- lib/lib.go --
 package lib
 
