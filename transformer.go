@@ -193,8 +193,13 @@ func recordFieldToStruct(typ types.Type, done map[*types.Named]bool, fieldToStru
 }
 
 // isSafeForInstanceType returns true if the passed type is safe for var declaration.
-// Unsafe types: generic types and non-method interfaces.
+// Unsafe types: generic types, generic type aliases, and non-method interfaces.
 func isSafeForInstanceType(t types.Type) bool {
+	// A generic alias cannot be used without instantiation,
+	// and types.Unalias below would hide its type parameters.
+	if alias, ok := t.(*types.Alias); ok && alias.TypeParams().Len() > 0 {
+		return false
+	}
 	switch t := types.Unalias(t).(type) {
 	case *types.Basic:
 		return t.Kind() != types.Invalid
