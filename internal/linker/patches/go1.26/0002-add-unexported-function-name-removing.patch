@@ -22,17 +22,21 @@ index ffe8fdf7a1..c47b9eab72 100644
  import (
  	"cmd/internal/goobj"
  	"cmd/internal/objabi"
-@@ -335,19 +339,63 @@ func walkFuncs(ctxt *Link, funcs []loader.Sym, f func(loader.Sym)) {
+@@ -335,19 +339,67 @@ func walkFuncs(ctxt *Link, funcs []loader.Sym, f func(loader.Sym)) {
  func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[loader.Sym]uint32 {
  	nameOffsets := make(map[loader.Sym]uint32, state.nfunc)
  
-+	// Disabled: redirecting unexported funcnames to the empty string corrupts
-+	// the pclntab under tiny builds - the runtime then fails findfunc on real
-+	// return addresses ("unexpected return pc", "fatal error: unknown caller
-+	// pc") and dies on the system stack during write-barrier flushes. The rest
-+	// of the tiny name handling below stays inert because no symbol is
-+	// assigned offset 0 anymore; re-enable only together with a fix for the
-+	// pcln.go accounting bug.
++	// Disabled: every variant of hiding unexported funcnames crashes the
++	// runtime under load. Verified at production scale (3+ runs each):
++	// redirect to offset 0, redirect to a valid nonzero offset, blanking the
++	// name in place (original nameOff, zeroed slot) and writing a "." placeholder
++	// - all die ("unexpected return pc", "unknown caller pc", bounds panic on
++	// the system stack during write-barrier flushes, or "bad g in signal
++	// handler"), while the identical alterations on a vanilla toolchain are
++	// clean and garble builds with untouched names never crash. Keeping names
++	// intact is the only safe state, so the removal feature stays off until
++	// the underlying funcname dependency in toolexec-compiled runtimes is
++	// understood and fixed.
 +	garbleTiny := false
 +
  	// Write the null terminated strings.
