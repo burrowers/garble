@@ -22,11 +22,18 @@ index ffe8fdf7a1..c47b9eab72 100644
  import (
  	"cmd/internal/goobj"
  	"cmd/internal/objabi"
-@@ -335,19 +339,56 @@ func walkFuncs(ctxt *Link, funcs []loader.Sym, f func(loader.Sym)) {
+@@ -335,19 +339,63 @@ func walkFuncs(ctxt *Link, funcs []loader.Sym, f func(loader.Sym)) {
  func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[loader.Sym]uint32 {
  	nameOffsets := make(map[loader.Sym]uint32, state.nfunc)
  
-+	garbleTiny := os.Getenv("GARBLE_LINK_TINY") == "true"
++	// Disabled: redirecting unexported funcnames to the empty string corrupts
++	// the pclntab under tiny builds - the runtime then fails findfunc on real
++	// return addresses ("unexpected return pc", "fatal error: unknown caller
++	// pc") and dies on the system stack during write-barrier flushes. The rest
++	// of the tiny name handling below stays inert because no symbol is
++	// assigned offset 0 anymore; re-enable only together with a fix for the
++	// pcln.go accounting bug.
++	garbleTiny := false
 +
  	// Write the null terminated strings.
  	writeFuncNameTab := func(ctxt *Link, s loader.Sym) {
