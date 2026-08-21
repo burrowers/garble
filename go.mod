@@ -1,7 +1,6 @@
 module mvdan.cc/garble
 
-// Go 1.26.2 fixed a fairly common Windows runtime crash.
-go 1.26.2
+go 1.27
 
 require (
 	github.com/bluekeyes/go-gitdiff v0.9.0

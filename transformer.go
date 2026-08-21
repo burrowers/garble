@@ -882,7 +882,8 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 	for _, group := range comments {
 		for _, comment := range group.List {
 			switch {
-			case strings.HasPrefix(comment.Text, "//go:linkname "):
+			case strings.HasPrefix(comment.Text, "//go:linkname "),
+				strings.HasPrefix(comment.Text, "//go:linknamestd "):
 				// We can have either just one argument:
 				//
 				//	//go:linkname localName
@@ -892,6 +893,10 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 				//
 				//	//go:linkname localName newName
 				//	//go:linkname localName pkg.newName
+				//
+				// Go 1.27's //go:linknamestd takes the same arguments;
+				// it only differs in relaxing the linker's checklinkname
+				// restriction for references to standard library symbols.
 				fields := strings.Fields(comment.Text)
 				localName := fields[1]
 				newName := ""
@@ -964,7 +969,11 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		return localName, newName
 	}
 
-	pkgSplit := 0
+	// The dot separating the package path from the name always comes after
+	// the last slash, as the name cannot contain slashes. Skip any earlier
+	// dots, which are part of the path itself, such as the domain name in
+	// "golang.org/x/net/internal/http3_test.protocolSetHTTP3".
+	pkgSplit := max(strings.LastIndex(newName, "/"), 0)
 	var foreignName string
 	var lpkg *listedPackage
 	for {
