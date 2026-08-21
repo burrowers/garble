@@ -249,7 +249,7 @@ func runCmdNoTimeout(dir string, extraEnv []string, name string, args ...string)
 const numStrings = 20
 
 func writeTestModule(dir string, stringSize int) {
-	goMod := "module test/bench\n\ngo 1.26\n"
+	goMod := "module test/bench\n\ngo 1.27\n"
 	must(os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644))
 
 	var b strings.Builder

@@ -72,6 +72,12 @@ func rtype_ptrTo(*rtype) *rtype
 //go:linkname rtype_NumMethod reflect.(*rtype).NumMethod
 func rtype_NumMethod(*rtype) int
 
+// A go:linknamestd to a std symbol; added in Go 1.27.
+// The local name is still obfuscated like a regular go:linkname.
+//
+//go:linknamestd nanotimeLinked runtime.nanotime
+func nanotimeLinked() int64
+
 // A linkname to an entirely made up name, implemented elsewhere.
 //
 //go:linkname renamedFunc madeup.newName
@@ -105,6 +111,7 @@ func main() {
 	println("rtype_ptrTo non-nil", rtype_ptrTo(rtyp) != nil)
 	println("rtype_NumMethod", rtype_NumMethod(rtyp))
 
+	println("nanotimeLinked non-zero", nanotimeLinked() != 0)
 	println(renamedFunc())
 	println(tagline())
 	println(imported.ByteIndex("01234", '3'))
@@ -199,6 +206,7 @@ unobfuscated method: field value
 obfuscated pointer method: field value plus another value
 rtype_ptrTo non-nil true
 rtype_NumMethod 1
+nanotimeLinked non-zero true
 renamed func
 featuring Dante from the Devil May Cry series
 3

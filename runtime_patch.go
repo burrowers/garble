@@ -15,7 +15,7 @@ import (
 // updateMagicValue updates the global constant
 // `Go120PCLnTabMagic PCLnTabMagic = 0xfffffff1`
 // to use the provided magic value integer.
-// This is the latest magic value in use as of Go 1.26.
+// This is the latest magic value in use as of Go 1.27.
 func updateMagicValue(file *ast.File, magicValue uint32) {
 	magicUpdated := false
 

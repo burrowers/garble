@@ -17,7 +17,9 @@ stderr 'funcStructExported false funcStructUnexported true'
 # Default mode
 exec garble build
 ! exec ./main$exe
-stderr '^caller: [[:word:]]+\.go [1-9]'
+# A relative filename in a line comment directive is recorded relative to the
+# package's import path, so positions read as "obfuscatedpkg/obfuscated.go".
+stderr '^caller: [[:word:]]+/[[:word:]]+\.go [1-9]'
 stderr '^recovered: ya like jazz?'
 stderr 'panic: oh noes'
 stderr 'funcExported false funcUnexported false'

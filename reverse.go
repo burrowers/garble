@@ -105,11 +105,16 @@ One can reverse a captured panic stack trace as follows:
 					origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
 					newFilename := hashWithPackage(lpkg, origPos) + ".go"
 
+					// A relative filename in a "//line" directive is recorded
+					// relative to the package's import path, so positions read
+					// as "obfuscatedpkg/obfuscated.go". We only replace the
+					// filename, as the import path before it is replaced above.
+
 					// Do "obfuscated.go:1", corresponding to the call site's line.
 					// Most common in stack traces.
 					replaces = append(replaces,
 						newFilename+":1",
-						fmt.Sprintf("%s/%s:%d", lpkg.ImportPath, goFile, pos.Line),
+						fmt.Sprintf("%s:%d", goFile, pos.Line),
 					)
 
 					// Do "obfuscated.go" as a fallback.
@@ -119,7 +124,7 @@ One can reverse a captured panic stack trace as follows:
 					// but at least the filename will be correct.
 					replaces = append(replaces,
 						newFilename,
-						fmt.Sprintf("%s/%s", lpkg.ImportPath, goFile),
+						goFile,
 					)
 				}
 			}
