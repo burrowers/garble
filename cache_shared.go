@@ -229,25 +229,17 @@ func loadSharedCache() error {
 	return nil
 }
 
-// saveSharedCache creates a temporary directory to share between garble processes.
-// This directory also includes the msgp-encoded cache global.
-func saveSharedCache() (string, error) {
+// saveSharedCache writes the msgp-encoded cache global into sharedTempDir,
+// the temporary directory shared between garble processes.
+func saveSharedCache() error {
 	if sharedCache == nil {
 		panic("saving a missing cache?")
 	}
-	dir, err := os.MkdirTemp("", "garble-shared")
-	if err != nil {
-		return "", err
-	}
-
 	data, err := sharedCache.MarshalMsg(nil)
 	if err != nil {
-		return "", err
+		return err
 	}
-	if err := writeFileExclusive(filepath.Join(dir, sharedCacheFilename), data); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return writeFileExclusive(filepath.Join(sharedTempDir, sharedCacheFilename), data)
 }
 
 func createExclusive(name string) (*os.File, error) {
