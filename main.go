@@ -258,6 +258,9 @@ func mainErr(args []string) error {
 				}
 			}
 		}()
+		// Deferred calls run in reverse order, so this waits before the cleanup
+		// above removes the directory the linker is being built in.
+		defer waitForPatchedLinker()
 		if err != nil {
 			return err
 		}
@@ -336,6 +339,38 @@ func mainErr(args []string) error {
 	}
 }
 
+// patchedLinkerDone is closed once startPatchingLinker's work has finished.
+var patchedLinkerDone chan struct{}
+
+// startPatchingLinker prepares the patched linker in the background, so that the
+// link step at the end of a build doesn't have to wait for it. Errors are only
+// logged, as the link step patches the linker itself and reports any error then.
+//
+// Note that we start before toolexecCmd's `go list` rather than after it, as by
+// then there is too little of the build left to overlap with.
+func startPatchingLinker() {
+	patchedLinkerDone = make(chan struct{})
+	go func() {
+		defer close(patchedLinkerDone)
+		startTime := time.Now()
+		_, unlock, err := linker.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
+		if err != nil {
+			log.Printf("could not prepare the linker ahead of time: %v", err)
+			return
+		}
+		unlock()
+		log.Printf("prepared the linker in %s", debugSince(startTime))
+	}()
+}
+
+// waitForPatchedLinker waits for startPatchingLinker, which must happen before
+// the shared temporary directory it builds in is removed.
+func waitForPatchedLinker() {
+	if patchedLinkerDone != nil {
+		<-patchedLinkerDone
+	}
+}
+
 // toolexecCmd builds an *exec.Cmd which is set up for running "go <command>"
 // with -toolexec=garble and the supplied arguments.
 //
@@ -405,15 +440,26 @@ This command wraps "go %s". Below is its help:
 	}
 	sharedCache.BinaryContentID = decodeBuildIDHash(splitContentID(binaryBuildID))
 
-	if err := appendListedPackages(args, true); err != nil {
-		return nil, err
-	}
-
-	sharedTempDir, err = saveSharedCache()
+	sharedTempDir, err = os.MkdirTemp("", "garble-shared")
 	if err != nil {
 		return nil, err
 	}
 	os.Setenv("GARBLE_SHARED", sharedTempDir)
+
+	// Patching and building the linker takes seconds, and the link step is the
+	// last thing a build does, so doing it lazily leaves the build waiting at
+	// the very end. Start it now instead, alongside the rest of the build.
+	// A build which never links a binary wastes this work, but only the once,
+	// as any later build reuses the cached linker in well under a millisecond.
+	startPatchingLinker()
+
+	if err := appendListedPackages(args, true); err != nil {
+		return nil, err
+	}
+
+	if err := saveSharedCache(); err != nil {
+		return nil, err
+	}
 
 	if flagDebugDir != "" {
 		origDir := flagDebugDir
