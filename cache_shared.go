@@ -468,6 +468,13 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// Fold in the linknamed packages so each compile subprocess finds them
 		// in the shared cache instead of spawning its own `go list`. `go list`
 		// dedups them against the deps and `-mod` flags are harmless for std.
+		//
+		// They need -export like any other package, even though we never read
+		// their export data; it is the only way `go list` gives us a build ID
+		// to derive [listedPackage.GarbleActionID] from. Salting them by import
+		// path instead would make a package's hashed names depend on which
+		// packages the build includes, which Go's build cache does not key on,
+		// so two builds would disagree on a linkname's target and fail to link.
 		packages = append(packages, linknamedToList()...)
 	}
 
