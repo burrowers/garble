@@ -532,10 +532,8 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		if sharedCache.ListedPackages.has(pkg.ImportPath) {
 			return fmt.Errorf("duplicate package: %q", pkg.ImportPath)
 		}
-		if pkg.BuildID != "" {
-			actionID := decodeBuildIDHash(splitActionID(pkg.BuildID))
-			pkg.GarbleActionID = addGarbleToHash(actionID)
-		}
+		// Note that GarbleActionID is filled by toolexecCmd once the listing
+		// is done, as hashing it needs garble's own content ID.
 
 		// Decide ToObfuscate as we read each package, to avoid a second pass
 		// that would force a full decode of the lazy map in sub-processes.
@@ -567,9 +565,6 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 
 			pkg.ToObfuscate = true
 			anyToObfuscate = true
-			if len(pkg.GarbleActionID) == 0 {
-				return fmt.Errorf("package %q to be obfuscated lacks build id?", pkg.ImportPath)
-			}
 		}
 
 		sharedCache.ListedPackages.set(pkg.ImportPath, &pkg)
