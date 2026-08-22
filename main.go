@@ -420,6 +420,18 @@ This command wraps "go %s". Below is its help:
 		return nil, err
 	}
 
+	// Obtaining garble's own content ID needs a `go tool buildid` process,
+	// which costs tens of milliseconds. Nothing below needs it until we hash
+	// the listed packages, so fetch it alongside the `go list`.
+	binaryContentID := make(chan error, 1)
+	go func() {
+		binaryBuildID, err := buildidOf(execPath)
+		if err == nil {
+			sharedCache.BinaryContentID = decodeBuildIDHash(splitContentID(binaryBuildID))
+		}
+		binaryContentID <- err
+	}()
+
 	// Always an absolute directory; defaults to e.g. "~/.cache/garble".
 	if dir := os.Getenv("GARBLE_CACHE"); dir != "" {
 		sharedCache.CacheDir, err = filepath.Abs(dir)
@@ -434,12 +446,6 @@ This command wraps "go %s". Below is its help:
 		sharedCache.CacheDir = filepath.Join(parentDir, "garble")
 	}
 
-	binaryBuildID, err := buildidOf(execPath)
-	if err != nil {
-		return nil, err
-	}
-	sharedCache.BinaryContentID = decodeBuildIDHash(splitContentID(binaryBuildID))
-
 	sharedTempDir, err = os.MkdirTemp("", "garble-shared")
 	if err != nil {
 		return nil, err
@@ -453,8 +459,23 @@ This command wraps "go %s". Below is its help:
 	// as any later build reuses the cached linker in well under a millisecond.
 	startPatchingLinker()
 
-	if err := appendListedPackages(args, true); err != nil {
+	if listErr := appendListedPackages(args, true); listErr != nil {
+		// A Go tool which can't be run at all fails here as well as in the
+		// background fetch above; prefer that error, as it is the root cause.
+		if err := <-binaryContentID; err != nil {
+			return nil, err
+		}
+		return nil, listErr
+	}
+
+	// Now that we have both halves, hash each package's action ID with ours.
+	if err := <-binaryContentID; err != nil {
 		return nil, err
+	}
+	for _, lpkg := range sharedCache.ListedPackages.all() {
+		if lpkg.BuildID != "" {
+			lpkg.GarbleActionID = addGarbleToHash(decodeBuildIDHash(splitActionID(lpkg.BuildID)))
+		}
 	}
 
 	if err := saveSharedCache(); err != nil {
