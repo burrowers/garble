@@ -18,6 +18,16 @@ stderr '^recovered: ya like jazz?'
 ! stderr 'panic: oh noes' # panics are hidden
 stderr 'funcExported false funcUnexported true'
 stderr 'funcStructExported false funcStructUnexported true'
+# The runtime consumes a handful of function names as data even in -tiny:
+# reflect's call stubs keep their exact names so runtime.stkframe.argMapInternal
+# can select their dynamic GC argument maps, value-method wrappers keep a
+# panicwrap-parseable name, and the goroutine and sentinel names feed other
+# runtime predicates.
+stderr '^systemgoroutines.count 1$'
+stderr '^makefunc.name reflect\.makeFuncStub value 107$'
+stderr '^methodvalue.name reflect\.methodValueCall value 213$'
+stderr '^wrapper.name _\.\(\*_\)\._ recovered true$'
+stderr '^runtime.sentinels.goexit true gopanic true$'
 
 [short] stop # no need to verify this with -short
 
@@ -31,6 +41,13 @@ stderr '^recovered: ya like jazz?'
 stderr 'panic: oh noes'
 stderr 'funcExported false funcUnexported false'
 stderr 'funcStructExported false funcStructUnexported false'
+# The reflect stub names are kept in every mode, not just -tiny; the wrapper
+# name is obfuscated here, so only its recoverability is checked.
+stderr '^systemgoroutines.count 1$'
+stderr '^makefunc.name reflect\.makeFuncStub value 107$'
+stderr '^methodvalue.name reflect\.methodValueCall value 213$'
+stderr '^wrapper.name .* recovered true$'
+stderr '^runtime.sentinels.goexit true gopanic true$'
 -- go.mod --
 module test/main
 
@@ -60,7 +77,88 @@ func isEmptyFuncName(i interface{}) bool {
 	return len(name) == 0
 }
 
+type reflectArg struct {
+	value uint64
+	pad   [64]byte
+}
+
+type reflectReceiver struct{ delta uint64 }
+
+//go:noinline
+func (r *reflectReceiver) Transform(a *reflectArg) uint64 {
+	runtime.GC()
+	return a.value + r.delta
+}
+
+type wrapperReceiver struct{}
+
+func (wrapperReceiver) valueMethod() {}
+
+//go:noinline
+func callNilValueMethod() {
+	wrapper := (*wrapperReceiver).valueMethod
+	wrapper(nil)
+}
+
+func pcName(pc uintptr) string { return runtime.FuncForPC(pc).Name() }
+
+func stackHas(target string) bool {
+	pcs := make([]uintptr, 64)
+	frames := runtime.CallersFrames(pcs[:runtime.Callers(0, pcs)])
+	for {
+		frame, more := frames.Next()
+		if frame.Function == target {
+			return true
+		}
+		if !more {
+			return false
+		}
+	}
+}
+
+// checkRuntimeConsumedNames exercises the function names that the runtime reads
+// back as data. Its output is asserted in both -tiny and default builds.
+func checkRuntimeConsumedNames() {
+	count, _ := runtime.GoroutineProfile(nil)
+	println("systemgoroutines.count", count)
+
+	makeType := reflect.TypeOf((func(*reflectArg) uint64)(nil))
+	makeValue := reflect.MakeFunc(makeType, func(vs []reflect.Value) []reflect.Value {
+		runtime.GC()
+		a := vs[0].Interface().(*reflectArg)
+		return []reflect.Value{reflect.ValueOf(a.value + 7)}
+	})
+	makeFn := makeValue.Interface().(func(*reflectArg) uint64)
+	println("makefunc.name", pcName(makeValue.Pointer()), "value", makeFn(&reflectArg{value: 100}))
+
+	methodValue := reflect.ValueOf(&reflectReceiver{delta: 13}).MethodByName("Transform")
+	methodFn := methodValue.Interface().(func(*reflectArg) uint64)
+	println("methodvalue.name", pcName(methodValue.Pointer()), "value", methodFn(&reflectArg{value: 200}))
+
+	wrapper := (*wrapperReceiver).valueMethod
+	recovered := false
+	func() {
+		defer func() { recovered = recover() != nil }()
+		callNilValueMethod()
+	}()
+	println("wrapper.name", pcName(reflect.ValueOf(wrapper).Pointer()), "recovered", recovered)
+
+	goexit := make(chan bool)
+	go func() { goexit <- stackHas("runtime.goexit") }()
+	gopanic := false
+	func() {
+		defer func() {
+			recover()
+			gopanic = stackHas("runtime.gopanic")
+		}()
+		panic("sentinel")
+	}()
+	println("runtime.sentinels.goexit", <-goexit, "gopanic", gopanic)
+}
+
 func main() {
+	checkRuntimeConsumedNames()
+
 	// Retain fatal paths which Go 1.26 moved into runtime-linked standard
 	// packages, plus SetFinalizer's computed fatal paths. They must be cleaned
 	// even though these branches never execute; SetFinalizer also lets the scan

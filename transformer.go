@@ -564,6 +564,28 @@ func loadGoAsmNames(lpkg *listedPackage) map[string]string {
 	return nameMap
 }
 
+// toolchainNameDependencies holds declarations whose exact symbol names the Go
+// runtime consumes, even though they are neither compiler intrinsics nor
+// linkname targets. Like [compilerIntrinsics], their package path and name must
+// both survive obfuscation, so [isToolchainNameDependency] gates the four sites
+// below that already exempted intrinsics.
+//
+// runtime.stkframe.argMapInternal matches these reflect assembly stubs by name
+// to synthesize their dynamic argument maps while the garbage collector scans a
+// stack; renaming either stub can make a live pointer appear to be freed. Tiny
+// mode preserves the same names at link time; see the patch under
+// internal/linker/patches.
+var toolchainNameDependencies = map[string]map[string]bool{
+	"reflect": {
+		"makeFuncStub":    true,
+		"methodValueCall": true,
+	},
+}
+
+func isToolchainNameDependency(path, name string) bool {
+	return compilerIntrinsics[path][name] || toolchainNameDependencies[path][name]
+}
+
 func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	// We need to replace all function references with their obfuscated name
 	// counterparts.
@@ -666,7 +688,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		name := string(remaining[:nameEnd])
 		remaining = remaining[nameEnd:]
 
-		if lpkg.ToObfuscate && !compilerIntrinsics[lpkg.ImportPath][name] {
+		if lpkg.ToObfuscate && !isToolchainNameDependency(lpkg.ImportPath, name) {
 			newName := hashWithPackage(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, tf.curPkg.GarbleActionID, newName)
@@ -945,7 +967,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 }
 
 func (tf *transformer) directiveLocalName(localName string) string {
-	if tf.curPkg.ToObfuscate && !compilerIntrinsics[tf.curPkg.ImportPath][localName] {
+	if tf.curPkg.ToObfuscate && !isToolchainNameDependency(tf.curPkg.ImportPath, localName) {
 		return hashWithPackage(tf.curPkg, localName)
 	}
 	return localName
@@ -1016,7 +1038,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		panic(err) // shouldn't happen
 	}
 
-	if !lpkg.ToObfuscate || compilerIntrinsics[lpkg.ImportPath][foreignName] {
+	if !lpkg.ToObfuscate || isToolchainNameDependency(lpkg.ImportPath, foreignName) {
 		// We're not obfuscating that package or name.
 		return localName, newName
 	}
@@ -1354,7 +1376,7 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 	case *types.TypeName:
 		debugName = "type"
 	case *types.Func:
-		if compilerIntrinsics[path][name] {
+		if isToolchainNameDependency(path, name) {
 			return "", false
 		}
 
