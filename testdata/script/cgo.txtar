@@ -12,9 +12,9 @@ cmp stdout main.stdout
 
 # Linking externally pulls in runtime/cgo even for a main package which does
 # not use cgo at all, so garble must accept it as a dependency.
-# TODO: this should succeed and print "hello from nocgo".
-! exec garble build -ldflags=-linkmode=external -o=nocgobin$exe ./nocgo
-stderr 'list runtime/cgo: not a dependency'
+exec garble build -ldflags=-linkmode=external -o=nocgobin$exe ./nocgo
+exec ./nocgobin$exe
+stderr 'hello from nocgo'
 
 [short] stop # no need to verify this with -short
 

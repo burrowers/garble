@@ -36,9 +36,7 @@ exec garble -tiny build
 # package with no imports of its own does not depend on it.
 env GOOS=linux
 env GOARCH=arm
-# TODO: this should succeed.
-! exec garble build -o=noimports.bin ./noimports
-stderr 'list math: not a dependency'
+exec garble build -o=noimports.bin ./noimports
 
 -- go.mod --
 module test/main
