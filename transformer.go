@@ -839,6 +839,9 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 				updateMagicValue(file, magicValue())
 			}
 		}
+		if flagTiny {
+			stripFatalMessages(tf.curPkg.ImportPath, file)
+		}
 		if err := tf.transformDirectives(file.Comments); err != nil {
 			return nil, err
 		}
