@@ -4,6 +4,13 @@ cmp stdout main.stdout
 
 ! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.','IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField' 'LocalObfuscated'
 binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect' 'ForeignNamedType' 'DownstreamField' 'SiblingField'
+stderr '^\*main\.StoredEarly$'
+stderr '^\*main\.FirstParam$'
+# TODO: these two should be preserved as well. The analysis gives up on each of
+# them after a single visit, so it settles before their callers learn that they
+# are reflected.
+! stderr '^\*main\.TaintedLate$'
+! stderr '^\*main\.SecondParam$'
 
 [short] stop # no need to verify this with -short
 
@@ -206,6 +213,16 @@ func main() {
 	})
 
 	fmt.Println(reflect.TypeOf(Connection{}))
+
+	early := &StoredEarly{}
+	fmt.Fprintln(os.Stderr, reflect.TypeOf(early))
+	// Once StoredEarly is known to be reflected, this store is recorded as
+	// propagated; the call after it must still be analyzed in later passes.
+	var zeroEarly StoredEarly
+	*early = zeroEarly
+	hopToSink(&TaintedLate{TaintedLateField: "late"})
+
+	callBothTypes()
 }
 
 type EmbeddingIndirect struct {
@@ -437,6 +454,37 @@ func execute(db Transaction) {
 
 	fmt.Println(v)
 }
+
+// Reflection use spreads one call at a time, so recording it takes as many
+// analysis passes as the longest chain of tainted calls. The types below are
+// only reached by reflection after the pass which first records their caller,
+// so they cover the analysis settling too early.
+//
+// These print to stderr, as the garbled and plain builds must share one golden
+// stdout even while a name is wrongly obfuscated.
+
+type StoredEarly struct{ StoredEarlyField string }
+
+type TaintedLate struct{ TaintedLateField string }
+
+type FirstParam struct{ FirstParamField string }
+
+type SecondParam struct{ SecondParamField string }
+
+func sinkReflect(v any) { fmt.Fprintln(os.Stderr, reflect.TypeOf(v)) }
+
+func hopToSink(v any) { sinkReflect(v) }
+
+func relayToSink(v any) { sinkReflect(v) }
+
+// passBothOn learns that its second parameter is reflected one pass after its
+// first, so its callers must be revisited until its parameters stop growing.
+func passBothOn(a, b any) {
+	sinkReflect(a)
+	relayToSink(b)
+}
+
+func callBothTypes() { passBothOn(&FirstParam{}, &SecondParam{}) }
 
 type UnnamedStructInterface interface {
 	UnnamedStructMethod(struct{ UnnamedStructField string })
