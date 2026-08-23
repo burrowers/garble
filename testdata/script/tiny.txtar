@@ -30,8 +30,7 @@ stderr '^wrapper.name _\.\(\*_\)\._ recovered true$'
 stderr '^runtime.sentinels.goexit true gopanic true$'
 # GOTRACEBACK controls more than traceback output, which tiny mode hides:
 # "crash" must still crash the process rather than exit with status 2.
-# TODO: should be "crash aborts: true"; tiny mode empties runtime.setTraceback.
-stderr '^single aborts: false crash aborts: false$'
+stderr '^single aborts: false crash aborts: true$'
 
 [short] stop # no need to verify this with -short
 

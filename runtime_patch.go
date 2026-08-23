@@ -267,12 +267,10 @@ func stripRuntime(basename string, file *ast.File) (strippedFunctions map[string
 				funcDecl.Body.List = nil
 			}
 		case "runtime1.go":
-			switch funcDecl.Name.Name {
-			case "setTraceback":
-				// tracebacks are completely hidden, no
-				// sense keeping this function
-				funcDecl.Body.List = nil
-			}
+			// setTraceback is deliberately left alone. Besides selecting how
+			// much of a traceback is printed, it decides whether fatal errors
+			// crash the process rather than exiting with status 2, and it
+			// enables Windows Error Reporting for GOTRACEBACK=wer.
 		case "runtime.go":
 			// writeErrStr bypasses the print builtins and writes fixed fatal
 			// diagnostics straight to stderr (and SetCrashOutput). Tiny mode
