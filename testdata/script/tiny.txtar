@@ -2,6 +2,13 @@
 exec garble -tiny build
 ! binsubstr main$exe 'garble_main.go' 'fmt/print.go'
 ! binsubstr main$exe 'fatal: morestack on g0'
+! binsubstr main$exe 'all goroutines are asleep - deadlock!' 'no goroutines (main called runtime.Goexit) - deadlock!'
+! binsubstr main$exe 'panicwrap: no ( in ' 'unpinned Go pointer stored into non-Go memory'
+! binsubstr main$exe 'runtime: unexpected metric registration for ' 'runtime.SetFinalizer: first argument is '
+! binsubstr main$exe 'concurrent map writes' 'exit hook invoked exit'
+! binsubstr main$exe 'sync: unlock of unlocked mutex' 'sync: RUnlock of unlocked RWMutex'
+! binsubstr main$exe 'crypto/rand: failed to read random data' 'FIPS 140-3 self-test failed'
+[linux] ! binsubstr main$exe 'impossible cgroup version' 'runtime: cgroup buffer length'
 ! exec ./main$exe
 stderr '^\(0x[[:xdigit:]]+,0x[[:xdigit:]]+\)' # interfaces/pointers print correctly
 # With -tiny, all line numbers are reset to 1.
@@ -32,8 +39,10 @@ go 1.23
 package main
 
 import (
+	cryptorand "crypto/rand"
 	"reflect"
 	"runtime"
+	"sync"
 )
 
 type testStruct struct{}
@@ -52,6 +61,21 @@ func isEmptyFuncName(i interface{}) bool {
 }
 
 func main() {
+	// Retain fatal paths which Go 1.26 moved into runtime-linked standard
+	// packages, plus SetFinalizer's computed fatal paths. They must be cleaned
+	// even though these branches never execute; SetFinalizer also lets the scan
+	// verify that fragments around side-effectful expressions are removed.
+	if runtime.NumCPU() < 0 {
+		_, _ = cryptorand.Read(nil)
+		var mutex sync.Mutex
+		mutex.Unlock()
+		var rwmutex sync.RWMutex
+		// Call RUnlock so the binary retains the RWMutex diagnostic fragment
+		// that binsubstr asserts is stripped above.
+		rwmutex.RUnlock()
+		runtime.SetFinalizer(nil, nil)
+	}
+
 	println("funcExported", isEmptyFuncName(ExportedFunc), "funcUnexported", isEmptyFuncName(unexportedFunc))
 
 	var s testStruct
