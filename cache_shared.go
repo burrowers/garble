@@ -602,6 +602,21 @@ var ErrNotFound = errors.New("not found")
 
 var ErrNotDependency = errors.New("not a dependency")
 
+// implicitLinkerDeps are the packages which the go command adds to main
+// packages on behalf of the linker, depending on the target platform and build
+// flags. They are never in a package's Imports, so any package may refer to
+// them and to their dependencies.
+// Keep in sync with cmd/go/internal/load.LinkerDeps.
+var implicitLinkerDeps = [...]string{
+	"runtime",          // always
+	"runtime/cgo",      // external linking
+	"math",             // GOARCH=arm
+	"runtime/race",     // -race
+	"runtime/msan",     // -msan
+	"runtime/asan",     // -asan
+	"runtime/coverage", // -cover
+}
+
 // listPackage gets the listedPackage information for a certain package
 func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 	if path == from.ImportPath {
@@ -649,15 +664,18 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 		return nil, fmt.Errorf("list %s: %w", path, ErrNotFound)
 	}
 
-	// As a special case, any package can list runtime or its dependencies,
-	// since those are always an implicit dependency.
-	// We need to handle this ourselves as runtime does not appear in Deps.
+	// As a special case, any package can list an implicit linker dependency
+	// or one of its dependencies.
+	// We need to handle this ourselves as they do not appear in Imports.
 	// TODO: it might be faster to bring back a "runtimeAndDeps" map or func.
-	if pkg.ImportPath == "runtime" {
-		return pkg, nil
-	}
-	if runtimePkg, _ := sharedCache.ListedPackages.get("runtime"); runtimePkg.hasDep(pkg.ImportPath) {
-		return pkg, nil
+	for _, implicit := range implicitLinkerDeps {
+		if pkg.ImportPath == implicit {
+			return pkg, nil
+		}
+		// Only runtime is guaranteed to be listed.
+		if implicitPkg, ok := sharedCache.ListedPackages.get(implicit); ok && implicitPkg.hasDep(pkg.ImportPath) {
+			return pkg, nil
+		}
 	}
 
 	return nil, fmt.Errorf("list %s: %w", path, ErrNotDependency)
