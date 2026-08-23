@@ -85,8 +85,6 @@ type reflectInspector struct {
 	lpkg *listedPackage
 	pkg  *types.Package
 
-	checkedAPIs map[string]bool
-
 	propagatedInstr map[ssa.Instruction]bool
 
 	result pkgCache
@@ -98,27 +96,28 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 		return
 	}
 
-	prevDone := len(ri.result.ReflectAPIs) + len(ri.result.ReflectObjectNames)
-
-	// find all unchecked APIs to add them to checkedAPIs after the pass
-	notCheckedAPIs := make(map[string]bool)
-	for knownAPI := range maps.Keys(ri.result.ReflectAPIs) {
-		if !ri.checkedAPIs[knownAPI] {
-			notCheckedAPIs[knownAPI] = true
+	// One pass only propagates reflection use to the functions analyzed after
+	// the ones it learns from, so a chain of reflect-tainted calls can need one
+	// pass per link. Repeat until a pass records nothing new.
+	for {
+		prev := ri.recordedCount()
+		ri.ignoreReflectedTypes(ssaPkg)
+		if ri.recordedCount() == prev {
+			return
 		}
 	}
+}
 
-	ri.ignoreReflectedTypes(ssaPkg)
-
-	// all previously unchecked APIs have now been checked add them to checkedAPIs,
-	// to avoid checking them twice
-	maps.Copy(ri.checkedAPIs, notCheckedAPIs)
-
-	// if a new reflectAPI is found we need to Re-evaluate all functions which might be using that API
-	newDone := len(ri.result.ReflectAPIs) + len(ri.result.ReflectObjectNames)
-	if newDone > prevDone {
-		ri.recordReflection(ssaPkg) // TODO: avoid recursing
+// recordedCount measures how much has been recorded so far. Recording only ever
+// adds, so [reflectInspector.recordReflection] is done once this stops growing.
+// Note that reflected parameters count too: an API keeps taking new ones as
+// more of its callees are found to use reflection.
+func (ri *reflectInspector) recordedCount() int {
+	n := len(ri.result.ReflectObjectNames)
+	for _, params := range ri.result.ReflectAPIs {
+		n += 1 + len(params)
 	}
+	return n
 }
 
 // find all functions, methods and interface declarations of a package and record their
@@ -261,7 +260,9 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 	for _, block := range fun.Blocks {
 		for _, inst := range block.Instrs {
 			if ri.propagatedInstr[inst] {
-				break // already done
+				// Already propagated in an earlier pass; the rest of the block
+				// may still hold calls to APIs discovered since then.
+				continue
 			}
 
 			// fmt.Printf("inst: %v, t: %T\n", inst, inst)
@@ -295,11 +296,6 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 				callName, genericCall := stripTypeArgs(callName)
 				if flagDebug && genericCall {
 					log.Printf("reflect: normalized call %q to %q", rawCallName, callName)
-				}
-
-				if ri.checkedAPIs[callName] {
-					// only check apis which were not already checked
-					continue
 				}
 
 				/* fmt.Printf("callName: %v\n", callName) */

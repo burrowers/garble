@@ -5,12 +5,9 @@ cmp stdout main.stdout
 ! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.','IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField' 'LocalObfuscated'
 binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect' 'ForeignNamedType' 'DownstreamField' 'SiblingField'
 stderr '^\*main\.StoredEarly$'
+stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
-# TODO: these two should be preserved as well. The analysis gives up on each of
-# them after a single visit, so it settles before their callers learn that they
-# are reflected.
-! stderr '^\*main\.TaintedLate$'
-! stderr '^\*main\.SecondParam$'
+stderr '^\*main\.SecondParam$'
 
 [short] stop # no need to verify this with -short
 
