@@ -32,6 +32,14 @@ env GOOS=wasip1
 env GOARCH=wasm
 exec garble -tiny build
 
+# 32-bit arm links in math implicitly for soft floating point, so a main
+# package with no imports of its own does not depend on it.
+env GOOS=linux
+env GOARCH=arm
+# TODO: this should succeed.
+! exec garble build -o=noimports.bin ./noimports
+stderr 'list math: not a dependency'
+
 -- go.mod --
 module test/main
 
@@ -44,6 +52,11 @@ import "net/http"
 func main() {
 	http.ListenAndServe("", nil)
 }
+
+-- noimports/main.go --
+package main
+
+func main() {}
 
 -- 32bit.go --
 //go:build arm

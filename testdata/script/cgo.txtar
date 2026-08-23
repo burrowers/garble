@@ -10,6 +10,12 @@ cmp stdout main.stdout
 [linux] [exec:readelf] exec readelf --wide --section-headers main$exe
 [linux] [exec:readelf] ! stdout '\.note\.gnu\.build-id'
 
+# Linking externally pulls in runtime/cgo even for a main package which does
+# not use cgo at all, so garble must accept it as a dependency.
+# TODO: this should succeed and print "hello from nocgo".
+! exec garble build -ldflags=-linkmode=external -o=nocgobin$exe ./nocgo
+stderr 'list runtime/cgo: not a dependency'
+
 [short] stop # no need to verify this with -short
 
 # Ensure that reversing works with cgo.
@@ -47,6 +53,11 @@ func main() {
 	imported.RegularFunc()
 	cgoFunc()
 }
+
+-- nocgo/main.go --
+package main
+
+func main() { println("hello from nocgo") }
 
 -- imported/imported_regular.go --
 package imported
