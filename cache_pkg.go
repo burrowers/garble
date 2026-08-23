@@ -231,7 +231,6 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 	inspector := reflectInspector{
 		lpkg:            lpkg,
 		pkg:             pkg,
-		checkedAPIs:     make(map[string]bool),
 		propagatedInstr: map[ssa.Instruction]bool{},
 		result:          computed, // append the results
 	}
