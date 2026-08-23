@@ -457,7 +457,12 @@ This command wraps "go %s". Below is its help:
 	// the very end. Start it now instead, alongside the rest of the build.
 	// A build which never links a binary wastes this work, but only the once,
 	// as any later build reuses the cached linker in well under a millisecond.
-	startPatchingLinker()
+	// We skip the `go list` behind `garble reverse` and `garble map` entirely,
+	// as they never link, and they exit without waiting for this work,
+	// which would leave a stray `go build` running behind them.
+	if command != "list" {
+		startPatchingLinker()
+	}
 
 	if listErr := appendListedPackages(args, true); listErr != nil {
 		// A Go tool which can't be run at all fails here as well as in the
