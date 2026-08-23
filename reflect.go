@@ -134,7 +134,11 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 		ri.recursivelyRecordUsedForReflect(scope.Lookup("Value").Type())
 	}
 
-	for _, memb := range ssaPkg.Members {
+	// Iterate in a stable order; ssa.Package.Members is a map, and the order
+	// functions are analyzed in decides how many passes a chain of
+	// reflect-tainted calls needs to settle.
+	for _, membName := range slices.Sorted(maps.Keys(ssaPkg.Members)) {
+		memb := ssaPkg.Members[membName]
 		switch x := memb.(type) {
 		case *ssa.Type:
 			// methods aren't package members only their reciever types are
@@ -302,7 +306,8 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 				// record each call argument passed to a function parameter which is used in reflection
 				knownParams := ri.result.ReflectAPIs[callName]
-				for knownParam := range knownParams {
+				// Iterate in a stable order too, like the member loop above.
+				for _, knownParam := range slices.Sorted(maps.Keys(knownParams)) {
 					sig := inst.Call.Signature()
 					if sig == nil {
 						continue
