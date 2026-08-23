@@ -68,6 +68,32 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 					return false
 				}
 			}
+
+		case ast.Expr:
+			// The compiler folds constant expressions, so only the outermost
+			// one exists at run time. Rewrite that one and stop descending,
+			// rather than also rewriting its operands into dead decoders.
+			typeAndValue := info.Types[node]
+			if typeAndValue.Value == nil {
+				break
+			}
+			if typeAndValue.Value.Kind() != constant.String {
+				// Constants of other kinds, such as len or unsafe.Sizeof, do
+				// not evaluate their operands at all. Rewriting them would be
+				// useless, and would stop uses which require a constant, such
+				// as array lengths or keyed indexes, from compiling.
+				return false
+			}
+			if typeAndValue.Type == types.Typ[types.String] {
+				value := constant.StringVal(typeAndValue.Value)
+				if len(value) >= MinSize && len(value) <= MaxSize {
+					cursor.Replace(withPos(obfuscateString(or, value), node.Pos()))
+					return false
+				}
+			}
+			// Keep descending: a string constant we left alone, such as one
+			// above MaxSize or one of a named type, may still have operands
+			// which we can rewrite.
 		}
 		return true
 	}
@@ -80,17 +106,6 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 
 		typeAndValue := info.Types[node]
 		if !typeAndValue.IsValue() {
-			return true
-		}
-
-		if typeAndValue.Type == types.Typ[types.String] && typeAndValue.Value != nil {
-			value := constant.StringVal(typeAndValue.Value)
-			if len(value) < MinSize || len(value) > MaxSize {
-				return true
-			}
-
-			cursor.Replace(withPos(obfuscateString(or, value), node.Pos()))
-
 			return true
 		}
 
