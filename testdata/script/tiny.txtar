@@ -28,6 +28,10 @@ stderr '^makefunc.name reflect\.makeFuncStub value 107$'
 stderr '^methodvalue.name reflect\.methodValueCall value 213$'
 stderr '^wrapper.name _\.\(\*_\)\._ recovered true$'
 stderr '^runtime.sentinels.goexit true gopanic true$'
+# GOTRACEBACK controls more than traceback output, which tiny mode hides:
+# "crash" must still crash the process rather than exit with status 2.
+# TODO: should be "crash aborts: true"; tiny mode empties runtime.setTraceback.
+stderr '^single aborts: false crash aborts: false$'
 
 [short] stop # no need to verify this with -short
 
@@ -48,19 +52,39 @@ stderr '^makefunc.name reflect\.makeFuncStub value 107$'
 stderr '^methodvalue.name reflect\.methodValueCall value 213$'
 stderr '^wrapper.name .* recovered true$'
 stderr '^runtime.sentinels.goexit true gopanic true$'
+stderr '^single aborts: false crash aborts: true$'
 -- go.mod --
 module test/main
 
 go 1.23
+-- main_linux.go --
+package main
+
+import "syscall"
+
+// Keep the crashing children from writing core dumps.
+// Note that syscall.Rlimit is only declared in some unix GOOSes.
+func init() {
+	var lim syscall.Rlimit
+	if syscall.Getrlimit(syscall.RLIMIT_CORE, &lim) == nil {
+		lim.Cur = 0
+		syscall.Setrlimit(syscall.RLIMIT_CORE, &lim)
+	}
+}
 -- garble_main.go --
 package main
 
 import (
 	cryptorand "crypto/rand"
+	"os"
+	"os/exec"
 	"reflect"
 	"runtime"
+	"runtime/debug"
 	"sync"
 )
+
+var nilPtr *int
 
 type testStruct struct{}
 
@@ -156,7 +180,26 @@ func checkRuntimeConsumedNames() {
 	println("runtime.sentinels.goexit", <-goexit, "gopanic", gopanic)
 }
 
+// childAborts reports whether a nil dereference at the given GOTRACEBACK level
+// kills this program rather than exiting with the usual status 2. Only
+// runtime.setTraceback records that setting, so tiny mode must not empty it.
+func childAborts(level string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	cmd := exec.Command(self, level)
+	cmd.Run()
+	return cmd.ProcessState.ExitCode() != 2
+}
+
 func main() {
+	if len(os.Args) > 1 {
+		debug.SetTraceback(os.Args[1])
+		println(*nilPtr)
+	}
+	println("single aborts:", childAborts("single"), "crash aborts:", childAborts("crash"))
+
 	checkRuntimeConsumedNames()
 
 	// Retain fatal paths which Go 1.26 moved into runtime-linked standard
