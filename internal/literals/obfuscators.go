@@ -200,6 +200,14 @@ func (key *externalKey) ToExpr(b int) ast.Expr {
 	return x
 }
 
+// makeDataStmt returns "data := make([]byte, 0, size)" for decoders which build
+// up their result via append. The capacity is exact, so that the decoded slice
+// has the same cap as the literal it replaces.
+func makeDataStmt(size int) *ast.AssignStmt {
+	return ah.AssignDefineStmt(ast.NewIdent("data"),
+		ah.CallExprByName("make", ah.ByteSliceType(), ah.IntLit(0), ah.IntLit(size)))
+}
+
 // dataToByteSliceWithExtKeys scramble and turn a byte slice into an AST expression like:
 //
 //	func() []byte {

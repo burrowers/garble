@@ -76,11 +76,7 @@ func (shuffle) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKe
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, idxKey, extKeys)},
 		},
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("data")},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.CallExpr(ast.NewIdent("make"), &ast.ArrayType{Elt: ast.NewIdent("byte")}, ah.IntLit(0), ah.IntLit(len(data)+1))},
-		},
+		makeDataStmt(len(data)),
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("data")},
 			Tok: token.ASSIGN,

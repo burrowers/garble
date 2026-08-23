@@ -155,11 +155,7 @@ func (split) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey)
 	}
 
 	return ah.BlockStmt(
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("data")},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.CallExpr(ast.NewIdent("make"), &ast.ArrayType{Elt: ast.NewIdent("byte")}, ah.IntLit(0), ah.IntLit(len(data)+1))},
-		},
+		makeDataStmt(len(data)),
 		&ast.AssignStmt{
 			Lhs: []ast.Expr{ast.NewIdent("i")},
 			Tok: token.DEFINE,
