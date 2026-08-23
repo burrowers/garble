@@ -1,6 +1,15 @@
 # Unknown build flags should result in errors.
+# Use a cold cache, so that background work like patching the linker would
+# have to actually run rather than being reused from an earlier test.
+env GARBLE_CACHE_WARM=${GARBLE_CACHE}
+env GARBLE_CACHE=${WORK}/cold-cache
 ! exec garble reverse -badflag=foo .
 stderr 'flag provided but not defined'
+# TODO: reverse never links, so it should not patch and build the linker in
+# the background; that build outlives garble and litters the temporary dir.
+# Note that we rely on the unix-like TMPDIR env var name.
+[!windows] grepfiles ${TMPDIR} 'go-build'
+env GARBLE_CACHE=${GARBLE_CACHE_WARM}
 
 exec garble build
 exec ./main
