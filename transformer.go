@@ -1535,6 +1535,15 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 	// link operation or the main package's compilation.
 	flags = flagSetValue(flags, "-buildid", "")
 
+	// Clearing Go's build ID is not enough when linking externally,
+	// as the C toolchain adds one of its own, such as ELF's
+	// .note.gnu.build-id. -B=none asks cmd/link for no native build ID.
+	// macOS is the exception, as its dynamic linker refuses to load
+	// binaries which lack an LC_UUID load command.
+	if sharedCache.GoEnv.GOOS != "darwin" {
+		flags = append(flags, "-B=none")
+	}
+
 	// Strip debug information and symbol tables.
 	flags = append(flags, "-w", "-s")
 

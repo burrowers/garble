@@ -6,6 +6,10 @@ exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'PortedField' 'test/main'
 
+# Linking externally must not leave the C toolchain's build ID behind either.
+[linux] [exec:readelf] exec readelf --wide --section-headers main$exe
+[linux] [exec:readelf] ! stdout '\.note\.gnu\.build-id'
+
 [short] stop # no need to verify this with -short
 
 # Ensure that reversing works with cgo.
