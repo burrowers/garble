@@ -28,6 +28,10 @@ architecture (toolexec model, caching, terminology) and `README.md` for design g
 - Test cost matters: keep builds minimal (smallest package that triggers the bug,
   reuse caches, avoid full std rebuilds and `-debugdir` outside `debugdir.txtar`).
 - New Go version support, dependency bumps, and CI tuning are routine recurring work.
+- garble rejects Go toolchains newer than it supports, including `devel` builds.
+  If the `go` in `$PATH` is too new, run tests via `GOTOOLCHAIN` with the latest
+  bugfix release of the newest supported major version, such as
+  `GOTOOLCHAIN=go1.27.0 go test -short` as of August 2026.
 
 ## Bundled x/tools packages
 
