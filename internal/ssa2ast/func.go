@@ -139,6 +139,7 @@ func isVoidType(typ types.Type) bool {
 }
 
 func isStringType(typ types.Type) bool {
+	typ = typ.Underlying()
 	return types.Identical(typ, types.Typ[types.String]) || types.Identical(typ, types.Typ[types.UntypedString])
 }
 
@@ -800,7 +801,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					},
 				}
 			} else {
-				makeIterExpr, nextType, err := makeMapIteratorPolyfill(fc.tc, instr.X.Type().(*types.Map))
+				makeIterExpr, nextType, err := makeMapIteratorPolyfill(fc.tc, instr.X.Type().Underlying().(*types.Map))
 				if err != nil {
 					return err
 				}
