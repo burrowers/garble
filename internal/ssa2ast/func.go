@@ -752,9 +752,9 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			}
 
 			if instr.IsString {
-				byteIdxName := fc.tupleVarName(instr.Iter, 0)
+				runeIdxName := fc.tupleVarName(instr.Iter, 0)
 				iterValName := fc.tupleVarName(instr.Iter, 1)
-				runeIdxName := fc.tupleVarName(instr.Iter, 2)
+				offsetsName := fc.tupleVarName(instr.Iter, 2)
 
 				stmt = ah.BlockStmt(
 					ah.AssignStmt(ast.NewIdent(okName), &ast.BinaryExpr{
@@ -768,12 +768,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 							&ast.AssignStmt{
 								Lhs: []ast.Expr{ast.NewIdent(keyName), ast.NewIdent(valName)},
 								Tok: token.ASSIGN,
-								Rhs: []ast.Expr{ast.NewIdent(byteIdxName), ah.IndexExprByExpr(ast.NewIdent(iterValName), ast.NewIdent(runeIdxName))},
-							},
-							&ast.AssignStmt{
-								Lhs: []ast.Expr{ast.NewIdent(byteIdxName)},
-								Tok: token.ADD_ASSIGN,
-								Rhs: []ast.Expr{ah.CallExprByName("len", ah.CallExprByName("string", ah.IndexExprByExpr(ast.NewIdent(iterValName), ast.NewIdent(runeIdxName))))},
+								Rhs: []ast.Expr{ah.IndexExprByExpr(ast.NewIdent(offsetsName), ast.NewIdent(runeIdxName)), ah.IndexExprByExpr(ast.NewIdent(iterValName), ast.NewIdent(runeIdxName))},
 							},
 							&ast.IncDecStmt{X: ast.NewIdent(runeIdxName), Tok: token.INC},
 						),
@@ -805,23 +800,30 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				return err
 			}
 			if isStringType(instr.X.Type()) {
-				byteIdxName := fc.tupleVarName(instr, 0)
+				runeIdxName := fc.tupleVarName(instr, 0)
 				iterValName := fc.tupleVarName(instr, 1)
-				runeIdxName := fc.tupleVarName(instr, 2)
+				offsetsName := fc.tupleVarName(instr, 2)
 
-				astFunc.Vars[byteIdxName] = types.Typ[types.Int]
-				astFunc.Vars[iterValName] = types.NewSlice(types.Typ[types.Rune])
 				astFunc.Vars[runeIdxName] = types.Typ[types.Int]
+				astFunc.Vars[iterValName] = types.NewSlice(types.Typ[types.Rune])
+				astFunc.Vars[offsetsName] = types.NewSlice(types.Typ[types.Int])
 
-				stmt = &ast.AssignStmt{
-					Lhs: []ast.Expr{ast.NewIdent(byteIdxName), ast.NewIdent(iterValName), ast.NewIdent(runeIdxName)},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{
-						ah.IntLit(0),
-						ah.CallExpr(&ast.ArrayType{Elt: ast.NewIdent("rune")}, xExpr),
-						ah.IntLit(0),
+				idxName := fc.tupleVarName(instr, 3)
+				runeName := fc.tupleVarName(instr, 4)
+
+				stmt = ah.BlockStmt(
+					&ast.RangeStmt{
+						Key:   ast.NewIdent(idxName),
+						Value: ast.NewIdent(runeName),
+						Tok:   token.DEFINE,
+						X:     xExpr,
+						Body: ah.BlockStmt(
+							ah.AssignStmt(ast.NewIdent(iterValName), ah.CallExprByName("append", ast.NewIdent(iterValName), ast.NewIdent(runeName))),
+							ah.AssignStmt(ast.NewIdent(offsetsName), ah.CallExprByName("append", ast.NewIdent(offsetsName), ast.NewIdent(idxName))),
+						),
 					},
-				}
+					ah.AssignStmt(ast.NewIdent(runeIdxName), ah.IntLit(0)),
+				)
 			} else {
 				makeIterExpr, nextType, err := makeMapIteratorPolyfill(fc.tc, instr.X.Type().Underlying().(*types.Map))
 				if err != nil {
