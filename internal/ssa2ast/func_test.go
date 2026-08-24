@@ -348,6 +348,11 @@ type testStruct struct {
 	A, B int
 }
 
+type blankFieldStruct struct {
+	_ int
+	X int
+}
+
 func typeOps() {
 	sprintf := makeSprintf("typeOps")
 
@@ -373,6 +378,9 @@ func typeOps() {
 	strc := testStruct{return42(), return42() + 2}
 	strc.B += strc.A
 	sprintf(strc)
+
+	bs := blankFieldStruct{return42(), 7}
+	sprintf(bs.X)
 
 	// Access to unexported structure
 	discard := io.Discard
