@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"reflect"
 	"strconv"
 )
 
@@ -99,12 +98,10 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 	case *types.Named:
 		obj := typ.Obj()
 
-		// TODO: rewrite struct inlining without reflection hack
-		if parent := obj.Parent(); parent != nil {
-			isFuncScope := reflect.ValueOf(parent).Elem().FieldByName("isFunc")
-			if isFuncScope.Bool() {
-				return tc.Convert(obj.Type().Underlying())
-			}
+		// A named type declared in a local (function or block) scope is not
+		// part of the converted output, so reference its underlying type.
+		if obj.Pkg() != nil && obj.Parent() != obj.Pkg().Scope() {
+			return tc.Convert(obj.Type().Underlying())
 		}
 
 		var namedExpr ast.Expr
