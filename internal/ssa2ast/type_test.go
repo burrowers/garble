@@ -2,6 +2,7 @@ package ssa2ast
 
 import (
 	"go/ast"
+	"go/types"
 	"testing"
 
 	"github.com/go-quicktest/qt"
@@ -101,4 +102,39 @@ func TestTypeToExpr(t *testing.T) {
 
 	structConvAst := convAst.(*ast.StructType)
 	qt.Assert(t, qt.CmpEquals(structConvAst, structAst, astCmpOpt))
+}
+
+func TestConvertLocalType(t *testing.T) {
+	_, _, info, _ := mustParseAndTypeCheckFile(`package main
+
+func f() {
+	if true {
+		type local struct{ X int }
+		var _ local
+	}
+}
+`)
+
+	var localType *types.Named
+	for _, obj := range info.Defs {
+		if tn, ok := obj.(*types.TypeName); ok && tn.Name() == "local" {
+			localType = tn.Type().(*types.Named)
+		}
+	}
+	if localType == nil {
+		t.Fatal("local type not found")
+	}
+
+	fc := &TypeConverter{resolver: defaultImportNameResolver}
+	convAst, err := fc.Convert(localType)
+	qt.Assert(t, qt.IsNil(err))
+
+	// Local (function/block-scoped) types are inlined to their underlying
+	// type, since the name is not emitted in the converted output.
+	structAst, ok := convAst.(*ast.StructType)
+	if !ok {
+		t.Fatalf("Convert(local type) = %T, want *ast.StructType (inlined)", convAst)
+	}
+	qt.Assert(t, qt.Equals(len(structAst.Fields.List), 1))
+	qt.Assert(t, qt.Equals(structAst.Fields.List[0].Names[0].Name, "X"))
 }
