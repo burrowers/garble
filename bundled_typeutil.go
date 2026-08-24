@@ -1,11 +1,10 @@
-// NOTE(garble): bundled as of golang.org/x/tools v0.42.0; see CONTRIBUTING.md.
+// NOTE(garble): bundled as of golang.org/x/tools v0.49.0; see CONTRIBUTING.md.
 
 package main
 
 import (
 	"fmt"
 	"go/types"
-	_ "unsafe"
 )
 
 // -- Hasher --
@@ -35,8 +34,9 @@ func (h typeutil_Hasher) Hash(t types.Type) uint32 {
 // inside the signature of a generic function; this is used to
 // optimize [hasher.hashTypeParam].
 //
-// typeParamIDs assigns deterministic traversal-local IDs to free type params,
-// making hashes stable across alpha-renaming in equivalent generic contexts.
+// NOTE(garble): typeParamIDs assigns deterministic traversal-local IDs to free
+// type params, making hashes stable across alpha-renaming in equivalent
+// generic contexts.
 type typeutil_hasher struct {
 	inGenericSig bool
 	typeParamIDs map[*types.TypeParam]uint32
@@ -201,6 +201,9 @@ func (h typeutil_hasher) hashTypeParam(t *types.TypeParam) uint32 {
 	// Within the signature of a generic function, TypeParams are
 	// identical if they have the same index and constraint, so we
 	// hash them based on index.
+	//
+	// NOTE(garble): unlike upstream, which hashes the type name of a free
+	// TypeParam, we assign it a traversal-local ID; see below.
 	//
 	// When we are outside a generic function signature, free TypeParams can
 	// come from equivalent generic contexts that only differ by alpha-renaming
