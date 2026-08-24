@@ -1000,6 +1000,17 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			}
 		case *ssa.MakeClosure:
 			anonFunc := instr.Fn.(*ssa.Function)
+			if strings.HasSuffix(anonFunc.Name(), "$bound") {
+				recvExpr, err := fc.convertSsaValue(instr.Bindings[0])
+				if err != nil {
+					return err
+				}
+				methodName := strings.TrimSuffix(anonFunc.Name(), "$bound")
+				methodName, _, _ = strings.Cut(methodName, "[")
+				stmt = defineVar(instr, ah.SelectExpr(recvExpr, ast.NewIdent(methodName)))
+				break
+			}
+
 			anonFuncName, err := fc.getAnonFunctionName(anonFunc)
 			if err != nil {
 				return err
