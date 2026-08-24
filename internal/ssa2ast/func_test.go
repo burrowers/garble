@@ -272,6 +272,22 @@ func chanOps() {
 	val, ok := <-a
 
 	sprintf(val, ok)
+
+	f := make(chan string, 1)
+	f <- "x"
+	select {
+	case r, ok := <-f:
+		sprintf("sel-ok", r, ok)
+	default:
+		sprintf("sel-default")
+	}
+	close(f)
+	select {
+	case r, ok := <-f:
+		sprintf("sel-closed", r, ok)
+	default:
+		sprintf("sel-default2")
+	}
 	return
 }
 

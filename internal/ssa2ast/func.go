@@ -841,7 +841,16 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					if valHasRefs {
 						astFunc.Vars[valName] = valType
 					}
-					commStmt = ah.AssignStmt(ast.NewIdent(valName), &ast.UnaryExpr{Op: token.ARROW, X: chanExpr})
+					recvExpr := &ast.UnaryExpr{Op: token.ARROW, X: chanExpr}
+					if okHasRefs {
+						commStmt = &ast.AssignStmt{
+							Lhs: []ast.Expr{ast.NewIdent(valName), ast.NewIdent(okName)},
+							Tok: token.ASSIGN,
+							Rhs: []ast.Expr{recvExpr},
+						}
+					} else {
+						commStmt = ah.AssignStmt(ast.NewIdent(valName), recvExpr)
+					}
 					recvIndex++
 				default:
 					return fmt.Errorf("not supported select chan dir %d: %w", state.Dir, ErrUnsupported)
