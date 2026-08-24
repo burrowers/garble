@@ -136,6 +136,10 @@ func slicesOps() {
 	return
 }
 
+type namedMap map[string]int
+
+type namedString string
+
 func iterAndMapsOps() {
 	sprintf := makeSprintf("iterAndMapsOps")
 
@@ -164,6 +168,19 @@ func iterAndMapsOps() {
 	}
 
 	sprintf(mmap["April"].String())
+
+	nm := namedMap{"a": 1, "b": 2}
+	var nmkeys []string
+	for k := range nm {
+		nmkeys = append(nmkeys, k)
+	}
+	sort.Strings(nmkeys)
+	sprintf(nmkeys)
+
+	ns := namedString("hello")
+	for i, r := range ns {
+		sprintf(i, r)
+	}
 	return
 }
 
