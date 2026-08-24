@@ -739,12 +739,13 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			}
 
 			if instr.IsString {
-				idxName := fc.tupleVarName(instr.Iter, 0)
+				byteIdxName := fc.tupleVarName(instr.Iter, 0)
 				iterValName := fc.tupleVarName(instr.Iter, 1)
+				runeIdxName := fc.tupleVarName(instr.Iter, 2)
 
 				stmt = ah.BlockStmt(
 					ah.AssignStmt(ast.NewIdent(okName), &ast.BinaryExpr{
-						X:  ast.NewIdent(idxName),
+						X:  ast.NewIdent(runeIdxName),
 						Op: token.LSS,
 						Y:  ah.CallExprByName("len", ast.NewIdent(iterValName)),
 					}),
@@ -754,9 +755,14 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 							&ast.AssignStmt{
 								Lhs: []ast.Expr{ast.NewIdent(keyName), ast.NewIdent(valName)},
 								Tok: token.ASSIGN,
-								Rhs: []ast.Expr{ast.NewIdent(idxName), ah.IndexExprByExpr(ast.NewIdent(iterValName), ast.NewIdent(idxName))},
+								Rhs: []ast.Expr{ast.NewIdent(byteIdxName), ah.IndexExprByExpr(ast.NewIdent(iterValName), ast.NewIdent(runeIdxName))},
 							},
-							&ast.IncDecStmt{X: ast.NewIdent(idxName), Tok: token.INC},
+							&ast.AssignStmt{
+								Lhs: []ast.Expr{ast.NewIdent(byteIdxName)},
+								Tok: token.ADD_ASSIGN,
+								Rhs: []ast.Expr{ah.CallExprByName("len", ah.CallExprByName("string", ah.IndexExprByExpr(ast.NewIdent(iterValName), ast.NewIdent(runeIdxName))))},
+							},
+							&ast.IncDecStmt{X: ast.NewIdent(runeIdxName), Tok: token.INC},
 						),
 					},
 				)
@@ -786,18 +792,21 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				return err
 			}
 			if isStringType(instr.X.Type()) {
-				idxName := fc.tupleVarName(instr, 0)
-				valName := fc.tupleVarName(instr, 1)
+				byteIdxName := fc.tupleVarName(instr, 0)
+				iterValName := fc.tupleVarName(instr, 1)
+				runeIdxName := fc.tupleVarName(instr, 2)
 
-				astFunc.Vars[idxName] = types.Typ[types.Int]
-				astFunc.Vars[valName] = types.NewSlice(types.Typ[types.Rune])
+				astFunc.Vars[byteIdxName] = types.Typ[types.Int]
+				astFunc.Vars[iterValName] = types.NewSlice(types.Typ[types.Rune])
+				astFunc.Vars[runeIdxName] = types.Typ[types.Int]
 
 				stmt = &ast.AssignStmt{
-					Lhs: []ast.Expr{ast.NewIdent(idxName), ast.NewIdent(valName)},
+					Lhs: []ast.Expr{ast.NewIdent(byteIdxName), ast.NewIdent(iterValName), ast.NewIdent(runeIdxName)},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
 						ah.IntLit(0),
 						ah.CallExpr(&ast.ArrayType{Elt: ast.NewIdent("rune")}, xExpr),
+						ah.IntLit(0),
 					},
 				}
 			} else {

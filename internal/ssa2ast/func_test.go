@@ -167,6 +167,10 @@ func iterAndMapsOps() {
 		sprintf(idx, s)
 	}
 
+	for i, r := range "héllo" {
+		sprintf(i, r)
+	}
+
 	sprintf(mmap["April"].String())
 
 	nm := namedMap{"a": 1, "b": 2}
