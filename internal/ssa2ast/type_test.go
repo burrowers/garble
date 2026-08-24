@@ -138,3 +138,39 @@ func f() {
 	qt.Assert(t, qt.Equals(len(structAst.Fields.List), 1))
 	qt.Assert(t, qt.Equals(structAst.Fields.List[0].Names[0].Name, "X"))
 }
+
+func TestConvertLocalGenericType(t *testing.T) {
+	_, _, info, _ := mustParseAndTypeCheckFile(`package main
+
+func f() {
+	type pair[T any] struct{ a, b T }
+	var p pair[int]
+	_ = p
+}
+`)
+
+	var pairType *types.Named
+	for _, obj := range info.Defs {
+		if v, ok := obj.(*types.Var); ok && v.Name() == "p" {
+			pairType = v.Type().(*types.Named)
+		}
+	}
+	if pairType == nil {
+		t.Fatal("pair type not found")
+	}
+
+	fc := &TypeConverter{resolver: defaultImportNameResolver}
+	convAst, err := fc.Convert(pairType)
+	qt.Assert(t, qt.IsNil(err))
+
+	// The instantiated type's type arguments must be substituted into the
+	// inlined underlying type; the generic type parameter T is out of scope.
+	structAst, ok := convAst.(*ast.StructType)
+	if !ok {
+		t.Fatalf("Convert(pair[int]) = %T, want *ast.StructType (inlined)", convAst)
+	}
+	qt.Assert(t, qt.Equals(len(structAst.Fields.List), 2))
+	for _, f := range structAst.Fields.List {
+		qt.Assert(t, qt.Equals(f.Type.(*ast.Ident).Name, "int"))
+	}
+}
