@@ -255,6 +255,12 @@ func methodOps() {
 	thunkMethod2 := (*structCalls).Return2
 	sprintf(thunkMethod2(&strct))
 
+	boundMethod := strct.Return1
+	sprintf(boundMethod())
+
+	boundMethod2 := strct.Return2
+	sprintf(boundMethod2())
+
 	closureVar := "c " + s
 	anonFnc := func(n func(structCalls) string) string {
 		return n(structCalls{}) + "anon" + closureVar
@@ -384,6 +390,14 @@ func sumIntsOrFloats[K comparable, V int64 | float64](m map[K]V) V {
     return s
 }
 
+type genericBox[T any] struct {
+	val T
+}
+
+func (b genericBox[T]) get() T {
+	return b.val
+}
+
 func genericFunc() {
 	sprintf := makeSprintf("genericFunc")
 	
@@ -401,6 +415,10 @@ func genericFunc() {
 
 	sprintf(genericConvert(int64(34)))
 	sprintf(genericConvert(float64(12.5)))
+
+	box := genericBox[int]{val: 42}
+	getVal := box.get
+	sprintf(getVal())
 }
 
 func genericConvert[T ~int64 | ~float64](x T) float64 {
