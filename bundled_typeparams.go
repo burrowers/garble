@@ -1,4 +1,4 @@
-// NOTE(garble): bundled as of golang.org/x/tools v0.49.0; see CONTRIBUTING.md.
+// NOTE(garble): bundled as of golang.org/x/tools v0.49.0; see CLAUDE.md.
 
 //lint:file-ignore ST1012 NOTE(garble): err var names get a new prefix
 
