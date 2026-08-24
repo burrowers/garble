@@ -101,7 +101,7 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 		// A named type declared in a local (function or block) scope is not
 		// part of the converted output, so reference its underlying type.
 		if obj.Pkg() != nil && obj.Parent() != obj.Pkg().Scope() {
-			return tc.Convert(obj.Type().Underlying())
+			return tc.Convert(typ.Underlying())
 		}
 
 		var namedExpr ast.Expr
