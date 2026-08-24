@@ -601,6 +601,19 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			if err != nil {
 				return err
 			}
+
+			if fieldName == "_" {
+				// Blank fields cannot be referenced; the store to them is a
+				// no-op, but its value expression may still have side effects.
+				fieldType := instr.Type().Underlying().(*types.Pointer).Elem()
+				fieldTypeExpr, err := fc.tc.Convert(fieldType)
+				if err != nil {
+					return err
+				}
+				stmt = defineVar(instr, ah.CallExprByName("new", fieldTypeExpr))
+				break
+			}
+
 			stmt = defineVar(instr, &ast.UnaryExpr{
 				Op: token.AND,
 				X:  ah.SelectExpr(xExpr, ast.NewIdent(fieldName)),
