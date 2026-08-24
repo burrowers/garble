@@ -3,7 +3,11 @@
 Thank you for your interest in contributing! Here are some ground rules:
 
 1. The tool's design decisions are in the [README](README.md)
-2. New features or major changes should be opened as an issue first
+2. Always file an issue before sending a PR: a bug report for a fix, or a
+   feature request for anything new. Discussing the problem first is the best
+   way to agree on whether and how it should be solved, so that your work is
+   not wasted. PRs without an issue may be closed in favor of one, with the
+   exception of trivial fixes such as typos.
 3. All contributions are done in PRs with at least one review and CI
 4. All changes that alter behavior (features, flags, bugs) need a test
 5. We use the `#obfuscation` channel over at the [Gophers Slack](https://invite.slack.golangbridge.org/) to chat
