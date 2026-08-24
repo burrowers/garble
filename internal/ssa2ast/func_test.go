@@ -361,6 +361,13 @@ func genericFunc() {
 		"second": 12.1,
     }
 	sprintf(sumIntsOrFloats(floats))
+
+	sprintf(genericConvert(int64(34)))
+	sprintf(genericConvert(float64(12.5)))
+}
+
+func genericConvert[T ~int64 | ~float64](x T) float64 {
+	return float64(x)
 }
 `
 
