@@ -564,6 +564,12 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				return err
 			}
 			stmt = defineVar(instr, castExpr)
+		case *ssa.MultiConvert:
+			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
+			if err != nil {
+				return err
+			}
+			stmt = defineVar(instr, castExpr)
 		case *ssa.Defer:
 			callExpr, err := fc.convertCall(instr.Call)
 			if err != nil {
