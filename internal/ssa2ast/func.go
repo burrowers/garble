@@ -147,6 +147,7 @@ func getFieldName(tp types.Type, index int) (string, error) {
 	if pt, ok := tp.(*types.Pointer); ok {
 		tp = pt.Elem()
 	}
+	tp = types.Unalias(tp)
 	if named, ok := tp.(*types.Named); ok {
 		tp = named.Underlying()
 	}

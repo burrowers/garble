@@ -357,6 +357,8 @@ type blankFieldStruct struct {
 	X int
 }
 
+type aliasStruct = struct{ X int }
+
 func typeOps() {
 	sprintf := makeSprintf("typeOps")
 
@@ -385,6 +387,9 @@ func typeOps() {
 
 	bs := blankFieldStruct{return42(), 7}
 	sprintf(bs.X)
+
+	as := aliasStruct{return42()}
+	sprintf(as.X)
 
 	// Access to unexported structure
 	discard := io.Discard
