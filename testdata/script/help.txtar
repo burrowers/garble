@@ -39,6 +39,14 @@ stderr 'Run .go help test.'
 ! stderr 'Garble obfuscates Go code'
 ! stdout .
 
+! exec garble install -h
+stderr 'garble \[garble flags\] install'
+stderr 'This command wraps "go install"'
+stderr 'usage: go install'
+stderr 'Run .go help install.'
+! stderr 'Garble obfuscates Go code'
+! stdout .
+
 ! exec garble reverse -h
 stderr 'garble \[garble flags\] reverse \[build flags\] package \[files\]'
 ! stderr 'usage: go '

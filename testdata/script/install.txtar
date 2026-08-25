@@ -1,0 +1,30 @@
+# Check that "garble install" builds and installs an obfuscated binary.
+env GOBIN=$WORK/bin
+exec garble install .
+exists $WORK/bin/main$exe
+
+# The installed binary works and is obfuscated.
+exec $WORK/bin/main$exe
+stdout '^hello from garble install$'
+! binsubstr $WORK/bin/main$exe ${WORK} 'garble_main.go' 'greeting' 'test/main'
+
+[short] stop # installing a second time to check caching is slow
+
+# Installing again reuses the build cache and produces the same binary.
+cp $WORK/bin/main$exe $WORK/bin/main_old$exe
+rm $WORK/bin/main$exe
+exec garble install .
+bincmp $WORK/bin/main$exe $WORK/bin/main_old$exe
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- garble_main.go --
+package main
+
+import "fmt"
+
+func greeting() string { return "hello from garble install" }
+
+func main() { fmt.Println(greeting()) }

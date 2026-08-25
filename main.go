@@ -241,7 +241,7 @@ func mainErr(args []string) error {
 		return commandMap(args)
 	case "bug":
 		return commandBug(args)
-	case "build", "test", "run":
+	case "build", "test", "run", "install":
 		cmd, err := toolexecCmd(command, args)
 		defer func() {
 			if err := os.RemoveAll(os.Getenv("GARBLE_SHARED")); err != nil {
@@ -666,6 +666,7 @@ The following commands are supported:
 	build          replace "go build"
 	test           replace "go test"
 	run            replace "go run"
+	install        replace "go install"
 	reverse        de-obfuscate output such as stack traces
 	map            describe how names are obfuscated, as JSON
 	bug            start a bug report
