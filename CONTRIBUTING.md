@@ -12,9 +12,6 @@ Thank you for your interest in contributing! Here are some ground rules:
 4. All changes that alter behavior (features, flags, bugs) need a test
 5. We use the `#obfuscation` channel over at the [Gophers Slack](https://invite.slack.golangbridge.org/) to chat
 
-When contributing for the first time, you should also add yourself to the
-[AUTHORS file](AUTHORS).
-
 ### Testing
 
 Just the usual `go test ./...`; many of the tests are in
