@@ -8,7 +8,6 @@ import (
 	"go/types"
 	"maps"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -1142,12 +1141,18 @@ func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, erro
 			Type: typeExpr,
 		}
 
-		sort.Strings(varNames)
+		slices.Sort(varNames)
 		for _, name := range varNames {
 			spec.Names = append(spec.Names, ast.NewIdent(name))
 		}
 		specs = append(specs, spec)
 	}
+	// groupedVar is a map, so its iteration order is random. Sort the grouped
+	// specs by their first (sorted, globally unique) name to keep the emitted
+	// var block deterministic, which reproducible builds depend on.
+	slices.SortFunc(specs, func(a, b ast.Spec) int {
+		return strings.Compare(a.(*ast.ValueSpec).Names[0].Name, b.(*ast.ValueSpec).Names[0].Name)
+	})
 	if len(specs) > 0 {
 		stmts = append(stmts, &ast.DeclStmt{Decl: &ast.GenDecl{
 			Tok:   token.VAR,

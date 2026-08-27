@@ -1,9 +1,11 @@
 package ctrlflow
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/importer"
+	"go/parser"
 	"go/printer"
 	"go/token"
 	"go/types"
@@ -97,4 +99,48 @@ func Test_generateTrashBlock(t *testing.T) {
 	body.List = append(body.List, gen.Generate(stmtCount, predefinedArgs)...)
 	printer.Fprint(os.Stdout, fset, file)
 	buildPkg(file)
+}
+
+// TestObfuscateDeterministic ensures control flow obfuscation is reproducible:
+// obfuscating the same package with the same seed must produce identical
+// output. It exercises the flatten hardening (which once drew its key sizes
+// from the global, unseeded math/rand source), trash generation and the
+// ssa2ast var block, whose candidate pools were ordered by Go map iteration.
+func TestObfuscateDeterministic(t *testing.T) {
+	const seed = 12345
+	const src = `package main
+
+import (
+	_ "fmt"
+	_ "os"
+)
+
+//garble:controlflow flatten_passes=1 junk_jumps=5 block_splits=3 trash_blocks=8 flatten_hardening=xor,delegate_table
+func compute(n int) int {
+	if n > 0 {
+		return n * 2
+	}
+	return -n
+}
+
+func main() {
+	_ = compute(10)
+}
+`
+	run := func() string {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
+		qt.Assert(t, qt.IsNil(err))
+		ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{file}, 0)
+		qt.Assert(t, qt.IsNil(err))
+		_, newFile, _, err := Obfuscate(fset, ssaPkg, []*ast.File{file}, mathrand.New(mathrand.NewSource(seed)))
+		qt.Assert(t, qt.IsNil(err))
+		var buf bytes.Buffer
+		qt.Assert(t, qt.IsNil(printer.Fprint(&buf, fset, newFile)))
+		return buf.String()
+	}
+
+	first := run()
+	second := run()
+	qt.Assert(t, qt.Equals(second, first))
 }
