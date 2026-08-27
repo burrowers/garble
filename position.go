@@ -118,6 +118,14 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			printBuf2.Write(src[copied:offset])
 			copied = offset + len(lit)
 		case token.IDENT:
+			if identIndex >= len(origCallOffsets) {
+				// A transform such as ctrlflow/ssa2ast may add identifiers
+				// that have no corresponding entry in origCallOffsets, so the
+				// printed source can contain more identifiers than were
+				// collected from the AST. They carry no original position to
+				// remap, so leave them untouched.
+				continue
+			}
 			origOffset := origCallOffsets[identIndex]
 			identIndex++
 			if origOffset == -1 {
