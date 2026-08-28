@@ -227,12 +227,22 @@ func (d *definedVar) HasRefs() bool {
 
 // initialize scans and writes all supported functions in all non-internal packages used in the program
 func (t *trashGenerator) initialize(ssaProg *ssa.Program) {
-	for _, p := range ssaProg.AllPackages() {
+	// AllPackages and Package.Members are backed by maps, whose iteration order
+	// is random. The candidate pools built here are later indexed with the
+	// seeded PRNG, so a random order would pick different globals and functions
+	// on each run and break reproducible builds. Walk both in a stable order.
+	pkgs := ssaProg.AllPackages()
+	slices.SortFunc(pkgs, func(a, b *ssa.Package) int {
+		return strings.Compare(a.Pkg.Path(), b.Pkg.Path())
+	})
+	for _, p := range pkgs {
 		if isInternal(p.Pkg.Path()) || p.Pkg.Name() == "main" {
 			continue
 		}
 		var pkgFuncs []*types.Func
-		for _, member := range p.Members {
+		memberNames := slices.Sorted(maps.Keys(p.Members))
+		for _, memberName := range memberNames {
+			member := p.Members[memberName]
 			if !token.IsExported(member.Name()) {
 				continue
 			}
@@ -283,6 +293,8 @@ func (t *trashGenerator) chooseRandomVar(typ types.Type, vars map[string]*define
 	if len(candidates) == 0 {
 		return nil
 	}
+	// vars is a map, so sort before the seeded random pick to stay reproducible.
+	slices.Sort(candidates)
 
 	targetVarName := candidates[t.rand.Intn(len(candidates))]
 	targetVar := vars[targetVarName]
@@ -326,6 +338,10 @@ func (t *trashGenerator) generateRandomConst(p types.Type, rand *mathrand.Rand) 
 	if len(candidates) == 0 {
 		panic(fmt.Errorf("unsupported type: %v", p))
 	}
+	// valueGenerators is a map, so sort before the seeded random pick.
+	slices.SortFunc(candidates, func(a, b types.Type) int {
+		return strings.Compare(a.String(), b.String())
+	})
 
 	generatorType := candidates[rand.Intn(len(candidates))]
 	generator := valueGenerators[generatorType]
@@ -396,7 +412,19 @@ func (t *trashGenerator) chooseRandomMethod(vars map[string]*definedVar) (string
 		return "", nil
 	}
 
+	// groupedCandidates is a map keyed by type; its values are built by
+	// iterating the vars map. Sort each group's names, then order the types by
+	// their first name. Variable names are unique across vars, so this is a
+	// strict total order, unlike sorting by Type.String() (two distinct type
+	// objects can share a String, and slices.SortFunc is not stable, so a tie
+	// would leave the order at the mercy of the random map iteration).
+	for _, names := range groupedCandidates {
+		slices.Sort(names)
+	}
 	candidateTypes := slices.Collect(maps.Keys(groupedCandidates))
+	slices.SortFunc(candidateTypes, func(a, b types.Type) int {
+		return strings.Compare(groupedCandidates[a][0], groupedCandidates[b][0])
+	})
 	candidateType := candidateTypes[t.rand.Intn(len(candidateTypes))]
 	candidates := groupedCandidates[candidateType]
 
@@ -497,6 +525,8 @@ func (t *trashGenerator) generateAssign(vars map[string]*definedVar) ast.Stmt {
 			varNames = append(varNames, name)
 		}
 	}
+	// vars is a map: sort first so the seeded shuffle permutes a stable order.
+	slices.Sort(varNames)
 	t.rand.Shuffle(len(varNames), func(i, j int) {
 		varNames[i], varNames[j] = varNames[j], varNames[i]
 	})
