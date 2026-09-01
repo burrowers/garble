@@ -51,6 +51,11 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		// We still need to print the files, but without obfuscating positions.
 		return src, nil
 	}
+	// Don't obfuscate positions in runtime - the //line directives confuse
+	// the compiler's linkname verification
+	if lpkg.ImportPath == "runtime" {
+		return src, nil
+	}
 
 	fsetFile := fset.File(file.Pos())
 	filename := filepath.Base(fsetFile.Name())

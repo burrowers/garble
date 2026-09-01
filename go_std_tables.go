@@ -4,53 +4,10 @@
 
 package main
 
-// runtimeAndDeps contains the runtime package and all of its transitive dependencies
-// as reported by 'go list -deps'.
-var runtimeAndDeps = map[string]bool{
-	"internal/abi":                     true, // go1.27 linux/amd64
-	"internal/asan":                    true, // go1.27 linux/amd64
-	"internal/bytealg":                 true, // go1.27 linux/amd64
-	"internal/byteorder":               true, // go1.27 linux/amd64
-	"internal/chacha8rand":             true, // go1.27 linux/amd64
-	"internal/coverage/rtcov":          true, // go1.27 linux/amd64
-	"internal/cpu":                     true, // go1.27 linux/amd64
-	"internal/goarch":                  true, // go1.27 linux/amd64
-	"internal/godebugs":                true, // go1.27 linux/amd64
-	"internal/goexperiment":            true, // go1.27 linux/amd64
-	"internal/goos":                    true, // go1.27 linux/amd64
-	"internal/msan":                    true, // go1.27 linux/amd64
-	"internal/profilerecord":           true, // go1.27 linux/amd64
-	"internal/race":                    true, // go1.27 linux/amd64
-	"internal/runtime/atomic":          true, // go1.27 linux/amd64
-	"internal/runtime/cgroup":          true, // go1.27 linux/amd64
-	"internal/runtime/exithook":        true, // go1.27 linux/amd64
-	"internal/runtime/gc":              true, // go1.27 linux/amd64
-	"internal/runtime/gc/scan":         true, // go1.27 linux/amd64
-	"internal/runtime/maps":            true, // go1.27 linux/amd64
-	"internal/runtime/math":            true, // go1.27 linux/amd64
-	"internal/runtime/pprof/label":     true, // go1.27 linux/amd64
-	"internal/runtime/sys":             true, // go1.27 linux/amd64
-	"internal/runtime/syscall/linux":   true, // go1.27 linux/amd64
-	"internal/runtime/syscall/windows": true, // go1.27 windows/386
-	"internal/strconv":                 true, // go1.27 linux/amd64
-	"internal/stringslite":             true, // go1.27 linux/amd64
-	"internal/trace/tracev2":           true, // go1.27 linux/amd64
-	"math/bits":                        true, // go1.27 linux/amd64
-	"runtime":                          true, // go1.27 linux/amd64
-	"structs":                          true, // go1.27 wasip1/wasm
-	"unsafe":                           true, // go1.27 linux/amd64
-}
-
 // runtimeAndLinknamed contains the runtime package and all the packages
 // which it points to via //go:linkname directives.
 // We need to track these as some are not imported as transitive dependencies,
 // and we need to load these to properly obfuscate the linkname target names.
-//
-// Note that runtimeAndLinknamed may contain duplicates with runtimeAndDeps.
-// This is on purpose; some packages are in runtimeAndDeps via 'go list -deps'
-// but not transitively imported on some platforms, even though they are used
-// from the runtime package via //go:linkname directives on those platforms.
-// To make sure we have coverage on all platforms, we allow duplicates.
 var runtimeAndLinknamed = map[string]bool{
 	"arena":                            true, // go1.27
 	"crypto/fips140":                   true, // go1.27

@@ -6,6 +6,7 @@ package main
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 	"slices"
 	"strconv"
 	"strings"
@@ -45,12 +46,28 @@ func updateMagicValue(file *ast.File, magicValue uint32) {
 	}
 }
 
+// cloneIdent copies an identifier and carries its type object to the new AST
+// node, allowing the identifier obfuscator to treat both uses consistently.
+func cloneIdent(node *ast.Ident, info *types.Info) *ast.Ident {
+	clone := &ast.Ident{NamePos: node.NamePos, Name: node.Name, Obj: node.Obj}
+	if info != nil {
+		if obj := info.ObjectOf(node); obj != nil {
+			info.Uses[clone] = obj
+		}
+	}
+	return clone
+}
+
 // updateEntryOffset adds xor encryption for funcInfo.entryoff
 // Encryption algorithm contains 1 xor and 1 multiply operations and is not cryptographically strong.
 // Its goal, without slowing down program performance (reflection, stacktrace),
 // is to make it difficult to determine relations between function metadata and function itself in a binary file.
 // Difficulty of decryption is based on the difficulty of finding a small (probably inlined) entry() function without obvious patterns.
-func updateEntryOffset(file *ast.File, entryOffKey uint32) {
+//
+// The info parameter is used to register new AST nodes with type information,
+// which is necessary for the obfuscator to process them correctly when runtime
+// obfuscation is enabled.
+func updateEntryOffset(file *ast.File, entryOffKey uint32, info *types.Info) {
 	// Note that this field could be renamed in future Go versions.
 	const nameOffField = "nameOff"
 	entryOffUpdated := false
@@ -81,14 +98,50 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32) {
 			return true
 		}
 
+		// Get the receiver identifier (e.g., "f" in "f.entryOff")
+		receiverIdent, ok := selExpr.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		// Clone the receiver identifier for the new selector expression.
+		// This is crucial: we must NOT share the same ast.Ident node between
+		// multiple parent nodes, as that confuses the obfuscator which walks
+		// the AST and modifies node.Name in place.
+		clonedReceiver := cloneIdent(receiverIdent, info)
+
+		// Find the nameOff field in the struct to get its type object
+		// so we can properly register the new selector in the type info.
+		// We use LookupFieldOrMethod because nameOff might be in an embedded struct.
+		var nameOffVar *types.Var
+		if info != nil {
+			if obj := info.ObjectOf(receiverIdent); obj != nil {
+				// LookupFieldOrMethod handles embedded fields correctly.
+				// For unexported fields like nameOff, we need to pass the package.
+				pkg := obj.Pkg()
+				fieldObj, _, _ := types.LookupFieldOrMethod(obj.Type(), true, pkg, nameOffField)
+				if fv, ok := fieldObj.(*types.Var); ok {
+					nameOffVar = fv
+				}
+			}
+		}
+
+		// Create the new nameOff selector: clonedReceiver.nameOff
+		nameOffIdent := ast.NewIdent(nameOffField)
+		if info != nil && nameOffVar != nil {
+			info.Uses[nameOffIdent] = nameOffVar
+		}
+
+		newSelector := &ast.SelectorExpr{
+			X:   clonedReceiver,
+			Sel: nameOffIdent,
+		}
+
 		callExpr.Args[0] = &ast.BinaryExpr{
 			X:  selExpr,
 			Op: token.XOR,
 			Y: &ast.ParenExpr{X: &ast.BinaryExpr{
-				X: ah.CallExpr(ast.NewIdent("uint32"), &ast.SelectorExpr{
-					X:   selExpr.X,
-					Sel: ast.NewIdent(nameOffField),
-				}),
+				X:  ah.CallExpr(ast.NewIdent("uint32"), newSelector),
 				Op: token.MUL,
 				Y: &ast.BasicLit{
 					Kind:  token.INT,
@@ -335,6 +388,12 @@ func validateDirectRuntimeStripping(strippedByFile map[string]map[string]bool) {
 }
 
 var hidePrintDecl = &ast.FuncDecl{
+	Doc: &ast.CommentGroup{
+		List: []*ast.Comment{
+			{Text: "//go:nowritebarrierrec"},
+			{Text: "//go:nosplit"},
+		},
+	},
 	Name: ast.NewIdent("hidePrint"),
 	Type: &ast.FuncType{Params: &ast.FieldList{
 		List: []*ast.Field{{

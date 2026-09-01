@@ -48,24 +48,10 @@ var tmplTables = template.Must(template.New("").Parse(`
 
 package main
 
-// runtimeAndDeps contains the runtime package and all of its transitive dependencies
-// as reported by 'go list -deps'.
-var runtimeAndDeps = map[string]bool{
-{{- range $path := .RuntimeAndDeps }}
-	"{{ $path.String }}": true, // {{ $path.GoVersionLang }} {{ $path.Platform }}
-{{- end }}
-}
-
 // runtimeAndLinknamed contains the runtime package and all the packages
 // which it points to via //go:linkname directives.
 // We need to track these as some are not imported as transitive dependencies,
 // and we need to load these to properly obfuscate the linkname target names.
-//
-// Note that runtimeAndLinknamed may contain duplicates with runtimeAndDeps.
-// This is on purpose; some packages are in runtimeAndDeps via 'go list -deps'
-// but not transitively imported on some platforms, even though they are used
-// from the runtime package via //go:linkname directives on those platforms.
-// To make sure we have coverage on all platforms, we allow duplicates.
 var runtimeAndLinknamed = map[string]bool{
 {{- range $path := .RuntimeAndLinknamed }}
 	"{{ $path.String }}": true, // {{ $path.GoVersionLang }}
@@ -94,7 +80,6 @@ var reflectSkipPkg = map[string]bool{
 
 type tmplData struct {
 	GoVersions          []string
-	RuntimeAndDeps      []versionedString
 	RuntimeAndLinknamed []versionedString
 	CompilerIntrinsics  []tmplIntrinsic
 }
@@ -178,15 +163,6 @@ var rxLinkname = regexp.MustCompile(`^//go:linkname .* ([^.]*)\.[^.]*$`)
 var rxIntrinsic = regexp.MustCompile(`\b(add|addF|alias)\("([^"]*)", "([^"]*)",`)
 
 func main() {
-	var runtimeAndDeps []versionedString
-	for _, goVersion := range goVersions {
-		for _, platform := range goPlatforms {
-			runtimeAndDeps = append(runtimeAndDeps, lines(cmdGo(goVersion, platform, "list", "-deps", "runtime"))...)
-		}
-	}
-	slices.SortFunc(runtimeAndDeps, versionedString.Compare)
-	runtimeAndDeps = slices.CompactFunc(runtimeAndDeps, versionedString.Equal)
-
 	var goroots []versionedString
 	for _, goVersion := range goVersions {
 		goroots = append(goroots, cmdGo(goVersion, goPlatform{}, "env", "GOROOT"))
@@ -259,7 +235,6 @@ func main() {
 	var buf bytes.Buffer
 	if err := tmplTables.Execute(&buf, tmplData{
 		GoVersions:          goVersions,
-		RuntimeAndDeps:      runtimeAndDeps,
 		RuntimeAndLinknamed: runtimeAndLinknamed,
 		CompilerIntrinsics:  compilerIntrinsics,
 	}); err != nil {
