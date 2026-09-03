@@ -1,17 +1,18 @@
-From 16b978956b323d88ef4a48dbef124304f5206e90 Mon Sep 17 00:00:00 2001
-From: pagran <pagran@protonmail.com>
-Date: Sat, 14 Jan 2023 21:36:16 +0100
-Subject: [PATCH 3/3] add entryOff encryption
+From 40a662f6bddd449b3b4026611e4058e14e5f541c Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Thu, 3 Sep 2026 08:57:04 +0000
+Subject: [PATCH 3/4] add entryOff encryption
 
+Encrypt pclntab entry offsets with the per-build key supplied by Garble, keeping linker output symmetric with the runtime-side decoding performed in transformed programs.
 ---
  cmd/link/internal/ld/pcln.go | 20 ++++++++++++++++++++
  1 file changed, 20 insertions(+)
 
 diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
-index c47b9eab72..d58338f7c3 100644
+index ab2ac6de63..4c9f2ec6b2 100644
 --- a/cmd/link/internal/ld/pcln.go
 +++ b/cmd/link/internal/ld/pcln.go
-@@ -980,6 +980,26 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
+@@ -1035,6 +1035,26 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
  			sb.SetUint32(ctxt.Arch, dataoff, uint32(ldr.SymValue(fdsym)))
  		}
  	}
@@ -38,6 +39,3 @@ index c47b9eab72..d58338f7c3 100644
  }
  
  // pclntab initializes the pclntab symbol with
--- 
-2.53.0
-

@@ -1,9 +1,10 @@
+# Build and run a program which exercises runtime-backed maps and concurrency.
+# Goroutine startup and exit cross compiler, assembly, and runtime boundaries;
+# exercising them verifies that those symbol mappings and stack metadata agree.
 # Runtime obfuscation requires rebuilding a large part of the standard library.
 [short] skip 'runtime obfuscation is an integration test'
 
-# Exercise goroutines, channels, maps, allocation, formatting, and runtime APIs.
-env GOGARBLE='*'
-exec garble -seed=AAAAAAAAAAA build -o=main$exe .
+exec garble build -o=main$exe .
 exec ./main$exe
 stdout '^runtime-obfuscation-ok:'
 

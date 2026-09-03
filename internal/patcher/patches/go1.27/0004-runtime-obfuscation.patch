@@ -1,5 +1,48 @@
+From 8c01e904ec67969f210cca50ca1a23c104b2ca55 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Thu, 3 Sep 2026 08:57:05 +0000
+Subject: [PATCH 4/4] runtime obfuscation
+
+Translate garbled runtime package paths and symbols throughout the compiler, assembler, linker, ABI metadata, and runtime special cases so runtime and its dependencies can follow the normal obfuscation path without weakening toolchain checks.
+---
+ cmd/compile/internal/base/flag.go           |   2 +-
+ cmd/compile/internal/base/garble.go         |  66 +++++
+ cmd/compile/internal/escape/call.go         |   2 +-
+ cmd/compile/internal/inline/inl.go          |   3 +-
+ cmd/compile/internal/ir/func.go             |  22 +-
+ cmd/compile/internal/noder/helpers.go       |   5 +-
+ cmd/compile/internal/reflectdata/reflect.go |  35 ++-
+ cmd/compile/internal/ssa/rewrite.go         |  35 ++-
+ cmd/compile/internal/ssagen/intrinsics.go   |  46 +++-
+ cmd/compile/internal/typecheck/syms.go      |   3 +-
+ cmd/compile/internal/types/size.go          |  10 +-
+ cmd/compile/internal/types/type.go          |  46 +++-
+ cmd/compile/internal/types2/sizes.go        |  29 ++-
+ cmd/compile/internal/walk/expr.go           |   2 +-
+ cmd/internal/goobj/builtin.go               |  50 +++-
+ cmd/internal/obj/x86/asm6.go                |   5 +-
+ cmd/internal/objabi/funcid.go               |  37 +++
+ cmd/internal/objabi/funcid_test.go          |  24 ++
+ cmd/internal/objabi/pkgspecial.go           |  19 +-
+ cmd/link/internal/arm64/asm.go              |   4 +-
+ cmd/link/internal/ld/data.go                |   5 +-
+ cmd/link/internal/ld/deadcode.go            |   7 +
+ cmd/link/internal/ld/dwarf.go               |   4 +-
+ cmd/link/internal/ld/inittask.go            |   6 +
+ cmd/link/internal/ld/lib.go                 |  25 +-
+ cmd/link/internal/ld/pcln.go                | 116 ++++-----
+ cmd/link/internal/ld/symtab.go              |  56 ++++-
+ cmd/link/internal/ld/xcoff.go               |   8 +-
+ cmd/link/internal/loader/loader.go          | 266 +++++++++++++++++++-
+ cmd/link/internal/loader/loader_test.go     |  18 ++
+ cmd/link/internal/ppc64/asm.go              |   8 +-
+ runtime/traceback.go                        |  45 +++-
+ 32 files changed, 875 insertions(+), 134 deletions(-)
+ create mode 100644 src/cmd/compile/internal/base/garble.go
+ create mode 100644 src/cmd/internal/objabi/funcid_test.go
+
 diff --git a/cmd/compile/internal/base/flag.go b/cmd/compile/internal/base/flag.go
-index c8f1b2d..e3e9a78 100644
+index c8f1b2db30..e3e9a78bfb 100644
 --- a/cmd/compile/internal/base/flag.go
 +++ b/cmd/compile/internal/base/flag.go
 @@ -214,7 +214,7 @@ func ParseFlags() {
@@ -13,7 +56,7 @@ index c8f1b2d..e3e9a78 100644
  
 diff --git a/cmd/compile/internal/base/garble.go b/cmd/compile/internal/base/garble.go
 new file mode 100644
-index 0000000..b88f8bf
+index 0000000000..b88f8bf058
 --- /dev/null
 +++ b/cmd/compile/internal/base/garble.go
 @@ -0,0 +1,66 @@
@@ -84,7 +127,7 @@ index 0000000..b88f8bf
 +	return pkgPath, name
 +}
 diff --git a/cmd/compile/internal/escape/call.go b/cmd/compile/internal/escape/call.go
-index 8619e60..746df50 100644
+index 8619e6010b..746df50ae3 100644
 --- a/cmd/compile/internal/escape/call.go
 +++ b/cmd/compile/internal/escape/call.go
 @@ -449,7 +449,7 @@ func resolveAssignedCallees(assigns []*ir.AssignStmt) []*ir.Name {
@@ -97,7 +140,7 @@ index 8619e60..746df50 100644
  		len(fntype.Params()) == 2 && fntype.Params()[1].Type.IsShape()
  }
 diff --git a/cmd/compile/internal/inline/inl.go b/cmd/compile/internal/inline/inl.go
-index bd8c3c1..0900101 100644
+index bd8c3c1a23..0900101e62 100644
 --- a/cmd/compile/internal/inline/inl.go
 +++ b/cmd/compile/internal/inline/inl.go
 @@ -495,7 +495,8 @@ opSwitch:
@@ -111,7 +154,7 @@ index bd8c3c1..0900101 100644
  					switch fn {
  					case "NoEscape":
 diff --git a/cmd/compile/internal/ir/func.go b/cmd/compile/internal/ir/func.go
-index e387927..21f69e4 100644
+index e3879276d9..21f69e4de2 100644
 --- a/cmd/compile/internal/ir/func.go
 +++ b/cmd/compile/internal/ir/func.go
 @@ -13,9 +13,28 @@ import (
@@ -155,7 +198,7 @@ index e387927..21f69e4 100644
  
  // IsIfaceOfFunc inspects whether n is an interface conversion from a direct
 diff --git a/cmd/compile/internal/noder/helpers.go b/cmd/compile/internal/noder/helpers.go
-index 4551270..440a632 100644
+index 45512706d2..440a632376 100644
 --- a/cmd/compile/internal/noder/helpers.go
 +++ b/cmd/compile/internal/noder/helpers.go
 @@ -7,6 +7,7 @@ package noder
@@ -178,7 +221,7 @@ index 4551270..440a632 100644
  		}
  		typ = named.Underlying()
 diff --git a/cmd/compile/internal/reflectdata/reflect.go b/cmd/compile/internal/reflectdata/reflect.go
-index 1fca654..bba4e04 100644
+index 1fca65469b..bba4e0488a 100644
 --- a/cmd/compile/internal/reflectdata/reflect.go
 +++ b/cmd/compile/internal/reflectdata/reflect.go
 @@ -8,6 +8,7 @@ import (
@@ -252,7 +295,7 @@ index 1fca654..bba4e04 100644
  	case sym == nil:
  		// Anonymous type; possibly never seen before or ever again.
 diff --git a/cmd/compile/internal/ssa/rewrite.go b/cmd/compile/internal/ssa/rewrite.go
-index c1fbc51..ef3da19 100644
+index c1fbc51dc3..ef3da198aa 100644
 --- a/cmd/compile/internal/ssa/rewrite.go
 +++ b/cmd/compile/internal/ssa/rewrite.go
 @@ -27,6 +27,36 @@ import (
@@ -305,7 +348,7 @@ index c1fbc51..ef3da19 100644
  
  func isMalloc(aux Aux) bool {
 diff --git a/cmd/compile/internal/ssagen/intrinsics.go b/cmd/compile/internal/ssagen/intrinsics.go
-index 6044efd..3d38ab3 100644
+index 6044efdb4f..3d38ab321c 100644
 --- a/cmd/compile/internal/ssagen/intrinsics.go
 +++ b/cmd/compile/internal/ssagen/intrinsics.go
 @@ -8,6 +8,8 @@ import (
@@ -392,7 +435,7 @@ index 6044efd..3d38ab3 100644
  
  func IsIntrinsicCall(n *ir.CallExpr) bool {
 diff --git a/cmd/compile/internal/typecheck/syms.go b/cmd/compile/internal/typecheck/syms.go
-index a977b5e..bde0b3e 100644
+index a977b5e110..bde0b3ed6c 100644
 --- a/cmd/compile/internal/typecheck/syms.go
 +++ b/cmd/compile/internal/typecheck/syms.go
 @@ -101,7 +101,8 @@ func LookupRuntimeVar(name string) *obj.LSym {
@@ -406,7 +449,7 @@ index a977b5e..bde0b3e 100644
  
  // InitCoverage loads the definitions for routines called
 diff --git a/cmd/compile/internal/types/size.go b/cmd/compile/internal/types/size.go
-index 4d64c7f..1f05479 100644
+index 4d64c7f8d2..1f05479882 100644
 --- a/cmd/compile/internal/types/size.go
 +++ b/cmd/compile/internal/types/size.go
 @@ -196,13 +196,6 @@ func calcStructOffset(t *Type, fields []*Field, offset int64) int64 {
@@ -435,7 +478,7 @@ index 4d64c7f..1f05479 100644
  
  		case buildcfg.Experiment.SIMD && (sym.Pkg.Path == "simd/archsimd") && len(t.Fields()) >= 1:
 diff --git a/cmd/compile/internal/types/type.go b/cmd/compile/internal/types/type.go
-index 3fa0b90..5e58165 100644
+index 3fa0b90e12..5e58165dc3 100644
 --- a/cmd/compile/internal/types/type.go
 +++ b/cmd/compile/internal/types/type.go
 @@ -11,9 +11,47 @@ import (
@@ -509,7 +552,7 @@ index 3fa0b90..5e58165 100644
  	return ""
  }
 diff --git a/cmd/compile/internal/types2/sizes.go b/cmd/compile/internal/types2/sizes.go
-index 534ecfb..f8f5a83 100644
+index 534ecfba35..f8f5a83bd0 100644
 --- a/cmd/compile/internal/types2/sizes.go
 +++ b/cmd/compile/internal/types2/sizes.go
 @@ -6,6 +6,21 @@
@@ -556,7 +599,7 @@ index 534ecfb..f8f5a83 100644
  
  func (s *StdSizes) Offsetsof(fields []*Var) []int64 {
 diff --git a/cmd/compile/internal/walk/expr.go b/cmd/compile/internal/walk/expr.go
-index 296d43f..dd59760 100644
+index 296d43f1d9..dd597603ca 100644
 --- a/cmd/compile/internal/walk/expr.go
 +++ b/cmd/compile/internal/walk/expr.go
 @@ -608,7 +608,7 @@ func walkCall(n *ir.CallExpr, init *ir.Nodes) ir.Node {
@@ -569,7 +612,7 @@ index 296d43f..dd59760 100644
  			// for the escape analysis to escape its argument based on
  			// the type. The call itself is no-op. Just walk the
 diff --git a/cmd/internal/goobj/builtin.go b/cmd/internal/goobj/builtin.go
-index aa665fd..db2ece5 100644
+index aa665fde99..db2ece5bf5 100644
 --- a/cmd/internal/goobj/builtin.go
 +++ b/cmd/internal/goobj/builtin.go
 @@ -4,7 +4,46 @@
@@ -641,7 +684,7 @@ index aa665fd..db2ece5 100644
 -	}
 -}
 diff --git a/cmd/internal/obj/x86/asm6.go b/cmd/internal/obj/x86/asm6.go
-index 89b64f4..c791bef 100644
+index 89b64f4eed..c791befadb 100644
 --- a/cmd/internal/obj/x86/asm6.go
 +++ b/cmd/internal/obj/x86/asm6.go
 @@ -2851,8 +2851,9 @@ func oclass(ctxt *obj.Link, p *obj.Prog, a *obj.Addr) int {
@@ -657,7 +700,7 @@ index 89b64f4..c791bef 100644
  		}
  
 diff --git a/cmd/internal/objabi/funcid.go b/cmd/internal/objabi/funcid.go
-index b953d84..6b72b90 100644
+index b953d84803..6b72b90842 100644
 --- a/cmd/internal/objabi/funcid.go
 +++ b/cmd/internal/objabi/funcid.go
 @@ -6,7 +6,9 @@ package objabi
@@ -720,7 +763,7 @@ index b953d84..6b72b90 100644
  			return id
 diff --git a/cmd/internal/objabi/funcid_test.go b/cmd/internal/objabi/funcid_test.go
 new file mode 100644
-index 0000000..28caaff
+index 0000000000..28caaff97e
 --- /dev/null
 +++ b/cmd/internal/objabi/funcid_test.go
 @@ -0,0 +1,24 @@
@@ -749,7 +792,7 @@ index 0000000..28caaff
 +	}
 +}
 diff --git a/cmd/internal/objabi/pkgspecial.go b/cmd/internal/objabi/pkgspecial.go
-index d7e147b..2b331f5 100644
+index d7e147b3ce..2b331f5b7b 100644
 --- a/cmd/internal/objabi/pkgspecial.go
 +++ b/cmd/internal/objabi/pkgspecial.go
 @@ -4,7 +4,11 @@
@@ -788,7 +831,7 @@ index d7e147b..2b331f5 100644
  }
  
 diff --git a/cmd/link/internal/arm64/asm.go b/cmd/link/internal/arm64/asm.go
-index 9864788..ec6c413 100644
+index 9864788e1b..ec6c413e43 100644
 --- a/cmd/link/internal/arm64/asm.go
 +++ b/cmd/link/internal/arm64/asm.go
 @@ -897,7 +897,9 @@ func archreloc(target *ld.Target, ldr *loader.Loader, syms *ld.ArchSyms, r loade
@@ -803,7 +846,7 @@ index 9864788..ec6c413 100644
  			ldr.Errorf(s, "program too large, address relocation distance = %d", t)
  		}
 diff --git a/cmd/link/internal/ld/data.go b/cmd/link/internal/ld/data.go
-index 4a27db5..a03a91b 100644
+index 4a27db5a42..a03a91b93b 100644
 --- a/cmd/link/internal/ld/data.go
 +++ b/cmd/link/internal/ld/data.go
 @@ -1876,7 +1876,8 @@ func (state *dodataState) assignDsymsToSection(sect *sym.Section, syms []loader.
@@ -826,7 +869,7 @@ index 4a27db5..a03a91b 100644
  					continue
  				}
 diff --git a/cmd/link/internal/ld/deadcode.go b/cmd/link/internal/ld/deadcode.go
-index c540a8f..c6906a2 100644
+index c540a8f21a..c6906a2d08 100644
 --- a/cmd/link/internal/ld/deadcode.go
 +++ b/cmd/link/internal/ld/deadcode.go
 @@ -124,7 +124,14 @@ func (d *deadcodePass) init() {
@@ -845,7 +888,7 @@ index c540a8f..c6906a2 100644
  		panic("could not look up runtime.mapinitnoop")
  	}
 diff --git a/cmd/link/internal/ld/dwarf.go b/cmd/link/internal/ld/dwarf.go
-index 1c51a73..bc5132a 100644
+index 1c51a73652..bc5132a18c 100644
 --- a/cmd/link/internal/ld/dwarf.go
 +++ b/cmd/link/internal/ld/dwarf.go
 @@ -1205,7 +1205,7 @@ func (d *dwctxt) writeDirFileTables(unit *sym.CompilationUnit, lsu *loader.Symbo
@@ -867,7 +910,7 @@ index 1c51a73..bc5132a 100644
  			}
  
 diff --git a/cmd/link/internal/ld/inittask.go b/cmd/link/internal/ld/inittask.go
-index ccf90b8..a6ca046 100644
+index ccf90b8b8c..a6ca04685f 100644
 --- a/cmd/link/internal/ld/inittask.go
 +++ b/cmd/link/internal/ld/inittask.go
 @@ -84,6 +84,12 @@ func (ctxt *Link) inittaskSym(rootNames []string, symName string) loader.Sym {
@@ -884,7 +927,7 @@ index ccf90b8..a6ca046 100644
  			roots = append(roots, p)
  		}
 diff --git a/cmd/link/internal/ld/lib.go b/cmd/link/internal/ld/lib.go
-index 9cbc129..ee6a6e2 100644
+index 9cbc12919f..ee6a6e2f32 100644
 --- a/cmd/link/internal/ld/lib.go
 +++ b/cmd/link/internal/ld/lib.go
 @@ -446,11 +446,25 @@ func loadinternal(ctxt *Link, name string) *sym.Library {
@@ -946,7 +989,7 @@ index 9cbc129..ee6a6e2 100644
  	}
  	if strings.HasPrefix(name, "go:string.") {
 diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
-index 4c9f2ec..0d74076 100644
+index 4c9f2ec6b2..0d74076c4b 100644
 --- a/cmd/link/internal/ld/pcln.go
 +++ b/cmd/link/internal/ld/pcln.go
 @@ -4,14 +4,6 @@
@@ -1164,7 +1207,7 @@ index 4c9f2ec..0d74076 100644
  }
  
 diff --git a/cmd/link/internal/ld/symtab.go b/cmd/link/internal/ld/symtab.go
-index e1bddec..10cb0a7 100644
+index e1bddecb70..10cb0a7c48 100644
 --- a/cmd/link/internal/ld/symtab.go
 +++ b/cmd/link/internal/ld/symtab.go
 @@ -521,7 +521,7 @@ func (ctxt *Link) symtab(pcln *pclntab) []sym.SymKind {
@@ -1238,7 +1281,7 @@ index e1bddec..10cb0a7 100644
  
  	lastmoduledatap := ldr.CreateSymForUpdate("runtime.lastmoduledatap", 0)
 diff --git a/cmd/link/internal/ld/xcoff.go b/cmd/link/internal/ld/xcoff.go
-index 4b5010e..ee43b23 100644
+index 4b5010eade..ee43b23712 100644
 --- a/cmd/link/internal/ld/xcoff.go
 +++ b/cmd/link/internal/ld/xcoff.go
 @@ -783,7 +783,7 @@ func (f *xcoffFile) writeSymbolFunc(ctxt *Link, x loader.Sym) []xcoffSym {
@@ -1268,7 +1311,7 @@ index 4b5010e..ee43b23 100644
  			}
  			s := &XcoffSymEnt64{
 diff --git a/cmd/link/internal/loader/loader.go b/cmd/link/internal/loader/loader.go
-index 04601b3..2ea801b 100644
+index 04601b32a0..2ea801b5b9 100644
 --- a/cmd/link/internal/loader/loader.go
 +++ b/cmd/link/internal/loader/loader.go
 @@ -27,6 +27,212 @@ import (
@@ -1581,7 +1624,7 @@ index 04601b3..2ea801b 100644
  			}
  		}
 diff --git a/cmd/link/internal/loader/loader_test.go b/cmd/link/internal/loader/loader_test.go
-index 7f7a75d..0e67ef2 100644
+index 7f7a75d9f4..0e67ef21e7 100644
 --- a/cmd/link/internal/loader/loader_test.go
 +++ b/cmd/link/internal/loader/loader_test.go
 @@ -32,6 +32,24 @@ func mkLoader() *Loader {
@@ -1610,7 +1653,7 @@ index 7f7a75d..0e67ef2 100644
  	ldr := mkLoader()
  	dummyOreader := oReader{version: -1, syms: make([]Sym, 100)}
 diff --git a/cmd/link/internal/ppc64/asm.go b/cmd/link/internal/ppc64/asm.go
-index 36ba79f..9fe08a6 100644
+index 36ba79f30a..9fe08a683e 100644
 --- a/cmd/link/internal/ppc64/asm.go
 +++ b/cmd/link/internal/ppc64/asm.go
 @@ -408,7 +408,11 @@ func genaddmoduledata(ctxt *ld.Link, ldr *loader.Loader) {
@@ -1636,7 +1679,7 @@ index 36ba79f..9fe08a6 100644
  			" register save/restore function %s", ldr.SymName(target))
  	}
 diff --git a/runtime/traceback.go b/runtime/traceback.go
-index 58161de..19edb20 100644
+index 58161dee06..19edb2004b 100644
 --- a/runtime/traceback.go
 +++ b/runtime/traceback.go
 @@ -1178,6 +1178,29 @@ func showframe(sf srcFunc, gp *g, firstFrame bool, calleeID abi.FuncID) bool {

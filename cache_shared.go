@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -392,34 +393,6 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	return newPath
 }
 
-// runtimePkgPaths lists packages that the Go compiler's PkgSpecial recognizes as runtime packages.
-// These need special handling for write barriers, nosplit, etc.
-// This must match the runtimePkgs list in cmd/internal/objabi/pkgspecial.go.
-var runtimePkgPaths = []string{
-	"runtime",
-	"internal/runtime/atomic",
-	"internal/runtime/cgroup",
-	"internal/runtime/exithook",
-	"internal/runtime/gc",
-	"internal/runtime/maps",
-	"internal/runtime/math",
-	"internal/runtime/strconv",
-	"internal/runtime/sys",
-	"internal/runtime/syscall",
-	"internal/abi",
-	"internal/bytealg",
-	"internal/byteorder",
-	"internal/chacha8rand",
-	"internal/coverage/rtcov",
-	"internal/cpu",
-	"internal/goarch",
-	"internal/godebugs",
-	"internal/goexperiment",
-	"internal/goos",
-	"internal/profilerecord",
-	"internal/stringslite",
-}
-
 var runtimePkgPathSet = func() map[string]struct{} {
 	set := make(map[string]struct{}, len(runtimePkgPaths))
 	for _, pkgPath := range runtimePkgPaths {
@@ -459,22 +432,14 @@ func buildRuntimePkgPathMap() string {
 // Format: "obfuscatedPkg.obfuscatedFunc=originalPkg.originalFunc,..."
 func buildSymbolMap() string {
 	var mappings []string
-	pkgPaths := make([]string, 0, len(compilerIntrinsics))
-	for pkgPath := range compilerIntrinsics {
-		pkgPaths = append(pkgPaths, pkgPath)
-	}
-	slices.Sort(pkgPaths)
+	pkgPaths := slices.Sorted(maps.Keys(compilerIntrinsics))
 	for _, pkgPath := range pkgPaths {
 		lpkg, _ := sharedCache.ListedPackages.get(pkgPath)
 		if lpkg == nil || !lpkg.ToObfuscate {
 			continue
 		}
 		obfuscatedPath := lpkg.obfuscatedImportPath()
-		symbols := make([]string, 0, len(compilerIntrinsics[pkgPath]))
-		for symbol := range compilerIntrinsics[pkgPath] {
-			symbols = append(symbols, symbol)
-		}
-		slices.Sort(symbols)
+		symbols := slices.Sorted(maps.Keys(compilerIntrinsics[pkgPath]))
 		for _, symbol := range symbols {
 			if obfuscatedPath != pkgPath {
 				mappings = append(mappings, obfuscatedPath+"."+symbol+"="+pkgPath+"."+symbol)
@@ -482,11 +447,7 @@ func buildSymbolMap() string {
 		}
 	}
 
-	pkgPaths = pkgPaths[:0]
-	for pkgPath := range builtinSymbols {
-		pkgPaths = append(pkgPaths, pkgPath)
-	}
-	slices.Sort(pkgPaths)
+	pkgPaths = slices.Sorted(maps.Keys(builtinSymbols))
 	for _, pkgPath := range pkgPaths {
 		lpkg, _ := sharedCache.ListedPackages.get(pkgPath)
 		if lpkg == nil || !lpkg.ToObfuscate {
@@ -515,18 +476,18 @@ var garbleBuildFlags = []string{"-trimpath", "-buildvcs=false"}
 // current GOOS, sorted for determinism. They are reached via runtime linkname
 // rather than imports, so they don't show up in the dependency graph.
 func linknamedToList() []string {
-	linknamed := make([]string, 0, len(runtimeAndLinknamed))
-	for path := range runtimeAndLinknamed {
+	linknamed := slices.Sorted(maps.Keys(runtimeAndLinknamed))
+	linknamed = slices.DeleteFunc(linknamed, func(path string) bool {
 		switch {
 		case sharedCache.GoEnv.GOOS != "js" && path == "syscall/js":
 			// GOOS-specific package.
+			return true
 		case sharedCache.GoEnv.GOOS != "darwin" && sharedCache.GoEnv.GOOS != "ios" && path == "crypto/x509/internal/macos":
 			// GOOS-specific package.
-		default:
-			linknamed = append(linknamed, path)
+			return true
 		}
-	}
-	slices.Sort(linknamed)
+		return false
+	})
 	return linknamed
 }
 

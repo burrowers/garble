@@ -1,14 +1,15 @@
-From 0d8063d9af410ceb914ba75b19a98686fe5f119c Mon Sep 17 00:00:00 2001
-From: pagran <pagran@protonmail.com>
-Date: Mon, 9 Jan 2023 13:30:36 +0100
-Subject: [PATCH 2/3] add unexported function name removing
+From c033bb46f8b9d4c467633b496c9ce05b76347a26 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Thu, 3 Sep 2026 08:57:04 +0000
+Subject: [PATCH 2/4] add unexported function name removing
 
+Teach the linker to replace unexported function names in tiny mode while preserving the runtime names and metadata identities that the Go runtime must still recognize.
 ---
  cmd/link/internal/ld/pcln.go | 98 +++++++++++++++++++++++++++++++++++-
  1 file changed, 97 insertions(+), 1 deletion(-)
 
 diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
-index ffe8fdf..ab2ac6d 100644
+index ffe8fdf7a1..ab2ac6de63 100644
 --- a/cmd/link/internal/ld/pcln.go
 +++ b/cmd/link/internal/ld/pcln.go
 @@ -8,6 +8,10 @@ import (
@@ -135,6 +136,3 @@ index ffe8fdf..ab2ac6d 100644
  	})
  
  	state.funcnametab = state.addGeneratedSym(ctxt, "runtime.funcnametab", size, 1, writeFuncNameTab)
--- 
-2.55.0
-

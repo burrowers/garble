@@ -120,10 +120,6 @@ func TestScript(t *testing.T) {
 				// GOCACHE is initialized by gotooltest to use the host's cache.
 				env.Setenv("GARBLE_CACHE", filepath.Join(hostCacheDir, "garble"))
 			}
-			// Pass through GARBLE_GO_SRC if set, for testing with modified Go source
-			if goSrc := os.Getenv("GARBLE_GO_SRC"); goSrc != "" {
-				env.Setenv("GARBLE_GO_SRC", goSrc)
-			}
 			return nil
 		},
 		// TODO: this condition should probably be supported by gotooltest
@@ -497,5 +493,27 @@ func TestFlagValue(t *testing.T) {
 			got := flagValue(test.flags, test.flagName)
 			qt.Assert(t, qt.DeepEquals(got, test.want))
 		})
+	}
+}
+
+func TestRuntimeGoexitToolchainDependency(t *testing.T) {
+	if !isToolchainNameDependency("runtime", "goexit") {
+		t.Fatal("runtime.goexit must keep its assembly name for runtime stack metadata")
+	}
+	found := false
+	for _, name := range builtinSymbols["runtime"] {
+		if name == "goexit" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("runtime.goexit must be included in the linker symbol map")
+	}
+}
+
+func TestStructsHostLayoutToolchainDependency(t *testing.T) {
+	if !isToolchainNameDependency("structs", "HostLayout") {
+		t.Fatal("structs.HostLayout must keep its name for go:wasmimport validation")
 	}
 }
