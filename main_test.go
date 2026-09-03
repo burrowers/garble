@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -493,5 +494,65 @@ func TestFlagValue(t *testing.T) {
 			got := flagValue(test.flags, test.flagName)
 			qt.Assert(t, qt.DeepEquals(got, test.want))
 		})
+	}
+}
+
+func TestRuntimeGoexitToolchainDependency(t *testing.T) {
+	if !isToolchainNameDependency("runtime", "goexit") {
+		t.Fatal("runtime.goexit must keep its assembly name for runtime stack metadata")
+	}
+	if !slices.Contains(builtinSymbols["runtime"], "goexit") {
+		t.Fatal("runtime.goexit must be included in the linker symbol map")
+	}
+}
+
+func TestRuntimeAddmoduledataBuiltinSymbol(t *testing.T) {
+	if !slices.Contains(builtinSymbols["runtime"], "addmoduledata") {
+		t.Fatal("runtime.addmoduledata must be included in the linker symbol map")
+	}
+}
+
+func TestRuntimeModuledataBuiltinSymbol(t *testing.T) {
+	for _, name := range []string{"moduledata", "modulehash"} {
+		if !slices.Contains(builtinSymbols["runtime"], name) {
+			t.Errorf("runtime.%s must be included in the linker symbol map", name)
+		}
+	}
+}
+
+func TestRuntimeAsmcgocallLandingpadBuiltinSymbol(t *testing.T) {
+	if !slices.Contains(builtinSymbols["runtime"], "asmcgocall_landingpad") {
+		t.Fatal("runtime.asmcgocall_landingpad must be included in the assembler symbol map")
+	}
+}
+
+func TestRuntimeBuiltinSymbolsExcludeNonSymbolLiterals(t *testing.T) {
+	for _, name := range []string{"elf_", "go", "retpoline", "test"} {
+		if slices.Contains(builtinSymbols["runtime"], name) {
+			t.Errorf("runtime.%s is not a complete symbol name", name)
+		}
+	}
+}
+
+func TestRuntimeGeneratedLinkerSymbols(t *testing.T) {
+	for _, name := range []string{"buildVersion", "modinfo", "unreachableMethod"} {
+		if !slices.Contains(builtinSymbols["runtime"], name) {
+			t.Errorf("runtime.%s must be included in the linker symbol map", name)
+		}
+	}
+}
+
+func TestStructsHostLayoutToolchainDependency(t *testing.T) {
+	if !isToolchainNameDependency("structs", "HostLayout") {
+		t.Fatal("structs.HostLayout must keep its name for go:wasmimport validation")
+	}
+}
+
+func TestReplaceGoAsmNamesPreservesIncludePaths(t *testing.T) {
+	replacer := strings.NewReplacer("asm", "obfuscated")
+	input := "#include \"garbled_asm_ppc64x.h\"\nMOVD $asm__size, R3\n"
+	want := "#include \"garbled_asm_ppc64x.h\"\nMOVD $obfuscated__size, R3\n"
+	if got := replaceGoAsmNames(input, replacer); got != want {
+		t.Fatalf("replaceGoAsmNames() = %q, want %q", got, want)
 	}
 }

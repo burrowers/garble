@@ -357,7 +357,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 				if err != nil {
 					return nil, err
 				}
-				if new := replacer.Replace(string(content)); new != string(content) {
+				if new := replaceGoAsmNames(string(content), replacer); new != string(content) {
 					if err := os.WriteFile(newPath, []byte(new), 0o666); err != nil {
 						return nil, err
 					}
@@ -458,7 +458,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 				continue
 			}
 
-			// Anything else is regular assembly; replace the names.
+			// Anything else is regular assembly; replace function names.
 			tf.replaceAsmNames(&buf, []byte(line))
 			buf.WriteByte('\n')
 		}
@@ -494,6 +494,19 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	}
 
 	return append(flags, newPaths...), nil
+}
+
+// replaceGoAsmNames updates go_asm.h constants without rewriting transformed
+// header paths, whose basenames can contain the same identifiers.
+func replaceGoAsmNames(content string, replacer *strings.Replacer) string {
+	lines := strings.SplitAfter(content, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "#include ") {
+			continue
+		}
+		lines[i] = replacer.Replace(line)
+	}
+	return strings.Join(lines, "")
 }
 
 // saveGoAsmNames saves go_asm.h constant name mappings to the build cache;
@@ -573,17 +586,43 @@ func loadGoAsmNames(lpkg *listedPackage) map[string]string {
 // runtime.stkframe.argMapInternal matches these reflect assembly stubs by name
 // to synthesize their dynamic argument maps while the garbage collector scans a
 // stack; renaming either stub can make a live pointer appear to be freed. Tiny
-// mode preserves the same names at link time; see the patch under
-// internal/linker/patches.
+// mode preserves the same names in the unified toolchain patches under
+// internal/patcher/patches.
 var toolchainNameDependencies = map[string]map[string]bool{
+	"internal/abi": {
+		"EscapeNonString":   true,
+		"FuncPCABI0":        true,
+		"FuncPCABIInternal": true,
+	},
+	"sync/atomic": {
+		"align64": true,
+	},
+	"structs": {
+		"HostLayout": true,
+	},
 	"reflect": {
 		"makeFuncStub":    true,
 		"methodValueCall": true,
 	},
+	"runtime": {
+		"getg":               true,
+		"goexit":             true,
+		"KeepAlive":          true,
+		"main":               true,
+		"publicationBarrier": true,
+	},
 }
 
 func isToolchainNameDependency(path, name string) bool {
-	return compilerIntrinsics[path][name] || toolchainNameDependencies[path][name]
+	if compilerIntrinsics[path][name] || toolchainNameDependencies[path][name] {
+		return true
+	}
+	if path == "runtime" {
+		return strings.HasPrefix(name, "mallocgcSmallNoScanSC") ||
+			strings.HasPrefix(name, "mallocgcSmallScanNoHeaderSC") ||
+			strings.HasPrefix(name, "mallocgcTinySC")
+	}
+	return false
 }
 
 func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
@@ -663,9 +702,15 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 				}
 			}
 			if lpkg.ToObfuscate {
-				// Note that we don't need to worry about asmSlash here,
-				// because our obfuscated import paths contain no slashes right now.
-				buf.WriteString(lpkg.obfuscatedImportPath())
+				obfuscatedPath := lpkg.obfuscatedImportPath()
+				if obfuscatedPath == lpkg.ImportPath {
+					// Keep the assembly spelling (Unicode slash/period) when the
+					// package path is intentionally preserved.
+					buf.WriteString(asmPkgPath)
+				} else {
+					// Hashed import paths currently contain no slashes.
+					buf.WriteString(obfuscatedPath)
+				}
 			} else {
 				buf.WriteString(asmPkgPath)
 			}
@@ -814,7 +859,9 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	}
 
 	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
+	// Compute fieldToStruct first so runtime patches can use it.
 	tf.fieldToStruct = computeFieldToStruct(tf.info)
+
 	if flagLiterals {
 		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg); err != nil {
 			return nil, err
@@ -854,7 +901,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 				tf.useAllImports(file)
 			}
 			if basename == "symtab.go" {
-				updateEntryOffset(file, entryOffKey())
+				updateEntryOffset(file, entryOffKey(), tf.info)
 			}
 		case "internal/abi":
 			if basename == "symtab.go" {
@@ -1305,10 +1352,6 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 	// Can we instead use an object map like ReflectObjects?
 	path := pkg.Path()
 	switch path {
-	case "sync/atomic", "runtime/internal/atomic":
-		if name == "align64" {
-			return "", false
-		}
 	case "embed":
 		// FS is detected by the compiler for //go:embed.
 		if name == "FS" {
@@ -1338,6 +1381,9 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 	}
 	if !lpkg.ToObfuscate {
 		return "", false // we're not obfuscating this package
+	}
+	if isToolchainNameDependency(path, name) {
+		return "", false
 	}
 	debugName := "variable"
 
@@ -1376,10 +1422,6 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 	case *types.TypeName:
 		debugName = "type"
 	case *types.Func:
-		if isToolchainNameDependency(path, name) {
-			return "", false
-		}
-
 		sign := obj.Signature()
 		if sign.Recv() == nil {
 			debugName = "func"
@@ -1416,7 +1458,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// We can't obfuscate literals in the runtime and its dependencies,
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
-	if flagLiterals && tf.curPkg.ToObfuscate {
+	if flagLiterals && tf.curPkg.ToObfuscate && !isRuntimePkgPath(tf.curPkg.ImportPath) {
 		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings, randomName)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports

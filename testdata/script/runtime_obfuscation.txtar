@@ -1,0 +1,44 @@
+# Build and run a program which exercises runtime-backed maps and concurrency.
+# Goroutine startup and exit cross compiler, assembly, and runtime boundaries;
+# exercising them verifies that those symbol mappings and stack metadata agree.
+# Runtime obfuscation requires rebuilding a large part of the standard library.
+[short] skip 'runtime obfuscation is an integration test'
+
+exec garble build -o=main$exe .
+exec ./main$exe
+stdout '^runtime-obfuscation-ok:'
+
+# This ordinary Go implementation detail should be renamed. It is neither a
+# compiler intrinsic nor an assembly or linker ABI dependency.
+! binsubstr main$exe 'internal/runtime/maps.(*Map).getWithKey'
+
+# PPC64 PIE and shared-code linking give DUFF routines special TOC entry-point
+# metadata. Cross-building exercises those assembler and linker classifications.
+[linux] env GOOS=linux GOARCH=ppc64
+[linux] exec garble build -buildmode=pie -o=main-ppc64 .
+
+-- go.mod --
+module test/runtimeobfuscation
+
+go 1.27
+-- main.go --
+package main
+
+import (
+	"fmt"
+	"runtime"
+	"sync"
+)
+
+func main() {
+	var wg sync.WaitGroup
+	results := make(chan string, 1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		values := map[string]int{"answer": 42}
+		results <- fmt.Sprintf("runtime-obfuscation-ok:%s:%d:%d", runtime.GOOS, values["answer"], runtime.NumCPU())
+	}()
+	wg.Wait()
+	fmt.Println(<-results)
+}

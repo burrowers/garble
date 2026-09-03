@@ -1,8 +1,9 @@
-From b59e8e940e82f488d5d688277046f6cd87c75908 Mon Sep 17 00:00:00 2001
-From: pagran <pagran@protonmail.com>
-Date: Mon, 9 Jan 2023 13:30:00 +0100
-Subject: [PATCH 1/3] add custom magic value
+From 683b267890b94db2ffac621d767a8ea5c9f43d66 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Thu, 3 Sep 2026 08:57:04 +0000
+Subject: [PATCH 1/4] add custom magic value
 
+Allow Garble to replace the pclntab magic value when it rebuilds the linker, so the runtime metadata written by the linker uses the per-build value expected by Garble.
 ---
  cmd/link/internal/ld/pcln.go | 17 +++++++++++++++++
  1 file changed, 17 insertions(+)
@@ -42,6 +43,3 @@ index 08c4d4db83..ffe8fdf7a1 100644
  	}
  
  	state.pcheader = state.addGeneratedSym(ctxt, "runtime.pcheader", size, int32(ctxt.Arch.PtrSize), writeHeader)
--- 
-2.53.0
-

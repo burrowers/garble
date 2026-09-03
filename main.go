@@ -30,7 +30,7 @@ import (
 	"strings"
 	"time"
 
-	"mvdan.cc/garble/internal/linker"
+	"mvdan.cc/garble/internal/patcher"
 )
 
 const actionGraphFileName = "action-graph.json"
@@ -310,20 +310,52 @@ func mainErr(args []string) error {
 		}
 
 		executablePath := args[0]
-		if tool == "link" {
-			modifiedLinkPath, unlock, err := linker.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
+		switch tool {
+		case "compile":
+			pkgPathMap, symbolMap := buildRuntimePkgPathMap(), buildSymbolMap()
+			if pkgPathMap == "" && symbolMap == "" {
+				break
+			}
+			modifiedPath, err := patcher.PatchCompiler(
+				os.Getenv(patcher.GoSrcEnv), sharedCache.GoEnv.GOROOT,
+				sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir,
+			)
+			if err != nil {
+				return fmt.Errorf("cannot get modified compiler: %v", err)
+			}
+			executablePath = modifiedPath
+			os.Setenv(patcher.PkgPathMapEnv, pkgPathMap)
+			os.Setenv(patcher.SymbolMapEnv, symbolMap)
+			log.Printf("replaced compiler with: %s", executablePath)
+		case "asm":
+			pkgPathMap := buildRuntimePkgPathMap()
+			if pkgPathMap == "" {
+				break
+			}
+			modifiedPath, err := patcher.PatchAssembler(
+				os.Getenv(patcher.GoSrcEnv), sharedCache.GoEnv.GOROOT,
+				sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir,
+			)
+			if err != nil {
+				return fmt.Errorf("cannot get modified assembler: %v", err)
+			}
+			executablePath = modifiedPath
+			os.Setenv(patcher.PkgPathMapEnv, pkgPathMap)
+			log.Printf("replaced assembler with: %s", executablePath)
+		case "link":
+			modifiedPath, err := patcher.PatchLinker(
+				sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION,
+				sharedCache.CacheDir, sharedTempDir,
+			)
 			if err != nil {
 				return fmt.Errorf("cannot get modified linker: %v", err)
 			}
-			defer unlock()
-
-			executablePath = modifiedLinkPath
-			os.Setenv(linker.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
-			os.Setenv(linker.EntryOffKeyEnv, strconv.FormatUint(uint64(entryOffKey()), 10))
-			// Do not allow a value inherited from the caller to select tiny
-			// linker behavior for a regular build.
-			os.Setenv(linker.TinyEnv, strconv.FormatBool(flagTiny))
-
+			executablePath = modifiedPath
+			os.Setenv(patcher.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
+			os.Setenv(patcher.EntryOffKeyEnv, strconv.FormatUint(uint64(entryOffKey()), 10))
+			os.Setenv(patcher.TinyEnv, strconv.FormatBool(flagTiny))
+			os.Setenv(patcher.PkgPathMapEnv, buildRuntimePkgPathMap())
+			os.Setenv(patcher.SymbolMapEnv, buildSymbolMap())
 			log.Printf("replaced linker with: %s", executablePath)
 		}
 
@@ -353,12 +385,11 @@ func startPatchingLinker() {
 	go func() {
 		defer close(patchedLinkerDone)
 		startTime := time.Now()
-		_, unlock, err := linker.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
+		_, err := patcher.PatchLinker(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
 		if err != nil {
 			log.Printf("could not prepare the linker ahead of time: %v", err)
 			return
 		}
-		unlock()
 		log.Printf("prepared the linker in %s", debugSince(startTime))
 	}()
 }

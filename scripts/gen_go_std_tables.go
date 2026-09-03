@@ -10,13 +10,18 @@ import (
 	"bytes"
 	"cmp"
 	"fmt"
+	"go/ast"
 	"go/format"
+	"go/parser"
+	"go/token"
 	"go/version"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -48,11 +53,12 @@ var tmplTables = template.Must(template.New("").Parse(`
 
 package main
 
-// runtimeAndDeps contains the runtime package and all of its transitive dependencies
-// as reported by 'go list -deps'.
-var runtimeAndDeps = map[string]bool{
-{{- range $path := .RuntimeAndDeps }}
-	"{{ $path.String }}": true, // {{ $path.GoVersionLang }} {{ $path.Platform }}
+// runtimePkgPaths lists packages that cmd/internal/objabi marks as runtime
+// packages, which the compiler handles specially for write barriers, nosplit,
+// and related checks.
+var runtimePkgPaths = []string{
+{{- range $path := .RuntimePkgPaths }}
+	"{{ $path.String }}", // {{ $path.GoVersionLang }}
 {{- end }}
 }
 
@@ -60,12 +66,6 @@ var runtimeAndDeps = map[string]bool{
 // which it points to via //go:linkname directives.
 // We need to track these as some are not imported as transitive dependencies,
 // and we need to load these to properly obfuscate the linkname target names.
-//
-// Note that runtimeAndLinknamed may contain duplicates with runtimeAndDeps.
-// This is on purpose; some packages are in runtimeAndDeps via 'go list -deps'
-// but not transitively imported on some platforms, even though they are used
-// from the runtime package via //go:linkname directives on those platforms.
-// To make sure we have coverage on all platforms, we allow duplicates.
 var runtimeAndLinknamed = map[string]bool{
 {{- range $path := .RuntimeAndLinknamed }}
 	"{{ $path.String }}": true, // {{ $path.GoVersionLang }}
@@ -87,6 +87,18 @@ var compilerIntrinsics = map[string]map[string]bool{
 {{- end }}
 }
 
+// builtinSymbols lists generated compiler, assembler, and linker symbol-name
+// contracts which must survive runtime obfuscation.
+var builtinSymbols = map[string][]string{
+{{- range $pkg := .BuiltinSymbols }}
+	"{{ $pkg.Path }}": {
+{{- range $name := $pkg.Names }}
+		"{{ $name.String }}", // {{ $name.GoVersionLang }}
+{{- end }}
+	},
+{{- end }}
+}
+
 var reflectSkipPkg = map[string]bool{
 	"fmt": true,
 }
@@ -94,9 +106,10 @@ var reflectSkipPkg = map[string]bool{
 
 type tmplData struct {
 	GoVersions          []string
-	RuntimeAndDeps      []versionedString
+	RuntimePkgPaths     []versionedString
 	RuntimeAndLinknamed []versionedString
 	CompilerIntrinsics  []tmplIntrinsic
+	BuiltinSymbols      []tmplIntrinsic
 }
 
 type tmplIntrinsic struct {
@@ -176,21 +189,309 @@ func lines(vs versionedString) []versionedString {
 
 var rxLinkname = regexp.MustCompile(`^//go:linkname .* ([^.]*)\.[^.]*$`)
 var rxIntrinsic = regexp.MustCompile(`\b(add|addF|alias)\("([^"]*)", "([^"]*)",`)
+var rxStringEntry = regexp.MustCompile(`^\s*"([^"]+)",$`)
+var rxBuiltinEntry = regexp.MustCompile(`^\s*\{"([^"]+)", [01]\},$`)
+var rxRuntimeSymbol = regexp.MustCompile(`^runtime\.[A-Za-z0-9_]+$`)
+var rxRuntimeTypeSymbol = regexp.MustCompile(`^type:runtime\.[A-Za-z0-9_]+$`)
+var rxLocalLinkname = regexp.MustCompile(`^//go:linkname ([^ ]+)$`)
 
-func main() {
-	var runtimeAndDeps []versionedString
-	for _, goVersion := range goVersions {
-		for _, platform := range goPlatforms {
-			runtimeAndDeps = append(runtimeAndDeps, lines(cmdGo(goVersion, platform, "list", "-deps", "runtime"))...)
+func addVersionedSymbol(symbols map[string][]versionedString, fullName string, goroot versionedString) {
+	dot := strings.LastIndexByte(fullName, '.')
+	if dot < 1 || dot == len(fullName)-1 {
+		panic(fmt.Sprintf("invalid builtin symbol %q", fullName))
+	}
+	path, name := fullName[:dot], fullName[dot+1:]
+	symbols[path] = append(symbols[path], versionedString{
+		String:        name,
+		GoVersionLang: goroot.GoVersionLang,
+	})
+}
+
+func groupedSymbols(symbols map[string][]versionedString) []tmplIntrinsic {
+	groups := make([]tmplIntrinsic, 0, len(symbols))
+	for path, names := range symbols {
+		slices.SortFunc(names, versionedString.Compare)
+		names = slices.CompactFunc(names, versionedString.Equal)
+		groups = append(groups, tmplIntrinsic{Path: path, Names: names})
+	}
+	slices.SortFunc(groups, tmplIntrinsic.Compare)
+	return groups
+}
+
+func calledName(call *ast.CallExpr) string {
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		return fun.Sel.Name
+	}
+	return ""
+}
+
+func stringLiteral(expr ast.Expr) (string, bool) {
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	value, err := strconv.Unquote(lit.Value)
+	return value, err == nil
+}
+
+func isSymbolNameExpr(expr ast.Expr) bool {
+	selector, ok := expr.(*ast.SelectorExpr)
+	return ok && selector.Sel.Name == "Name"
+}
+
+func runtimeSymbolsInToolFile(path string) []string {
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		panic(err)
+	}
+	var symbols []string
+	addName := func(value string) {
+		switch {
+		case rxRuntimeSymbol.MatchString(value):
+			symbols = append(symbols, value)
+		case rxRuntimeTypeSymbol.MatchString(value):
+			symbols = append(symbols, strings.TrimPrefix(value, "type:"))
 		}
 	}
-	slices.SortFunc(runtimeAndDeps, versionedString.Compare)
-	runtimeAndDeps = slices.CompactFunc(runtimeAndDeps, versionedString.Equal)
+	addLiteral := func(expr ast.Expr) {
+		if value, ok := stringLiteral(expr); ok {
+			addName(value)
+		}
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.CallExpr:
+			name := calledName(node)
+			isLookup := strings.Contains(strings.ToLower(name), "lookup")
+			if isLookup || name == "append" || name == "CreateSymForUpdate" ||
+				name == "SetSymExtname" || name == "xdefine" {
+				for _, arg := range node.Args {
+					addLiteral(arg)
+				}
+			}
+			if name == "addstrdata1" && len(node.Args) > 1 {
+				if binary, ok := node.Args[1].(*ast.BinaryExpr); ok && binary.Op == token.ADD {
+					if value, ok := stringLiteral(binary.X); ok {
+						addName(strings.TrimSuffix(value, "="))
+					}
+				}
+			}
+		case *ast.KeyValueExpr:
+			// Toolchain maps keyed by a complete runtime symbol name describe
+			// assembler or linker contracts, such as WebAssembly ABI entries.
+			addLiteral(node.Key)
+		case *ast.BinaryExpr:
+			// Exact comparisons against a symbol's Name field are toolchain
+			// contracts too, such as the Windows SEH landing pad.
+			if node.Op == token.EQL || node.Op == token.NEQ {
+				if isSymbolNameExpr(node.X) {
+					addLiteral(node.Y)
+				}
+				if isSymbolNameExpr(node.Y) {
+					addLiteral(node.X)
+				}
+			}
+		}
+		return true
+	})
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		lookupVars := make(map[string]bool)
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || !strings.HasPrefix(calledName(call), "LookupRuntime") || len(call.Args) == 0 {
+				return true
+			}
+			if value, ok := stringLiteral(call.Args[0]); ok {
+				symbols = append(symbols, "runtime."+value)
+			} else if ident, ok := call.Args[0].(*ast.Ident); ok {
+				lookupVars[ident.Name] = true
+			}
+			return true
+		})
+		if len(lookupVars) == 0 {
+			continue
+		}
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			assign, ok := node.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			for i, lhs := range assign.Lhs {
+				ident, ok := lhs.(*ast.Ident)
+				if !ok || !lookupVars[ident.Name] || i >= len(assign.Rhs) {
+					continue
+				}
+				if value, ok := stringLiteral(assign.Rhs[i]); ok {
+					symbols = append(symbols, "runtime."+value)
+				}
+			}
+			return true
+		})
+	}
+	return symbols
+}
 
+func runtimeSourceContracts(goroot versionedString) []string {
+	root := filepath.Join(goroot.String, "src", "runtime")
+	var symbols []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			return err
+		}
+		for _, decl := range file.Decls {
+			switch decl := decl.(type) {
+			case *ast.FuncDecl:
+				if decl.Body == nil && (strings.HasPrefix(decl.Name.Name, "panicExtend") ||
+					strings.HasPrefix(decl.Name.Name, "gcWriteBarrier")) {
+					symbols = append(symbols, "runtime."+decl.Name.Name)
+				}
+			case *ast.GenDecl:
+				for _, spec := range decl.Specs {
+					typeSpec, ok := spec.(*ast.TypeSpec)
+					if ok && typeSpec.Name.Name == "modulehash" {
+						symbols = append(symbols, "runtime."+typeSpec.Name.Name)
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	for line := range strings.SplitSeq(readFile(filepath.Join(root, "linkname_shim.go")), "\n") {
+		if match := rxLocalLinkname.FindStringSubmatch(line); match != nil {
+			symbols = append(symbols, "runtime."+match[1])
+		}
+	}
+	if contents := readFile(filepath.Join(root, "stubs.go")); !strings.Contains(contents, "func goexit(") {
+		panic("cannot find runtime.goexit metadata contract")
+	}
+	symbols = append(symbols, "runtime.goexit")
+	return symbols
+}
+
+func generateBuiltinSymbols(goroots []versionedString) []tmplIntrinsic {
+	symbols := make(map[string][]versionedString)
+	for _, goroot := range goroots {
+		// The compiler and linker share this generated registry for symbols
+		// written into object files and later looked up by name.
+		for line := range strings.SplitSeq(readFile(filepath.Join(
+			goroot.String, "src", "cmd", "internal", "goobj", "builtinlist.go",
+		)), "\n") {
+			if match := rxBuiltinEntry.FindStringSubmatch(line); match != nil && strings.Contains(match[1], ".") {
+				addVersionedSymbol(symbols, match[1], goroot)
+			}
+		}
+
+		// Linker and compiler code also names runtime symbols which are not in
+		// goobj's builtin registry. Extract those references from the toolchain
+		// rather than carrying another copy of the names in Garble.
+		cmdRoot := filepath.Join(goroot.String, "src", "cmd")
+		err := filepath.WalkDir(cmdRoot, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				switch entry.Name() {
+				case "testdata", "vendor":
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			for _, symbol := range runtimeSymbolsInToolFile(path) {
+				addVersionedSymbol(symbols, symbol, goroot)
+			}
+			return nil
+		})
+		if err != nil {
+			panic(err)
+		}
+		for _, symbol := range runtimeSourceContracts(goroot) {
+			addVersionedSymbol(symbols, symbol, goroot)
+		}
+
+		// The assembler entry points omit the "go" prefix used by the
+		// compiler-facing bounds panic functions in goobj's builtin registry.
+		for _, symbol := range slices.Clone(symbols["runtime"]) {
+			if strings.HasPrefix(symbol.String, "goPanic") {
+				addVersionedSymbol(symbols, "runtime.panic"+strings.TrimPrefix(symbol.String, "goPanic"), goroot)
+			}
+			for _, prefix := range []string{"gcWriteBarrier", "printcomplex", "printfloat"} {
+				if strings.HasPrefix(symbol.String, prefix) && symbol.String != prefix {
+					addVersionedSymbol(symbols, "runtime."+prefix, goroot)
+				}
+			}
+		}
+
+		// These named types are compiler contracts rather than object-file
+		// builtins. Check that the defining toolchain sources still contain
+		// each contract before adding it.
+		specials := []struct {
+			file, sourceNeedle, fullName string
+		}{
+			{"compile/internal/walk/builtin.go", `== "hex"`, "runtime.hex"},
+			{"compile/internal/types/size.go", `== "align64"`, "sync/atomic.align64"},
+			{"compile/internal/types/size.go", `"internal/runtime/atomic"`, "internal/runtime/atomic.align64"},
+			{"compile/internal/types/type.go", `== "nih"`, "internal/runtime/sys.nih"},
+		}
+		for _, special := range specials {
+			contents := readFile(filepath.Join(cmdRoot, special.file))
+			if !strings.Contains(contents, special.sourceNeedle) {
+				panic(fmt.Sprintf("cannot find %s contract in %s", special.fullName, special.file))
+			}
+			addVersionedSymbol(symbols, special.fullName, goroot)
+		}
+	}
+	return groupedSymbols(symbols)
+}
+
+func main() {
 	var goroots []versionedString
 	for _, goVersion := range goVersions {
 		goroots = append(goroots, cmdGo(goVersion, goPlatform{}, "env", "GOROOT"))
 	}
+
+	var runtimePkgPaths []versionedString
+	for _, goroot := range goroots {
+		inRuntimePkgs := false
+		for line := range strings.SplitSeq(readFile(filepath.Join(
+			goroot.String, "src", "cmd", "internal", "objabi", "pkgspecial.go",
+		)), "\n") {
+			switch {
+			case line == "var runtimePkgs = []string{":
+				inRuntimePkgs = true
+			case inRuntimePkgs && line == "}":
+				inRuntimePkgs = false
+			case inRuntimePkgs:
+				if match := rxStringEntry.FindStringSubmatch(line); match != nil {
+					runtimePkgPaths = append(runtimePkgPaths, versionedString{
+						String:        match[1],
+						GoVersionLang: goroot.GoVersionLang,
+					})
+				}
+			}
+		}
+	}
+	slices.SortFunc(runtimePkgPaths, versionedString.Compare)
+	runtimePkgPaths = slices.CompactFunc(runtimePkgPaths, versionedString.Equal)
 
 	// All packages that the runtime linknames to, except runtime and its dependencies.
 	// This resulting list is what we need to "go list" when obfuscating the runtime,
@@ -255,13 +556,15 @@ func main() {
 		slices.SortFunc(intr.Names, versionedString.Compare)
 		intr.Names = slices.CompactFunc(intr.Names, versionedString.Equal)
 	}
+	builtinSymbols := generateBuiltinSymbols(goroots)
 
 	var buf bytes.Buffer
 	if err := tmplTables.Execute(&buf, tmplData{
 		GoVersions:          goVersions,
-		RuntimeAndDeps:      runtimeAndDeps,
+		RuntimePkgPaths:     runtimePkgPaths,
 		RuntimeAndLinknamed: runtimeAndLinknamed,
 		CompilerIntrinsics:  compilerIntrinsics,
+		BuiltinSymbols:      builtinSymbols,
 	}); err != nil {
 		panic(err)
 	}
