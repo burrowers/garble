@@ -520,6 +520,12 @@ func TestRuntimeModuledataBuiltinSymbol(t *testing.T) {
 	}
 }
 
+func TestRuntimeAsmcgocallLandingpadBuiltinSymbol(t *testing.T) {
+	if !slices.Contains(builtinSymbols["runtime"], "asmcgocall_landingpad") {
+		t.Fatal("runtime.asmcgocall_landingpad must be included in the assembler symbol map")
+	}
+}
+
 func TestRuntimeBuiltinSymbolsExcludeNonSymbolLiterals(t *testing.T) {
 	for _, name := range []string{"elf_", "go", "retpoline", "test"} {
 		if slices.Contains(builtinSymbols["runtime"], name) {

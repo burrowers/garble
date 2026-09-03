@@ -296,6 +296,7 @@ var builtinSymbols = map[string][]string{
 		"asanread",                             // go1.27
 		"asanregisterglobals",                  // go1.27
 		"asanwrite",                            // go1.27
+		"asmcgocall_landingpad",                // go1.27
 		"assertE2I",                            // go1.27
 		"assertE2I2",                           // go1.27
 		"block",                                // go1.27

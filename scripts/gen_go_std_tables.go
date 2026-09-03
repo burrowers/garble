@@ -237,6 +237,11 @@ func stringLiteral(expr ast.Expr) (string, bool) {
 	return value, err == nil
 }
 
+func isSymbolNameExpr(expr ast.Expr) bool {
+	selector, ok := expr.(*ast.SelectorExpr)
+	return ok && selector.Sel.Name == "Name"
+}
+
 func runtimeSymbolsInToolFile(path string) []string {
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
@@ -278,6 +283,17 @@ func runtimeSymbolsInToolFile(path string) []string {
 			// Toolchain maps keyed by a complete runtime symbol name describe
 			// assembler or linker contracts, such as WebAssembly ABI entries.
 			addLiteral(node.Key)
+		case *ast.BinaryExpr:
+			// Exact comparisons against a symbol's Name field are toolchain
+			// contracts too, such as the Windows SEH landing pad.
+			if node.Op == token.EQL || node.Op == token.NEQ {
+				if isSymbolNameExpr(node.X) {
+					addLiteral(node.Y)
+				}
+				if isSymbolNameExpr(node.Y) {
+					addLiteral(node.X)
+				}
+			}
 		}
 		return true
 	})

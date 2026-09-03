@@ -1,4 +1,4 @@
-From fac67eebccc3f78a3c8357bf1541200b23574594 Mon Sep 17 00:00:00 2001
+From f112b30c9faced173edafd0132f39abe4c931d55 Mon Sep 17 00:00:00 2001
 From: Paul Scheduikat <luantak@pm.me>
 Date: Thu, 3 Sep 2026 08:57:05 +0000
 Subject: [PATCH 4/4] runtime obfuscation
@@ -35,7 +35,8 @@ Refs https://github.com/burrowers/garble/issues/193
  cmd/compile/internal/types2/sizes.go        |  12 +-
  cmd/compile/internal/walk/expr.go           |   2 +-
  cmd/internal/goobj/builtin.go               |  21 ++-
- cmd/internal/obj/x86/asm6.go                |   5 +-
+ cmd/internal/obj/x86/asm6.go                |   7 +-
+ cmd/internal/obj/x86/seh.go                 |   8 +-
  cmd/internal/objabi/funcid.go               |   1 +
  cmd/internal/objabi/funcid_test.go          |  24 +++
  cmd/internal/objabi/garble.go               | 129 +++++++++++++++
@@ -53,7 +54,7 @@ Refs https://github.com/burrowers/garble/issues/193
  cmd/link/internal/loader/loader_test.go     |  23 +++
  cmd/link/internal/ppc64/asm.go              |   8 +-
  runtime/traceback.go                        |  45 +++++-
- 33 files changed, 696 insertions(+), 127 deletions(-)
+ 34 files changed, 704 insertions(+), 129 deletions(-)
  create mode 100644 src/cmd/compile/internal/base/garble.go
  create mode 100644 src/cmd/internal/objabi/funcid_test.go
  create mode 100644 src/cmd/internal/objabi/garble.go
@@ -427,21 +428,45 @@ index aa665fde99..ad4cf380c8 100644
 -	}
 -}
 diff --git a/cmd/internal/obj/x86/asm6.go b/cmd/internal/obj/x86/asm6.go
-index 89b64f4eed..c791befadb 100644
+index 89b64f4eed..a585b1b81c 100644
 --- a/cmd/internal/obj/x86/asm6.go
 +++ b/cmd/internal/obj/x86/asm6.go
-@@ -2851,8 +2851,9 @@ func oclass(ctxt *obj.Link, p *obj.Prog, a *obj.Addr) int {
+@@ -2851,8 +2851,11 @@ func oclass(ctxt *obj.Link, p *obj.Prog, a *obj.Addr) int {
  
  		// TODO(rsc): DUFFZERO/DUFFCOPY encoding forgot to set a->index
  		// and got Yi32 in an earlier version of this code.
 -		// Keep doing that until we fix yduff etc.
 -		if a.Sym != nil && strings.HasPrefix(a.Sym.Name, "runtime.duff") {
-+		// Keep doing that until we fix yduff etc. Identify these operations
-+		// by opcode because Garble may rename their runtime symbols.
-+		if p.As == obj.ADUFFZERO || p.As == obj.ADUFFCOPY {
++		// Keep doing that until we fix yduff etc. Identify Garble-renamed
++		// operations by opcode, while retaining the symbol-name fallback used by
++		// assembler unit tests and other synthetic callers.
++		if p.As == obj.ADUFFZERO || p.As == obj.ADUFFCOPY ||
++			(a.Sym != nil && strings.HasPrefix(objabi.OriginalFuncName(a.Sym.Name), "runtime.duff")) {
  			return Yi32
  		}
  
+diff --git a/cmd/internal/obj/x86/seh.go b/cmd/internal/obj/x86/seh.go
+index 19ff0a4c8a..527d8d8bbf 100644
+--- a/cmd/internal/obj/x86/seh.go
++++ b/cmd/internal/obj/x86/seh.go
+@@ -105,11 +105,15 @@ func populateSeh(ctxt *obj.Link, s *obj.LSym) (sehsym *obj.LSym) {
+ 
+ 	var exceptionHandler *obj.LSym
+ 	var flags uint8
+-	if s.Name == "runtime.asmcgocall_landingpad" {
++	if objabi.OriginalFuncName(s.Name) == "runtime.asmcgocall_landingpad" {
+ 		// Most cgo calls go through runtime.asmcgocall_landingpad,
+ 		// we can use it to catch exceptions from C code.
+ 		// TODO: use a more generic approach to identify which calls need an exception handler.
+-		exceptionHandler = ctxt.Lookup("runtime.sehtramp")
++		exceptionHandlerName := "runtime.sehtramp"
++		if obfuscated := objabi.ObfuscatedSymbol(exceptionHandlerName); obfuscated != "" {
++			exceptionHandlerName = obfuscated
++		}
++		exceptionHandler = ctxt.Lookup(exceptionHandlerName)
+ 		if exceptionHandler == nil {
+ 			ctxt.Diag("missing runtime.sehtramp\n")
+ 			return
 diff --git a/cmd/internal/objabi/funcid.go b/cmd/internal/objabi/funcid.go
 index b953d84803..34ce2f3a26 100644
 --- a/cmd/internal/objabi/funcid.go
