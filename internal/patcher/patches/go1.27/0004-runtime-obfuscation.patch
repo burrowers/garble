@@ -1,4 +1,4 @@
-From b906e1a8594d0315a213d0e67b9ca9c5c639fe7a Mon Sep 17 00:00:00 2001
+From fac67eebccc3f78a3c8357bf1541200b23574594 Mon Sep 17 00:00:00 2001
 From: Paul Scheduikat <luantak@pm.me>
 Date: Thu, 3 Sep 2026 08:57:05 +0000
 Subject: [PATCH 4/4] runtime obfuscation
@@ -30,7 +30,7 @@ Refs https://github.com/burrowers/garble/issues/193
  cmd/compile/internal/ssa/rewrite.go         |   5 +-
  cmd/compile/internal/ssagen/intrinsics.go   |  12 +-
  cmd/compile/internal/typecheck/syms.go      |   3 +-
- cmd/compile/internal/types/size.go          |   7 +-
+ cmd/compile/internal/types/size.go          |   9 +-
  cmd/compile/internal/types/type.go          |   8 +-
  cmd/compile/internal/types2/sizes.go        |  12 +-
  cmd/compile/internal/walk/expr.go           |   2 +-
@@ -53,7 +53,7 @@ Refs https://github.com/burrowers/garble/issues/193
  cmd/link/internal/loader/loader_test.go     |  23 +++
  cmd/link/internal/ppc64/asm.go              |   8 +-
  runtime/traceback.go                        |  45 +++++-
- 33 files changed, 695 insertions(+), 126 deletions(-)
+ 33 files changed, 696 insertions(+), 127 deletions(-)
  create mode 100644 src/cmd/compile/internal/base/garble.go
  create mode 100644 src/cmd/internal/objabi/funcid_test.go
  create mode 100644 src/cmd/internal/objabi/garble.go
@@ -277,7 +277,7 @@ index a977b5e110..bde0b3ed6c 100644
  
  // InitCoverage loads the definitions for routines called
 diff --git a/cmd/compile/internal/types/size.go b/cmd/compile/internal/types/size.go
-index 4d64c7f8d2..5dcdc2d68b 100644
+index 4d64c7f8d2..e80c0ce8e9 100644
 --- a/cmd/compile/internal/types/size.go
 +++ b/cmd/compile/internal/types/size.go
 @@ -9,6 +9,7 @@ import (
@@ -288,12 +288,17 @@ index 4d64c7f8d2..5dcdc2d68b 100644
  	"cmd/internal/src"
  	"internal/buildcfg"
  	"internal/types/errors"
-@@ -200,7 +201,8 @@ func isAtomicStdPkg(p *Pkg) bool {
+@@ -196,11 +197,12 @@ func calcStructOffset(t *Type, fields []*Field, offset int64) int64 {
+ 	return offset
+ }
+ 
+-func isAtomicStdPkg(p *Pkg) bool {
++func isAtomicStdPkg(p *Pkg, name string) bool {
  	if p.Prefix == `""` {
  		panic("bad package prefix")
  	}
 -	return p.Prefix == "sync/atomic" || p.Prefix == "internal/runtime/atomic"
-+	path := objabi.OriginalPackagePath(p.Path)
++	path, _ := objabi.OriginalPackageSymbol(p.Path, name)
 +	return path == "sync/atomic" || path == "internal/runtime/atomic"
  }
  
@@ -305,7 +310,7 @@ index 4d64c7f8d2..5dcdc2d68b 100644
 +		_, name := objabi.OriginalPackageSymbol(sym.Pkg.Path, sym.Name)
  		switch {
 -		case sym.Name == "align64" && isAtomicStdPkg(sym.Pkg):
-+		case name == "align64" && isAtomicStdPkg(sym.Pkg):
++		case name == "align64" && isAtomicStdPkg(sym.Pkg, sym.Name):
  			maxAlign = 8
  
  		case buildcfg.Experiment.SIMD && (sym.Pkg.Path == "simd/archsimd") && len(t.Fields()) >= 1:
