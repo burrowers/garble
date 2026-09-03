@@ -1,45 +1,63 @@
-From 8c01e904ec67969f210cca50ca1a23c104b2ca55 Mon Sep 17 00:00:00 2001
+From b906e1a8594d0315a213d0e67b9ca9c5c639fe7a Mon Sep 17 00:00:00 2001
 From: Paul Scheduikat <luantak@pm.me>
 Date: Thu, 3 Sep 2026 08:57:05 +0000
 Subject: [PATCH 4/4] runtime obfuscation
 
-Translate garbled runtime package paths and symbols throughout the compiler, assembler, linker, ABI metadata, and runtime special cases so runtime and its dependencies can follow the normal obfuscation path without weakening toolchain checks.
+Allow Garble to obfuscate the runtime package without breaking the
+compiler, assembler, linker, or runtime metadata contracts that refer to
+runtime symbols by name.
+
+Centralize package-path and symbol-map parsing in cmd/internal/objabi so
+the compiler and linker use one translation model. Apply that model to
+compiler intrinsics, runtime builtins, ABI identities, reflection data,
+pclntab generation, and linker symbol resolution. Preserve the narrow
+assembly and platform contracts that cannot be renamed.
+
+Keep tiny and reverse modes symmetric by carrying the custom pclntab
+magic and entry-offset key through the linker. Add focused tests for map
+parsing, missing builtins, runtime function identities, and metadata
+translation.
+
+Refs https://github.com/burrowers/garble/issues/193
 ---
  cmd/compile/internal/base/flag.go           |   2 +-
- cmd/compile/internal/base/garble.go         |  66 +++++
+ cmd/compile/internal/base/garble.go         |  32 ++++
  cmd/compile/internal/escape/call.go         |   2 +-
  cmd/compile/internal/inline/inl.go          |   3 +-
- cmd/compile/internal/ir/func.go             |  22 +-
+ cmd/compile/internal/ir/func.go             |   3 +-
  cmd/compile/internal/noder/helpers.go       |   5 +-
- cmd/compile/internal/reflectdata/reflect.go |  35 ++-
- cmd/compile/internal/ssa/rewrite.go         |  35 ++-
- cmd/compile/internal/ssagen/intrinsics.go   |  46 +++-
+ cmd/compile/internal/reflectdata/reflect.go |   7 +-
+ cmd/compile/internal/ssa/rewrite.go         |   5 +-
+ cmd/compile/internal/ssagen/intrinsics.go   |  12 +-
  cmd/compile/internal/typecheck/syms.go      |   3 +-
- cmd/compile/internal/types/size.go          |  10 +-
- cmd/compile/internal/types/type.go          |  46 +++-
- cmd/compile/internal/types2/sizes.go        |  29 ++-
+ cmd/compile/internal/types/size.go          |   7 +-
+ cmd/compile/internal/types/type.go          |   8 +-
+ cmd/compile/internal/types2/sizes.go        |  12 +-
  cmd/compile/internal/walk/expr.go           |   2 +-
- cmd/internal/goobj/builtin.go               |  50 +++-
+ cmd/internal/goobj/builtin.go               |  21 ++-
  cmd/internal/obj/x86/asm6.go                |   5 +-
- cmd/internal/objabi/funcid.go               |  37 +++
- cmd/internal/objabi/funcid_test.go          |  24 ++
- cmd/internal/objabi/pkgspecial.go           |  19 +-
- cmd/link/internal/arm64/asm.go              |   4 +-
- cmd/link/internal/ld/data.go                |   5 +-
+ cmd/internal/objabi/funcid.go               |   1 +
+ cmd/internal/objabi/funcid_test.go          |  24 +++
+ cmd/internal/objabi/garble.go               | 129 +++++++++++++++
+ cmd/internal/objabi/garble_test.go          |  52 ++++++
+ cmd/internal/objabi/pkgspecial.go           |   5 +-
+ cmd/link/internal/ld/data.go                |   2 +-
  cmd/link/internal/ld/deadcode.go            |   7 +
  cmd/link/internal/ld/dwarf.go               |   4 +-
  cmd/link/internal/ld/inittask.go            |   6 +
- cmd/link/internal/ld/lib.go                 |  25 +-
- cmd/link/internal/ld/pcln.go                | 116 ++++-----
- cmd/link/internal/ld/symtab.go              |  56 ++++-
+ cmd/link/internal/ld/lib.go                 |  25 ++-
+ cmd/link/internal/ld/pcln.go                | 130 ++++++++-------
+ cmd/link/internal/ld/symtab.go              |  56 ++++++-
  cmd/link/internal/ld/xcoff.go               |   8 +-
- cmd/link/internal/loader/loader.go          | 266 +++++++++++++++++++-
- cmd/link/internal/loader/loader_test.go     |  18 ++
+ cmd/link/internal/loader/loader.go          | 167 +++++++++++++++++++-
+ cmd/link/internal/loader/loader_test.go     |  23 +++
  cmd/link/internal/ppc64/asm.go              |   8 +-
- runtime/traceback.go                        |  45 +++-
- 32 files changed, 875 insertions(+), 134 deletions(-)
+ runtime/traceback.go                        |  45 +++++-
+ 33 files changed, 695 insertions(+), 126 deletions(-)
  create mode 100644 src/cmd/compile/internal/base/garble.go
  create mode 100644 src/cmd/internal/objabi/funcid_test.go
+ create mode 100644 src/cmd/internal/objabi/garble.go
+ create mode 100644 src/cmd/internal/objabi/garble_test.go
 
 diff --git a/cmd/compile/internal/base/flag.go b/cmd/compile/internal/base/flag.go
 index c8f1b2db30..e3e9a78bfb 100644
@@ -56,10 +74,10 @@ index c8f1b2db30..e3e9a78bfb 100644
  
 diff --git a/cmd/compile/internal/base/garble.go b/cmd/compile/internal/base/garble.go
 new file mode 100644
-index 0000000000..b88f8bf058
+index 0000000000..1aabf3757b
 --- /dev/null
 +++ b/cmd/compile/internal/base/garble.go
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,32 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -67,64 +85,30 @@ index 0000000000..b88f8bf058
 +package base
 +
 +import (
-+	"os"
++	"cmd/internal/objabi"
 +	"strings"
 +)
 +
-+var garblePkgPathMap map[string]string
-+var garblePkgPathReverseMap map[string]string
-+var garbleSymbolReverseMap map[string]string
-+
-+func init() {
-+	garblePkgPathMap = make(map[string]string)
-+	garblePkgPathReverseMap = make(map[string]string)
-+	if mapStr := os.Getenv("GARBLE_PKGPATH_MAP"); mapStr != "" {
-+		for _, entry := range strings.Split(mapStr, ",") {
-+			parts := strings.SplitN(entry, "=", 2)
-+			if len(parts) == 2 {
-+				garblePkgPathMap[parts[0]] = parts[1]
-+				garblePkgPathReverseMap[parts[1]] = parts[0]
-+			}
-+		}
-+	}
-+	garbleSymbolReverseMap = make(map[string]string)
-+	if mapStr := os.Getenv("GARBLE_SYMBOL_MAP"); mapStr != "" {
-+		for _, entry := range strings.Split(mapStr, ",") {
-+			parts := strings.SplitN(entry, "=", 2)
-+			if len(parts) == 2 {
-+				garbleSymbolReverseMap[parts[1]] = parts[0]
-+			}
-+		}
-+	}
-+}
-+
 +// TranslateGarblePkgPath returns the original package path for an obfuscated path.
 +func TranslateGarblePkgPath(pkgPath string) string {
-+	if original, ok := garblePkgPathMap[pkgPath]; ok {
-+		return original
-+	}
-+	return pkgPath
++	return objabi.OriginalPackagePath(pkgPath)
 +}
 +
 +// IsGarblePkgPath reports whether pkgPath was explicitly mapped from an
 +// obfuscated package path.
 +func IsGarblePkgPath(pkgPath string) bool {
-+	_, ok := garblePkgPathMap[pkgPath]
-+	return ok
++	return objabi.IsPackagePathMapped(pkgPath)
 +}
 +
 +// GarbleRuntimeSymbol returns the package path and declaration name used by
 +// garbled object files for an original toolchain-generated runtime reference.
 +func GarbleRuntimeSymbol(pkgPath, name string) (string, string) {
-+	if obfuscated, ok := garbleSymbolReverseMap[pkgPath+"."+name]; ok {
++	if obfuscated := objabi.ObfuscatedSymbol(pkgPath + "." + name); obfuscated != "" {
 +		if i := strings.LastIndexByte(obfuscated, '.'); i >= 0 {
 +			return obfuscated[:i], obfuscated[i+1:]
 +		}
 +	}
-+	if obfuscated, ok := garblePkgPathReverseMap[pkgPath]; ok {
-+		pkgPath = obfuscated
-+	}
-+	return pkgPath, name
++	return objabi.ObfuscatedPackagePath(pkgPath), name
 +}
 diff --git a/cmd/compile/internal/escape/call.go b/cmd/compile/internal/escape/call.go
 index 8619e6010b..746df50ae3 100644
@@ -154,43 +138,14 @@ index bd8c3c1a23..0900101e62 100644
  					switch fn {
  					case "NoEscape":
 diff --git a/cmd/compile/internal/ir/func.go b/cmd/compile/internal/ir/func.go
-index e3879276d9..21f69e4de2 100644
+index e3879276d9..1ef310d144 100644
 --- a/cmd/compile/internal/ir/func.go
 +++ b/cmd/compile/internal/ir/func.go
-@@ -13,9 +13,28 @@ import (
- 	"cmd/internal/src"
- 	"encoding/base64"
- 	"fmt"
-+	"os"
-+	"strings"
- 	"unicode/utf8"
- )
- 
-+var garblePkgPathMap = func() map[string]string {
-+	m := make(map[string]string)
-+	for _, entry := range strings.Split(os.Getenv("GARBLE_PKGPATH_MAP"), ",") {
-+		if parts := strings.SplitN(entry, "=", 2); len(parts) == 2 {
-+			m[parts[0]] = parts[1]
-+		}
-+	}
-+	return m
-+}()
-+
-+func translateGarblePkgPath(path string) string {
-+	if original := garblePkgPathMap[path]; original != "" {
-+		return original
-+	}
-+	return path
-+}
-+
- // A Func corresponds to a single function in a Go program
- // (and vice versa: each function is denoted by exactly one *Func).
- //
-@@ -567,8 +586,9 @@ func IsFuncPCIntrinsic(n *CallExpr) bool {
+@@ -567,8 +567,9 @@ func IsFuncPCIntrinsic(n *CallExpr) bool {
  		return false
  	}
  	fn := n.Fun.(*Name).Sym()
-+	pkgPath := translateGarblePkgPath(fn.Pkg.Path)
++	pkgPath := objabi.OriginalPackagePath(fn.Pkg.Path)
  	return (fn.Name == "FuncPCABI0" || fn.Name == "FuncPCABIInternal") &&
 -		fn.Pkg.Path == "internal/abi"
 +		pkgPath == "internal/abi"
@@ -221,121 +176,35 @@ index 45512706d2..440a632376 100644
  		}
  		typ = named.Underlying()
 diff --git a/cmd/compile/internal/reflectdata/reflect.go b/cmd/compile/internal/reflectdata/reflect.go
-index 1fca65469b..bba4e0488a 100644
+index 1fca65469b..bd5f38b3a3 100644
 --- a/cmd/compile/internal/reflectdata/reflect.go
 +++ b/cmd/compile/internal/reflectdata/reflect.go
-@@ -8,6 +8,7 @@ import (
- 	"encoding/binary"
- 	"fmt"
- 	"internal/abi"
-+	"os"
- 	"slices"
- 	"sort"
- 	"strings"
-@@ -28,6 +29,30 @@ import (
- 	"cmd/internal/src"
- )
- 
-+// garblePkgPathMap translates obfuscated package paths to original paths.
-+// Populated from GARBLE_PKGPATH_MAP environment variable.
-+var garblePkgPathMap map[string]string
-+
-+func init() {
-+	garblePkgPathMap = make(map[string]string)
-+	if mapStr := os.Getenv("GARBLE_PKGPATH_MAP"); mapStr != "" {
-+		for _, entry := range strings.Split(mapStr, ",") {
-+			parts := strings.SplitN(entry, "=", 2)
-+			if len(parts) == 2 {
-+				garblePkgPathMap[parts[0]] = parts[1]
-+			}
-+		}
-+	}
-+}
-+
-+// translateGarblePkgPath returns the original package path for an obfuscated path.
-+func translateGarblePkgPath(pkgpath string) string {
-+	if orig, ok := garblePkgPathMap[pkgpath]; ok {
-+		return orig
-+	}
-+	return pkgpath
-+}
-+
- type ptabEntry struct {
- 	s *types.Sym
- 	t *types.Type
-@@ -1161,7 +1186,10 @@ func WriteBasicTypes() {
+@@ -1161,7 +1161,8 @@ func WriteBasicTypes() {
  	// another possible choice would be package main,
  	// but using runtime means fewer copies in object files.
  	// The code here needs to be in sync with writtenByWriteBasicTypes above.
 -	if base.Ctxt.Pkgpath != "runtime" {
-+	pkgpath := translateGarblePkgPath(base.Ctxt.Pkgpath)
-+	if len(garblePkgPathMap) > 0 {
-+	}
++	pkgpath := objabi.OriginalPackagePath(base.Ctxt.Pkgpath)
 +	if pkgpath != "runtime" {
  		return
  	}
  
-@@ -1176,6 +1204,8 @@ func WriteBasicTypes() {
- 		types.AnyType,
- 		types.ErrorType)
- 	for _, t := range list {
-+		if len(garblePkgPathMap) > 0 {
-+		}
- 		writeType(types.NewPtr(t))
- 		writeType(types.NewPtr(types.NewSlice(t)))
- 	}
-@@ -1348,7 +1378,8 @@ func NeedEmit(typ *types.Type) bool {
+@@ -1348,7 +1349,9 @@ func NeedEmit(typ *types.Type) bool {
  
  	switch sym := typ.Sym(); {
  	case writtenByWriteBasicTypes(typ):
 -		return base.Ctxt.Pkgpath == "runtime"
-+		// Use translated path for garble compatibility
-+		return translateGarblePkgPath(base.Ctxt.Pkgpath) == "runtime"
++		// WriteBasicTypes emits these descriptors from runtime even when its
++		// package path was obfuscated.
++		return objabi.OriginalPackagePath(base.Ctxt.Pkgpath) == "runtime"
  
  	case sym == nil:
  		// Anonymous type; possibly never seen before or ever again.
 diff --git a/cmd/compile/internal/ssa/rewrite.go b/cmd/compile/internal/ssa/rewrite.go
-index c1fbc51dc3..ef3da198aa 100644
+index c1fbc51dc3..ee5cd00876 100644
 --- a/cmd/compile/internal/ssa/rewrite.go
 +++ b/cmd/compile/internal/ssa/rewrite.go
-@@ -27,6 +27,36 @@ import (
- 	"strings"
- )
- 
-+// garbleSymbolMap maps obfuscated "pkg.func" to original "pkg.func" for call matching.
-+// Populated from GARBLE_SYMBOL_MAP environment variable.
-+var garbleSymbolMap map[string]string
-+
-+func init() {
-+	garbleSymbolMap = make(map[string]string)
-+	if mapStr := os.Getenv("GARBLE_SYMBOL_MAP"); mapStr != "" {
-+		for _, mapping := range strings.Split(mapStr, ",") {
-+			if mapping == "" {
-+				continue
-+			}
-+			parts := strings.SplitN(mapping, "=", 2)
-+			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-+				garbleSymbolMap[parts[0]] = parts[1]
-+			}
-+		}
-+	}
-+}
-+
-+// translateGarbleCall translates an obfuscated call name to original.
-+func translateGarbleCall(name string) string {
-+	if len(garbleSymbolMap) == 0 {
-+		return name
-+	}
-+	if orig, ok := garbleSymbolMap[name]; ok {
-+		return orig
-+	}
-+	return name
-+}
-+
- type deadValueChoice bool
- 
- const (
-@@ -460,7 +490,10 @@ func canMergeLoad(target, load *Value) bool {
+@@ -460,7 +460,10 @@ func canMergeLoad(target, load *Value) bool {
  // isSameCall reports whether aux is the same as the given named symbol.
  func isSameCall(aux Aux, name string) bool {
  	fn := aux.(*AuxCall).Fn
@@ -343,70 +212,29 @@ index c1fbc51dc3..ef3da198aa 100644
 +	if fn == nil {
 +		return false
 +	}
-+	return translateGarbleCall(fn.String()) == name
++	return objabi.OriginalSymbol(fn.String()) == name
  }
  
  func isMalloc(aux Aux) bool {
 diff --git a/cmd/compile/internal/ssagen/intrinsics.go b/cmd/compile/internal/ssagen/intrinsics.go
-index 6044efdb4f..3d38ab321c 100644
+index 6044efdb4f..56c13cff0b 100644
 --- a/cmd/compile/internal/ssagen/intrinsics.go
 +++ b/cmd/compile/internal/ssagen/intrinsics.go
-@@ -8,6 +8,8 @@ import (
- 	"fmt"
- 	"internal/abi"
- 	"internal/buildcfg"
-+	"os"
-+	"strings"
- 
- 	"cmd/compile/internal/base"
- 	"cmd/compile/internal/ir"
-@@ -17,6 +19,39 @@ import (
+@@ -14,6 +14,7 @@ import (
+ 	"cmd/compile/internal/ssa"
+ 	"cmd/compile/internal/typecheck"
+ 	"cmd/compile/internal/types"
++	"cmd/internal/objabi"
  	"cmd/internal/sys"
  )
  
-+// garbleSymbolMap maps obfuscated "pkg.func" to original "pkg.func" for intrinsic lookup.
-+// Populated from GARBLE_SYMBOL_MAP environment variable.
-+var garbleSymbolMap map[string]string
-+
-+func init() {
-+	garbleSymbolMap = make(map[string]string)
-+	if mapStr := os.Getenv("GARBLE_SYMBOL_MAP"); mapStr != "" {
-+		for _, mapping := range strings.Split(mapStr, ",") {
-+			if mapping == "" {
-+				continue
-+			}
-+			parts := strings.SplitN(mapping, "=", 2)
-+			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-+				garbleSymbolMap[parts[0]] = parts[1]
-+			}
-+		}
-+	}
-+}
-+
-+// translateGarbleSymbol translates an obfuscated pkg.fn to original pkg.fn.
-+func translateGarbleSymbol(pkg, fn string) (string, string) {
-+	if len(garbleSymbolMap) == 0 {
-+		return pkg, fn
-+	}
-+	key := pkg + "." + fn
-+	if orig, ok := garbleSymbolMap[key]; ok {
-+		if idx := strings.LastIndex(orig, "."); idx > 0 {
-+			return orig[:idx], orig[idx+1:]
-+		}
-+	}
-+	return pkg, fn
-+}
-+
- var intrinsics intrinsicBuilders
- 
- // An intrinsicBuilder converts a call node n into an ssa value that
-@@ -2393,27 +2428,28 @@ func findIntrinsic(sym *types.Sym) intrinsicBuilder {
+@@ -2393,27 +2394,28 @@ func findIntrinsic(sym *types.Sym) intrinsicBuilder {
  	if sym.Pkg == ir.Pkgs.Runtime {
  		pkg = "runtime"
  	}
 -	if base.Flag.Race && pkg == "sync/atomic" {
 +	fn := sym.Name
-+	origPkg, origFn := translateGarbleSymbol(pkg, fn)
++	origPkg, origFn := objabi.OriginalSymbolParts(pkg, fn)
 +	if base.Flag.Race && origPkg == "sync/atomic" {
  		// The race detector needs to be able to intercept these calls.
  		// We can't intrinsify them.
@@ -449,135 +277,78 @@ index a977b5e110..bde0b3ed6c 100644
  
  // InitCoverage loads the definitions for routines called
 diff --git a/cmd/compile/internal/types/size.go b/cmd/compile/internal/types/size.go
-index 4d64c7f8d2..1f05479882 100644
+index 4d64c7f8d2..5dcdc2d68b 100644
 --- a/cmd/compile/internal/types/size.go
 +++ b/cmd/compile/internal/types/size.go
-@@ -196,13 +196,6 @@ func calcStructOffset(t *Type, fields []*Field, offset int64) int64 {
- 	return offset
+@@ -9,6 +9,7 @@ import (
+ 	"slices"
+ 
+ 	"cmd/compile/internal/base"
++	"cmd/internal/objabi"
+ 	"cmd/internal/src"
+ 	"internal/buildcfg"
+ 	"internal/types/errors"
+@@ -200,7 +201,8 @@ func isAtomicStdPkg(p *Pkg) bool {
+ 	if p.Prefix == `""` {
+ 		panic("bad package prefix")
+ 	}
+-	return p.Prefix == "sync/atomic" || p.Prefix == "internal/runtime/atomic"
++	path := objabi.OriginalPackagePath(p.Path)
++	return path == "sync/atomic" || path == "internal/runtime/atomic"
  }
  
--func isAtomicStdPkg(p *Pkg) bool {
--	if p.Prefix == `""` {
--		panic("bad package prefix")
--	}
--	return p.Prefix == "sync/atomic" || p.Prefix == "internal/runtime/atomic"
--}
--
  // CalcSize calculates and stores the size, alignment, eq/hash algorithm,
- // and ptrBytes for t.
- // If CalcSizeDisabled is set, and the size/alignment
-@@ -488,8 +481,9 @@ func CalcStructSize(t *Type) {
+@@ -488,8 +490,9 @@ func CalcStructSize(t *Type) {
  	// Recognize special types. This logic is duplicated in go/types and
  	// cmd/compile/internal/types2.
  	if sym := t.Sym(); sym != nil {
-+		path, name := translateGarbleSymbol(sym.Pkg.Path, sym.Name)
++		_, name := objabi.OriginalPackageSymbol(sym.Pkg.Path, sym.Name)
  		switch {
 -		case sym.Name == "align64" && isAtomicStdPkg(sym.Pkg):
-+		case name == "align64" && (path == "sync/atomic" || path == "internal/runtime/atomic"):
++		case name == "align64" && isAtomicStdPkg(sym.Pkg):
  			maxAlign = 8
  
  		case buildcfg.Experiment.SIMD && (sym.Pkg.Path == "simd/archsimd") && len(t.Fields()) >= 1:
 diff --git a/cmd/compile/internal/types/type.go b/cmd/compile/internal/types/type.go
-index 3fa0b90e12..5e58165dc3 100644
+index 3fa0b90e12..0674f0359c 100644
 --- a/cmd/compile/internal/types/type.go
 +++ b/cmd/compile/internal/types/type.go
-@@ -11,9 +11,47 @@ import (
- 	"fmt"
- 	"go/constant"
- 	"internal/types/errors"
-+	"os"
-+	"strings"
- 	"sync"
- )
- 
-+var garblePkgPathMap = func() map[string]string {
-+	m := make(map[string]string)
-+	for _, entry := range strings.Split(os.Getenv("GARBLE_PKGPATH_MAP"), ",") {
-+		if parts := strings.SplitN(entry, "=", 2); len(parts) == 2 {
-+			m[parts[0]] = parts[1]
-+		}
-+	}
-+	return m
-+}()
-+
-+var garbleSymbolMap = func() map[string]string {
-+	m := make(map[string]string)
-+	for _, entry := range strings.Split(os.Getenv("GARBLE_SYMBOL_MAP"), ",") {
-+		if parts := strings.SplitN(entry, "=", 2); len(parts) == 2 {
-+			m[parts[0]] = parts[1]
-+		}
-+	}
-+	return m
-+}()
-+
-+func translateGarblePkgPath(path string) string {
-+	if original := garblePkgPathMap[path]; original != "" {
-+		return original
-+	}
-+	return path
-+}
-+
-+func translateGarbleSymbol(path, name string) (string, string) {
-+	if original := garbleSymbolMap[path+"."+name]; original != "" {
-+		if dot := strings.LastIndexByte(original, '.'); dot >= 0 {
-+			return original[:dot], original[dot+1:]
-+		}
-+	}
-+	return translateGarblePkgPath(path), name
-+}
-+
- // Object represents an ir.Node, but without needing to import cmd/compile/internal/ir,
- // which would cause an import cycle. The uses in other packages must type assert
- // values of type Object to ir.Node or a more specific type.
-@@ -1639,7 +1677,8 @@ func NewNamed(obj Object) *Type {
+@@ -1639,7 +1639,8 @@ func NewNamed(obj Object) *Type {
  		t.SetIsShape(true)
  		t.SetHasShape(true)
  	}
 -	if sym.Pkg.Path == "internal/runtime/sys" && sym.Name == "nih" {
-+	pkgPath, name := translateGarbleSymbol(sym.Pkg.Path, sym.Name)
++	pkgPath, name := objabi.OriginalPackageSymbol(sym.Pkg.Path, sym.Name)
 +	if pkgPath == "internal/runtime/sys" && name == "nih" {
  		// Recognize the special not-in-heap type. Any type including
  		// this type will also be not-in-heap.
  		// This logic is duplicated in go/types and
-@@ -1866,8 +1905,9 @@ func IsMethodApplicable(t *Type, m *Field) bool {
+@@ -1866,8 +1867,9 @@ func IsMethodApplicable(t *Type, m *Field) bool {
  // RuntimeSymName returns the name of s if it's in package "runtime"; otherwise
  // it returns "".
  func RuntimeSymName(s *Sym) string {
 -	if s.Pkg.Path == "runtime" {
 -		return s.Name
-+	pkgPath, name := translateGarbleSymbol(s.Pkg.Path, s.Name)
++	pkgPath, name := objabi.OriginalPackageSymbol(s.Pkg.Path, s.Name)
 +	if pkgPath == "runtime" {
 +		return name
  	}
  	return ""
  }
 diff --git a/cmd/compile/internal/types2/sizes.go b/cmd/compile/internal/types2/sizes.go
-index 534ecfba35..f8f5a83bd0 100644
+index 534ecfba35..b1fd46abbc 100644
 --- a/cmd/compile/internal/types2/sizes.go
 +++ b/cmd/compile/internal/types2/sizes.go
-@@ -6,6 +6,21 @@
+@@ -6,6 +6,8 @@
  
  package types2
  
-+import (
-+	"os"
-+	"strings"
-+)
-+
-+var garbleAlign64Names = func() map[string]string {
-+	m := make(map[string]string)
-+	for _, entry := range strings.Split(os.Getenv("GARBLE_SYMBOL_MAP"), ",") {
-+		if parts := strings.SplitN(entry, "=", 2); len(parts) == 2 {
-+			m[parts[0]] = parts[1]
-+		}
-+	}
-+	return m
-+}()
++import "cmd/internal/objabi"
 +
  // Sizes defines the sizing functions for package unsafe.
  type Sizes interface {
  	// Alignof returns the alignment of a variable of type T.
-@@ -117,10 +132,16 @@ func IsSyncAtomicAlign64(T Type) bool {
+@@ -117,10 +119,12 @@ func IsSyncAtomicAlign64(T Type) bool {
  		return false
  	}
  	obj := named.Obj()
@@ -589,11 +360,7 @@ index 534ecfba35..f8f5a83bd0 100644
 +		return false
 +	}
 +	path, name := obj.Pkg().Path(), obj.Name()
-+	if original := garbleAlign64Names[path+"."+name]; original != "" {
-+		if dot := strings.LastIndexByte(original, '.'); dot >= 0 {
-+			path, name = original[:dot], original[dot+1:]
-+		}
-+	}
++	path, name = objabi.OriginalSymbolParts(path, name)
 +	return name == "align64" && (path == "sync/atomic" || path == "internal/runtime/atomic")
  }
  
@@ -612,67 +379,38 @@ index 296d43f1d9..dd597603ca 100644
  			// for the escape analysis to escape its argument based on
  			// the type. The call itself is no-op. Just walk the
 diff --git a/cmd/internal/goobj/builtin.go b/cmd/internal/goobj/builtin.go
-index aa665fde99..db2ece5bf5 100644
+index aa665fde99..ad4cf380c8 100644
 --- a/cmd/internal/goobj/builtin.go
 +++ b/cmd/internal/goobj/builtin.go
-@@ -4,7 +4,46 @@
+@@ -4,7 +4,17 @@
  
  package goobj
  
 -import "internal/buildcfg"
 +import (
++	"cmd/internal/objabi"
 +	"internal/buildcfg"
-+	"os"
-+	"strings"
 +)
 +
-+// garbleSymbolMap maps obfuscated "pkg.func" to original "pkg.func" for builtin lookup.
-+// Populated from GARBLE_SYMBOL_MAP environment variable.
-+var garbleSymbolMap map[string]string
-+
 +func init() {
-+	garbleSymbolMap = make(map[string]string)
-+	if mapStr := os.Getenv("GARBLE_SYMBOL_MAP"); mapStr != "" {
-+		for _, mapping := range strings.Split(mapStr, ",") {
-+			if mapping == "" {
-+				continue
-+			}
-+			parts := strings.SplitN(mapping, "=", 2)
-+			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-+				garbleSymbolMap[parts[0]] = parts[1]
-+			}
-+		}
-+	}
-+
 +	builtinMap = make(map[string]int, len(builtins))
 +	for i, b := range builtins {
 +		builtinMap[b.name] = i
 +	}
 +}
-+
-+// translateGarbleBuiltin translates an obfuscated builtin name to original.
-+func translateGarbleBuiltin(name string) string {
-+	if len(garbleSymbolMap) == 0 {
-+		return name
-+	}
-+	if orig, ok := garbleSymbolMap[name]; ok {
-+		return orig
-+	}
-+	return name
-+}
  
  // Builtin (compiler-generated) function references appear
  // frequently. We assign special indices for them, so they
-@@ -25,6 +64,8 @@ func BuiltinName(i int) (string, int) {
+@@ -25,6 +35,8 @@ func BuiltinName(i int) (string, int) {
  // BuiltinIdx returns the index of the builtin with the
  // given name and abi, or -1 if it is not a builtin.
  func BuiltinIdx(name string, abi int) int {
 +	// Translate obfuscated name to original for builtin lookup.
-+	name = translateGarbleBuiltin(name)
++	name = objabi.OriginalSymbol(name)
  	i, ok := builtinMap[name]
  	if !ok {
  		return -1
-@@ -38,10 +79,3 @@ func BuiltinIdx(name string, abi int) int {
+@@ -38,10 +50,3 @@ func BuiltinIdx(name string, abi int) int {
  //go:generate go run mkbuiltin.go
  
  var builtinMap map[string]int
@@ -700,60 +438,10 @@ index 89b64f4eed..c791befadb 100644
  		}
  
 diff --git a/cmd/internal/objabi/funcid.go b/cmd/internal/objabi/funcid.go
-index b953d84803..6b72b90842 100644
+index b953d84803..34ce2f3a26 100644
 --- a/cmd/internal/objabi/funcid.go
 +++ b/cmd/internal/objabi/funcid.go
-@@ -6,7 +6,9 @@ package objabi
- 
- import (
- 	"internal/abi"
-+	"os"
- 	"strings"
-+	"sync"
- )
- 
- var funcIDs = map[string]abi.FuncID{
-@@ -37,12 +39,47 @@ var funcIDs = map[string]abi.FuncID{
- 	"deferreturn": abi.FuncIDWrapper,
- }
- 
-+var garbleFuncSymbolMap = sync.OnceValue(func() map[string]string {
-+	m := make(map[string]string)
-+	for _, entry := range strings.Split(os.Getenv("GARBLE_SYMBOL_MAP"), ",") {
-+		if parts := strings.SplitN(entry, "=", 2); len(parts) == 2 {
-+			m[parts[0]] = parts[1]
-+		}
-+	}
-+	return m
-+})
-+
-+var garbleFuncPkgPathMap = sync.OnceValue(func() map[string]string {
-+	m := make(map[string]string)
-+	for _, entry := range strings.Split(os.Getenv("GARBLE_PKGPATH_MAP"), ",") {
-+		if parts := strings.SplitN(entry, "=", 2); len(parts) == 2 {
-+			m[parts[0]] = parts[1]
-+		}
-+	}
-+	return m
-+})
-+
-+// OriginalFuncName returns the unobfuscated name used by toolchain metadata
-+// consumers, or name when Garble did not translate it.
-+func OriginalFuncName(name string) string {
-+	if original := garbleFuncSymbolMap()[name]; original != "" {
-+		return original
-+	}
-+	for obfuscated, original := range garbleFuncPkgPathMap() {
-+		if strings.HasPrefix(name, obfuscated+".") {
-+			return original + name[len(obfuscated):]
-+		}
-+	}
-+	return name
-+}
-+
- // Get the function ID for the named function in the named file.
- // The function should be package-qualified.
- func GetFuncID(name string, isWrapper bool) abi.FuncID {
+@@ -43,6 +43,7 @@ func GetFuncID(name string, isWrapper bool) abi.FuncID {
  	if isWrapper {
  		return abi.FuncIDWrapper
  	}
@@ -791,75 +479,227 @@ index 0000000000..28caaff97e
 +		t.Fatalf("OriginalFuncName(runtime package member) = %q, want runtime.obfgoexit", got)
 +	}
 +}
-diff --git a/cmd/internal/objabi/pkgspecial.go b/cmd/internal/objabi/pkgspecial.go
-index d7e147b3ce..2b331f5b7b 100644
---- a/cmd/internal/objabi/pkgspecial.go
-+++ b/cmd/internal/objabi/pkgspecial.go
-@@ -4,7 +4,11 @@
- 
- package objabi
- 
--import "sync"
+diff --git a/cmd/internal/objabi/garble.go b/cmd/internal/objabi/garble.go
+new file mode 100644
+index 0000000000..fcb6d45dfb
+--- /dev/null
++++ b/cmd/internal/objabi/garble.go
+@@ -0,0 +1,129 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Garble name mappings are shared by the compiler, assembler, and linker.
++package objabi
++
 +import (
 +	"os"
 +	"strings"
 +	"sync"
 +)
++
++const (
++	pkgPathMapEnv = "GARBLE_PKGPATH_MAP"
++	symbolMapEnv  = "GARBLE_SYMBOL_MAP"
++)
++
++type nameMap struct {
++	forward map[string]string
++	reverse map[string]string
++}
++
++func parseNameMap(value string) nameMap {
++	m := nameMap{
++		forward: make(map[string]string),
++		reverse: make(map[string]string),
++	}
++	for _, entry := range strings.Split(value, ",") {
++		obfuscated, original, ok := strings.Cut(entry, "=")
++		if !ok || obfuscated == "" || original == "" {
++			continue
++		}
++		m.forward[obfuscated] = original
++		m.reverse[original] = obfuscated
++	}
++	return m
++}
++
++var pkgPaths = sync.OnceValue(func() nameMap {
++	return parseNameMap(os.Getenv(pkgPathMapEnv))
++})
++
++var symbols = sync.OnceValue(func() nameMap {
++	return parseNameMap(os.Getenv(symbolMapEnv))
++})
++
++// OriginalPackagePath returns the original package path for an obfuscated path.
++func OriginalPackagePath(path string) string {
++	if original := pkgPaths().forward[path]; original != "" {
++		return original
++	}
++	return path
++}
++
++// IsPackagePathMapped reports whether path is an obfuscated package path.
++func IsPackagePathMapped(path string) bool {
++	_, ok := pkgPaths().forward[path]
++	return ok
++}
++
++// ObfuscatedPackagePath returns the obfuscated package path for an original
++// path, or path when no mapping exists.
++func ObfuscatedPackagePath(path string) string {
++	if obfuscated := pkgPaths().reverse[path]; obfuscated != "" {
++		return obfuscated
++	}
++	return path
++}
++
++// OriginalSymbol returns the original symbol for an obfuscated symbol.
++func OriginalSymbol(name string) string {
++	if original := symbols().forward[name]; original != "" {
++		return original
++	}
++	return name
++}
++
++// OriginalSymbolParts translates an explicitly mapped package path and
++// declaration name. It does not apply the package-path fallback.
++func OriginalSymbolParts(path, name string) (string, string) {
++	original := OriginalSymbol(path + "." + name)
++	if original == path+"."+name {
++		return path, name
++	}
++	if dot := strings.LastIndexByte(original, '.'); dot >= 0 {
++		return original[:dot], original[dot+1:]
++	}
++	return path, name
++}
++
++// OriginalPackageSymbol translates an obfuscated package path and declaration
++// name to their original values.
++func OriginalPackageSymbol(path, name string) (string, string) {
++	originalPath, originalName := OriginalSymbolParts(path, name)
++	if originalPath != path || originalName != name {
++		return originalPath, originalName
++	}
++	return OriginalPackagePath(path), name
++}
++
++// ObfuscatedSymbol returns the obfuscated symbol for an original symbol, or an
++// empty string when no mapping exists.
++func ObfuscatedSymbol(name string) string {
++	if obfuscated := symbols().reverse[name]; obfuscated != "" {
++		return obfuscated
++	}
++	for original, obfuscated := range pkgPaths().reverse {
++		if strings.HasPrefix(name, original+".") {
++			return obfuscated + name[len(original):]
++		}
++	}
++	return ""
++}
++
++// OriginalFuncName returns the original fully qualified function name. The
++// symbol map takes precedence because it can rename both the package and the
++// declaration. The package map handles names absent from the symbol map.
++func OriginalFuncName(name string) string {
++	if original := symbols().forward[name]; original != "" {
++		return original
++	}
++	for obfuscated, original := range pkgPaths().forward {
++		if strings.HasPrefix(name, obfuscated+".") {
++			return original + name[len(obfuscated):]
++		}
++	}
++	return name
++}
+diff --git a/cmd/internal/objabi/garble_test.go b/cmd/internal/objabi/garble_test.go
+new file mode 100644
+index 0000000000..1330938940
+--- /dev/null
++++ b/cmd/internal/objabi/garble_test.go
+@@ -0,0 +1,52 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package objabi
++
++import "testing"
++
++func TestParseNameMap(t *testing.T) {
++	got := parseNameMap("obf=original,invalid,=empty,empty=,obf2=original2")
++	if got.forward["obf"] != "original" || got.forward["obf2"] != "original2" {
++		t.Fatalf("forward map = %v", got.forward)
++	}
++	if got.reverse["original"] != "obf" || got.reverse["original2"] != "obf2" {
++		t.Fatalf("reverse map = %v", got.reverse)
++	}
++	if len(got.forward) != 2 || len(got.reverse) != 2 {
++		t.Fatalf("unexpected entries: forward=%v reverse=%v", got.forward, got.reverse)
++	}
++}
++
++func TestNameTranslations(t *testing.T) {
++	oldPkgPaths, oldSymbols := pkgPaths, symbols
++	pkgPaths = func() nameMap {
++		return parseNameMap("obf.example/runtime=example.com/runtime,obfruntime=runtime")
++	}
++	symbols = func() nameMap {
++		return parseNameMap("obfruntime.obfpanic=runtime.gopanic")
++	}
++	t.Cleanup(func() {
++		pkgPaths, symbols = oldPkgPaths, oldSymbols
++	})
++
++	if got := OriginalPackagePath("obf.example/runtime"); got != "example.com/runtime" {
++		t.Fatalf("OriginalPackagePath = %q", got)
++	}
++	if got := ObfuscatedPackagePath("example.com/runtime"); got != "obf.example/runtime" {
++		t.Fatalf("ObfuscatedPackagePath = %q", got)
++	}
++	if path, name := OriginalPackageSymbol("obfruntime", "obfpanic"); path != "runtime" || name != "gopanic" {
++		t.Fatalf("OriginalPackageSymbol = %q, %q", path, name)
++	}
++	if got := ObfuscatedSymbol("runtime.gopanic"); got != "obfruntime.obfpanic" {
++		t.Fatalf("ObfuscatedSymbol exact = %q", got)
++	}
++	if got := ObfuscatedSymbol("example.com/runtime..inittask"); got != "obf.example/runtime..inittask" {
++		t.Fatalf("ObfuscatedSymbol package fallback = %q", got)
++	}
++	if got := OriginalFuncName("obf.example/runtime.someFunc"); got != "example.com/runtime.someFunc" {
++		t.Fatalf("OriginalFuncName = %q", got)
++	}
++}
+diff --git a/cmd/internal/objabi/pkgspecial.go b/cmd/internal/objabi/pkgspecial.go
+index d7e147b3ce..e7bc4f4a08 100644
+--- a/cmd/internal/objabi/pkgspecial.go
++++ b/cmd/internal/objabi/pkgspecial.go
+@@ -4,7 +4,9 @@
+ 
+ package objabi
+ 
+-import "sync"
++import (
++	"sync"
++)
  
  // PkgSpecial indicates special build properties of a given runtime-related
  // package.
-@@ -102,8 +106,21 @@ var allowAsmABIPkgs = []string{
- 	"internal/runtime/maps",
- }
+@@ -104,6 +106,7 @@ var allowAsmABIPkgs = []string{
  
-+var garblePkgPathMap = sync.OnceValue(func() map[string]string {
-+	m := make(map[string]string)
-+	for _, entry := range strings.Split(os.Getenv("GARBLE_PKGPATH_MAP"), ",") {
-+		if parts := strings.SplitN(entry, "=", 2); len(parts) == 2 {
-+			m[parts[0]] = parts[1]
-+		}
-+	}
-+	return m
-+})
-+
  // LookupPkgSpecial returns special build properties for the given package path.
  func LookupPkgSpecial(pkgPath string) PkgSpecial {
-+	if original := garblePkgPathMap()[pkgPath]; original != "" {
-+		pkgPath = original
-+	}
++	pkgPath = OriginalPackagePath(pkgPath)
  	return pkgSpecialsOnce()[pkgPath]
  }
  
-diff --git a/cmd/link/internal/arm64/asm.go b/cmd/link/internal/arm64/asm.go
-index 9864788e1b..ec6c413e43 100644
---- a/cmd/link/internal/arm64/asm.go
-+++ b/cmd/link/internal/arm64/asm.go
-@@ -897,7 +897,9 @@ func archreloc(target *ld.Target, ldr *loader.Loader, syms *ld.ArchSyms, r loade
- 		objabi.R_ARM64_PCREL_LDST16,
- 		objabi.R_ARM64_PCREL_LDST32,
- 		objabi.R_ARM64_PCREL_LDST64:
--		t := ldr.SymAddr(rs) + r.Add() - ((ldr.SymValue(s) + int64(r.Off())) &^ 0xfff)
-+		rsAddr := ldr.SymAddr(rs)
-+		pc := ldr.SymValue(s) + int64(r.Off())
-+		t := rsAddr + r.Add() - (pc &^ 0xfff)
- 		if t >= 1<<32 || t < -1<<32 {
- 			ldr.Errorf(s, "program too large, address relocation distance = %d", t)
- 		}
 diff --git a/cmd/link/internal/ld/data.go b/cmd/link/internal/ld/data.go
-index 4a27db5a42..a03a91b93b 100644
+index 4a27db5a42..42e1a7365d 100644
 --- a/cmd/link/internal/ld/data.go
 +++ b/cmd/link/internal/ld/data.go
-@@ -1876,7 +1876,8 @@ func (state *dodataState) assignDsymsToSection(sect *sym.Section, syms []loader.
- 		if forceType != sym.Sxxx {
- 			state.setSymType(s, forceType)
- 		}
--		ldr.SetSymValue(s, int64(uint64(state.datsize)-sect.Vaddr))
-+		symValue := int64(uint64(state.datsize) - sect.Vaddr)
-+		ldr.SetSymValue(s, symValue)
- 		state.datsize += ldr.SymSize(s)
- 	}
- 	sect.Length = uint64(state.datsize) - sect.Vaddr
-@@ -2810,7 +2811,7 @@ func (ctxt *Link) textaddress() {
+@@ -2810,7 +2810,7 @@ func (ctxt *Link) textaddress() {
  			// lay down trampolines after each function
  			for ; ntramps < len(ctxt.tramps); ntramps++ {
  				tramp := ctxt.tramps[ntramps]
@@ -989,7 +829,7 @@ index 9cbc12919f..ee6a6e2f32 100644
  	}
  	if strings.HasPrefix(name, "go:string.") {
 diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
-index 4c9f2ec6b2..0d74076c4b 100644
+index 4c9f2ec6b2..c220f8f9d5 100644
 --- a/cmd/link/internal/ld/pcln.go
 +++ b/cmd/link/internal/ld/pcln.go
 @@ -4,14 +4,6 @@
@@ -1020,12 +860,14 @@ index 4c9f2ec6b2..0d74076c4b 100644
  )
  
  const funcSize = 11 * 4 // funcSize is the size of the _func object in runtime/runtime2.go
-@@ -276,7 +271,15 @@ func (state *pclntab) generatePCHeader(ctxt *Link) {
+@@ -276,7 +271,17 @@ func (state *pclntab) generatePCHeader(ctxt *Link) {
  
  		// Write header.
  		// Keep in sync with runtime/symtab.go:pcHeader and package debug/gosym.
 -		header.SetUint32(ctxt.Arch, 0, uint32(abi.CurrentPCLnTabMagic))
 +		magic := uint32(abi.CurrentPCLnTabMagic)
++		// Garble patches the runtime to expect a per-build pclntab magic value.
++		// Leave the standard value unchanged for ordinary linker invocations.
 +		if value := os.Getenv("GARBLE_LINK_MAGIC"); value != "" {
 +			parsed, err := strconv.ParseUint(value, 10, 32)
 +			if err != nil {
@@ -1037,7 +879,7 @@ index 4c9f2ec6b2..0d74076c4b 100644
  		header.SetUint8(ctxt.Arch, 6, uint8(ctxt.Arch.MinLC))
  		header.SetUint8(ctxt.Arch, 7, uint8(ctxt.Arch.PtrSize))
  		off := header.SetUint(ctxt.Arch, 8, uint64(state.nfunc))
-@@ -290,19 +293,6 @@ func (state *pclntab) generatePCHeader(ctxt *Link) {
+@@ -290,19 +295,6 @@ func (state *pclntab) generatePCHeader(ctxt *Link) {
  		if off != size {
  			panic(fmt.Sprintf("pcHeader size: %d != %d", off, size))
  		}
@@ -1057,15 +899,24 @@ index 4c9f2ec6b2..0d74076c4b 100644
  	}
  
  	state.pcheader = state.addGeneratedSym(ctxt, "runtime.pcheader", size, int32(ctxt.Arch.PtrSize), writeHeader)
-@@ -338,7 +328,6 @@ func walkFuncs(ctxt *Link, funcs []loader.Sym, f func(loader.Sym)) {
+@@ -338,7 +330,8 @@ func walkFuncs(ctxt *Link, funcs []loader.Sym, f func(loader.Sym)) {
  // func symbol to the name offset in runtime.funcnamtab.
  func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[loader.Sym]uint32 {
  	nameOffsets := make(map[loader.Sym]uint32, state.nfunc)
 -
++	// Tiny mode coalesces names after removing unexported function names. Some
++	// names remain because the runtime or reflection machinery identifies them.
  	garbleTiny := os.Getenv("GARBLE_LINK_TINY") == "true"
  	tinyOffsetsByName := make(map[string]uint32)
  
-@@ -351,42 +340,30 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
+@@ -346,47 +339,39 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
+ 	writeFuncNameTab := func(ctxt *Link, s loader.Sym) {
+ 		symtab := ctxt.loader.MakeSymbolUpdater(s)
+ 		if garbleTiny {
++			// Multiple functions can share a reduced name, so write each distinct
++			// string once at the offset assigned during the sizing pass below.
+ 			for name, off := range tinyOffsetsByName {
+ 				symtab.AddCStringAt(int64(off), name)
  			}
  			return
  		}
@@ -1111,12 +962,14 @@ index 4c9f2ec6b2..0d74076c4b 100644
 -	// "runtime." and "internal/runtime/atomic" prefixes tested by
 -	// runtime.panicCheck1, isSystemGoroutine and sigprof. Everything else
 -	// collapses to a shared sentinel that reveals no unexported identity.
++	// tinyFuncName keeps names consumed by runtime or reflection and replaces
++	// other unexported names with the smallest metadata-safe representation.
  	tinyFuncName := func(name string, funcID abi.FuncID) string {
 +		name = runtimeMetadataFuncName(name, funcID)
  		if isExported(name) {
  			return name
  		}
-@@ -408,9 +385,6 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
+@@ -408,9 +393,6 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
  		case strings.HasPrefix(name, "internal/runtime/atomic"):
  			pkg = "internal/runtime/atomic"
  		}
@@ -1126,7 +979,7 @@ index 4c9f2ec6b2..0d74076c4b 100644
  		if funcID == abi.FuncIDWrapper && strings.Contains(name, ".(*") {
  			if pkg == "" {
  				pkg = "_"
-@@ -422,10 +396,8 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
+@@ -422,10 +404,8 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
  		}
  		return pkg + ".?"
  	}
@@ -1137,7 +990,7 @@ index 4c9f2ec6b2..0d74076c4b 100644
  		if garbleTiny {
  			var funcID abi.FuncID
  			if fi := ctxt.loader.FuncInfo(s); fi.Valid() {
-@@ -441,7 +413,11 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
+@@ -441,7 +421,11 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
  			nameOffsets[s] = off
  			return
  		}
@@ -1150,10 +1003,13 @@ index 4c9f2ec6b2..0d74076c4b 100644
  		nameOffsets[s] = uint32(size)
  		size += int64(len(name) + 1) // NULL terminate
  	})
-@@ -450,6 +426,18 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
+@@ -450,6 +434,21 @@ func (state *pclntab) generateFuncnametab(ctxt *Link, funcs []loader.Sym) map[lo
  	return nameOffsets
  }
  
++// runtimeMetadataFuncName restores names identified by FuncID and uses a
++// generic runtime name for other runtime functions. The runtime only needs
++// their package identity to classify system goroutines.
 +func runtimeMetadataFuncName(name string, funcID abi.FuncID) string {
 +	original := objabi.OriginalFuncName(name)
 +	switch funcID {
@@ -1169,7 +1025,7 @@ index 4c9f2ec6b2..0d74076c4b 100644
  // walkFilenames walks funcs, calling a function for each filename used in each
  // function's line table.
  func walkFilenames(ctxt *Link, funcs []loader.Sym, f func(*sym.CompilationUnit, goobj.CUFileIndex)) {
-@@ -1036,24 +1024,18 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
+@@ -1036,24 +1035,21 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
  		}
  	}
  
@@ -1198,6 +1054,9 @@ index 4c9f2ec6b2..0d74076c4b 100644
 +		}
 +		key := uint32(parsed)
 +		data := sb.Data()
++		// Garble patches runtime.funcInfo.entry to reverse this operation. Mixing
++		// the function-name offset into each entry keeps equal PCs from producing
++		// equal encoded values while retaining a four-byte entryOff field.
 +		for _, off := range startLocations {
 +			entryOff := ctxt.Arch.ByteOrder.Uint32(data[off:])
 +			nameOff := ctxt.Arch.ByteOrder.Uint32(data[off+4:])
@@ -1311,119 +1170,31 @@ index 4b5010eade..ee43b23712 100644
  			}
  			s := &XcoffSymEnt64{
 diff --git a/cmd/link/internal/loader/loader.go b/cmd/link/internal/loader/loader.go
-index 04601b32a0..2ea801b5b9 100644
+index 04601b32a0..f309da5831 100644
 --- a/cmd/link/internal/loader/loader.go
 +++ b/cmd/link/internal/loader/loader.go
-@@ -27,6 +27,212 @@ import (
+@@ -27,6 +27,113 @@ import (
  
  var _ = fmt.Print
  
-+// GarblePkgPathMap maps obfuscated package paths to their original paths.
-+// This is populated from the GARBLE_PKGPATH_MAP environment variable.
-+// Format: "obfuscated1=original1,obfuscated2=original2,..."
-+var GarblePkgPathMap map[string]string
-+
-+// GarblePkgPathReverseMap maps original package paths to their obfuscated paths.
-+var GarblePkgPathReverseMap map[string]string
-+
-+func init() {
-+	GarblePkgPathMap = make(map[string]string)
-+	GarblePkgPathReverseMap = make(map[string]string)
-+
-+	if mapStr := os.Getenv("GARBLE_PKGPATH_MAP"); mapStr != "" {
-+		for _, mapping := range strings.Split(mapStr, ",") {
-+			if mapping == "" {
-+				continue
-+			}
-+			parts := strings.SplitN(mapping, "=", 2)
-+			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-+				GarblePkgPathMap[parts[0]] = parts[1]
-+				GarblePkgPathReverseMap[parts[1]] = parts[0]
-+			}
-+		}
-+	}
-+}
-+
 +// GetGarbleObfuscatedPath returns the obfuscated path for an original package path.
 +// Returns the original path if no obfuscation is found.
 +func GetGarbleObfuscatedPath(origPath string) string {
-+	if obf, ok := GarblePkgPathReverseMap[origPath]; ok {
-+		return obf
-+	}
-+	return origPath
++	return objabi.ObfuscatedPackagePath(origPath)
 +}
 +
-+// garbleSymbolMap maps original "pkg.func" to obfuscated "pkg.func" for symbol lookup.
-+// Populated from GARBLE_SYMBOL_MAP environment variable.
-+var garbleSymbolMap map[string]string
-+var garbleSymbolReverseMap map[string]string
-+
-+func init() {
-+	garbleSymbolMap = make(map[string]string)
-+	garbleSymbolReverseMap = make(map[string]string)
-+
-+	if mapStr := os.Getenv("GARBLE_SYMBOL_MAP"); mapStr != "" {
-+		for _, mapping := range strings.Split(mapStr, ",") {
-+			if mapping == "" {
-+				continue
-+			}
-+			parts := strings.SplitN(mapping, "=", 2)
-+			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-+				// parts[0] = obfuscated, parts[1] = original
-+				garbleSymbolMap[parts[0]] = parts[1]
-+				garbleSymbolReverseMap[parts[1]] = parts[0]
-+			}
-+		}
-+	}
-+}
++var garbleObfuscatedSymbol = objabi.ObfuscatedSymbol
 +
 +// GetGarbleObfuscatedSymbol returns the obfuscated symbol name for an original symbol.
 +// Returns empty string if no obfuscation is found.
 +func GetGarbleObfuscatedSymbol(origName string) string {
-+	if obf, ok := garbleSymbolReverseMap[origName]; ok {
-+		return obf
-+	}
-+
-+	// Handle special symbol patterns like "runtime..inittask" where only
-+	// the package name is obfuscated but the suffix stays the same.
-+	// These use ".." as separator between package and special suffix.
-+	if idx := strings.Index(origName, ".."); idx > 0 {
-+		origPkg := origName[:idx]
-+		suffix := origName[idx:] // includes the ".."
-+		if obfPkg, ok := GarblePkgPathReverseMap[origPkg]; ok {
-+			return obfPkg + suffix
-+		}
-+	}
-+
-+	// Also try with package path translation for regular "pkg.symbol" patterns
-+	if idx := strings.Index(origName, "."); idx > 0 {
-+		origPkg := origName[:idx]
-+		symName := origName[idx+1:]
-+		if obfPkg, ok := GarblePkgPathReverseMap[origPkg]; ok {
-+			// Look for any symbol in the obfuscated package that maps to our original
-+			for obfSym, orig := range garbleSymbolMap {
-+				if orig == origName {
-+					return obfSym
-+				}
-+			}
-+			// Fallback: try obfuscated package with original symbol name
-+			// (for symbols that aren't in the explicit map but exist)
-+			return obfPkg + "." + symName
-+		}
-+	}
-+	return ""
++	return garbleObfuscatedSymbol(origName)
 +}
 +
 +// IsGarbleRuntimePkg returns true if the given package path (possibly obfuscated)
 +// corresponds to the runtime package.
 +func IsGarbleRuntimePkg(pkg string) bool {
-+	if pkg == "runtime" {
-+		return true
-+	}
-+	if orig, ok := GarblePkgPathMap[pkg]; ok && orig == "runtime" {
-+		return true
-+	}
-+	return false
++	return objabi.OriginalPackagePath(pkg) == "runtime"
 +}
 +
 +// TranslateGarbleBuiltinName attempts to translate an obfuscated symbol name
@@ -1431,18 +1202,7 @@ index 04601b32a0..2ea801b5b9 100644
 +// is obfuscated from "runtime" to "abc123" and "newobject" is obfuscated to "xyz",
 +// then "abc123.xyz" should be translated to "runtime.newobject" to look up in the builtin table.
 +func TranslateGarbleBuiltinName(name string) string {
-+	// First, try the full symbol map (obfuscated -> original)
-+	if orig, ok := garbleSymbolMap[name]; ok {
-+		return orig
-+	}
-+	// Fallback: just translate the package path
-+	if idx := strings.Index(name, "."); idx > 0 {
-+		pkg := name[:idx]
-+		if orig, ok := GarblePkgPathMap[pkg]; ok {
-+			return orig + name[idx:]
-+		}
-+	}
-+	return name
++	return objabi.OriginalFuncName(name)
 +}
 +
 +// HasGarbleRuntimePrefix returns true if the symbol name starts with "runtime."
@@ -1454,7 +1214,7 @@ index 04601b32a0..2ea801b5b9 100644
 +	}
 +	if idx := strings.Index(name, "."); idx > 0 {
 +		pkg := name[:idx]
-+		if orig, ok := GarblePkgPathMap[pkg]; ok && orig == "runtime" {
++		if objabi.OriginalPackagePath(pkg) == "runtime" {
 +			return true
 +		}
 +	}
@@ -1471,7 +1231,7 @@ index 04601b32a0..2ea801b5b9 100644
 +		rest := name[5:] // skip "type:"
 +		if idx := strings.Index(rest, "."); idx > 0 {
 +			pkg := rest[:idx]
-+			if orig, ok := GarblePkgPathMap[pkg]; ok && orig == "runtime" {
++			if objabi.OriginalPackagePath(pkg) == "runtime" {
 +				return true
 +			}
 +		}
@@ -1487,7 +1247,7 @@ index 04601b32a0..2ea801b5b9 100644
 +	}
 +	if idx := strings.Index(name, ".gcbits."); idx > 0 {
 +		pkg := name[:idx]
-+		if orig, ok := GarblePkgPathMap[pkg]; ok && orig == "runtime" {
++		if objabi.OriginalPackagePath(pkg) == "runtime" {
 +			return true
 +		}
 +	}
@@ -1502,7 +1262,7 @@ index 04601b32a0..2ea801b5b9 100644
 +	}
 +	if idx := strings.Index(name, ".text."); idx > 0 {
 +		pkg := name[:idx]
-+		if orig, ok := GarblePkgPathMap[pkg]; ok && orig == "runtime" {
++		if objabi.OriginalPackagePath(pkg) == "runtime" {
 +			return true
 +		}
 +	}
@@ -1517,7 +1277,7 @@ index 04601b32a0..2ea801b5b9 100644
 +	}
 +	if idx := strings.Index(name, ".elf_"); idx > 0 {
 +		pkg := name[:idx]
-+		if orig, ok := GarblePkgPathMap[pkg]; ok && orig == "runtime" {
++		if objabi.OriginalPackagePath(pkg) == "runtime" {
 +			return true
 +		}
 +	}
@@ -1527,7 +1287,7 @@ index 04601b32a0..2ea801b5b9 100644
  // Sym encapsulates a global symbol index, used to identify a specific
  // Go symbol. The 0-valued Sym is corresponds to an invalid symbol.
  type Sym = sym.LoaderSym
-@@ -710,6 +916,10 @@ func (l *Loader) resolve(r *oReader, s goobj.SymRef) Sym {
+@@ -710,6 +817,10 @@ func (l *Loader) resolve(r *oReader, s goobj.SymRef) Sym {
  		if bi := l.builtinSyms[s.SymIdx]; bi != 0 {
  			return bi
  		}
@@ -1538,7 +1298,7 @@ index 04601b32a0..2ea801b5b9 100644
  		l.reportMissingBuiltin(int(s.SymIdx), r.unit.Lib.Pkg)
  		return 0
  	case goobj.PkgIdxSelf:
-@@ -720,6 +930,15 @@ func (l *Loader) resolve(r *oReader, s goobj.SymRef) Sym {
+@@ -720,6 +831,15 @@ func (l *Loader) resolve(r *oReader, s goobj.SymRef) Sym {
  	return l.toGlobal(rr, s.SymIdx)
  }
  
@@ -1554,7 +1314,7 @@ index 04601b32a0..2ea801b5b9 100644
  // reportMissingBuiltin issues an error in the case where we have a
  // relocation against a runtime builtin whose definition is not found
  // when the runtime package is built. The canonical example is
-@@ -748,9 +967,27 @@ func (l *Loader) reportMissingBuiltin(bsym int, reflib string) {
+@@ -748,9 +868,27 @@ func (l *Loader) reportMissingBuiltin(bsym int, reflib string) {
  // new symbol.
  func (l *Loader) Lookup(name string, ver int) Sym {
  	if ver >= sym.SymVerStatic || ver < 0 {
@@ -1569,11 +1329,11 @@ index 04601b32a0..2ea801b5b9 100644
 +			}
 +		}
 +		return 0
-+	}
-+	if s := l.symsByName[ver][name]; s != 0 {
-+		return s
  	}
 -	return l.symsByName[ver][name]
++	if s := l.symsByName[ver][name]; s != 0 {
++		return s
++	}
 +	// Try garble obfuscated name
 +	if obfName := GetGarbleObfuscatedSymbol(name); obfName != "" {
 +		if s := l.symsByName[ver][obfName]; s != 0 {
@@ -1584,7 +1344,7 @@ index 04601b32a0..2ea801b5b9 100644
  }
  
  // Check that duplicate symbols have same contents.
-@@ -2269,7 +2506,6 @@ func (st *loadState) preloadSyms(r *oReader, kind int) {
+@@ -2269,7 +2407,6 @@ func (st *loadState) preloadSyms(r *oReader, kind int) {
  		panic("preloadSyms: bad kind")
  	}
  	l.growAttrBitmaps(len(l.objSyms) + int(end-start))
@@ -1592,7 +1352,7 @@ index 04601b32a0..2ea801b5b9 100644
  	for i := start; i < end; i++ {
  		osym := r.Sym(i)
  		var name string
-@@ -2299,10 +2535,26 @@ func (st *loadState) preloadSyms(r *oReader, kind int) {
+@@ -2299,10 +2436,26 @@ func (st *loadState) preloadSyms(r *oReader, kind int) {
  		if osym.UsedInIface() {
  			l.SetAttrUsedInIface(gi, true)
  		}
@@ -1624,10 +1384,10 @@ index 04601b32a0..2ea801b5b9 100644
  			}
  		}
 diff --git a/cmd/link/internal/loader/loader_test.go b/cmd/link/internal/loader/loader_test.go
-index 7f7a75d9f4..0e67ef21e7 100644
+index 7f7a75d9f4..1cd9858614 100644
 --- a/cmd/link/internal/loader/loader_test.go
 +++ b/cmd/link/internal/loader/loader_test.go
-@@ -32,6 +32,24 @@ func mkLoader() *Loader {
+@@ -32,6 +32,29 @@ func mkLoader() *Loader {
  	return ldr
  }
  
@@ -1636,9 +1396,14 @@ index 7f7a75d9f4..0e67ef21e7 100644
 +	const obfuscated = "obfruntime.obfmemequal"
 +	want := ldr.LookupOrCreateSym(obfuscated, sym.SymVerABIInternal)
 +
-+	oldReverse := garbleSymbolReverseMap
-+	garbleSymbolReverseMap = map[string]string{"runtime.memequal": obfuscated}
-+	t.Cleanup(func() { garbleSymbolReverseMap = oldReverse })
++	oldLookup := garbleObfuscatedSymbol
++	garbleObfuscatedSymbol = func(name string) string {
++		if name == "runtime.memequal" {
++			return obfuscated
++		}
++		return ""
++	}
++	t.Cleanup(func() { garbleObfuscatedSymbol = oldLookup })
 +
 +	idx := goobj.BuiltinIdx("runtime.memequal", 1)
 +	if idx < 0 {

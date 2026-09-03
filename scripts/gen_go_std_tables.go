@@ -10,13 +10,18 @@ import (
 	"bytes"
 	"cmp"
 	"fmt"
+	"go/ast"
 	"go/format"
+	"go/parser"
+	"go/token"
 	"go/version"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -82,435 +87,16 @@ var compilerIntrinsics = map[string]map[string]bool{
 {{- end }}
 }
 
+// builtinSymbols lists generated compiler, assembler, and linker symbol-name
+// contracts which must survive runtime obfuscation.
 var builtinSymbols = map[string][]string{
-	"internal/runtime/sys": {
-		"nih",
+{{- range $pkg := .BuiltinSymbols }}
+	"{{ $pkg.Path }}": {
+{{- range $name := $pkg.Names }}
+		"{{ $name.String }}", // {{ $name.GoVersionLang }}
+{{- end }}
 	},
-	"internal/runtime/atomic": {
-		"align64",
-	},
-	"sync/atomic": {
-		"align64",
-	},
-	"runtime": {
-		// The compiler recognizes this named type to select hexadecimal
-		// formatting for runtime print calls.
-		"hex",
-		"fmin32",
-		"fmin64",
-		"fmax32",
-		"fmax64",
-		"newobject",
-		"mallocgc",
-		"panicdivide",
-		"panicshift",
-		"panicmakeslicelen",
-		"panicmakeslicecap",
-		"throwinit",
-		"panicwrap",
-		"gopanic",
-		"goexit",
-		"gorecover",
-		"goschedguarded",
-		"goPanicIndex",
-		"goPanicIndexU",
-		"goPanicSliceAlen",
-		"goPanicSliceAlenU",
-		"goPanicSliceAcap",
-		"goPanicSliceAcapU",
-		"goPanicSliceB",
-		"goPanicSliceBU",
-		"goPanicSlice3Alen",
-		"goPanicSlice3AlenU",
-		"goPanicSlice3Acap",
-		"goPanicSlice3AcapU",
-		"goPanicSlice3B",
-		"goPanicSlice3BU",
-		"goPanicSlice3C",
-		"goPanicSlice3CU",
-		"goPanicSliceConvert",
-		"printbool",
-		"printfloat64",
-		"printfloat32",
-		"printint",
-		"printhex",
-		"printuint",
-		"printcomplex128",
-		"printcomplex64",
-		"printstring",
-		"printquoted",
-		"printpointer",
-		"printuintptr",
-		"printiface",
-		"printeface",
-		"printslice",
-		"printnl",
-		"printsp",
-		"printlock",
-		"printunlock",
-		"concatstring2",
-		"concatstring3",
-		"concatstring4",
-		"concatstring5",
-		"concatstrings",
-		"concatbyte2",
-		"concatbyte3",
-		"concatbyte4",
-		"concatbyte5",
-		"concatbytes",
-		"cmpstring",
-		"intstring",
-		"slicebytetostring",
-		"slicebytetostringtmp",
-		"slicerunetostring",
-		"stringtoslicebyte",
-		"stringtoslicerune",
-		"slicecopy",
-		"decoderune",
-		"countrunes",
-		"convT",
-		"convTnoptr",
-		"convT16",
-		"convT32",
-		"convT64",
-		"convTstring",
-		"convTslice",
-		"assertE2I",
-		"assertE2I2",
-		"panicdottypeE",
-		"panicdottypeI",
-		"panicnildottype",
-		"typeAssert",
-		"interfaceSwitch",
-		"ifaceeq",
-		"efaceeq",
-		"panicrangestate",
-		"deferrangefunc",
-		"rand",
-		"rand32",
-		"makemap64",
-		"makemap",
-		"makemap_small",
-		"mapaccess1",
-		"mapaccess1_fast32",
-		"mapaccess1_fast64",
-		"mapaccess1_faststr",
-		"mapaccess1_fat",
-		"mapaccess2",
-		"mapaccess2_fast32",
-		"mapaccess2_fast64",
-		"mapaccess2_faststr",
-		"mapaccess2_fat",
-		"mapassign",
-		"mapassign_fast32",
-		"mapassign_fast32ptr",
-		"mapassign_fast64",
-		"mapassign_fast64ptr",
-		"mapassign_faststr",
-		"mapIterStart",
-		"mapdelete",
-		"mapdelete_fast32",
-		"mapdelete_fast64",
-		"mapdelete_faststr",
-		"mapIterNext",
-		"mapclear",
-		"makechan64",
-		"makechan",
-		"chanrecv1",
-		"chanrecv2",
-		"chansend1",
-		"closechan",
-		"chanlen",
-		"chancap",
-		"writeBarrier",
-		"typedmemmove",
-		"typedmemclr",
-		"typedslicecopy",
-		"selectnbsend",
-		"selectnbrecv",
-		"selectsetpc",
-		"selectgo",
-		"block",
-		"makeslice",
-		"makeslice64",
-		"makeslicecopy",
-		"growslice",
-		"growsliceBuf",
-		"growsliceBufNoAlias",
-		"growsliceNoAlias",
-		"unsafeslicecheckptr",
-		"panicunsafeslicelen",
-		"panicunsafeslicenilptr",
-		"unsafestringcheckptr",
-		"panicunsafestringlen",
-		"panicunsafestringnilptr",
-		"moveSlice",
-		"moveSliceNoScan",
-		"moveSliceNoCap",
-		"moveSliceNoCapNoScan",
-		"memmove",
-		"memclrNoHeapPointers",
-		"memclrHasPointers",
-		"memequal",
-		"memequal0",
-		"memequal8",
-		"memequal16",
-		"memequal32",
-		"memequal64",
-		"memequal128",
-		"f32equal",
-		"f64equal",
-		"c64equal",
-		"c128equal",
-		"strequal",
-		"interequal",
-		"nilinterequal",
-		"memhash",
-		"memhash0",
-		"memhash8",
-		"memhash16",
-		"memhash32",
-		"memhash64",
-		"memhash128",
-		"f32hash",
-		"f64hash",
-		"c64hash",
-		"c128hash",
-		"strhash",
-		"interhash",
-		"nilinterhash",
-		"int64div",
-		"uint64div",
-		"int64mod",
-		"uint64mod",
-		"float64toint64",
-		"float64touint64",
-		"float64touint32",
-		"int64tofloat64",
-		"int64tofloat32",
-		"uint64tofloat64",
-		"uint64tofloat32",
-		"uint32tofloat64",
-		"complex128div",
-		"racefuncenter",
-		"racefuncexit",
-		"raceread",
-		"racewrite",
-		"racereadrange",
-		"racewriterange",
-		"msanread",
-		"msanwrite",
-		"msanmove",
-		"asanread",
-		"asanwrite",
-		"checkptrAlignment",
-		"checkptrArithmetic",
-		"libfuzzerTraceCmp1",
-		"libfuzzerTraceCmp2",
-		"libfuzzerTraceCmp4",
-		"libfuzzerTraceCmp8",
-		"libfuzzerTraceConstCmp1",
-		"libfuzzerTraceConstCmp2",
-		"libfuzzerTraceConstCmp4",
-		"libfuzzerTraceConstCmp8",
-		"libfuzzerHookStrCmp",
-		"libfuzzerHookEqualFold",
-		"addCovMeta",
-		"x86HasAVX",
-		"x86HasFMA",
-		"x86HasPOPCNT",
-		"x86HasSSE41",
-		"armHasVFPv4",
-		"arm64HasATOMICS",
-		"loong64HasLAMCAS",
-		"loong64HasLAM_BH",
-		"loong64HasDBAR_HINTS",
-		"loong64HasLSX",
-		"riscv64HasZbb",
-		"asanregisterglobals",
-		"KeepAlive",
-		"deferproc",
-		"deferprocStack",
-		"deferreturn",
-		"newproc",
-		"panicoverflow",
-		"sigpanic",
-		"gcWriteBarrier1",
-		"gcWriteBarrier2",
-		"gcWriteBarrier3",
-		"gcWriteBarrier4",
-		"gcWriteBarrier5",
-		"gcWriteBarrier6",
-		"gcWriteBarrier7",
-		"gcWriteBarrier8",
-		"duffzero",
-		"duffcopy",
-		"morestack",
-		"morestackc",
-		"morestack_noctxt",
-		"retpolineAX",
-		"retpolineCX",
-		"retpolineDX",
-		"retpolineBX",
-		"retpolineBP",
-		"retpolineSI",
-		"retpolineDI",
-		"retpolineR8",
-		"retpolineR9",
-		"retpolineR10",
-		"retpolineR11",
-		"retpolineR12",
-		"retpolineR13",
-		"retpolineR14",
-		"retpolineR15",
-		"tls_g",
-		"printfloat",
-		"printcomplex",
-		"mapiterinit",
-		"mapiternext",
-		"mapinitnoop",
-		"memequal_varlen",
-		"memhash_varlen",
-		"gcWriteBarrier",
-		"gcWriteBarrierBP",
-		"gcWriteBarrierBX",
-		"gcWriteBarrierCX",
-		"gcWriteBarrierDX",
-		"gcWriteBarrierR8",
-		"gcWriteBarrierR9",
-		"gcWriteBarrierSI",
-		"panicIndex",
-		"panicIndexU",
-		"panicSliceAlen",
-		"panicSliceAlenU",
-		"panicSliceAcap",
-		"panicSliceAcapU",
-		"panicSliceB",
-		"panicSliceBU",
-		"panicSlice3Alen",
-		"panicSlice3AlenU",
-		"panicSlice3Acap",
-		"panicSlice3AcapU",
-		"panicSlice3B",
-		"panicSlice3BU",
-		"panicSlice3C",
-		"panicSlice3CU",
-		"panicSliceConvert",
-		"panicExtendIndex",
-		"panicExtendIndexU",
-		"panicExtendSliceAlen",
-		"panicExtendSliceAlenU",
-		"panicExtendSliceAcap",
-		"panicExtendSliceAcapU",
-		"panicExtendSliceB",
-		"panicExtendSliceBU",
-		"panicExtendSlice3Alen",
-		"panicExtendSlice3AlenU",
-		"panicExtendSlice3Acap",
-		"panicExtendSlice3AcapU",
-		"panicExtendSlice3B",
-		"panicExtendSlice3BU",
-		"panicExtendSlice3C",
-		"panicExtendSlice3CU",
-		"wbZero",
-		"wbMove",
-		"zeroVal",
-		"unreachableMethod",
-		"emptyInterfaceSwitchCache",
-		"emptyTypeAssert",
-		"emptyTypeAssertCache",
-		"staticuint64s",
-		"udiv",
-		"zerobase",
-		"bss",
-		"ebss",
-		"data",
-		"edata",
-		"gcbss",
-		"egcbss",
-		"gcdata",
-		"egcdata",
-		"noptrbss",
-		"enoptrbss",
-		"noptrdata",
-		"enoptrdata",
-		"rodata",
-		"erodata",
-		"text",
-		"etext",
-		"types",
-		"etypes",
-		"symtab",
-		"esymtab",
-		"pclntab",
-		"epclntab",
-		"functab",
-		"funcnametab",
-		"cutab",
-		"filetab",
-		"pctab",
-		"pcheader",
-		"findfunctab",
-		"moduledata",
-		"firstmoduledata",
-		"lastmoduledatap",
-		"modulehash",
-		"textsectionmap",
-		"typelink",
-		"itablink",
-		"buildVersion",
-		"modinfo",
-		"runtime_inittasks",
-		"tlsg",
-		"goarm",
-		"goarmsoftfp",
-		"isarchive",
-		"islibrary",
-		"covctrs",
-		"ecovctrs",
-		"cgoCheckMemmove",
-		"cgoCheckPtrWrite",
-		"deferprocat",
-		"mallocgcTinySC2",
-		"panicBounds",
-		"panicExtend",
-		"panicSimdImm",
-		"wasmDiv",
-		"wasmTruncS",
-		"wasmTruncU",
-		"fadd32",
-		"fadd64",
-		"fmul32",
-		"fmul64",
-		"fdiv32",
-		"fdiv64",
-		"feq64",
-		"feq32",
-		"fgt64",
-		"fgt32",
-		"fge64",
-		"fge32",
-		"fint32to32",
-		"f32toint32",
-		"fint64to32",
-		"f32toint64",
-		"fuint64to32",
-		"f32touint64",
-		"fint32to64",
-		"f64toint32",
-		"fint64to64",
-		"f64toint64",
-		"fuint64to64",
-		"f64touint64",
-		"f32to64",
-		"f64to32",
-	},
-	"type:*unsafe": {
-		"Pointer",
-	},
-	"type:unsafe": {
-		"Pointer",
-	},
+{{- end }}
 }
 
 var reflectSkipPkg = map[string]bool{
@@ -523,6 +109,7 @@ type tmplData struct {
 	RuntimePkgPaths     []versionedString
 	RuntimeAndLinknamed []versionedString
 	CompilerIntrinsics  []tmplIntrinsic
+	BuiltinSymbols      []tmplIntrinsic
 }
 
 type tmplIntrinsic struct {
@@ -603,6 +190,262 @@ func lines(vs versionedString) []versionedString {
 var rxLinkname = regexp.MustCompile(`^//go:linkname .* ([^.]*)\.[^.]*$`)
 var rxIntrinsic = regexp.MustCompile(`\b(add|addF|alias)\("([^"]*)", "([^"]*)",`)
 var rxStringEntry = regexp.MustCompile(`^\s*"([^"]+)",$`)
+var rxBuiltinEntry = regexp.MustCompile(`^\s*\{"([^"]+)", [01]\},$`)
+var rxRuntimeSymbol = regexp.MustCompile(`^runtime\.[A-Za-z0-9_]+$`)
+var rxRuntimeTypeSymbol = regexp.MustCompile(`^type:runtime\.[A-Za-z0-9_]+$`)
+var rxLocalLinkname = regexp.MustCompile(`^//go:linkname ([^ ]+)$`)
+
+func addVersionedSymbol(symbols map[string][]versionedString, fullName string, goroot versionedString) {
+	dot := strings.LastIndexByte(fullName, '.')
+	if dot < 1 || dot == len(fullName)-1 {
+		panic(fmt.Sprintf("invalid builtin symbol %q", fullName))
+	}
+	path, name := fullName[:dot], fullName[dot+1:]
+	symbols[path] = append(symbols[path], versionedString{
+		String:        name,
+		GoVersionLang: goroot.GoVersionLang,
+	})
+}
+
+func groupedSymbols(symbols map[string][]versionedString) []tmplIntrinsic {
+	groups := make([]tmplIntrinsic, 0, len(symbols))
+	for path, names := range symbols {
+		slices.SortFunc(names, versionedString.Compare)
+		names = slices.CompactFunc(names, versionedString.Equal)
+		groups = append(groups, tmplIntrinsic{Path: path, Names: names})
+	}
+	slices.SortFunc(groups, tmplIntrinsic.Compare)
+	return groups
+}
+
+func calledName(call *ast.CallExpr) string {
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		return fun.Sel.Name
+	}
+	return ""
+}
+
+func stringLiteral(expr ast.Expr) (string, bool) {
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	value, err := strconv.Unquote(lit.Value)
+	return value, err == nil
+}
+
+func runtimeSymbolsInToolFile(path string) []string {
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		panic(err)
+	}
+	var symbols []string
+	addName := func(value string) {
+		switch {
+		case rxRuntimeSymbol.MatchString(value):
+			symbols = append(symbols, value)
+		case rxRuntimeTypeSymbol.MatchString(value):
+			symbols = append(symbols, strings.TrimPrefix(value, "type:"))
+		}
+	}
+	addLiteral := func(expr ast.Expr) {
+		if value, ok := stringLiteral(expr); ok {
+			addName(value)
+		}
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.CallExpr:
+			name := calledName(node)
+			isLookup := strings.Contains(strings.ToLower(name), "lookup")
+			if isLookup || name == "append" || name == "CreateSymForUpdate" ||
+				name == "SetSymExtname" || name == "xdefine" {
+				for _, arg := range node.Args {
+					addLiteral(arg)
+				}
+			}
+			if name == "addstrdata1" && len(node.Args) > 1 {
+				if binary, ok := node.Args[1].(*ast.BinaryExpr); ok && binary.Op == token.ADD {
+					if value, ok := stringLiteral(binary.X); ok {
+						addName(strings.TrimSuffix(value, "="))
+					}
+				}
+			}
+		case *ast.KeyValueExpr:
+			// Toolchain maps keyed by a complete runtime symbol name describe
+			// assembler or linker contracts, such as WebAssembly ABI entries.
+			addLiteral(node.Key)
+		}
+		return true
+	})
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		lookupVars := make(map[string]bool)
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || !strings.HasPrefix(calledName(call), "LookupRuntime") || len(call.Args) == 0 {
+				return true
+			}
+			if value, ok := stringLiteral(call.Args[0]); ok {
+				symbols = append(symbols, "runtime."+value)
+			} else if ident, ok := call.Args[0].(*ast.Ident); ok {
+				lookupVars[ident.Name] = true
+			}
+			return true
+		})
+		if len(lookupVars) == 0 {
+			continue
+		}
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			assign, ok := node.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			for i, lhs := range assign.Lhs {
+				ident, ok := lhs.(*ast.Ident)
+				if !ok || !lookupVars[ident.Name] || i >= len(assign.Rhs) {
+					continue
+				}
+				if value, ok := stringLiteral(assign.Rhs[i]); ok {
+					symbols = append(symbols, "runtime."+value)
+				}
+			}
+			return true
+		})
+	}
+	return symbols
+}
+
+func runtimeSourceContracts(goroot versionedString) []string {
+	root := filepath.Join(goroot.String, "src", "runtime")
+	var symbols []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			return err
+		}
+		for _, decl := range file.Decls {
+			switch decl := decl.(type) {
+			case *ast.FuncDecl:
+				if decl.Body == nil && (strings.HasPrefix(decl.Name.Name, "panicExtend") ||
+					strings.HasPrefix(decl.Name.Name, "gcWriteBarrier")) {
+					symbols = append(symbols, "runtime."+decl.Name.Name)
+				}
+			case *ast.GenDecl:
+				for _, spec := range decl.Specs {
+					typeSpec, ok := spec.(*ast.TypeSpec)
+					if ok && typeSpec.Name.Name == "modulehash" {
+						symbols = append(symbols, "runtime."+typeSpec.Name.Name)
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	for line := range strings.SplitSeq(readFile(filepath.Join(root, "linkname_shim.go")), "\n") {
+		if match := rxLocalLinkname.FindStringSubmatch(line); match != nil {
+			symbols = append(symbols, "runtime."+match[1])
+		}
+	}
+	if contents := readFile(filepath.Join(root, "stubs.go")); !strings.Contains(contents, "func goexit(") {
+		panic("cannot find runtime.goexit metadata contract")
+	}
+	symbols = append(symbols, "runtime.goexit")
+	return symbols
+}
+
+func generateBuiltinSymbols(goroots []versionedString) []tmplIntrinsic {
+	symbols := make(map[string][]versionedString)
+	for _, goroot := range goroots {
+		// The compiler and linker share this generated registry for symbols
+		// written into object files and later looked up by name.
+		for line := range strings.SplitSeq(readFile(filepath.Join(
+			goroot.String, "src", "cmd", "internal", "goobj", "builtinlist.go",
+		)), "\n") {
+			if match := rxBuiltinEntry.FindStringSubmatch(line); match != nil && strings.Contains(match[1], ".") {
+				addVersionedSymbol(symbols, match[1], goroot)
+			}
+		}
+
+		// Linker and compiler code also names runtime symbols which are not in
+		// goobj's builtin registry. Extract those references from the toolchain
+		// rather than carrying another copy of the names in Garble.
+		cmdRoot := filepath.Join(goroot.String, "src", "cmd")
+		err := filepath.WalkDir(cmdRoot, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				switch entry.Name() {
+				case "testdata", "vendor":
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			for _, symbol := range runtimeSymbolsInToolFile(path) {
+				addVersionedSymbol(symbols, symbol, goroot)
+			}
+			return nil
+		})
+		if err != nil {
+			panic(err)
+		}
+		for _, symbol := range runtimeSourceContracts(goroot) {
+			addVersionedSymbol(symbols, symbol, goroot)
+		}
+
+		// The assembler entry points omit the "go" prefix used by the
+		// compiler-facing bounds panic functions in goobj's builtin registry.
+		for _, symbol := range slices.Clone(symbols["runtime"]) {
+			if strings.HasPrefix(symbol.String, "goPanic") {
+				addVersionedSymbol(symbols, "runtime.panic"+strings.TrimPrefix(symbol.String, "goPanic"), goroot)
+			}
+			for _, prefix := range []string{"gcWriteBarrier", "printcomplex", "printfloat"} {
+				if strings.HasPrefix(symbol.String, prefix) && symbol.String != prefix {
+					addVersionedSymbol(symbols, "runtime."+prefix, goroot)
+				}
+			}
+		}
+
+		// These named types are compiler contracts rather than object-file
+		// builtins. Check that the defining toolchain sources still contain
+		// each contract before adding it.
+		specials := []struct {
+			file, sourceNeedle, fullName string
+		}{
+			{"compile/internal/walk/builtin.go", `== "hex"`, "runtime.hex"},
+			{"compile/internal/types/size.go", `== "align64"`, "sync/atomic.align64"},
+			{"compile/internal/types/size.go", `"internal/runtime/atomic"`, "internal/runtime/atomic.align64"},
+			{"compile/internal/types/type.go", `== "nih"`, "internal/runtime/sys.nih"},
+		}
+		for _, special := range specials {
+			contents := readFile(filepath.Join(cmdRoot, special.file))
+			if !strings.Contains(contents, special.sourceNeedle) {
+				panic(fmt.Sprintf("cannot find %s contract in %s", special.fullName, special.file))
+			}
+			addVersionedSymbol(symbols, special.fullName, goroot)
+		}
+	}
+	return groupedSymbols(symbols)
+}
 
 func main() {
 	var goroots []versionedString
@@ -697,6 +540,7 @@ func main() {
 		slices.SortFunc(intr.Names, versionedString.Compare)
 		intr.Names = slices.CompactFunc(intr.Names, versionedString.Equal)
 	}
+	builtinSymbols := generateBuiltinSymbols(goroots)
 
 	var buf bytes.Buffer
 	if err := tmplTables.Execute(&buf, tmplData{
@@ -704,6 +548,7 @@ func main() {
 		RuntimePkgPaths:     runtimePkgPaths,
 		RuntimeAndLinknamed: runtimeAndLinknamed,
 		CompilerIntrinsics:  compilerIntrinsics,
+		BuiltinSymbols:      builtinSymbols,
 	}); err != nil {
 		panic(err)
 	}

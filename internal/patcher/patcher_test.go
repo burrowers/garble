@@ -42,3 +42,15 @@ func TestToolWorkspaceDirUsesOutputKey(t *testing.T) {
 		t.Fatalf("workspaces are not rooted in temporary directory: %q, %q", one, two)
 	}
 }
+
+func TestGarbleMappingSourceIsOverlaid(t *testing.T) {
+	t.Parallel()
+
+	const file = "cmd/internal/objabi/garble.go"
+	if !makeFileSet(compilerOverlayFiles)[file] {
+		t.Fatalf("%q is not included in the compiler overlay", file)
+	}
+	if !makeFileSet(linkerOverlayFiles)[file] {
+		t.Fatalf("%q is not included in the linker overlay", file)
+	}
+}

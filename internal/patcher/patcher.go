@@ -60,6 +60,7 @@ var compilerOverlayFiles = []string{
 	"cmd/compile/internal/typecheck/syms.go",
 	"cmd/compile/internal/reflectdata/reflect.go",
 	"cmd/internal/obj/x86/asm6.go",
+	"cmd/internal/objabi/garble.go",
 	"cmd/internal/objabi/funcid.go",
 	"cmd/internal/objabi/pkgspecial.go",
 }
@@ -80,6 +81,7 @@ var linkerOverlayFiles = []string{
 	"cmd/link/internal/ppc64/asm.go",
 	"cmd/link/internal/arm64/asm.go",
 	"cmd/internal/goobj/builtin.go",
+	"cmd/internal/objabi/garble.go",
 	"cmd/internal/objabi/funcid.go",
 }
 

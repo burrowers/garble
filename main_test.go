@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -500,15 +501,38 @@ func TestRuntimeGoexitToolchainDependency(t *testing.T) {
 	if !isToolchainNameDependency("runtime", "goexit") {
 		t.Fatal("runtime.goexit must keep its assembly name for runtime stack metadata")
 	}
-	found := false
-	for _, name := range builtinSymbols["runtime"] {
-		if name == "goexit" {
-			found = true
-			break
+	if !slices.Contains(builtinSymbols["runtime"], "goexit") {
+		t.Fatal("runtime.goexit must be included in the linker symbol map")
+	}
+}
+
+func TestRuntimeAddmoduledataBuiltinSymbol(t *testing.T) {
+	if !slices.Contains(builtinSymbols["runtime"], "addmoduledata") {
+		t.Fatal("runtime.addmoduledata must be included in the linker symbol map")
+	}
+}
+
+func TestRuntimeModuledataBuiltinSymbol(t *testing.T) {
+	for _, name := range []string{"moduledata", "modulehash"} {
+		if !slices.Contains(builtinSymbols["runtime"], name) {
+			t.Errorf("runtime.%s must be included in the linker symbol map", name)
 		}
 	}
-	if !found {
-		t.Fatal("runtime.goexit must be included in the linker symbol map")
+}
+
+func TestRuntimeBuiltinSymbolsExcludeNonSymbolLiterals(t *testing.T) {
+	for _, name := range []string{"elf_", "go", "retpoline", "test"} {
+		if slices.Contains(builtinSymbols["runtime"], name) {
+			t.Errorf("runtime.%s is not a complete symbol name", name)
+		}
+	}
+}
+
+func TestRuntimeGeneratedLinkerSymbols(t *testing.T) {
+	for _, name := range []string{"buildVersion", "modinfo", "unreachableMethod"} {
+		if !slices.Contains(builtinSymbols["runtime"], name) {
+			t.Errorf("runtime.%s must be included in the linker symbol map", name)
+		}
 	}
 }
 

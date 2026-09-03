@@ -271,434 +271,456 @@ var compilerIntrinsics = map[string]map[string]bool{
 	},
 }
 
+// builtinSymbols lists generated compiler, assembler, and linker symbol-name
+// contracts which must survive runtime obfuscation.
 var builtinSymbols = map[string][]string{
-	"internal/runtime/sys": {
-		"nih",
-	},
 	"internal/runtime/atomic": {
-		"align64",
+		"align64", // go1.27
 	},
-	"sync/atomic": {
-		"align64",
+	"internal/runtime/sys": {
+		"nih", // go1.27
 	},
 	"runtime": {
-		// The compiler recognizes this named type to select hexadecimal
-		// formatting for runtime print calls.
-		"hex",
-		"fmin32",
-		"fmin64",
-		"fmax32",
-		"fmax64",
-		"newobject",
-		"mallocgc",
-		"panicdivide",
-		"panicshift",
-		"panicmakeslicelen",
-		"panicmakeslicecap",
-		"throwinit",
-		"panicwrap",
-		"gopanic",
-		"goexit",
-		"gorecover",
-		"goschedguarded",
-		"goPanicIndex",
-		"goPanicIndexU",
-		"goPanicSliceAlen",
-		"goPanicSliceAlenU",
-		"goPanicSliceAcap",
-		"goPanicSliceAcapU",
-		"goPanicSliceB",
-		"goPanicSliceBU",
-		"goPanicSlice3Alen",
-		"goPanicSlice3AlenU",
-		"goPanicSlice3Acap",
-		"goPanicSlice3AcapU",
-		"goPanicSlice3B",
-		"goPanicSlice3BU",
-		"goPanicSlice3C",
-		"goPanicSlice3CU",
-		"goPanicSliceConvert",
-		"printbool",
-		"printfloat64",
-		"printfloat32",
-		"printint",
-		"printhex",
-		"printuint",
-		"printcomplex128",
-		"printcomplex64",
-		"printstring",
-		"printquoted",
-		"printpointer",
-		"printuintptr",
-		"printiface",
-		"printeface",
-		"printslice",
-		"printnl",
-		"printsp",
-		"printlock",
-		"printunlock",
-		"concatstring2",
-		"concatstring3",
-		"concatstring4",
-		"concatstring5",
-		"concatstrings",
-		"concatbyte2",
-		"concatbyte3",
-		"concatbyte4",
-		"concatbyte5",
-		"concatbytes",
-		"cmpstring",
-		"intstring",
-		"slicebytetostring",
-		"slicebytetostringtmp",
-		"slicerunetostring",
-		"stringtoslicebyte",
-		"stringtoslicerune",
-		"slicecopy",
-		"decoderune",
-		"countrunes",
-		"convT",
-		"convTnoptr",
-		"convT16",
-		"convT32",
-		"convT64",
-		"convTstring",
-		"convTslice",
-		"assertE2I",
-		"assertE2I2",
-		"panicdottypeE",
-		"panicdottypeI",
-		"panicnildottype",
-		"typeAssert",
-		"interfaceSwitch",
-		"ifaceeq",
-		"efaceeq",
-		"panicrangestate",
-		"deferrangefunc",
-		"rand",
-		"rand32",
-		"makemap64",
-		"makemap",
-		"makemap_small",
-		"mapaccess1",
-		"mapaccess1_fast32",
-		"mapaccess1_fast64",
-		"mapaccess1_faststr",
-		"mapaccess1_fat",
-		"mapaccess2",
-		"mapaccess2_fast32",
-		"mapaccess2_fast64",
-		"mapaccess2_faststr",
-		"mapaccess2_fat",
-		"mapassign",
-		"mapassign_fast32",
-		"mapassign_fast32ptr",
-		"mapassign_fast64",
-		"mapassign_fast64ptr",
-		"mapassign_faststr",
-		"mapIterStart",
-		"mapdelete",
-		"mapdelete_fast32",
-		"mapdelete_fast64",
-		"mapdelete_faststr",
-		"mapIterNext",
-		"mapclear",
-		"makechan64",
-		"makechan",
-		"chanrecv1",
-		"chanrecv2",
-		"chansend1",
-		"closechan",
-		"chanlen",
-		"chancap",
-		"writeBarrier",
-		"typedmemmove",
-		"typedmemclr",
-		"typedslicecopy",
-		"selectnbsend",
-		"selectnbrecv",
-		"selectsetpc",
-		"selectgo",
-		"block",
-		"makeslice",
-		"makeslice64",
-		"makeslicecopy",
-		"growslice",
-		"growsliceBuf",
-		"growsliceBufNoAlias",
-		"growsliceNoAlias",
-		"unsafeslicecheckptr",
-		"panicunsafeslicelen",
-		"panicunsafeslicenilptr",
-		"unsafestringcheckptr",
-		"panicunsafestringlen",
-		"panicunsafestringnilptr",
-		"moveSlice",
-		"moveSliceNoScan",
-		"moveSliceNoCap",
-		"moveSliceNoCapNoScan",
-		"memmove",
-		"memclrNoHeapPointers",
-		"memclrHasPointers",
-		"memequal",
-		"memequal0",
-		"memequal8",
-		"memequal16",
-		"memequal32",
-		"memequal64",
-		"memequal128",
-		"f32equal",
-		"f64equal",
-		"c64equal",
-		"c128equal",
-		"strequal",
-		"interequal",
-		"nilinterequal",
-		"memhash",
-		"memhash0",
-		"memhash8",
-		"memhash16",
-		"memhash32",
-		"memhash64",
-		"memhash128",
-		"f32hash",
-		"f64hash",
-		"c64hash",
-		"c128hash",
-		"strhash",
-		"interhash",
-		"nilinterhash",
-		"int64div",
-		"uint64div",
-		"int64mod",
-		"uint64mod",
-		"float64toint64",
-		"float64touint64",
-		"float64touint32",
-		"int64tofloat64",
-		"int64tofloat32",
-		"uint64tofloat64",
-		"uint64tofloat32",
-		"uint32tofloat64",
-		"complex128div",
-		"racefuncenter",
-		"racefuncexit",
-		"raceread",
-		"racewrite",
-		"racereadrange",
-		"racewriterange",
-		"msanread",
-		"msanwrite",
-		"msanmove",
-		"asanread",
-		"asanwrite",
-		"checkptrAlignment",
-		"checkptrArithmetic",
-		"libfuzzerTraceCmp1",
-		"libfuzzerTraceCmp2",
-		"libfuzzerTraceCmp4",
-		"libfuzzerTraceCmp8",
-		"libfuzzerTraceConstCmp1",
-		"libfuzzerTraceConstCmp2",
-		"libfuzzerTraceConstCmp4",
-		"libfuzzerTraceConstCmp8",
-		"libfuzzerHookStrCmp",
-		"libfuzzerHookEqualFold",
-		"addCovMeta",
-		"x86HasAVX",
-		"x86HasFMA",
-		"x86HasPOPCNT",
-		"x86HasSSE41",
-		"armHasVFPv4",
-		"arm64HasATOMICS",
-		"loong64HasLAMCAS",
-		"loong64HasLAM_BH",
-		"loong64HasDBAR_HINTS",
-		"loong64HasLSX",
-		"riscv64HasZbb",
-		"asanregisterglobals",
-		"KeepAlive",
-		"deferproc",
-		"deferprocStack",
-		"deferreturn",
-		"newproc",
-		"panicoverflow",
-		"sigpanic",
-		"gcWriteBarrier1",
-		"gcWriteBarrier2",
-		"gcWriteBarrier3",
-		"gcWriteBarrier4",
-		"gcWriteBarrier5",
-		"gcWriteBarrier6",
-		"gcWriteBarrier7",
-		"gcWriteBarrier8",
-		"duffzero",
-		"duffcopy",
-		"morestack",
-		"morestackc",
-		"morestack_noctxt",
-		"retpolineAX",
-		"retpolineCX",
-		"retpolineDX",
-		"retpolineBX",
-		"retpolineBP",
-		"retpolineSI",
-		"retpolineDI",
-		"retpolineR8",
-		"retpolineR9",
-		"retpolineR10",
-		"retpolineR11",
-		"retpolineR12",
-		"retpolineR13",
-		"retpolineR14",
-		"retpolineR15",
-		"tls_g",
-		"printfloat",
-		"printcomplex",
-		"mapiterinit",
-		"mapiternext",
-		"mapinitnoop",
-		"memequal_varlen",
-		"memhash_varlen",
-		"gcWriteBarrier",
-		"gcWriteBarrierBP",
-		"gcWriteBarrierBX",
-		"gcWriteBarrierCX",
-		"gcWriteBarrierDX",
-		"gcWriteBarrierR8",
-		"gcWriteBarrierR9",
-		"gcWriteBarrierSI",
-		"panicIndex",
-		"panicIndexU",
-		"panicSliceAlen",
-		"panicSliceAlenU",
-		"panicSliceAcap",
-		"panicSliceAcapU",
-		"panicSliceB",
-		"panicSliceBU",
-		"panicSlice3Alen",
-		"panicSlice3AlenU",
-		"panicSlice3Acap",
-		"panicSlice3AcapU",
-		"panicSlice3B",
-		"panicSlice3BU",
-		"panicSlice3C",
-		"panicSlice3CU",
-		"panicSliceConvert",
-		"panicExtendIndex",
-		"panicExtendIndexU",
-		"panicExtendSliceAlen",
-		"panicExtendSliceAlenU",
-		"panicExtendSliceAcap",
-		"panicExtendSliceAcapU",
-		"panicExtendSliceB",
-		"panicExtendSliceBU",
-		"panicExtendSlice3Alen",
-		"panicExtendSlice3AlenU",
-		"panicExtendSlice3Acap",
-		"panicExtendSlice3AcapU",
-		"panicExtendSlice3B",
-		"panicExtendSlice3BU",
-		"panicExtendSlice3C",
-		"panicExtendSlice3CU",
-		"wbZero",
-		"wbMove",
-		"zeroVal",
-		"unreachableMethod",
-		"emptyInterfaceSwitchCache",
-		"emptyTypeAssert",
-		"emptyTypeAssertCache",
-		"staticuint64s",
-		"udiv",
-		"zerobase",
-		"bss",
-		"ebss",
-		"data",
-		"edata",
-		"gcbss",
-		"egcbss",
-		"gcdata",
-		"egcdata",
-		"noptrbss",
-		"enoptrbss",
-		"noptrdata",
-		"enoptrdata",
-		"rodata",
-		"erodata",
-		"text",
-		"etext",
-		"types",
-		"etypes",
-		"symtab",
-		"esymtab",
-		"pclntab",
-		"epclntab",
-		"functab",
-		"funcnametab",
-		"cutab",
-		"filetab",
-		"pctab",
-		"pcheader",
-		"findfunctab",
-		"moduledata",
-		"firstmoduledata",
-		"lastmoduledatap",
-		"modulehash",
-		"textsectionmap",
-		"typelink",
-		"itablink",
-		"buildVersion",
-		"modinfo",
-		"runtime_inittasks",
-		"tlsg",
-		"goarm",
-		"goarmsoftfp",
-		"isarchive",
-		"islibrary",
-		"covctrs",
-		"ecovctrs",
-		"cgoCheckMemmove",
-		"cgoCheckPtrWrite",
-		"deferprocat",
-		"mallocgcTinySC2",
-		"panicBounds",
-		"panicExtend",
-		"panicSimdImm",
-		"wasmDiv",
-		"wasmTruncS",
-		"wasmTruncU",
-		"fadd32",
-		"fadd64",
-		"fmul32",
-		"fmul64",
-		"fdiv32",
-		"fdiv64",
-		"feq64",
-		"feq32",
-		"fgt64",
-		"fgt32",
-		"fge64",
-		"fge32",
-		"fint32to32",
-		"f32toint32",
-		"fint64to32",
-		"f32toint64",
-		"fuint64to32",
-		"f32touint64",
-		"fint32to64",
-		"f64toint32",
-		"fint64to64",
-		"f64toint64",
-		"fuint64to64",
-		"f64touint64",
-		"f32to64",
-		"f64to32",
+		"KeepAlive",                            // go1.27
+		"__start___sancov_cntrs",               // go1.27
+		"__stop___sancov_cntrs",                // go1.27
+		"_div",                                 // go1.27
+		"_divu",                                // go1.27
+		"_mod",                                 // go1.27
+		"_modu",                                // go1.27
+		"addCovMeta",                           // go1.27
+		"addmoduledata",                        // go1.27
+		"aixStaticDataBase",                    // go1.27
+		"arm64HasATOMICS",                      // go1.27
+		"armHasVFPv4",                          // go1.27
+		"asanread",                             // go1.27
+		"asanregisterglobals",                  // go1.27
+		"asanwrite",                            // go1.27
+		"assertE2I",                            // go1.27
+		"assertE2I2",                           // go1.27
+		"block",                                // go1.27
+		"bss",                                  // go1.27
+		"buildVersion",                         // go1.27
+		"c128equal",                            // go1.27
+		"c128hash",                             // go1.27
+		"c64equal",                             // go1.27
+		"c64hash",                              // go1.27
+		"cgoCheckMemmove",                      // go1.27
+		"cgoCheckPtrWrite",                     // go1.27
+		"chancap",                              // go1.27
+		"chanlen",                              // go1.27
+		"chanrecv1",                            // go1.27
+		"chanrecv2",                            // go1.27
+		"chansend1",                            // go1.27
+		"checkptrAlignment",                    // go1.27
+		"checkptrArithmetic",                   // go1.27
+		"closechan",                            // go1.27
+		"cmpstring",                            // go1.27
+		"complex128div",                        // go1.27
+		"concatbyte2",                          // go1.27
+		"concatbyte3",                          // go1.27
+		"concatbyte4",                          // go1.27
+		"concatbyte5",                          // go1.27
+		"concatbytes",                          // go1.27
+		"concatstring2",                        // go1.27
+		"concatstring3",                        // go1.27
+		"concatstring4",                        // go1.27
+		"concatstring5",                        // go1.27
+		"concatstrings",                        // go1.27
+		"convT",                                // go1.27
+		"convT16",                              // go1.27
+		"convT32",                              // go1.27
+		"convT64",                              // go1.27
+		"convTnoptr",                           // go1.27
+		"convTslice",                           // go1.27
+		"convTstring",                          // go1.27
+		"countrunes",                           // go1.27
+		"covctrs",                              // go1.27
+		"cutab",                                // go1.27
+		"data",                                 // go1.27
+		"decoderune",                           // go1.27
+		"defaultGOROOT",                        // go1.27
+		"deferproc",                            // go1.27
+		"deferprocStack",                       // go1.27
+		"deferprocat",                          // go1.27
+		"deferrangefunc",                       // go1.27
+		"deferreturn",                          // go1.27
+		"disableMemoryProfiling",               // go1.27
+		"duffcopy",                             // go1.27
+		"duffzero",                             // go1.27
+		"ebss",                                 // go1.27
+		"ecovctrs",                             // go1.27
+		"edata",                                // go1.27
+		"eface",                                // go1.27
+		"efaceeq",                              // go1.27
+		"egcbss",                               // go1.27
+		"egcdata",                              // go1.27
+		"emptyInterfaceSwitchCache",            // go1.27
+		"emptyTypeAssertCache",                 // go1.27
+		"end",                                  // go1.27
+		"enoptrbss",                            // go1.27
+		"enoptrdata",                           // go1.27
+		"epclntab",                             // go1.27
+		"erodata",                              // go1.27
+		"etext",                                // go1.27
+		"etypes",                               // go1.27
+		"f32equal",                             // go1.27
+		"f32hash",                              // go1.27
+		"f32to64",                              // go1.27
+		"f32toint32",                           // go1.27
+		"f32toint64",                           // go1.27
+		"f32touint64",                          // go1.27
+		"f64equal",                             // go1.27
+		"f64hash",                              // go1.27
+		"f64to32",                              // go1.27
+		"f64toint32",                           // go1.27
+		"f64toint64",                           // go1.27
+		"f64touint64",                          // go1.27
+		"fadd32",                               // go1.27
+		"fadd64",                               // go1.27
+		"fdiv32",                               // go1.27
+		"fdiv64",                               // go1.27
+		"feq32",                                // go1.27
+		"feq64",                                // go1.27
+		"fge32",                                // go1.27
+		"fge64",                                // go1.27
+		"fgt32",                                // go1.27
+		"fgt64",                                // go1.27
+		"filetab",                              // go1.27
+		"findfunctab",                          // go1.27
+		"fint32to32",                           // go1.27
+		"fint32to64",                           // go1.27
+		"fint64to32",                           // go1.27
+		"fint64to64",                           // go1.27
+		"firstmoduledata",                      // go1.27
+		"float64toint64",                       // go1.27
+		"float64touint32",                      // go1.27
+		"float64touint64",                      // go1.27
+		"fmax32",                               // go1.27
+		"fmax64",                               // go1.27
+		"fmin32",                               // go1.27
+		"fmin64",                               // go1.27
+		"fmul32",                               // go1.27
+		"fmul64",                               // go1.27
+		"fuint64to32",                          // go1.27
+		"fuint64to64",                          // go1.27
+		"funcnametab",                          // go1.27
+		"functab",                              // go1.27
+		"gcWriteBarrier",                       // go1.27
+		"gcWriteBarrier1",                      // go1.27
+		"gcWriteBarrier2",                      // go1.27
+		"gcWriteBarrier3",                      // go1.27
+		"gcWriteBarrier4",                      // go1.27
+		"gcWriteBarrier5",                      // go1.27
+		"gcWriteBarrier6",                      // go1.27
+		"gcWriteBarrier7",                      // go1.27
+		"gcWriteBarrier8",                      // go1.27
+		"gcWriteBarrierBP",                     // go1.27
+		"gcWriteBarrierBX",                     // go1.27
+		"gcWriteBarrierCX",                     // go1.27
+		"gcWriteBarrierDX",                     // go1.27
+		"gcWriteBarrierR8",                     // go1.27
+		"gcWriteBarrierR9",                     // go1.27
+		"gcWriteBarrierSI",                     // go1.27
+		"gcbss",                                // go1.27
+		"gcdata",                               // go1.27
+		"getStaticuint64s",                     // go1.27
+		"goPanicIndex",                         // go1.27
+		"goPanicIndexU",                        // go1.27
+		"goPanicSlice3Acap",                    // go1.27
+		"goPanicSlice3AcapU",                   // go1.27
+		"goPanicSlice3Alen",                    // go1.27
+		"goPanicSlice3AlenU",                   // go1.27
+		"goPanicSlice3B",                       // go1.27
+		"goPanicSlice3BU",                      // go1.27
+		"goPanicSlice3C",                       // go1.27
+		"goPanicSlice3CU",                      // go1.27
+		"goPanicSliceAcap",                     // go1.27
+		"goPanicSliceAcapU",                    // go1.27
+		"goPanicSliceAlen",                     // go1.27
+		"goPanicSliceAlenU",                    // go1.27
+		"goPanicSliceB",                        // go1.27
+		"goPanicSliceBU",                       // go1.27
+		"goPanicSliceConvert",                  // go1.27
+		"goarm",                                // go1.27
+		"goarmsoftfp",                          // go1.27
+		"goexit",                               // go1.27
+		"gopanic",                              // go1.27
+		"gorecover",                            // go1.27
+		"goschedguarded",                       // go1.27
+		"growslice",                            // go1.27
+		"growsliceBuf",                         // go1.27
+		"growsliceBufNoAlias",                  // go1.27
+		"growsliceNoAlias",                     // go1.27
+		"hchan",                                // go1.27
+		"hex",                                  // go1.27
+		"iface",                                // go1.27
+		"ifaceeq",                              // go1.27
+		"int64div",                             // go1.27
+		"int64mod",                             // go1.27
+		"int64tofloat32",                       // go1.27
+		"int64tofloat64",                       // go1.27
+		"interequal",                           // go1.27
+		"interfaceSwitch",                      // go1.27
+		"interhash",                            // go1.27
+		"intstring",                            // go1.27
+		"isarchive",                            // go1.27
+		"islibrary",                            // go1.27
+		"lastmoduledatap",                      // go1.27
+		"libfuzzerHookEqualFold",               // go1.27
+		"libfuzzerHookStrCmp",                  // go1.27
+		"libfuzzerTraceCmp1",                   // go1.27
+		"libfuzzerTraceCmp2",                   // go1.27
+		"libfuzzerTraceCmp4",                   // go1.27
+		"libfuzzerTraceCmp8",                   // go1.27
+		"libfuzzerTraceConstCmp1",              // go1.27
+		"libfuzzerTraceConstCmp2",              // go1.27
+		"libfuzzerTraceConstCmp4",              // go1.27
+		"libfuzzerTraceConstCmp8",              // go1.27
+		"loong64HasDBAR_HINTS",                 // go1.27
+		"loong64HasLAMCAS",                     // go1.27
+		"loong64HasLAM_BH",                     // go1.27
+		"loong64HasLSX",                        // go1.27
+		"makechan",                             // go1.27
+		"makechan64",                           // go1.27
+		"makemap",                              // go1.27
+		"makemap64",                            // go1.27
+		"makemap_small",                        // go1.27
+		"makeslice",                            // go1.27
+		"makeslice64",                          // go1.27
+		"makeslicecopy",                        // go1.27
+		"mallocgc",                             // go1.27
+		"mallocgcTinySC2",                      // go1.27
+		"mapIterNext",                          // go1.27
+		"mapIterStart",                         // go1.27
+		"mapaccess1",                           // go1.27
+		"mapaccess1_fast32",                    // go1.27
+		"mapaccess1_fast64",                    // go1.27
+		"mapaccess1_faststr",                   // go1.27
+		"mapaccess1_fat",                       // go1.27
+		"mapaccess2",                           // go1.27
+		"mapaccess2_fast32",                    // go1.27
+		"mapaccess2_fast64",                    // go1.27
+		"mapaccess2_faststr",                   // go1.27
+		"mapaccess2_fat",                       // go1.27
+		"mapassign",                            // go1.27
+		"mapassign_fast32",                     // go1.27
+		"mapassign_fast32ptr",                  // go1.27
+		"mapassign_fast64",                     // go1.27
+		"mapassign_fast64ptr",                  // go1.27
+		"mapassign_faststr",                    // go1.27
+		"mapclear",                             // go1.27
+		"mapdelete",                            // go1.27
+		"mapdelete_fast32",                     // go1.27
+		"mapdelete_fast64",                     // go1.27
+		"mapdelete_faststr",                    // go1.27
+		"mapinitnoop",                          // go1.27
+		"mapiterinit",                          // go1.27
+		"mapiternext",                          // go1.27
+		"memProfileInternal",                   // go1.27
+		"memclrHasPointers",                    // go1.27
+		"memclrNoHeapPointers",                 // go1.27
+		"memequal",                             // go1.27
+		"memequal0",                            // go1.27
+		"memequal128",                          // go1.27
+		"memequal16",                           // go1.27
+		"memequal32",                           // go1.27
+		"memequal64",                           // go1.27
+		"memequal8",                            // go1.27
+		"memequal_varlen",                      // go1.27
+		"memhash",                              // go1.27
+		"memhash0",                             // go1.27
+		"memhash128",                           // go1.27
+		"memhash16",                            // go1.27
+		"memhash32",                            // go1.27
+		"memhash64",                            // go1.27
+		"memhash8",                             // go1.27
+		"memhash_varlen",                       // go1.27
+		"memmove",                              // go1.27
+		"modinfo",                              // go1.27
+		"moduledata",                           // go1.27
+		"modulehash",                           // go1.27
+		"morestack",                            // go1.27
+		"morestack_noctxt",                     // go1.27
+		"morestackc",                           // go1.27
+		"moveSlice",                            // go1.27
+		"moveSliceNoCap",                       // go1.27
+		"moveSliceNoCapNoScan",                 // go1.27
+		"moveSliceNoScan",                      // go1.27
+		"msanmove",                             // go1.27
+		"msanread",                             // go1.27
+		"msanwrite",                            // go1.27
+		"newobject",                            // go1.27
+		"newproc",                              // go1.27
+		"nilinterequal",                        // go1.27
+		"nilinterhash",                         // go1.27
+		"noptrbss",                             // go1.27
+		"noptrdata",                            // go1.27
+		"notInitialized",                       // go1.27
+		"panicBounds",                          // go1.27
+		"panicExtend",                          // go1.27
+		"panicExtendIndex",                     // go1.27
+		"panicExtendIndexU",                    // go1.27
+		"panicExtendSlice3Acap",                // go1.27
+		"panicExtendSlice3AcapU",               // go1.27
+		"panicExtendSlice3Alen",                // go1.27
+		"panicExtendSlice3AlenU",               // go1.27
+		"panicExtendSlice3B",                   // go1.27
+		"panicExtendSlice3BU",                  // go1.27
+		"panicExtendSlice3C",                   // go1.27
+		"panicExtendSlice3CU",                  // go1.27
+		"panicExtendSliceAcap",                 // go1.27
+		"panicExtendSliceAcapU",                // go1.27
+		"panicExtendSliceAlen",                 // go1.27
+		"panicExtendSliceAlenU",                // go1.27
+		"panicExtendSliceB",                    // go1.27
+		"panicExtendSliceBU",                   // go1.27
+		"panicIndex",                           // go1.27
+		"panicIndexU",                          // go1.27
+		"panicSimdImm",                         // go1.27
+		"panicSlice3Acap",                      // go1.27
+		"panicSlice3AcapU",                     // go1.27
+		"panicSlice3Alen",                      // go1.27
+		"panicSlice3AlenU",                     // go1.27
+		"panicSlice3B",                         // go1.27
+		"panicSlice3BU",                        // go1.27
+		"panicSlice3C",                         // go1.27
+		"panicSlice3CU",                        // go1.27
+		"panicSliceAcap",                       // go1.27
+		"panicSliceAcapU",                      // go1.27
+		"panicSliceAlen",                       // go1.27
+		"panicSliceAlenU",                      // go1.27
+		"panicSliceB",                          // go1.27
+		"panicSliceBU",                         // go1.27
+		"panicSliceConvert",                    // go1.27
+		"panicdivide",                          // go1.27
+		"panicdottypeE",                        // go1.27
+		"panicdottypeI",                        // go1.27
+		"panicmakeslicecap",                    // go1.27
+		"panicmakeslicelen",                    // go1.27
+		"panicnildottype",                      // go1.27
+		"panicoverflow",                        // go1.27
+		"panicrangestate",                      // go1.27
+		"panicshift",                           // go1.27
+		"panicunsafeslicelen",                  // go1.27
+		"panicunsafeslicenilptr",               // go1.27
+		"panicunsafestringlen",                 // go1.27
+		"panicunsafestringnilptr",              // go1.27
+		"panicwrap",                            // go1.27
+		"pcheader",                             // go1.27
+		"pclntab",                              // go1.27
+		"pctab",                                // go1.27
+		"pprof_goroutineLeakProfileWithLabels", // go1.27
+		"printbool",                            // go1.27
+		"printcomplex",                         // go1.27
+		"printcomplex128",                      // go1.27
+		"printcomplex64",                       // go1.27
+		"printeface",                           // go1.27
+		"printfloat",                           // go1.27
+		"printfloat32",                         // go1.27
+		"printfloat64",                         // go1.27
+		"printhex",                             // go1.27
+		"printiface",                           // go1.27
+		"printint",                             // go1.27
+		"printlock",                            // go1.27
+		"printnl",                              // go1.27
+		"printpointer",                         // go1.27
+		"printquoted",                          // go1.27
+		"printslice",                           // go1.27
+		"printsp",                              // go1.27
+		"printstring",                          // go1.27
+		"printuint",                            // go1.27
+		"printuintptr",                         // go1.27
+		"printunlock",                          // go1.27
+		"racefuncenter",                        // go1.27
+		"racefuncexit",                         // go1.27
+		"raceread",                             // go1.27
+		"racereadrange",                        // go1.27
+		"racewrite",                            // go1.27
+		"racewriterange",                       // go1.27
+		"rand",                                 // go1.27
+		"rand32",                               // go1.27
+		"read_tls_fallback",                    // go1.27
+		"retpolineAX",                          // go1.27
+		"retpolineBP",                          // go1.27
+		"retpolineBX",                          // go1.27
+		"retpolineCX",                          // go1.27
+		"retpolineDI",                          // go1.27
+		"retpolineDX",                          // go1.27
+		"retpolineR10",                         // go1.27
+		"retpolineR11",                         // go1.27
+		"retpolineR12",                         // go1.27
+		"retpolineR13",                         // go1.27
+		"retpolineR14",                         // go1.27
+		"retpolineR15",                         // go1.27
+		"retpolineR8",                          // go1.27
+		"retpolineR9",                          // go1.27
+		"retpolineSI",                          // go1.27
+		"riscv64HasZbb",                        // go1.27
+		"rodata",                               // go1.27
+		"rt0_go",                               // go1.27
+		"runtime_inittasks",                    // go1.27
+		"sehtramp",                             // go1.27
+		"selectgo",                             // go1.27
+		"selectnbrecv",                         // go1.27
+		"selectnbsend",                         // go1.27
+		"selectsetpc",                          // go1.27
+		"sigpanic",                             // go1.27
+		"slice",                                // go1.27
+		"slicebytetostring",                    // go1.27
+		"slicebytetostringtmp",                 // go1.27
+		"slicecopy",                            // go1.27
+		"slicerunetostring",                    // go1.27
+		"staticuint64s",                        // go1.27
+		"strequal",                             // go1.27
+		"strhash",                              // go1.27
+		"stringStructDWARF",                    // go1.27
+		"stringtoslicebyte",                    // go1.27
+		"stringtoslicerune",                    // go1.27
+		"strmax",                               // go1.27
+		"strmin",                               // go1.27
+		"sudog",                                // go1.27
+		"text",                                 // go1.27
+		"textsectionmap",                       // go1.27
+		"throwinit",                            // go1.27
+		"tls_g",                                // go1.27
+		"tlsg",                                 // go1.27
+		"typeAssert",                           // go1.27
+		"typedmemclr",                          // go1.27
+		"typedmemmove",                         // go1.27
+		"typedslicecopy",                       // go1.27
+		"types",                                // go1.27
+		"udiv",                                 // go1.27
+		"uint32tofloat64",                      // go1.27
+		"uint64div",                            // go1.27
+		"uint64mod",                            // go1.27
+		"uint64tofloat32",                      // go1.27
+		"uint64tofloat64",                      // go1.27
+		"unreachableMethod",                    // go1.27
+		"unsafeslicecheckptr",                  // go1.27
+		"unsafestringcheckptr",                 // go1.27
+		"waitq",                                // go1.27
+		"wasmDiv",                              // go1.27
+		"wasmTruncS",                           // go1.27
+		"wasmTruncU",                           // go1.27
+		"wbMove",                               // go1.27
+		"wbZero",                               // go1.27
+		"writeBarrier",                         // go1.27
+		"x86HasAVX",                            // go1.27
+		"x86HasFMA",                            // go1.27
+		"x86HasPOPCNT",                         // go1.27
+		"x86HasSSE41",                          // go1.27
+		"zeroVal",                              // go1.27
+		"zerobase",                             // go1.27
+	},
+	"sync/atomic": {
+		"align64", // go1.27
 	},
 	"type:*unsafe": {
-		"Pointer",
+		"Pointer", // go1.27
 	},
 	"type:unsafe": {
-		"Pointer",
+		"Pointer", // go1.27
 	},
 }
 
