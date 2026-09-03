@@ -56,6 +56,9 @@ func TestGarbleMappingSourceIsOverlaid(t *testing.T) {
 	if file := "cmd/internal/obj/x86/seh.go"; !makeFileSet(compilerOverlayFiles)[file] {
 		t.Fatalf("%q is not included in the compiler and assembler overlay", file)
 	}
+	if file := "cmd/internal/obj/ppc64/obj9.go"; !makeFileSet(compilerOverlayFiles)[file] {
+		t.Fatalf("%q is not included in the compiler and assembler overlay", file)
+	}
 	if file := "cmd/internal/objabi/pkgspecial.go"; !makeFileSet(linkerOverlayFiles)[file] {
 		t.Fatalf("%q is not included in the linker overlay", file)
 	}

@@ -12,6 +12,11 @@ stdout '^runtime-obfuscation-ok:'
 # compiler intrinsic nor an assembly or linker ABI dependency.
 ! binsubstr main$exe 'internal/runtime/maps.(*Map).getWithKey'
 
+# PPC64 PIE and shared-code linking give DUFF routines special TOC entry-point
+# metadata. Cross-building exercises those assembler and linker classifications.
+[linux] env GOOS=linux GOARCH=ppc64
+[linux] exec garble build -buildmode=pie -o=main-ppc64 .
+
 -- go.mod --
 module test/runtimeobfuscation
 

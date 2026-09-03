@@ -357,7 +357,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 				if err != nil {
 					return nil, err
 				}
-				if new := replacer.Replace(string(content)); new != string(content) {
+				if new := replaceGoAsmNames(string(content), replacer); new != string(content) {
 					if err := os.WriteFile(newPath, []byte(new), 0o666); err != nil {
 						return nil, err
 					}
@@ -494,6 +494,19 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	}
 
 	return append(flags, newPaths...), nil
+}
+
+// replaceGoAsmNames updates go_asm.h constants without rewriting transformed
+// header paths, whose basenames can contain the same identifiers.
+func replaceGoAsmNames(content string, replacer *strings.Replacer) string {
+	lines := strings.SplitAfter(content, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "#include ") {
+			continue
+		}
+		lines[i] = replacer.Replace(line)
+	}
+	return strings.Join(lines, "")
 }
 
 // saveGoAsmNames saves go_asm.h constant name mappings to the build cache;

@@ -1,4 +1,4 @@
-From f112b30c9faced173edafd0132f39abe4c931d55 Mon Sep 17 00:00:00 2001
+From a78d1513714715d6736f6dd1bd8a684fe875c1e4 Mon Sep 17 00:00:00 2001
 From: Paul Scheduikat <luantak@pm.me>
 Date: Thu, 3 Sep 2026 08:57:05 +0000
 Subject: [PATCH 4/4] runtime obfuscation
@@ -35,6 +35,8 @@ Refs https://github.com/burrowers/garble/issues/193
  cmd/compile/internal/types2/sizes.go        |  12 +-
  cmd/compile/internal/walk/expr.go           |   2 +-
  cmd/internal/goobj/builtin.go               |  21 ++-
+ cmd/internal/obj/ppc64/asm_test.go          |  23 +++
+ cmd/internal/obj/ppc64/obj9.go              |   3 +
  cmd/internal/obj/x86/asm6.go                |   7 +-
  cmd/internal/obj/x86/seh.go                 |   8 +-
  cmd/internal/objabi/funcid.go               |   1 +
@@ -47,14 +49,14 @@ Refs https://github.com/burrowers/garble/issues/193
  cmd/link/internal/ld/dwarf.go               |   4 +-
  cmd/link/internal/ld/inittask.go            |   6 +
  cmd/link/internal/ld/lib.go                 |  25 ++-
- cmd/link/internal/ld/pcln.go                | 130 ++++++++-------
- cmd/link/internal/ld/symtab.go              |  56 ++++++-
+ cmd/link/internal/ld/pcln.go                | 130 +++++++--------
+ cmd/link/internal/ld/symtab.go              |  58 ++++++-
  cmd/link/internal/ld/xcoff.go               |   8 +-
- cmd/link/internal/loader/loader.go          | 167 +++++++++++++++++++-
- cmd/link/internal/loader/loader_test.go     |  23 +++
- cmd/link/internal/ppc64/asm.go              |   8 +-
- runtime/traceback.go                        |  45 +++++-
- 34 files changed, 704 insertions(+), 129 deletions(-)
+ cmd/link/internal/loader/loader.go          | 175 +++++++++++++++++++-
+ cmd/link/internal/loader/loader_test.go     |  53 ++++++
+ cmd/link/internal/ppc64/asm.go              |  10 +-
+ runtime/traceback.go                        |  45 ++++-
+ 36 files changed, 770 insertions(+), 131 deletions(-)
  create mode 100644 src/cmd/compile/internal/base/garble.go
  create mode 100644 src/cmd/internal/objabi/funcid_test.go
  create mode 100644 src/cmd/internal/objabi/garble.go
@@ -427,6 +429,52 @@ index aa665fde99..ad4cf380c8 100644
 -		builtinMap[b.name] = i
 -	}
 -}
+diff --git a/cmd/internal/obj/ppc64/asm_test.go b/cmd/internal/obj/ppc64/asm_test.go
+index 9f1acf4b62..96b6e1ea77 100644
+--- a/cmd/internal/obj/ppc64/asm_test.go
++++ b/cmd/internal/obj/ppc64/asm_test.go
+@@ -556,3 +556,26 @@ func TestOptabReinit(t *testing.T) {
+ 		t.Errorf("rerunning buildop changes optab size from %d to %d", optabLen, reinitOptabLen)
+ 	}
+ }
++
++func TestGarbleRuntimeSymbolsRemainNOTOC(t *testing.T) {
++	oldOriginalFuncName := originalFuncName
++	originalFuncName = func(name string) string {
++		switch name {
++		case "obfuscated.zero":
++			return "runtime.duffzero"
++		case "obfuscated.copy":
++			return "runtime.duffcopy"
++		case "obfuscated.elfSave":
++			return "runtime.elf_savegpr0"
++		default:
++			return name
++		}
++	}
++	t.Cleanup(func() { originalFuncName = oldOriginalFuncName })
++
++	for _, name := range []string{"obfuscated.zero", "obfuscated.copy", "obfuscated.elfSave"} {
++		if !isNOTOCfunc(name) {
++			t.Errorf("isNOTOCfunc(%q) = false, want true", name)
++		}
++	}
++}
+diff --git a/cmd/internal/obj/ppc64/obj9.go b/cmd/internal/obj/ppc64/obj9.go
+index 323420fefa..f9dda3c32e 100644
+--- a/cmd/internal/obj/ppc64/obj9.go
++++ b/cmd/internal/obj/ppc64/obj9.go
+@@ -78,7 +78,10 @@ func encodePPC64RLDCMask(mask int64) (mb, me int) {
+ // Is this a symbol which should never have a TOC prologue generated?
+ // These are special functions which should not have a TOC regeneration
+ // prologue.
++var originalFuncName = objabi.OriginalFuncName
++
+ func isNOTOCfunc(name string) bool {
++	name = originalFuncName(name)
+ 	switch {
+ 	case name == "runtime.duffzero":
+ 		return true
 diff --git a/cmd/internal/obj/x86/asm6.go b/cmd/internal/obj/x86/asm6.go
 index 89b64f4eed..a585b1b81c 100644
 --- a/cmd/internal/obj/x86/asm6.go
@@ -1096,9 +1144,18 @@ index 4c9f2ec6b2..c220f8f9d5 100644
  }
  
 diff --git a/cmd/link/internal/ld/symtab.go b/cmd/link/internal/ld/symtab.go
-index e1bddecb70..10cb0a7c48 100644
+index e1bddecb70..5aecee0750 100644
 --- a/cmd/link/internal/ld/symtab.go
 +++ b/cmd/link/internal/ld/symtab.go
+@@ -148,7 +148,7 @@ func putelfsym(ctxt *Link, x loader.Sym, typ elf.SymType, curbind elf.SymBind) {
+ 
+ 		// This should match the preprocessing behavior in cmd/internal/obj/ppc64/obj9.go
+ 		// where the distinct global entry is inserted.
+-		if !hasPCrel && ldr.SymName(x) != "runtime.duffzero" && ldr.SymName(x) != "runtime.duffcopy" {
++		if !hasPCrel && !loader.IsGarbleRuntimeDuff(ldr.SymName(x)) {
+ 			other |= 3 << 5
+ 		}
+ 	}
 @@ -521,7 +521,7 @@ func (ctxt *Link) symtab(pcln *pclntab) []sym.SymKind {
  			ldr.SetAttrNotInSymbolTable(s, true)
  			ldr.SetCarrierSym(s, symgostring)
@@ -1200,10 +1257,10 @@ index 4b5010eade..ee43b23712 100644
  			}
  			s := &XcoffSymEnt64{
 diff --git a/cmd/link/internal/loader/loader.go b/cmd/link/internal/loader/loader.go
-index 04601b32a0..f309da5831 100644
+index 04601b32a0..baecce3468 100644
 --- a/cmd/link/internal/loader/loader.go
 +++ b/cmd/link/internal/loader/loader.go
-@@ -27,6 +27,113 @@ import (
+@@ -27,6 +27,121 @@ import (
  
  var _ = fmt.Print
  
@@ -1214,6 +1271,7 @@ index 04601b32a0..f309da5831 100644
 +}
 +
 +var garbleObfuscatedSymbol = objabi.ObfuscatedSymbol
++var garbleOriginalFuncName = objabi.OriginalFuncName
 +
 +// GetGarbleObfuscatedSymbol returns the obfuscated symbol name for an original symbol.
 +// Returns empty string if no obfuscation is found.
@@ -1232,7 +1290,14 @@ index 04601b32a0..f309da5831 100644
 +// is obfuscated from "runtime" to "abc123" and "newobject" is obfuscated to "xyz",
 +// then "abc123.xyz" should be translated to "runtime.newobject" to look up in the builtin table.
 +func TranslateGarbleBuiltinName(name string) string {
-+	return objabi.OriginalFuncName(name)
++	return garbleOriginalFuncName(name)
++}
++
++// IsGarbleRuntimeDuff reports whether name identifies either runtime DUFF
++// function after applying Garble's symbol translation.
++func IsGarbleRuntimeDuff(name string) bool {
++	original := garbleOriginalFuncName(name)
++	return original == "runtime.duffzero" || original == "runtime.duffcopy"
 +}
 +
 +// HasGarbleRuntimePrefix returns true if the symbol name starts with "runtime."
@@ -1317,7 +1382,7 @@ index 04601b32a0..f309da5831 100644
  // Sym encapsulates a global symbol index, used to identify a specific
  // Go symbol. The 0-valued Sym is corresponds to an invalid symbol.
  type Sym = sym.LoaderSym
-@@ -710,6 +817,10 @@ func (l *Loader) resolve(r *oReader, s goobj.SymRef) Sym {
+@@ -710,6 +825,10 @@ func (l *Loader) resolve(r *oReader, s goobj.SymRef) Sym {
  		if bi := l.builtinSyms[s.SymIdx]; bi != 0 {
  			return bi
  		}
@@ -1328,7 +1393,7 @@ index 04601b32a0..f309da5831 100644
  		l.reportMissingBuiltin(int(s.SymIdx), r.unit.Lib.Pkg)
  		return 0
  	case goobj.PkgIdxSelf:
-@@ -720,6 +831,15 @@ func (l *Loader) resolve(r *oReader, s goobj.SymRef) Sym {
+@@ -720,6 +839,15 @@ func (l *Loader) resolve(r *oReader, s goobj.SymRef) Sym {
  	return l.toGlobal(rr, s.SymIdx)
  }
  
@@ -1344,7 +1409,7 @@ index 04601b32a0..f309da5831 100644
  // reportMissingBuiltin issues an error in the case where we have a
  // relocation against a runtime builtin whose definition is not found
  // when the runtime package is built. The canonical example is
-@@ -748,9 +868,27 @@ func (l *Loader) reportMissingBuiltin(bsym int, reflib string) {
+@@ -748,9 +876,27 @@ func (l *Loader) reportMissingBuiltin(bsym int, reflib string) {
  // new symbol.
  func (l *Loader) Lookup(name string, ver int) Sym {
  	if ver >= sym.SymVerStatic || ver < 0 {
@@ -1374,7 +1439,7 @@ index 04601b32a0..f309da5831 100644
  }
  
  // Check that duplicate symbols have same contents.
-@@ -2269,7 +2407,6 @@ func (st *loadState) preloadSyms(r *oReader, kind int) {
+@@ -2269,7 +2415,6 @@ func (st *loadState) preloadSyms(r *oReader, kind int) {
  		panic("preloadSyms: bad kind")
  	}
  	l.growAttrBitmaps(len(l.objSyms) + int(end-start))
@@ -1382,7 +1447,7 @@ index 04601b32a0..f309da5831 100644
  	for i := start; i < end; i++ {
  		osym := r.Sym(i)
  		var name string
-@@ -2299,10 +2436,26 @@ func (st *loadState) preloadSyms(r *oReader, kind int) {
+@@ -2299,10 +2444,26 @@ func (st *loadState) preloadSyms(r *oReader, kind int) {
  		if osym.UsedInIface() {
  			l.SetAttrUsedInIface(gi, true)
  		}
@@ -1414,10 +1479,10 @@ index 04601b32a0..f309da5831 100644
  			}
  		}
 diff --git a/cmd/link/internal/loader/loader_test.go b/cmd/link/internal/loader/loader_test.go
-index 7f7a75d9f4..1cd9858614 100644
+index 7f7a75d9f4..455b04c1b7 100644
 --- a/cmd/link/internal/loader/loader_test.go
 +++ b/cmd/link/internal/loader/loader_test.go
-@@ -32,6 +32,29 @@ func mkLoader() *Loader {
+@@ -32,6 +32,59 @@ func mkLoader() *Loader {
  	return ldr
  }
  
@@ -1444,11 +1509,41 @@ index 7f7a75d9f4..1cd9858614 100644
 +	}
 +}
 +
++func TestIsGarbleRuntimeDuff(t *testing.T) {
++	oldOriginalFuncName := garbleOriginalFuncName
++	garbleOriginalFuncName = func(name string) string {
++		switch name {
++		case "obfuscated.zero":
++			return "runtime.duffzero"
++		case "obfuscated.copy":
++			return "runtime.duffcopy"
++		default:
++			return name
++		}
++	}
++	t.Cleanup(func() { garbleOriginalFuncName = oldOriginalFuncName })
++
++	for _, test := range []struct {
++		name string
++		want bool
++	}{
++		{"runtime.duffzero", true},
++		{"obfuscated.zero", true},
++		{"obfuscated.copy", true},
++		{"runtime.duffcopy.extra", false},
++		{"obfuscated.other", false},
++	} {
++		if got := IsGarbleRuntimeDuff(test.name); got != test.want {
++			t.Errorf("IsGarbleRuntimeDuff(%q) = %v, want %v", test.name, got, test.want)
++		}
++	}
++}
++
  func TestAddMaterializedSymbol(t *testing.T) {
  	ldr := mkLoader()
  	dummyOreader := oReader{version: -1, syms: make([]Sym, 100)}
 diff --git a/cmd/link/internal/ppc64/asm.go b/cmd/link/internal/ppc64/asm.go
-index 36ba79f30a..9fe08a683e 100644
+index 36ba79f30a..3026bb0e1b 100644
 --- a/cmd/link/internal/ppc64/asm.go
 +++ b/cmd/link/internal/ppc64/asm.go
 @@ -408,7 +408,11 @@ func genaddmoduledata(ctxt *ld.Link, ldr *loader.Loader) {
@@ -1473,6 +1568,15 @@ index 36ba79f30a..9fe08a683e 100644
  		log.Fatalf("Internal linker does not support trampolines to ELFv2 ABI"+
  			" register save/restore function %s", ldr.SymName(target))
  	}
+@@ -1432,7 +1436,7 @@ func archreloc(target *ld.Target, ldr *loader.Loader, syms *ld.ArchSyms, r loade
+ 		// If we are linking PIE or shared code, non-PCrel golang generated object files have an extra 2 instruction prologue
+ 		// to regenerate the TOC pointer from R12.  The exception are two special case functions tested below.  Note,
+ 		// local call offsets for externally generated objects are accounted for when converting into golang relocs.
+-		if !hasPCrel && !ldr.AttrExternal(rs) && ldr.AttrShared(rs) && tgtName != "runtime.duffzero" && tgtName != "runtime.duffcopy" {
++		if !hasPCrel && !ldr.AttrExternal(rs) && ldr.AttrShared(rs) && !loader.IsGarbleRuntimeDuff(tgtName) {
+ 			// Furthermore, only apply the offset if the target looks like the start of a function call.
+ 			if r.Add() == 0 && ldr.SymType(rs).IsText() {
+ 				t += 8
 diff --git a/runtime/traceback.go b/runtime/traceback.go
 index 58161dee06..19edb2004b 100644
 --- a/runtime/traceback.go

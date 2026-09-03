@@ -547,3 +547,12 @@ func TestStructsHostLayoutToolchainDependency(t *testing.T) {
 		t.Fatal("structs.HostLayout must keep its name for go:wasmimport validation")
 	}
 }
+
+func TestReplaceGoAsmNamesPreservesIncludePaths(t *testing.T) {
+	replacer := strings.NewReplacer("asm", "obfuscated")
+	input := "#include \"garbled_asm_ppc64x.h\"\nMOVD $asm__size, R3\n"
+	want := "#include \"garbled_asm_ppc64x.h\"\nMOVD $obfuscated__size, R3\n"
+	if got := replaceGoAsmNames(input, replacer); got != want {
+		t.Fatalf("replaceGoAsmNames() = %q, want %q", got, want)
+	}
+}
