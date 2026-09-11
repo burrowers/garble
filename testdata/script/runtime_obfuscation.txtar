@@ -1,12 +1,24 @@
 # Build and run a program which exercises runtime-backed maps and concurrency.
 # Goroutine startup and exit cross compiler, assembly, and runtime boundaries;
 # exercising them verifies that those symbol mappings and stack metadata agree.
+# Companion tiny, atomic, reverse, reflect, cgo, and crossbuild scripts also use
+# the default GOGARBLE=* and therefore exercise the obfuscated runtime end to end.
 # Runtime obfuscation requires rebuilding a large part of the standard library.
 [short] skip 'runtime obfuscation is an integration test'
 
 exec garble build -o=main$exe .
 exec ./main$exe
 stdout '^runtime-obfuscation-ok:'
+
+# Runtime traceback formatting still recognizes the canonical gopanic metadata
+# emitted by the patched linker.
+exec garble build -o=panicbin$exe ./panic
+env GOTRACEBACK=single
+! exec ./panicbin$exe
+stderr '^panic: boom$'
+stderr '^main\.main\('
+! stderr '^runtime\.'
+! stderr '^goroutine 2 '
 
 # This ordinary Go implementation detail should be renamed. It is neither a
 # compiler intrinsic nor an assembly or linker ABI dependency.
@@ -17,10 +29,36 @@ stdout '^runtime-obfuscation-ok:'
 [linux] env GOOS=linux GOARCH=ppc64
 [linux] exec garble build -buildmode=pie -o=main-ppc64 .
 
+# Exercise every other Linux architecture family not covered by native, 386,
+# ARM, and PPC64 tests. These minimal links still compile and link the complete
+# obfuscated runtime and catch architecture-specific symbol contracts.
+[linux] env GOARCH=loong64
+[linux] exec garble build -o=main-loong64 ./arch
+[linux] env GOARCH=mips
+[linux] exec garble build -o=main-mips ./arch
+[linux] env GOARCH=mipsle
+[linux] exec garble build -o=main-mipsle ./arch
+[linux] env GOARCH=mips64
+[linux] exec garble build -o=main-mips64 ./arch
+[linux] env GOARCH=mips64le
+[linux] exec garble build -o=main-mips64le ./arch
+[linux] env GOARCH=riscv64
+[linux] exec garble build -o=main-riscv64 ./arch
+[linux] env GOARCH=s390x
+[linux] exec garble build -o=main-s390x ./arch
+
 -- go.mod --
 module test/runtimeobfuscation
 
 go 1.27
+-- arch/main.go --
+package main
+
+func main() {}
+-- panic/main.go --
+package main
+
+func main() { panic("boom") }
 -- main.go --
 package main
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2022, The Garble Authors.
+// Copyright (c) 2026, The Garble Authors.
 // See LICENSE for licensing information.
 
 package patcher
@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
@@ -36,7 +36,7 @@ const (
 	GoSrcEnv = "GARBLE_GO_SRC"
 
 	// Bump when tool patch/build semantics change to invalidate cached binaries.
-	toolchainBuildVersion = "v2"
+	toolchainBuildVersion = "v3"
 )
 
 // Files that we may need to overlay from the modified source while building
@@ -233,19 +233,76 @@ func filterFiles(files map[string]bool, allowedFiles []string) map[string]bool {
 	return filtered
 }
 
-func normalizeGoRoot(goRoot string) string {
-	// Toolchain upgrades via GOTOOLCHAIN can point GOROOT into GOMODCACHE, and
-	// go build overlays cannot replace files from module cache paths.
-	if strings.Contains(filepath.ToSlash(goRoot), "/pkg/mod/golang.org/toolchain@") {
-		cmd := exec.Command("go", "env", "GOROOT")
-		cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
-		if out, err := cmd.Output(); err == nil {
-			if hostGoRoot := strings.TrimSpace(string(out)); hostGoRoot != "" {
-				return hostGoRoot
+func mirrorGoRoot(source, target string) error {
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(target, 0o777); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		sourcePath := filepath.Join(source, entry.Name())
+		targetPath := filepath.Join(target, entry.Name())
+		if err := os.Symlink(sourcePath, targetPath); err == nil {
+			continue
+		}
+		// Directory symlinks can require elevated privileges on Windows. Fall
+		// back to a directory tree of hard links, copying only across filesystems.
+		if entry.IsDir() {
+			if err := mirrorGoRoot(sourcePath, targetPath); err != nil {
+				return err
 			}
+			continue
+		}
+		if err := os.Link(sourcePath, targetPath); err == nil {
+			continue
+		}
+		if err := copyFile(sourcePath, targetPath); err != nil {
+			return err
 		}
 	}
-	return goRoot
+	return nil
+}
+
+func isModuleToolchainGoRoot(goRoot string) bool {
+	clean := filepath.Clean(goRoot)
+	return strings.HasPrefix(filepath.Base(clean), "toolchain@") &&
+		filepath.Base(filepath.Dir(clean)) == "golang.org"
+}
+
+func normalizeGoRoot(goRoot, tempDir string) (string, error) {
+	// Toolchain upgrades via GOTOOLCHAIN can point GOROOT into GOMODCACHE, and
+	// go build overlays cannot replace files at module-cache paths. Mirror the
+	// selected GOROOT outside GOMODCACHE while keeping every entry tied to that
+	// exact toolchain; substituting the host GOROOT would mix Go versions.
+	if !isModuleToolchainGoRoot(goRoot) {
+		return goRoot, nil
+	}
+	sum := sha256.Sum256([]byte(goRoot))
+	mirrorRoot := filepath.Join(tempDir, fmt.Sprintf("toolchain-%x", sum[:8]))
+	mutex := lockedfile.MutexAt(mirrorRoot + ".lock")
+	unlock, err := mutex.Lock()
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	completePath := filepath.Join(mirrorRoot, ".complete")
+	if fileExists(completePath) {
+		return mirrorRoot, nil
+	}
+	if err := os.RemoveAll(mirrorRoot); err != nil {
+		return "", err
+	}
+	if err := mirrorGoRoot(goRoot, mirrorRoot); err != nil {
+		os.RemoveAll(mirrorRoot)
+		return "", fmt.Errorf("cannot mirror selected GOROOT: %w", err)
+	}
+	if err := os.WriteFile(completePath, nil, 0o666); err != nil {
+		os.RemoveAll(mirrorRoot)
+		return "", err
+	}
+	return mirrorRoot, nil
 }
 
 func cachePathForTool(cacheDir, toolName string) (string, error) {
@@ -332,7 +389,7 @@ func collectOverlayFiles(goSrcRoot, goRoot string, patchFiles map[string]bool, e
 	for file := range seen {
 		relFiles = append(relFiles, file)
 	}
-	sort.Strings(relFiles)
+	slices.Sort(relFiles)
 
 	for _, file := range relFiles {
 		absFiles = append(absFiles, filepath.Join(goSrcRoot, "src", file))
@@ -390,7 +447,10 @@ func patchAndBuildTool(toolName, toolPkg, goSrcRoot, goRoot, goVersion, cacheDir
 		return "", fmt.Errorf("cannot retrieve toolchain patches: %v", err)
 	}
 
-	buildGoRoot := normalizeGoRoot(goRoot)
+	buildGoRoot, err := normalizeGoRoot(goRoot, tempDir)
+	if err != nil {
+		return "", err
+	}
 	toolPatchFiles := filterFiles(patchFiles, extraOverlayFiles)
 	toolDeletedFiles := filterFiles(deletedFiles, extraOverlayFiles)
 

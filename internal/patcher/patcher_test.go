@@ -4,7 +4,9 @@
 package patcher
 
 import (
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -43,6 +45,46 @@ func TestToolWorkspaceDirUsesOutputKey(t *testing.T) {
 	}
 }
 
+func TestNormalizeGoRootKeepsSelectedToolchain(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(t.TempDir(), "custom-module-cache", "golang.org", "toolchain@v0.0.1-go1.27.0.test-amd64")
+	for path, content := range map[string]string{
+		"bin/go":          "selected go command",
+		"src/version.txt": "go1.27 selected source",
+		"VERSION":         "go1.27.0",
+	} {
+		fullPath := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o777); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o777); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	normalized, err := normalizeGoRoot(root, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized == root {
+		t.Fatal("module-cache GOROOT was not mirrored")
+	}
+	for path, want := range map[string]string{
+		"bin/go":          "selected go command",
+		"src/version.txt": "go1.27 selected source",
+		"VERSION":         "go1.27.0",
+	} {
+		got, err := os.ReadFile(filepath.Join(normalized, filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Fatalf("mirrored %s = %q, want %q", path, got, want)
+		}
+	}
+}
+
 func TestGarbleMappingSourceIsOverlaid(t *testing.T) {
 	t.Parallel()
 
@@ -61,5 +103,24 @@ func TestGarbleMappingSourceIsOverlaid(t *testing.T) {
 	}
 	if file := "cmd/internal/objabi/pkgspecial.go"; !makeFileSet(linkerOverlayFiles)[file] {
 		t.Fatalf("%q is not included in the linker overlay", file)
+	}
+}
+
+func TestPatchedProductionFilesAreOverlaid(t *testing.T) {
+	t.Parallel()
+
+	_, _, patchFiles, _, _, _, err := loadToolchainPatches("go1.27")
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlaid := makeFileSet(append(slices.Clone(compilerOverlayFiles), linkerOverlayFiles...))
+	for file := range patchFiles {
+		if strings.HasSuffix(file, "_test.go") {
+			t.Errorf("toolchain patch contains dead test file %q", file)
+			continue
+		}
+		if !overlaid[file] {
+			t.Errorf("patched production file %q is absent from tool overlays", file)
+		}
 	}
 }

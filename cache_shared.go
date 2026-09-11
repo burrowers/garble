@@ -455,10 +455,7 @@ func buildSymbolMap() string {
 		}
 		obfuscatedPath := lpkg.obfuscatedImportPath()
 		for _, symbol := range builtinSymbols[pkgPath] {
-			obfuscatedSymbol := symbol
-			if !isToolchainNameDependency(pkgPath, symbol) {
-				obfuscatedSymbol = hashWithPackage(lpkg, symbol)
-			}
+			obfuscatedSymbol := obfuscatedPackageObjectName(lpkg, symbol)
 			if obfuscatedPath != pkgPath || obfuscatedSymbol != symbol {
 				mappings = append(mappings, obfuscatedPath+"."+obfuscatedSymbol+"="+pkgPath+"."+symbol)
 			}

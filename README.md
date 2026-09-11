@@ -39,6 +39,10 @@ You can manually specify which packages to obfuscate via `GOGARBLE`,
 a comma-separated list of glob patterns matching package path prefixes.
 This format is borrowed from `GOPRIVATE`; see `go help private`.
 
+When selected by `GOGARBLE`, the standard runtime is obfuscated as well. Runtime
+obfuscation follows Go's supported `GOOS`/`GOARCH` targets; Garble does not
+maintain a narrower architecture allowlist.
+
 Note that commands like `garble build` will use the `go` version found in your
 `$PATH`. To use different versions of Go, you can [use `GOTOOLCHAIN`](https://go.dev/doc/toolchain).
 

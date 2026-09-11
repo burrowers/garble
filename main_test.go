@@ -556,3 +556,18 @@ func TestReplaceGoAsmNamesPreservesIncludePaths(t *testing.T) {
 		t.Fatalf("replaceGoAsmNames() = %q, want %q", got, want)
 	}
 }
+
+func TestReverseContentPreservesRuntimeFrames(t *testing.T) {
+	const input = "runtime.main()\n	runtime/proc.go:1 +0x1\nruntime.goexit()\n	runtime/asm_amd64.s:1 +0x1\n"
+	var out strings.Builder
+	modified, err := reverseContent(&out, strings.NewReader(input), strings.NewReplacer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if modified {
+		t.Fatal("reverseContent reported a modification without a matching replacement")
+	}
+	if got := out.String(); got != input {
+		t.Fatalf("reverseContent removed runtime frames:\n%s", got)
+	}
+}

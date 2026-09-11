@@ -1,0 +1,48 @@
+# Runtime and profiling code classify these package families by canonical
+# metadata prefixes. Keep package identity and per-function uniqueness while
+# hiding declaration names, except where the runtime requires an exact name.
+[short] skip 'runtime obfuscation is an integration test'
+
+exec garble build -o=metadata$exe .
+! binsubstr metadata$exe 'runtime.?'
+! binsubstr metadata$exe 'internal/runtime/maps.?'
+! binsubstr metadata$exe 'reflect.?'
+binsubstr metadata$exe 'internal/runtime/maps.'
+exec ./metadata$exe
+stdout '^runtime-metadata-ok$'
+
+-- go.mod --
+module test/runtimemetadata
+
+go 1.27
+-- main.go --
+package main
+
+import (
+	"fmt"
+	"reflect"
+	"runtime"
+	"strings"
+)
+
+func main() {
+	gcName := runtime.FuncForPC(reflect.ValueOf(runtime.GC).Pointer()).Name()
+	gomaxprocsName := runtime.FuncForPC(reflect.ValueOf(runtime.GOMAXPROCS).Pointer()).Name()
+	if !strings.HasPrefix(gcName, "runtime.") || !strings.HasPrefix(gomaxprocsName, "runtime.") {
+		panic("runtime package identity was not preserved")
+	}
+	if gcName == gomaxprocsName {
+		panic("runtime function identities were merged")
+	}
+
+	typ := reflect.TypeOf(func(*int) *int { return nil })
+	fn := reflect.MakeFunc(typ, func(args []reflect.Value) []reflect.Value { return args })
+	stubName := runtime.FuncForPC(reflect.ValueOf(fn.Interface()).Pointer()).Name()
+	if stubName != "reflect.makeFuncStub" {
+		panic("reflect stub identity was not preserved: " + stubName)
+	}
+
+	m := make(map[int]int)
+	m[1] = 1
+	fmt.Println("runtime-metadata-ok")
+}

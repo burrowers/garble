@@ -625,6 +625,31 @@ func isToolchainNameDependency(path, name string) bool {
 	return false
 }
 
+// obfuscatedPackageObjectName is the shared package-level naming rule used by
+// source transformation and the symbol map consumed by patched tools.
+func obfuscatedPackageObjectName(lpkg *listedPackage, name string) string {
+	if !lpkg.ToObfuscate || isToolchainNameDependency(lpkg.ImportPath, name) {
+		return name
+	}
+	return hashWithPackage(lpkg, name)
+}
+
+func (tf *transformer) validateBuiltinSymbolNames() {
+	for _, name := range builtinSymbols[tf.curPkg.ImportPath] {
+		obj := tf.pkg.Scope().Lookup(name)
+		if obj == nil {
+			continue // assembly- or linker-generated symbol
+		}
+		got, obfuscated := tf.obfuscatedObjectName(obj)
+		if !obfuscated {
+			got = name
+		}
+		if want := obfuscatedPackageObjectName(tf.curPkg, name); got != want {
+			panic(fmt.Sprintf("builtin symbol naming drift for %s.%s: transformer=%q symbol-map=%q", tf.curPkg.ImportPath, name, got, want))
+		}
+	}
+}
+
 func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	// We need to replace all function references with their obfuscated name
 	// counterparts.
@@ -861,6 +886,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
 	// Compute fieldToStruct first so runtime patches can use it.
 	tf.fieldToStruct = computeFieldToStruct(tf.info)
+	tf.validateBuiltinSymbolNames()
 
 	if flagLiterals {
 		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg); err != nil {
@@ -1442,7 +1468,7 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 		return "", false // we only want to rename the above
 	}
 
-	newName := hashWithPackage(lpkg, name)
+	newName := obfuscatedPackageObjectName(lpkg, name)
 	// TODO: probably move the debugf lines inside the hash funcs
 	if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 		log.Printf("%s %q hashed with %x… to %q", debugName, name, lpkg.GarbleActionID[:4], newName)
