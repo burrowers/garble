@@ -263,6 +263,25 @@ func runtimeSymbolsInToolFile(path string) []string {
 	}
 	ast.Inspect(file, func(node ast.Node) bool {
 		switch node := node.(type) {
+		case *ast.ValueSpec:
+			if len(node.Names) != 1 || node.Names[0].Name != "funcIDs" {
+				break
+			}
+			for _, value := range node.Values {
+				literal, ok := value.(*ast.CompositeLit)
+				if !ok {
+					continue
+				}
+				for _, element := range literal.Elts {
+					entry, ok := element.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					if name, ok := stringLiteral(entry.Key); ok {
+						symbols = append(symbols, "runtime."+name)
+					}
+				}
+			}
 		case *ast.CallExpr:
 			name := calledName(node)
 			isLookup := strings.Contains(strings.ToLower(name), "lookup")

@@ -497,6 +497,20 @@ func TestFlagValue(t *testing.T) {
 	}
 }
 
+func TestRuntimeFuncIDBuiltinSymbols(t *testing.T) {
+	for _, name := range []string{
+		"abort", "asmcgocall", "asyncPreempt", "cgocallback", "corostart",
+		"debugCallV2", "deferreturn", "gcBgMarkWorker", "goexit", "gogo",
+		"gopanic", "handleAsyncEvent", "main", "mcall", "morestack", "mstart",
+		"panicwrap", "rt0_go", "runCleanups", "runFinalizers", "sigpanic",
+		"systemstack", "systemstack_switch",
+	} {
+		if !slices.Contains(builtinSymbols["runtime"], name) {
+			t.Errorf("runtime.%s must be included in the assembler symbol map", name)
+		}
+	}
+}
+
 func TestRuntimeGoexitToolchainDependency(t *testing.T) {
 	if !isToolchainNameDependency("runtime", "goexit") {
 		t.Fatal("runtime.goexit must keep its assembly name for runtime stack metadata")
@@ -548,11 +562,14 @@ func TestStructsHostLayoutToolchainDependency(t *testing.T) {
 	}
 }
 
-func TestReplaceGoAsmNamesPreservesIncludePaths(t *testing.T) {
-	replacer := strings.NewReplacer("asm", "obfuscated")
-	input := "#include \"garbled_asm_ppc64x.h\"\nMOVD $asm__size, R3\n"
-	want := "#include \"garbled_asm_ppc64x.h\"\nMOVD $obfuscated__size, R3\n"
-	if got := replaceGoAsmNames(input, replacer); got != want {
+func TestReplaceGoAsmNamesPreservesOtherIdentifiers(t *testing.T) {
+	nameMap := map[string]string{
+		"asm__size": "obfuscated__size",
+		"wasm_pc":   "obfuscated_pc",
+	}
+	input := "#include \"garbled_asm_ppc64x.h\"\nMOVD $asm__size, R3\nCall wasm_pc_f_loop(SB)\nMOVD $wasm_pc, R4\n"
+	want := "#include \"garbled_asm_ppc64x.h\"\nMOVD $obfuscated__size, R3\nCall wasm_pc_f_loop(SB)\nMOVD $obfuscated_pc, R4\n"
+	if got := replaceGoAsmNames(input, nameMap); got != want {
 		t.Fatalf("replaceGoAsmNames() = %q, want %q", got, want)
 	}
 }

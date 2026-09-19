@@ -328,8 +328,8 @@ func mainErr(args []string) error {
 			os.Setenv(patcher.SymbolMapEnv, symbolMap)
 			log.Printf("replaced compiler with: %s", executablePath)
 		case "asm":
-			pkgPathMap := buildRuntimePkgPathMap()
-			if pkgPathMap == "" {
+			pkgPathMap, symbolMap := buildRuntimePkgPathMap(), buildSymbolMap()
+			if pkgPathMap == "" && symbolMap == "" {
 				break
 			}
 			modifiedPath, err := patcher.PatchAssembler(
@@ -341,6 +341,7 @@ func mainErr(args []string) error {
 			}
 			executablePath = modifiedPath
 			os.Setenv(patcher.PkgPathMapEnv, pkgPathMap)
+			os.Setenv(patcher.SymbolMapEnv, symbolMap)
 			log.Printf("replaced assembler with: %s", executablePath)
 		case "link":
 			modifiedPath, err := patcher.PatchLinker(

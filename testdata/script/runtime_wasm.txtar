@@ -1,0 +1,18 @@
+[short] skip 'runtime obfuscation is an integration test'
+[!exec:node] skip 'this test requires Node.js'
+
+# WebAssembly gives selected runtime helpers native signatures rather than the
+# ordinary Go stack-based signature. Obfuscation must preserve that mapping.
+env GOOS=js GOARCH=wasm CGO_ENABLED=0
+exec garble build -o=main.wasm .
+exec node $GOROOT/lib/wasm/wasm_exec_node.js main.wasm
+stderr '^wasm-runtime-ok$'
+
+-- go.mod --
+module test/runtimewasm
+
+go 1.27
+-- main.go --
+package main
+
+func main() { println("wasm-runtime-ok") }

@@ -288,6 +288,7 @@ var builtinSymbols = map[string][]string{
 		"_divu",                                // go1.27
 		"_mod",                                 // go1.27
 		"_modu",                                // go1.27
+		"abort",                                // go1.27
 		"addCovMeta",                           // go1.27
 		"addmoduledata",                        // go1.27
 		"aixStaticDataBase",                    // go1.27
@@ -296,9 +297,11 @@ var builtinSymbols = map[string][]string{
 		"asanread",                             // go1.27
 		"asanregisterglobals",                  // go1.27
 		"asanwrite",                            // go1.27
+		"asmcgocall",                           // go1.27
 		"asmcgocall_landingpad",                // go1.27
 		"assertE2I",                            // go1.27
 		"assertE2I2",                           // go1.27
+		"asyncPreempt",                         // go1.27
 		"block",                                // go1.27
 		"bss",                                  // go1.27
 		"buildVersion",                         // go1.27
@@ -308,6 +311,7 @@ var builtinSymbols = map[string][]string{
 		"c64hash",                              // go1.27
 		"cgoCheckMemmove",                      // go1.27
 		"cgoCheckPtrWrite",                     // go1.27
+		"cgocallback",                          // go1.27
 		"chancap",                              // go1.27
 		"chanlen",                              // go1.27
 		"chanrecv1",                            // go1.27
@@ -335,10 +339,12 @@ var builtinSymbols = map[string][]string{
 		"convTnoptr",                           // go1.27
 		"convTslice",                           // go1.27
 		"convTstring",                          // go1.27
+		"corostart",                            // go1.27
 		"countrunes",                           // go1.27
 		"covctrs",                              // go1.27
 		"cutab",                                // go1.27
 		"data",                                 // go1.27
+		"debugCallV2",                          // go1.27
 		"decoderune",                           // go1.27
 		"defaultGOROOT",                        // go1.27
 		"deferproc",                            // go1.27
@@ -407,6 +413,7 @@ var builtinSymbols = map[string][]string{
 		"fuint64to64",                          // go1.27
 		"funcnametab",                          // go1.27
 		"functab",                              // go1.27
+		"gcBgMarkWorker",                       // go1.27
 		"gcWriteBarrier",                       // go1.27
 		"gcWriteBarrier1",                      // go1.27
 		"gcWriteBarrier2",                      // go1.27
@@ -446,6 +453,7 @@ var builtinSymbols = map[string][]string{
 		"goarm",                                // go1.27
 		"goarmsoftfp",                          // go1.27
 		"goexit",                               // go1.27
+		"gogo",                                 // go1.27
 		"gopanic",                              // go1.27
 		"gorecover",                            // go1.27
 		"goschedguarded",                       // go1.27
@@ -453,6 +461,7 @@ var builtinSymbols = map[string][]string{
 		"growsliceBuf",                         // go1.27
 		"growsliceBufNoAlias",                  // go1.27
 		"growsliceNoAlias",                     // go1.27
+		"handleAsyncEvent",                     // go1.27
 		"hchan",                                // go1.27
 		"hex",                                  // go1.27
 		"iface",                                // go1.27
@@ -482,6 +491,7 @@ var builtinSymbols = map[string][]string{
 		"loong64HasLAMCAS",                     // go1.27
 		"loong64HasLAM_BH",                     // go1.27
 		"loong64HasLSX",                        // go1.27
+		"main",                                 // go1.27
 		"makechan",                             // go1.27
 		"makechan64",                           // go1.27
 		"makemap",                              // go1.27
@@ -518,6 +528,7 @@ var builtinSymbols = map[string][]string{
 		"mapinitnoop",                          // go1.27
 		"mapiterinit",                          // go1.27
 		"mapiternext",                          // go1.27
+		"mcall",                                // go1.27
 		"memProfileInternal",                   // go1.27
 		"memclrHasPointers",                    // go1.27
 		"memclrNoHeapPointers",                 // go1.27
@@ -551,6 +562,7 @@ var builtinSymbols = map[string][]string{
 		"msanmove",                             // go1.27
 		"msanread",                             // go1.27
 		"msanwrite",                            // go1.27
+		"mstart",                               // go1.27
 		"newobject",                            // go1.27
 		"newproc",                              // go1.27
 		"nilinterequal",                        // go1.27
@@ -660,6 +672,8 @@ var builtinSymbols = map[string][]string{
 		"riscv64HasZbb",                        // go1.27
 		"rodata",                               // go1.27
 		"rt0_go",                               // go1.27
+		"runCleanups",                          // go1.27
+		"runFinalizers",                        // go1.27
 		"runtime_inittasks",                    // go1.27
 		"sehtramp",                             // go1.27
 		"selectgo",                             // go1.27
@@ -681,6 +695,8 @@ var builtinSymbols = map[string][]string{
 		"strmax",                               // go1.27
 		"strmin",                               // go1.27
 		"sudog",                                // go1.27
+		"systemstack",                          // go1.27
+		"systemstack_switch",                   // go1.27
 		"text",                                 // go1.27
 		"textsectionmap",                       // go1.27
 		"throwinit",                            // go1.27

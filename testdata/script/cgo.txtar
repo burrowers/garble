@@ -117,6 +117,7 @@ func cgoFunc() {
 
 //export goCallback
 func goCallback() {
+	runtime.GC()
 	fmt.Println("go callback")
 	// TODO: support reversing filenames in cgo files
 	if false && os.Getenv("GARBLE_TEST_REVERSING") == "true" {

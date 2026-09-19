@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"cmp"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -14,7 +13,6 @@ import (
 	"go/types"
 	"io/fs"
 	"log"
-	"maps"
 	mathrand "math/rand"
 	"os"
 	"path/filepath"
@@ -335,29 +333,17 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	if !slices.Contains(args, "-gensymabis") {
 		// Replace go_asm.h constant names; see [saveGoAsmNames].
 		// This can't be done in the gensymabis pass as the compiler hasn't run by then.
-		var replacer *strings.Replacer
-		if nameMap := loadGoAsmNames(tf.curPkg); len(nameMap) > 0 {
-			// Note that we sort the names from longest to shortest,
-			// so that a shorter name doesn't match a prefix of a longer one.
-			origNames := slices.SortedFunc(maps.Keys(nameMap), func(a, b string) int {
-				return cmp.Compare(len(b), len(a))
-			})
-			pairs := make([]string, 0, 2*len(nameMap))
-			for _, orig := range origNames {
-				pairs = append(pairs, orig, nameMap[orig])
-			}
-			replacer = strings.NewReplacer(pairs...)
-		}
+		nameMap := loadGoAsmNames(tf.curPkg)
 		for _, path := range paths {
 			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
 			pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir())
 			newPath := filepath.Join(pkgDir, name)
-			if replacer != nil {
+			if len(nameMap) > 0 {
 				content, err := os.ReadFile(newPath)
 				if err != nil {
 					return nil, err
 				}
-				if new := replaceGoAsmNames(string(content), replacer); new != string(content) {
+				if new := replaceGoAsmNames(string(content), nameMap); new != string(content) {
 					if err := os.WriteFile(newPath, []byte(new), 0o666); err != nil {
 						return nil, err
 					}
@@ -496,17 +482,34 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	return append(flags, newPaths...), nil
 }
 
-// replaceGoAsmNames updates go_asm.h constants without rewriting transformed
-// header paths, whose basenames can contain the same identifiers.
-func replaceGoAsmNames(content string, replacer *strings.Replacer) string {
-	lines := strings.SplitAfter(content, "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "#include ") {
+// replaceGoAsmNames updates complete go_asm.h constant identifiers without
+// rewriting longer assembly symbol names which happen to share a prefix.
+func replaceGoAsmNames(content string, nameMap map[string]string) string {
+	var out strings.Builder
+	for len(content) > 0 {
+		r, size := utf8.DecodeRuneInString(content)
+		if !unicode.IsLetter(r) && r != '_' {
+			out.WriteString(content[:size])
+			content = content[size:]
 			continue
 		}
-		lines[i] = replacer.Replace(line)
+		end := size
+		for end < len(content) {
+			r, size = utf8.DecodeRuneInString(content[end:])
+			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+				break
+			}
+			end += size
+		}
+		name := content[:end]
+		if replacement := nameMap[name]; replacement != "" {
+			out.WriteString(replacement)
+		} else {
+			out.WriteString(name)
+		}
+		content = content[end:]
 	}
-	return strings.Join(lines, "")
+	return out.String()
 }
 
 // saveGoAsmNames saves go_asm.h constant name mappings to the build cache;
