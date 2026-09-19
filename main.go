@@ -26,6 +26,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -737,8 +738,7 @@ func rejectUnknownBuildFlags(flags []string) error {
 // For now, since those confusing flags are always followed by more flags,
 // iterating in reverse order works around them entirely.
 func splitFlagsFromFiles(all []string, ext string) (flags, paths []string) {
-	for i := len(all) - 1; i >= 0; i-- {
-		arg := all[i]
+	for i, arg := range slices.Backward(all) {
 		if strings.HasPrefix(arg, "-") || !strings.HasSuffix(arg, ext) {
 			cutoff := i + 1 // arg is a flag, not a path
 			return all[:cutoff:cutoff], all[cutoff:]
