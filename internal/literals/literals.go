@@ -138,6 +138,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 // decoder closures or their inlined bodies.
 func (r *obfRand) liftCall(params *ast.FieldList, resultType ast.Expr, block *ast.BlockStmt, args []ast.Expr) *ast.CallExpr {
 	name := r.nextLiftedFuncName("literalDecoder")
+	r.obfuscateGeneratedNames(params, block)
 	results := &ast.FieldList{List: []*ast.Field{{Type: resultType}}}
 	r.liftedFuncs = append(r.liftedFuncs, &ast.FuncDecl{
 		Name: ast.NewIdent(name),
@@ -162,12 +163,83 @@ func (r *obfRand) liftCall(params *ast.FieldList, resultType ast.Expr, block *as
 // only their function values.
 func (r *obfRand) liftFuncValue(funcVal *ast.FuncLit) ast.Expr {
 	name := r.nextLiftedFuncName("literalHelper")
+	r.obfuscateGeneratedNames(funcVal.Type.Params, funcVal.Body)
 	r.liftedFuncs = append(r.liftedFuncs, &ast.FuncDecl{
 		Name: ast.NewIdent(name),
 		Type: funcVal.Type,
 		Body: funcVal.Body,
 	})
 	return ast.NewIdent(name)
+}
+
+// obfuscateGeneratedNames renames declarations inserted after the original
+// package was typechecked. The usual identifier pass cannot see these names.
+// Decoder bodies use a controlled set of local identifiers; renaming their
+// references together also covers nested decoder closures.
+func (r *obfRand) obfuscateGeneratedNames(params *ast.FieldList, body *ast.BlockStmt) {
+	names := make(map[string]string)
+	declare := func(id *ast.Ident) {
+		if id != nil && id.Name != "_" {
+			if _, ok := names[id.Name]; !ok {
+				names[id.Name] = r.nameFunc(r.rnd, "literalLocal"+id.Name)
+			}
+		}
+	}
+	collectFields := func(fields *ast.FieldList) {
+		if fields != nil {
+			for _, field := range fields.List {
+				for _, id := range field.Names {
+					declare(id)
+				}
+			}
+		}
+	}
+	collectFields(params)
+	ast.Inspect(body, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.AssignStmt:
+			if node.Tok == token.DEFINE {
+				for _, expr := range node.Lhs {
+					if id, ok := expr.(*ast.Ident); ok {
+						declare(id)
+					}
+				}
+			}
+		case *ast.RangeStmt:
+			if node.Tok == token.DEFINE {
+				if id, ok := node.Key.(*ast.Ident); ok {
+					declare(id)
+				}
+				if id, ok := node.Value.(*ast.Ident); ok {
+					declare(id)
+				}
+			}
+		case *ast.ValueSpec:
+			for _, id := range node.Names {
+				declare(id)
+			}
+		case *ast.TypeSpec:
+			declare(node.Name)
+		case *ast.FuncLit:
+			collectFields(node.Type.Params)
+		}
+		return true
+	})
+	// The wrapper includes parameter declarations as well as the body.
+	fn := &ast.FuncLit{Type: &ast.FuncType{Params: params}, Body: body}
+	astutil.Apply(fn, func(cursor *astutil.Cursor) bool {
+		id, ok := cursor.Node().(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if sel, ok := cursor.Parent().(*ast.SelectorExpr); ok && sel.Sel == id {
+			return false
+		}
+		if name, ok := names[id.Name]; ok {
+			id.Name = name
+		}
+		return false
+	}, nil)
 }
 
 func unnamedFieldList(fields *ast.FieldList) *ast.FieldList {
