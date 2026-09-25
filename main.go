@@ -241,7 +241,7 @@ func mainErr(args []string) error {
 		return commandMap(args)
 	case "bug":
 		return commandBug(args)
-	case "build", "test", "run":
+	case "build", "test", "run", "install":
 		cmd, err := toolexecCmd(command, args)
 		defer func() {
 			if err := os.RemoveAll(os.Getenv("GARBLE_SHARED")); err != nil {
@@ -696,6 +696,7 @@ Similarly, to combine garble flags and Go build flags:
 The following commands are supported:
 
 	build          replace "go build"
+	install        replace "go install"
 	test           replace "go test"
 	run            replace "go run"
 	reverse        de-obfuscate output such as stack traces

@@ -1,0 +1,30 @@
+# Install into GOBIN rather than leaving a build artifact in the source tree.
+env GOBIN=$WORK/bin
+exec garble -tiny install .
+exists $WORK/bin/main$exe
+! exists main$exe
+
+# The installed binary runs, but its source names are obfuscated.
+exec $WORK/bin/main$exe
+stdout '^installed$'
+! binsubstr $WORK/bin/main$exe ${WORK} 'garble_main.go' 'greeting' 'test/main'
+
+# Without GOBIN, install uses GOPATH/bin and the cached build output.
+env GOBIN= GOPATH=$WORK/gopath
+exec garble -tiny install .
+exists $WORK/gopath/bin/main$exe
+exec $WORK/gopath/bin/main$exe
+stdout '^installed$'
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- garble_main.go --
+package main
+
+import "fmt"
+
+func greeting() string { return "installed" }
+
+func main() { fmt.Println(greeting()) }
