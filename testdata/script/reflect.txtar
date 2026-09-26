@@ -51,6 +51,29 @@ type TemplateData struct {
 	Fields   []TemplateField
 }
 
+// Templates can invoke methods whose interface-typed results hide their
+// concrete type from the static type of the Execute argument.
+type optionData struct{}
+type optionResult struct{ CurrentOpt struct{ Value string } }
+
+func (optionData) IterateOption() any {
+	var result optionResult
+	result.CurrentOpt.Value = "Option1"
+	return result
+}
+
+type mergedOptionResult struct{ MergedOpt struct{ Label string } }
+
+func (optionData) IterateMergedOption() any {
+	var result mergedOptionResult
+	result.MergedOpt.Label = "Merged"
+	var value any = result
+	if len(os.Args) > 1 {
+		value = 42
+	}
+	return value
+}
+
 func main() {
 	// Fields still work fine when they are not obfuscated.
 	fmt.Println(importedpkg.ReflectInDefinedVar.ExportedField2)
@@ -94,6 +117,19 @@ func main() {
 	})
 	tmpl = template.Must(template.New("slice").Parse("TYPE {{.TypeName}}: {{range .Fields}}{{.Label}}={{.Type}}{{end}}"))
 	if err := tmpl.Execute(os.Stdout, items[0]); err != nil {
+		panic(err)
+	}
+	fmt.Println()
+
+	// A template calls a method returning any, then inspects fields on the
+	// concrete value returned by the method (as survey/v2 does for options).
+	tmpl = template.Must(template.New("options").Parse(`{{define "option"}}{{.CurrentOpt.Value}}{{end}}{{template "option" .IterateOption}}`))
+	if err := tmpl.Execute(os.Stdout, optionData{}); err != nil {
+		panic(err)
+	}
+	fmt.Println()
+	tmpl = template.Must(template.New("merged options").Parse(`{{.IterateMergedOption.MergedOpt.Label}}`))
+	if err := tmpl.Execute(os.Stdout, optionData{}); err != nil {
 		panic(err)
 	}
 	fmt.Println()
@@ -748,6 +784,8 @@ ReflectValueOf{ExportedField:"abc", unexportedField:""}
 Hello Dave.
 name: test value: example port: 8080
 TYPE MyStruct: name=STRING
+Option1
+Merged
 {"InnerField":3,"Anon":{"AnonField":0}}
 struct { DownstreamField string }{DownstreamField:"downstream"}
 SiblingField:"sibling"

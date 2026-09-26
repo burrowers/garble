@@ -248,6 +248,15 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 	}
 
 	reflectParams := make(map[int]bool)
+	// A template can invoke methods on reflected data. If such a method
+	// returns an interface, its concrete result type is invisible at the
+	// template.Execute call and must be found at the method's return.
+	reflectedReceiver := false
+	if recv := fun.Signature.Recv(); recv != nil && f != nil && f.Exported() {
+		if obj := typeToObj(recv.Type()); obj != nil {
+			reflectedReceiver = ri.usedForReflect(obj)
+		}
+	}
 	if funcName != "" {
 		maps.Copy(reflectParams, ri.result.ReflectAPIs[funcName])
 
@@ -269,6 +278,14 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 			// fmt.Printf("inst: %v, t: %T\n", inst, inst)
 			switch inst := inst.(type) {
+			case *ssa.Return:
+				if reflectedReceiver {
+					for _, result := range inst.Results {
+						if _, ok := result.Type().Underlying().(*types.Interface); ok {
+							ri.recordArgReflected(result, make(map[ssa.Value]bool))
+						}
+					}
+				}
 			case *ssa.Store:
 				obj := typeToObj(inst.Addr.Type())
 				if obj != nil && ri.usedForReflect(obj) {
@@ -391,6 +408,15 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 	ri.recursivelyRecordUsedForReflect(val.Type())
 
 	switch val := val.(type) {
+	case *ssa.Phi:
+		var param *ssa.Parameter
+		for _, edge := range val.Edges {
+			p := ri.recordArgReflected(edge, visited)
+			if param == nil {
+				param = p
+			}
+		}
+		return param
 	case *ssa.IndexAddr:
 		for _, ref := range *val.Referrers() {
 			if store, ok := ref.(*ssa.Store); ok {
