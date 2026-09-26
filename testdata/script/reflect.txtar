@@ -20,6 +20,9 @@ cmp stdout main.stdout
 module test/main
 
 go 1.23
+
+require gorm.io/gorm v0.0.0
+replace gorm.io/gorm => ./gorm
 -- garble_main.go --
 package main
 
@@ -40,6 +43,7 @@ import (
 	"text/template"
 	"unsafe"
 
+	"gorm.io/gorm"
 	"test/main/importedpkg"
 	"test/main/importedpkg2"
 	"test/main/migrate"
@@ -218,7 +222,7 @@ func main() {
 
 	// GORM's migrator passes model values through a function-valued local
 	// closure before parsing their fields via reflection.
-	if err := migrate.Get().AutoMigrate(&ForeignPerson{}, &ForeignAccount{}); err != nil {
+	if err := gorm.New(migrate.Get()).AutoMigrate(&ForeignPerson{}, &ForeignAccount{}); err != nil {
 		fmt.Fprintln(os.Stderr, "relationship lookup failed")
 	}
 
@@ -800,6 +804,25 @@ type IndirectNamedWithoutReflect struct {
 	IndirectObfuscated string
 
 	DuplicateFieldName int
+}
+
+-- gorm/go.mod --
+module gorm.io/gorm
+
+go 1.23
+-- gorm/gorm.go --
+package gorm
+
+import "reflect"
+
+// Real GORM imports reflect in its schema and migration packages.
+var _ = reflect.TypeOf
+
+type Migrator interface{ AutoMigrate(...any) error }
+type DB struct{ migrator Migrator }
+func New(m Migrator) *DB { return &DB{migrator: m} }
+func (db *DB) AutoMigrate(models ...any) error {
+	return db.migrator.AutoMigrate(models...)
 }
 
 -- migrate/migrate.go --

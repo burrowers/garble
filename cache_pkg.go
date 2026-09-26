@@ -166,6 +166,18 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		},
 		ReflectObjectNames: map[string]string{},
 	}
+	// GORM's DB.AutoMigrate forwards its models through a Migrator interface.
+	// The implementation lives in a downstream driver package, so package-local
+	// analysis cannot discover that the API reflects those models. Seed the
+	// public API at its declaration rather than losing that information at the
+	// interface boundary. Resolve the method object to match SSA call names.
+	if lpkg.ImportPath == "gorm.io/gorm" {
+		if db := pkg.Scope().Lookup("DB"); db != nil {
+			if method := types.NewMethodSet(types.NewPointer(db.Type())).Lookup(pkg, "AutoMigrate"); method != nil {
+				computed.ReflectAPIs[method.Obj().(*types.Func).FullName()] = map[int]bool{0: true}
+			}
+		}
+	}
 	// Stop early if we don't import reflect, e.g. much of std.
 	if !lpkg.hasDep("reflect") {
 		return computed, nil
