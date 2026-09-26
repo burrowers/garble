@@ -518,27 +518,10 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		})
 	}
 
-	// `go list` cannot mix .go file arguments with package paths, so the rare
-	// file-argument build lists the linknamed packages separately, below.
-	fileMode := mainBuild && len(packages) > 0 && strings.HasSuffix(packages[0], ".go")
-	if mainBuild && !fileMode {
-		if len(packages) == 0 {
-			// With no arguments the build targets the current directory; make
-			// that explicit so the appended packages don't displace it.
-			packages = []string{"."}
-		}
-		// Fold in the linknamed packages so each compile subprocess finds them
-		// in the shared cache instead of spawning its own `go list`. `go list`
-		// dedups them against the deps and `-mod` flags are harmless for std.
-		//
-		// They need -export like any other package, even though we never read
-		// their export data; it is the only way `go list` gives us a build ID
-		// to derive [listedPackage.GarbleActionID] from. Salting them by import
-		// path instead would make a package's hashed names depend on which
-		// packages the build includes, which Go's build cache does not key on,
-		// so two builds would disagree on a linkname's target and fail to link.
-		packages = append(packages, linknamedToList()...)
-	}
+	// List the build targets alone. Mixing extra standard packages into this
+	// invocation makes go list report PGO dependencies as "path [main]" variants,
+	// even though TOOLEXEC_IMPORTPATH uses the unadorned path. The variants can
+	// also shadow the build IDs of the actual packages being compiled.
 
 	args = append(args, packages...)
 	cmd := exec.Command(sharedCache.GoCmd, args...)
@@ -569,7 +552,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		}
 
 		if perr := pkg.Error; perr != nil {
-			// Folded-in linknamed packages may fail benignly, like sync_test
+			// Separately listed linknamed packages may fail benignly, like sync_test
 			// being "not in std"; ignore those, but still report errors for the
 			// user's own packages.
 			lenient := !mainBuild || runtimeAndLinknamed[pkg.ImportPath]
@@ -653,9 +636,10 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		return fmt.Errorf("GOGARBLE=%q does not match any packages to be built", sharedCache.GOGARBLE)
 	}
 
-	if fileMode {
-		// The fold above couldn't run, so list the still-missing linknamed
-		// packages here in the parent for the compile subprocesses to reuse.
+	if mainBuild {
+		// List only the linknamed packages absent from the build graph, once in
+		// the parent. Keep their -export BuildIDs for stable GarbleActionIDs;
+		// listing them alongside the build targets changes PGO package identity.
 		missing := slices.DeleteFunc(linknamedToList(), sharedCache.ListedPackages.has)
 		if len(missing) > 0 {
 			if err := appendListedPackages(missing, false); err != nil {
@@ -706,7 +690,7 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 	// such as sync/atomic or reflect, without importing them in any way.
 	// A few other cases don't involve runtime, like time/tzdata linknaming to time,
 	// but luckily those few cases are covered by runtimeAndLinknamed as well,
-	// which appendListedPackages folds into the top-level `go list`.
+	// which appendListedPackages lists separately in the parent process.
 	if from.Standard {
 		if ok {
 			return pkg, nil

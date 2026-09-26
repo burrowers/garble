@@ -4,9 +4,9 @@
 go test -p=2 -run=^$ -bench=. -benchtime=20x -cpuprofile=default.pgo .
 rm pgo.test$exe
 env GOGARBLE=example.com/pgo
-# TODO(#1084): this build currently fails because go list decorates PGO dependencies.
-! exec garble build -p=2 -o=app$exe .
-stderr 'TOOLEXEC_IMPORTPATH package not found in listed packages: (crypto/md5|net/url)'
+exec garble build -p=2 -o=app$exe .
+exec ./app
+stdout '900150983cd24fb0d6963f7d28e17f72'
 
 -- go.mod --
 module example.com/pgo
