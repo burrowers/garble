@@ -374,9 +374,21 @@ func runtimeSourceContracts(goroot versionedString) []string {
 		for _, decl := range file.Decls {
 			switch decl := decl.(type) {
 			case *ast.FuncDecl:
-				if decl.Body == nil && (strings.HasPrefix(decl.Name.Name, "panicExtend") ||
-					strings.HasPrefix(decl.Name.Name, "gcWriteBarrier")) {
-					symbols = append(symbols, "runtime."+decl.Name.Name)
+				name := decl.Name.Name
+				if decl.Body == nil && (strings.HasPrefix(name, "panicExtend") ||
+					strings.HasPrefix(name, "gcWriteBarrier")) {
+					symbols = append(symbols, "runtime."+name)
+				}
+				// The compiler synthesizes numbered allocation helper lookups.
+				// Extract complete declarations rather than guessing a range.
+				for _, prefix := range []string{
+					"mallocgcSmallNoScanSC", "mallocgcSmallScanNoHeaderSC", "mallocgcTinySC",
+				} {
+					if suffix, ok := strings.CutPrefix(name, prefix); ok && suffix != "" {
+						if _, err := strconv.Atoi(suffix); err == nil {
+							symbols = append(symbols, "runtime."+name)
+						}
+					}
 				}
 			case *ast.GenDecl:
 				for _, spec := range decl.Specs {
