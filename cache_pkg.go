@@ -255,6 +255,9 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		}
 	}
 
+	if lpkg.Name == "main" {
+		matchReflectedInterfaceMethods(pkg, &computed)
+	}
 	// Reflection discovered by a downstream implementation must flow back across
 	// interface calls in already compiled dependencies. Resolve those saved
 	// forwarding edges after merging the dependency caches.

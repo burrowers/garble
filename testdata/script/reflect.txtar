@@ -897,12 +897,10 @@ package migrate
 import (
 	"fmt"
 	"reflect"
-	"test/main/ormapi"
 )
 
 type Migrator interface{ AutoMigrate(...any) error }
 type migrator struct{}
-var _ ormapi.Migrator = migrator{}
 func Get() Migrator { return migrator{} }
 
 func (migrator) AutoMigrate(models ...any) error {
