@@ -88,6 +88,7 @@ type reflectInspector struct {
 	pkg  *types.Package
 
 	propagatedInstr map[ssa.Instruction]bool
+	seenEdges       map[reflectCallEdge]bool
 	// Function literals have no types.Func name to put in the package cache.
 	localReflectAPIs map[*ssa.Function]map[int]bool
 
@@ -335,10 +336,19 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 				/* fmt.Printf("callName: %v\n", callName) */
 
+				if funcName != "" && ((inst.Call.StaticCallee() != nil && inst.Call.StaticCallee().Object() != nil) || inst.Call.Method != nil) {
+					ri.recordForwardedCall(fun, funcName, callName, inst.Call.Args, inst.Call.Signature())
+				}
 				// record each call argument passed to a function parameter which is used in reflection
 				knownParams := ri.result.ReflectAPIs[callName]
-				if callee := inst.Call.StaticCallee(); callee != nil && callee.Object() == nil {
-					knownParams = ri.localReflectAPIs[callee]
+				for _, callee := range localCallees(inst.Call.Value) {
+					if params := ri.localReflectAPIs[callee]; len(params) > 0 {
+						knownParams = maps.Clone(knownParams)
+						if knownParams == nil {
+							knownParams = make(map[int]bool)
+						}
+						maps.Copy(knownParams, params)
+					}
 				}
 				// Iterate in a stable order too, like the member loop above.
 				for _, knownParam := range slices.Sorted(maps.Keys(knownParams)) {
@@ -448,6 +458,98 @@ func (ri *reflectInspector) recordImplementedInterfaceMethods(method *types.Func
 					}
 				}
 			}
+		}
+	}
+}
+
+// localCallees resolves direct closures and closures assigned to a local
+// function variable. A recursive closure must be stored in an allocation so
+// it can refer to itself; StaticCallee does not resolve calls through that
+// variable. Collect every possible assignment conservatively.
+func localCallees(value ssa.Value) []*ssa.Function {
+	seen := make(map[ssa.Value]bool)
+	functions := make(map[*ssa.Function]bool)
+	var visit func(ssa.Value)
+	visit = func(v ssa.Value) {
+		if v == nil || seen[v] {
+			return
+		}
+		seen[v] = true
+		switch v := v.(type) {
+		case *ssa.Function:
+			functions[v] = true
+		case *ssa.MakeClosure:
+			visit(v.Fn)
+		case *ssa.UnOp:
+			visit(v.X)
+		case *ssa.Alloc:
+			if refs := v.Referrers(); refs != nil {
+				for _, ref := range *refs {
+					if store, ok := ref.(*ssa.Store); ok && store.Addr == v {
+						visit(store.Val)
+					}
+				}
+			}
+		case *ssa.Phi:
+			for _, edge := range v.Edges {
+				visit(edge)
+			}
+		case *ssa.ChangeType:
+			visit(v.X)
+		}
+	}
+	visit(value)
+	result := slices.Collect(maps.Keys(functions))
+	slices.SortFunc(result, func(a, b *ssa.Function) int { return strings.Compare(a.String(), b.String()) })
+	return result
+}
+
+// forwardedParameter follows simple SSA wrappers without marking any type as
+// reflected. This preserves forwarding through packages whose callees only
+// become known to use reflection later in the build.
+func forwardedParameter(v ssa.Value) *ssa.Parameter {
+	switch v := v.(type) {
+	case *ssa.Parameter:
+		return v
+	case *ssa.Slice:
+		return forwardedParameter(v.X)
+	case *ssa.MakeInterface:
+		return forwardedParameter(v.X)
+	case *ssa.ChangeType:
+		return forwardedParameter(v.X)
+	case *ssa.UnOp:
+		return forwardedParameter(v.X)
+	}
+	return nil
+}
+
+func (ri *reflectInspector) recordForwardedCall(fun *ssa.Function, caller, callee string, args []ssa.Value, sig *types.Signature) {
+	if sig == nil || len(args) < sig.Params().Len() {
+		return
+	}
+	first := len(args) - sig.Params().Len()
+	for i := range sig.Params().Len() {
+		param := forwardedParameter(args[first+i])
+		if param == nil {
+			continue
+		}
+		pos := slices.Index(fun.Params, param)
+		// Methods have a receiver in SSA; generic functions may also have
+		// synthetic leading parameters. Edges use declared parameter indexes.
+		pos -= len(fun.Params) - fun.Signature.Params().Len()
+		if pos < 0 {
+			continue
+		}
+		edge := reflectCallEdge{Caller: caller, CallerParam: pos, Callee: callee, CalleeParam: i}
+		if ri.seenEdges == nil {
+			ri.seenEdges = make(map[reflectCallEdge]bool)
+			for _, existing := range ri.result.ReflectCallEdges {
+				ri.seenEdges[existing] = true
+			}
+		}
+		if !ri.seenEdges[edge] {
+			ri.seenEdges[edge] = true
+			ri.result.ReflectCallEdges = append(ri.result.ReflectCallEdges, edge)
 		}
 	}
 }

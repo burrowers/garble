@@ -193,9 +193,9 @@ func (z goAsmNames) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *pkgCache) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 2
+	// map header, size 3
 	// string "ReflectAPIs"
-	o = append(o, 0x82, 0xab, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x41, 0x50, 0x49, 0x73)
+	o = append(o, 0x83, 0xab, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x41, 0x50, 0x49, 0x73)
 	o = msgp.AppendMapHeader(o, uint32(len(z.ReflectAPIs)))
 	for za0001, za0002 := range z.ReflectAPIs {
 		o = msgp.AppendString(o, za0001)
@@ -205,12 +205,22 @@ func (z *pkgCache) MarshalMsg(b []byte) (o []byte, err error) {
 			o = msgp.AppendBool(o, za0004)
 		}
 	}
+	// string "ReflectCallEdges"
+	o = append(o, 0xb0, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x43, 0x61, 0x6c, 0x6c, 0x45, 0x64, 0x67, 0x65, 0x73)
+	o = msgp.AppendArrayHeader(o, uint32(len(z.ReflectCallEdges)))
+	for za0005 := range z.ReflectCallEdges {
+		o, err = z.ReflectCallEdges[za0005].MarshalMsg(o)
+		if err != nil {
+			err = msgp.WrapError(err, "ReflectCallEdges", za0005)
+			return
+		}
+	}
 	// string "ReflectObjectNames"
 	o = append(o, 0xb2, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x4e, 0x61, 0x6d, 0x65, 0x73)
 	o = msgp.AppendMapHeader(o, uint32(len(z.ReflectObjectNames)))
-	for za0005, za0006 := range z.ReflectObjectNames {
-		o = msgp.AppendString(o, za0005)
+	for za0006, za0007 := range z.ReflectObjectNames {
 		o = msgp.AppendString(o, za0006)
+		o = msgp.AppendString(o, za0007)
 	}
 	return
 }
@@ -283,33 +293,52 @@ func (z *pkgCache) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				}
 				z.ReflectAPIs[za0001] = za0002
 			}
-		case "ReflectObjectNames":
+		case "ReflectCallEdges":
 			var zb0004 uint32
-			zb0004, bts, err = msgp.ReadMapHeaderBytes(bts)
+			zb0004, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "ReflectCallEdges")
+				return
+			}
+			if cap(z.ReflectCallEdges) >= int(zb0004) {
+				z.ReflectCallEdges = (z.ReflectCallEdges)[:zb0004]
+			} else {
+				z.ReflectCallEdges = make([]reflectCallEdge, zb0004)
+			}
+			for za0005 := range z.ReflectCallEdges {
+				bts, err = z.ReflectCallEdges[za0005].UnmarshalMsg(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "ReflectCallEdges", za0005)
+					return
+				}
+			}
+		case "ReflectObjectNames":
+			var zb0005 uint32
+			zb0005, bts, err = msgp.ReadMapHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "ReflectObjectNames")
 				return
 			}
 			if z.ReflectObjectNames == nil {
-				z.ReflectObjectNames = make(map[string]string, zb0004)
+				z.ReflectObjectNames = make(map[string]string, zb0005)
 			} else if len(z.ReflectObjectNames) > 0 {
 				clear(z.ReflectObjectNames)
 			}
-			for zb0004 > 0 {
+			for zb0005 > 0 {
+				var za0007 string
+				zb0005--
 				var za0006 string
-				zb0004--
-				var za0005 string
-				za0005, bts, err = msgp.ReadStringBytes(bts)
+				za0006, bts, err = msgp.ReadStringBytes(bts)
 				if err != nil {
 					err = msgp.WrapError(err, "ReflectObjectNames")
 					return
 				}
-				za0006, bts, err = msgp.ReadStringBytes(bts)
+				za0007, bts, err = msgp.ReadStringBytes(bts)
 				if err != nil {
-					err = msgp.WrapError(err, "ReflectObjectNames", za0005)
+					err = msgp.WrapError(err, "ReflectObjectNames", za0006)
 					return
 				}
-				z.ReflectObjectNames[za0005] = za0006
+				z.ReflectObjectNames[za0006] = za0007
 			}
 		default:
 			bts, err = msgp.Skip(bts)
@@ -339,12 +368,95 @@ func (z *pkgCache) Msgsize() (s int) {
 			}
 		}
 	}
+	s += 17 + msgp.ArrayHeaderSize
+	for za0005 := range z.ReflectCallEdges {
+		s += z.ReflectCallEdges[za0005].Msgsize()
+	}
 	s += 19 + msgp.MapHeaderSize
 	if z.ReflectObjectNames != nil {
-		for za0005, za0006 := range z.ReflectObjectNames {
-			_ = za0006
-			s += msgp.StringPrefixSize + len(za0005) + msgp.StringPrefixSize + len(za0006)
+		for za0006, za0007 := range z.ReflectObjectNames {
+			_ = za0007
+			s += msgp.StringPrefixSize + len(za0006) + msgp.StringPrefixSize + len(za0007)
 		}
 	}
+	return
+}
+
+// MarshalMsg implements msgp.Marshaler
+func (z *reflectCallEdge) MarshalMsg(b []byte) (o []byte, err error) {
+	o = msgp.Require(b, z.Msgsize())
+	// map header, size 4
+	// string "Caller"
+	o = append(o, 0x84, 0xa6, 0x43, 0x61, 0x6c, 0x6c, 0x65, 0x72)
+	o = msgp.AppendString(o, z.Caller)
+	// string "Callee"
+	o = append(o, 0xa6, 0x43, 0x61, 0x6c, 0x6c, 0x65, 0x65)
+	o = msgp.AppendString(o, z.Callee)
+	// string "CallerParam"
+	o = append(o, 0xab, 0x43, 0x61, 0x6c, 0x6c, 0x65, 0x72, 0x50, 0x61, 0x72, 0x61, 0x6d)
+	o = msgp.AppendInt(o, z.CallerParam)
+	// string "CalleeParam"
+	o = append(o, 0xab, 0x43, 0x61, 0x6c, 0x6c, 0x65, 0x65, 0x50, 0x61, 0x72, 0x61, 0x6d)
+	o = msgp.AppendInt(o, z.CalleeParam)
+	return
+}
+
+// UnmarshalMsg implements msgp.Unmarshaler
+func (z *reflectCallEdge) UnmarshalMsg(bts []byte) (o []byte, err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, bts, err = msgp.ReadMapHeaderBytes(bts)
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, bts, err = msgp.ReadMapKeyZC(bts)
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "Caller":
+			z.Caller, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "Caller")
+				return
+			}
+		case "Callee":
+			z.Callee, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "Callee")
+				return
+			}
+		case "CallerParam":
+			z.CallerParam, bts, err = msgp.ReadIntBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "CallerParam")
+				return
+			}
+		case "CalleeParam":
+			z.CalleeParam, bts, err = msgp.ReadIntBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "CalleeParam")
+				return
+			}
+		default:
+			bts, err = msgp.Skip(bts)
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	o = bts
+	return
+}
+
+// Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
+func (z *reflectCallEdge) Msgsize() (s int) {
+	s = 1 + 7 + msgp.StringPrefixSize + len(z.Caller) + 7 + msgp.StringPrefixSize + len(z.Callee) + 12 + msgp.IntSize + 12 + msgp.IntSize
 	return
 }
