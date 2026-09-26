@@ -20,9 +20,6 @@ cmp stdout main.stdout
 module test/main
 
 go 1.23
-
-require gorm.io/gorm v0.0.0
-replace gorm.io/gorm => ./gorm
 -- garble_main.go --
 package main
 
@@ -43,10 +40,10 @@ import (
 	"text/template"
 	"unsafe"
 
-	"gorm.io/gorm"
 	"test/main/importedpkg"
 	"test/main/importedpkg2"
 	"test/main/migrate"
+	"test/main/ormapi"
 )
 
 var Sink interface{}
@@ -222,7 +219,7 @@ func main() {
 
 	// GORM's migrator passes model values through a function-valued local
 	// closure before parsing their fields via reflection.
-	if err := gorm.New(migrate.Get()).AutoMigrate(&ForeignPerson{}, &ForeignAccount{}); err != nil {
+	if err := ormapi.New(migrate.Get()).AutoMigrate(&ForeignPerson{}, &ForeignAccount{}); err != nil {
 		fmt.Fprintln(os.Stderr, "relationship lookup failed")
 	}
 
@@ -806,22 +803,16 @@ type IndirectNamedWithoutReflect struct {
 	DuplicateFieldName int
 }
 
--- gorm/go.mod --
-module gorm.io/gorm
-
-go 1.23
--- gorm/gorm.go --
-package gorm
-
-import "reflect"
-
-// Real GORM imports reflect in its schema and migration packages.
-var _ = reflect.TypeOf
+-- ormapi/ormapi.go --
+package ormapi
 
 type Migrator interface{ AutoMigrate(...any) error }
 type DB struct{ migrator Migrator }
 func New(m Migrator) *DB { return &DB{migrator: m} }
 func (db *DB) AutoMigrate(models ...any) error {
+	return db.forward(models...)
+}
+func (db *DB) forward(models ...any) error {
 	return db.migrator.AutoMigrate(models...)
 }
 
@@ -831,15 +822,20 @@ package migrate
 import (
 	"fmt"
 	"reflect"
+	"test/main/ormapi"
 )
 
 type Migrator interface{ AutoMigrate(...any) error }
 type migrator struct{}
+var _ ormapi.Migrator = migrator{}
 func Get() Migrator { return migrator{} }
 
 func (migrator) AutoMigrate(models ...any) error {
 	var parse func(any) error
 	parse = func(model any) error {
+		if model == nil {
+			return parse(&struct{}{}) // recursive closure, as in GORM's ReorderModels
+		}
 		t := reflect.TypeOf(model).Elem()
 		if t.Name() == "ForeignPerson" {
 			return nil

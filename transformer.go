@@ -844,8 +844,9 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	// although in general that wouldn't help much, since it's rare for Go's cache
 	// to miss on a package and for our cache to hit.
 	// The go/ssa builder needs Selections and Instances; we build SSA for control
-	// flow obfuscation, and in computePkgCache for reflect-importing packages.
-	withSSAInfo := flagControlFlow || tf.curPkg.hasDep("reflect")
+	// flow obfuscation, reflection, and non-standard packages whose calls may
+	// forward values to a reflected interface implementation downstream.
+	withSSAInfo := flagControlFlow || tf.curPkg.hasDep("reflect") || !tf.curPkg.Standard
 	if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, withSSAInfo); err != nil {
 		return nil, err
 	}
