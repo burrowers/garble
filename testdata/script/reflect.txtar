@@ -8,6 +8,7 @@ stderr '^\*main\.StoredEarly$'
 stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
 stderr '^\*main\.SecondParam$'
+stderr '^relationship lookup failed$'
 
 # A constant MethodByName must not retain unrelated exported methods.
 exec garble build -o methods-bin$exe ./methods
@@ -47,6 +48,7 @@ import (
 
 	"test/main/importedpkg"
 	"test/main/importedpkg2"
+	"test/main/migrate"
 )
 
 var Sink interface{}
@@ -228,6 +230,12 @@ func main() {
 	// Very complex reflection used by gorm
 	user := StatUser{}
 	find(&user)
+
+	// GORM's migrator passes model values through a function-valued local
+	// closure before parsing their fields via reflection.
+	if err := migrate.Get().AutoMigrate(&ForeignPerson{}, &ForeignAccount{}); err != nil {
+		fmt.Fprintln(os.Stderr, "relationship lookup failed")
+	}
 
 	// Similar to gorm with composite literals instead of direct assignments
 	userComp := StatCompUser{}
@@ -488,6 +496,15 @@ func reflectUnrelatedConv() {
 	}
 	json.Marshal(msg)
 
+}
+
+type ForeignPerson struct {
+	ID        uint
+	AccountID uint
+}
+type ForeignAccount struct {
+	Person ForeignPerson
+	ID     uint
 }
 
 type StatUser struct {
@@ -859,6 +876,47 @@ func checkReflectedRecover() {
 		panic("boom")
 	}()
 }
+
+-- migrate/migrate.go --
+package migrate
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Migrator interface{ AutoMigrate(...any) error }
+type migrator struct{}
+func Get() Migrator { return migrator{} }
+
+func (migrator) AutoMigrate(models ...any) error {
+	var parse func(any) error
+	parse = func(model any) error {
+		t := reflect.TypeOf(model).Elem()
+		if t.Name() == "ForeignPerson" {
+			return nil
+		}
+		if t.Name() != "ForeignAccount" {
+			return fmt.Errorf("unexpected model %s", t.Name())
+		}
+		field, ok := t.FieldByName("Person")
+		if !ok {
+			return fmt.Errorf("missing Person")
+		}
+		if _, ok := field.Type.FieldByName("AccountID"); !ok {
+			return fmt.Errorf("missing AccountID")
+		}
+		return nil
+	}
+	for _, model := range reorder(models) {
+		if err := parse(model); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reorder(models []any) []any { return models }
 
 -- main.stdout --
 M called
