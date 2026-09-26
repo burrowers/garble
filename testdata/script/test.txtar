@@ -76,9 +76,21 @@ func OriginalFuncName() string {
 -- bar_test.go --
 package bar
 
-import "testing"
+import (
+	"encoding/xml"
+	"testing"
+)
+
+type Book struct {
+	XMLName struct{} `xml:"book"`
+	Title   string   `xml:",chardata"`
+}
 
 func TestFoo(t *testing.T) {
+	data, err := xml.Marshal(&Book{Title: "My book"})
+	if err != nil || string(data) != "<book>My book</book>" {
+		t.Fatalf("XML reflection: %s, %v", data, err)
+	}
 	t.Log(ImportedVar)
 	if LocalFoo() != "Foo" {
 		t.FailNow()
