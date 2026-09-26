@@ -1,10 +1,11 @@
-# The default PGO profile must not make Go's package variants invisible to toolexec.
-# Keep the profile small, but import two packages that were missing from the
-# shared listing when linknamed standard packages were folded into `go list`.
-go test -p=2 -run=^$ -bench=. -benchtime=20x -cpuprofile=default.pgo .
+# Listing the build target alongside linknamed packages with -pgo=auto makes
+# Go report crypto/md5 and net/url under variant paths. An explicit profile
+# filename applies the profile to every package and does not reproduce the bug.
+# An empty CPU profile is sufficient; no benchmark or CPU samples are needed.
+go test -p=2 -run=^$ -cpuprofile=default.pgo .
 rm pgo.test$exe
 env GOGARBLE=example.com/pgo
-exec garble build -p=2 -o=app$exe .
+exec garble build -p=2 -pgo=auto -o=app$exe .
 exec ./app
 stdout '900150983cd24fb0d6963f7d28e17f72'
 
@@ -27,11 +28,3 @@ func main() {
 }
 -- prof_test.go --
 package main
-
-import "testing"
-
-func BenchmarkWork(b *testing.B) {
-    for i := 0; i < b.N; i++ {
-        _ = i * i
-    }
-}
