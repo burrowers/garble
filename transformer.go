@@ -706,11 +706,6 @@ func isToolchainNameDependency(path, name string) bool {
 	if compilerIntrinsics[path][name] || toolchainNameDependencies[path][name] {
 		return true
 	}
-	if path == "runtime" {
-		return strings.HasPrefix(name, "mallocgcSmallNoScanSC") ||
-			strings.HasPrefix(name, "mallocgcSmallScanNoHeaderSC") ||
-			strings.HasPrefix(name, "mallocgcTinySC")
-	}
 	return false
 }
 
