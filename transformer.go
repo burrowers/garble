@@ -885,6 +885,11 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	if tf.curPkgCache, err = loadPkgCache(tf.curPkg, tf.pkg, files, tf.info, ssaPkg); err != nil {
 		return nil, err
 	}
+	if flagEmbed && tf.curPkg.ToObfuscate {
+		if err := tf.obfuscateEmbeds(files, flags); err != nil {
+			return nil, err
+		}
+	}
 
 	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
 	// Compute fieldToStruct first so runtime patches can use it.
