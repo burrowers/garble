@@ -1,3 +1,6 @@
+# Go rejects GOBIN when GOARCH differs from the host, as in CI's 386 job.
+[386] stop
+
 # Install into GOBIN rather than leaving a build artifact in the source tree.
 env GOBIN=$WORK/bin
 exec garble -tiny install .
