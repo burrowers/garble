@@ -384,6 +384,10 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 	/* fmt.Printf("val: %v %T %v\n", val, val, val.Type()) */
 	visited[val] = true
 
+	// The static type is reflected even when the value's SSA origin is not
+	// traceable (for example, indexing a slice returned by append).
+	ri.recursivelyRecordUsedForReflect(val.Type())
+
 	switch val := val.(type) {
 	case *ssa.IndexAddr:
 		for _, ref := range *val.Referrers() {

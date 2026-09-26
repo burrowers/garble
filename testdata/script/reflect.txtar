@@ -45,6 +45,12 @@ import (
 
 var Sink interface{}
 
+type TemplateField struct{ Label, Type string }
+type TemplateData struct {
+	TypeName string
+	Fields   []TemplateField
+}
+
 func main() {
 	// Fields still work fine when they are not obfuscated.
 	fmt.Println(importedpkg.ReflectInDefinedVar.ExportedField2)
@@ -79,6 +85,18 @@ func main() {
 		Port:  8080,
 	})
 	fmt.Println() // Always print a newline.
+
+	// Indexing a slice returned by append hides the value's SSA origin, but
+	// the static type still tells us which fields a template must be able to see.
+	items := append([]TemplateData(nil), TemplateData{
+		TypeName: "MyStruct",
+		Fields:   []TemplateField{{Label: "name", Type: "STRING"}},
+	})
+	tmpl = template.Must(template.New("slice").Parse("TYPE {{.TypeName}}: {{range .Fields}}{{.Label}}={{.Type}}{{end}}"))
+	if err := tmpl.Execute(os.Stdout, items[0]); err != nil {
+		panic(err)
+	}
+	fmt.Println()
 
 	// Another complex case, involving embedding and another package.
 	outer := &importedpkg.EmbeddingOuter{}
@@ -729,6 +747,7 @@ ReflectValueOf{ExportedField:"abc", unexportedField:""}
 {"Foo":3}
 Hello Dave.
 name: test value: example port: 8080
+TYPE MyStruct: name=STRING
 {"InnerField":3,"Anon":{"AnonField":0}}
 struct { DownstreamField string }{DownstreamField:"downstream"}
 SiblingField:"sibling"
