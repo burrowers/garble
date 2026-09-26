@@ -1,0 +1,53 @@
+exec garble -embed build -p=1
+exec ./main$exe
+cmp stdout want.stdout
+! binsubstr main$exe 'GARBLE_EMBED_STRING_SECRET_194' 'GARBLE_EMBED_BYTES_SECRET_194'
+
+-- go.mod --
+module test/main
+
+go 1.23
+-- main.go --
+package main
+
+import (
+ "fmt"
+ _ "embed"
+)
+
+//go:embed string.txt
+var text string
+
+//go:embed bytes.txt
+var bytes []byte
+
+type namedString string
+type namedBytes []byte
+type aliasString = namedString
+
+//go:embed string.txt
+var namedText namedString
+
+//go:embed string.txt
+var aliasedText aliasString
+
+//go:embed bytes.txt
+var namedData namedBytes
+
+var initialized = text + "!\n"
+
+func main() {
+ fmt.Printf("%s|%s|%s|%s|%s|%s", text, bytes, namedText, aliasedText, namedData, initialized)
+}
+-- string.txt --
+GARBLE_EMBED_STRING_SECRET_194
+-- bytes.txt --
+GARBLE_EMBED_BYTES_SECRET_194
+-- want.stdout --
+GARBLE_EMBED_STRING_SECRET_194
+|GARBLE_EMBED_BYTES_SECRET_194
+|GARBLE_EMBED_STRING_SECRET_194
+|GARBLE_EMBED_STRING_SECRET_194
+|GARBLE_EMBED_BYTES_SECRET_194
+|GARBLE_EMBED_STRING_SECRET_194
+!
