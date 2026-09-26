@@ -8,7 +8,7 @@ stderr '^\*main\.StoredEarly$'
 stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
 stderr '^\*main\.SecondParam$'
-stderr '^relationship lookup failed$'
+! stderr '^relationship lookup failed$'
 
 # A constant MethodByName must not retain unrelated exported methods.
 exec garble build -o methods-bin$exe ./methods
