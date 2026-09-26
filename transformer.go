@@ -849,6 +849,23 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, withSSAInfo); err != nil {
 		return nil, err
 	}
+	if flagEmbed && tf.curPkg.ImportPath == "embed" {
+		var patched bool
+		for i, file := range files {
+			if filepath.Base(paths[i]) == "embed.go" {
+				if err := patchEmbedPackage(file); err != nil {
+					return nil, err
+				}
+				patched = true
+			}
+		}
+		if !patched {
+			return nil, fmt.Errorf("could not patch embed package: embed.go not found")
+		}
+		if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, withSSAInfo); err != nil {
+			return nil, err
+		}
+	}
 
 	var (
 		ssaPkg       *ssa.Package
@@ -887,6 +904,10 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	}
 	if flagEmbed && tf.curPkg.ToObfuscate {
 		if err := tf.obfuscateEmbeds(files, flags); err != nil {
+			return nil, err
+		}
+		flags, err = tf.encryptEmbedFiles(flags)
+		if err != nil {
 			return nil, err
 		}
 	}

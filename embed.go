@@ -95,7 +95,19 @@ func (tf *transformer) obfuscateEmbeds(files []*ast.File, flags []string) error 
 						return fmt.Errorf("-embed does not support %s (%s)", spec.Names[0].Name, obj.Type())
 					}
 				default:
-					return fmt.Errorf("-embed does not support %s (%s); embed.FS is not supported", spec.Names[0].Name, obj.Type())
+					if !isEmbedFS(obj.Type()) {
+						return fmt.Errorf("-embed does not support %s (%s)", spec.Names[0].Name, obj.Type())
+					}
+					for _, pattern := range patterns {
+						matches, ok := cfg.Patterns[pattern]
+						if !ok || len(matches) == 0 {
+							return fmt.Errorf("-embed: no files for pattern %q", pattern)
+						}
+						for _, name := range matches {
+							used[name] = true
+						}
+					}
+					continue
 				}
 				var names []string
 				for _, pattern := range patterns {
@@ -146,11 +158,15 @@ func (tf *transformer) obfuscateEmbeds(files []*ast.File, flags []string) error 
 	return nil
 }
 
-func embedDecoder(plain []byte, name string, actionID []byte, asString bool) (ast.Expr, error) {
+func embedKey(name string, actionID []byte) []byte {
 	hash := sha256.New()
 	hash.Write(actionID)
 	hash.Write([]byte(name))
-	key := hash.Sum(nil)
+	return hash.Sum(nil)
+}
+
+func embedDecoder(plain []byte, name string, actionID []byte, asString bool) (ast.Expr, error) {
+	key := embedKey(name, actionID)
 	var src strings.Builder
 	src.WriteString("func() ")
 	if asString {
