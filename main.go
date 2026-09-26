@@ -132,7 +132,7 @@ var (
 func init() {
 	flagSet.Usage = usage
 	flagSet.BoolVar(&flagLiterals, "literals", false, "Obfuscate literals such as strings")
-	flagSet.BoolVar(&flagEmbed, "embed", false, "Obfuscate embedded string and []byte files (embed.FS is not supported)")
+	flagSet.BoolVar(&flagEmbed, "embed", false, "Obfuscate files embedded via //go:embed")
 	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write source and obfuscated trees to a directory, e.g. -debugdir=out")

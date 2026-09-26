@@ -83,16 +83,19 @@ see [#984](https://github.com/burrowers/garble/issues/984).
 ### Embedded file obfuscation
 
 With `-embed`, Garble replaces `//go:embed` variables of type `string` or
-`[]byte` with runtime-decoded values. It handles named string and byte-slice
-types too. The original files remain untouched, and the option only applies to
-packages selected by `GOGARBLE`.
+`[]byte` with runtime-decoded values, including named string and byte-slice
+types. For `embed.FS`, Garble substitutes encoded file contents in the compiler's
+embed configuration and adapts the standard `embed` package to decode them when
+opened. Its paths, directory entries, file sizes, seeking, and `ReadAt` behavior
+remain available. The original files remain untouched, and the option only
+obfuscates assets in packages selected by `GOGARBLE`.
 
-This first implementation does **not** support `embed.FS`: builds using it fail
-with an explicit error under `-embed`, rather than silently retaining plaintext.
-It emits encoded bytes as Go source, so large embedded files can make builds
-slow and memory-intensive. As with literal obfuscation, this is not encryption:
-the decoding key is present in the executable and a determined analyst can
-recover the contents.
+Embedded string and byte-slice variables currently emit encoded bytes as Go
+source, so large files in those variables can make builds slow and
+memory-intensive. `embed.FS` keeps its assets in the compiler's embed data and
+does not have that source-size cost. As with literal obfuscation, this is not
+encryption: the decoding key is present in the executable and a determined
+analyst can recover the contents.
 
 ### Tiny mode
 
