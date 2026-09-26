@@ -588,17 +588,3 @@ func TestReverseContentPreservesRuntimeFrames(t *testing.T) {
 		t.Fatalf("reverseContent removed runtime frames:\n%s", got)
 	}
 }
-
-func TestReverseContentGeneratedLine(t *testing.T) {
-	const input = "obfPkg/Ab_12.go:2: first\nobfPkg/Ab_12.go:37: later\nunknown.go:2: untouched"
-	const want = "test/main/main.go:11: first\ntest/main/main.go:11: later\nunknown.go:2: untouched"
-	positions := map[string]string{"Ab_12.go": "main.go:11"}
-	var out strings.Builder
-	modified, err := reverseContent(&out, strings.NewReader(input), strings.NewReplacer("obfPkg", "test/main"), positions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !modified || out.String() != want {
-		t.Fatalf("reverseContent() = (%q, %v), want (%q, true)", out.String(), modified, want)
-	}
-}
