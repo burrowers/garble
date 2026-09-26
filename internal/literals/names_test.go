@@ -3,44 +3,56 @@ package literals
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 	"math/rand"
+	"strings"
 	"testing"
 )
 
-func TestStringDecodersObfuscateGeneratedNames(t *testing.T) {
+func TestDecodersObfuscateGeneratedNames(t *testing.T) {
+	const literal = "long_enough_string"
+	cases := []struct {
+		name  string
+		build func(*obfRand)
+	}{
+		{"string", func(r *obfRand) { obfuscateString(r, literal) }},
+		{"slice", func(r *obfRand) { obfuscateByteSlice(r, false, []byte(literal)) }},
+		{"slice pointer", func(r *obfRand) { obfuscateByteSlice(r, true, []byte(literal)) }},
+		{"array", func(r *obfRand) { obfuscateByteArray(r, false, []byte(literal), int64(len(literal))) }},
+		{"array pointer", func(r *obfRand) { obfuscateByteArray(r, true, []byte(literal), int64(len(literal))) }},
+	}
 	for _, obf := range Obfuscators {
-		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
-			r := newObfRand(rand.New(rand.NewSource(1)), &ast.File{Name: ast.NewIdent("main")}, func(_ *rand.Rand, name string) string { return "hidden_" + name })
-			r.testObfuscator = obf
-			obfuscateString(r, "long_enough_string")
-			for _, decl := range r.liftedFuncs {
-				ast.Inspect(decl, func(node ast.Node) bool {
-					if id, ok := node.(*ast.Ident); ok {
-						switch id.Name {
-						case "data", "fullData", "seed", "decFunc", "fnc", "x", "decryptKey", "i", "y", "newdata":
-							t.Errorf("generated identifier %q was not obfuscated", id.Name)
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("%T/%s", obf, tc.name), func(t *testing.T) {
+				r := newObfRand(rand.New(rand.NewSource(1)), &ast.File{Name: ast.NewIdent("main")}, func(_ *rand.Rand, name string) string { return "hidden_" + name })
+				r.testObfuscator = obf
+				tc.build(r)
+				for _, decl := range r.liftedFuncs {
+					ast.Inspect(decl, func(node ast.Node) bool {
+						if id, ok := node.(*ast.Ident); ok {
+							switch id.Name {
+							case "data", "key", "fullData", "idxKey", "positions", "localKey", "seed", "decFunc", "fnc", "x", "b", "decryptKey", "counter", "i", "y", "newdata", "garbleStringCaster":
+								t.Errorf("generated identifier %q was not obfuscated", id.Name)
+							}
+							if strings.HasPrefix(id.Name, "garbleExternalKey") {
+								t.Errorf("external key %q was not obfuscated", id.Name)
+							}
 						}
-					}
-					return true
-				})
-			}
-		})
+						return true
+					})
+				}
+			})
+		}
 	}
 }
 
-func TestLiftCallObfuscatesGeneratedLocals(t *testing.T) {
+func TestGeneratedLocalNames(t *testing.T) {
 	r := newObfRand(rand.New(rand.NewSource(1)), &ast.File{Name: ast.NewIdent("main")}, func(_ *rand.Rand, name string) string { return "hidden_" + name })
-	block := &ast.BlockStmt{List: []ast.Stmt{
-		&ast.AssignStmt{Lhs: []ast.Expr{ast.NewIdent("fullData")}, Tok: token.DEFINE, Rhs: []ast.Expr{&ast.BasicLit{Kind: token.STRING, Value: `"secret"`}}},
-		&ast.AssignStmt{Lhs: []ast.Expr{ast.NewIdent("data")}, Tok: token.DEFINE, Rhs: []ast.Expr{ast.NewIdent("fullData")}},
-		&ast.ReturnStmt{Results: []ast.Expr{ast.NewIdent("data")}},
-	}}
-	r.liftCall(nil, ast.NewIdent("string"), block, nil)
-	ast.Inspect(r.liftedFuncs[0], func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok && (id.Name == "fullData" || id.Name == "data") {
-			t.Errorf("generated local %q was not obfuscated", id.Name)
-		}
-		return true
-	})
+	names := newGeneratedNames(r)
+	first := names.ident("data")
+	if first.Name == "data" || names.ident("data").Name != first.Name {
+		t.Fatalf("generated local was not consistently named: %q", first.Name)
+	}
+	if names.ident("other").Name == first.Name {
+		t.Fatal("distinct generated locals have the same name")
+	}
 }

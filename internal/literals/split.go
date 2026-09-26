@@ -66,7 +66,7 @@ func encryptChunks(chunks [][]byte, op token.Token, key byte) {
 	}
 }
 
-func (split) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
+func (split) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	var chunks [][]byte
 	// Short arrays should be divided into single-byte fragments
 	if len(data)/maxChunkSize < minCaseCount {
@@ -94,25 +94,25 @@ func (split) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey)
 		List: []ast.Expr{ah.IntLit(decryptIndex)},
 		Body: shuffleStmts(rand,
 			&ast.AssignStmt{
-				Lhs: []ast.Expr{ast.NewIdent("i")},
+				Lhs: []ast.Expr{names.ident("i")},
 				Tok: token.ASSIGN,
 				Rhs: []ast.Expr{ah.IntLit(exitIndex)},
 			},
 			&ast.RangeStmt{
-				Key: ast.NewIdent("y"),
+				Key: names.ident("y"),
 				Tok: token.DEFINE,
-				X:   ast.NewIdent("data"),
+				X:   names.ident("data"),
 				Body: ah.BlockStmt(&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.IndexExpr("data", ast.NewIdent("y"))},
+					Lhs: []ast.Expr{ah.IndexExpr(names.name("data"), names.ident("y"))},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
 						operatorToReversedBinaryExpr(
 							op,
-							ah.IndexExpr("data", ast.NewIdent("y")),
+							ah.IndexExpr(names.name("data"), names.ident("y")),
 							ah.CallExpr(ast.NewIdent("byte"), &ast.BinaryExpr{
-								X:  ast.NewIdent("decryptKey"),
+								X:  names.ident("decryptKey"),
 								Op: token.XOR,
-								Y:  ast.NewIdent("y"),
+								Y:  names.ident("y"),
 							}),
 						),
 					},
@@ -127,11 +127,11 @@ func (split) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey)
 
 		appendCallExpr := &ast.CallExpr{
 			Fun:  ast.NewIdent("append"),
-			Args: []ast.Expr{ast.NewIdent("data")},
+			Args: []ast.Expr{names.ident("data")},
 		}
 
 		if len(chunk) != 1 {
-			appendCallExpr.Args = append(appendCallExpr.Args, dataToByteSliceWithExtKeys(rand, chunk, extKeys))
+			appendCallExpr.Args = append(appendCallExpr.Args, dataToByteSliceWithExtKeys(rand, names, chunk, extKeys))
 			appendCallExpr.Ellipsis = 1
 		} else {
 			appendCallExpr.Args = append(appendCallExpr.Args, byteLitWithExtKey(rand, chunk[0], extKeys, lowProb))
@@ -141,12 +141,12 @@ func (split) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey)
 			List: []ast.Expr{ah.IntLit(index)},
 			Body: shuffleStmts(rand,
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ast.NewIdent("i")},
+					Lhs: []ast.Expr{names.ident("i")},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{ah.IntLit(nextIndex)},
 				},
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ast.NewIdent("data")},
+					Lhs: []ast.Expr{names.ident("data")},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{appendCallExpr},
 				},
@@ -155,46 +155,46 @@ func (split) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey)
 	}
 
 	return ah.BlockStmt(
-		makeDataStmt(len(data)),
+		makeDataStmt(names, len(data)),
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("i")},
+			Lhs: []ast.Expr{names.ident("i")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.IntLit(indexes[0])},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("decryptKey")},
+			Lhs: []ast.Expr{names.ident("decryptKey")},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.CallExprByName("int", byteLitWithExtKey(rand, decryptKeyInitial, extKeys, normalProb))},
 		},
 		&ast.ForStmt{
 			Init: &ast.AssignStmt{
-				Lhs: []ast.Expr{ast.NewIdent("counter")},
+				Lhs: []ast.Expr{names.ident("counter")},
 				Tok: token.DEFINE,
 				Rhs: []ast.Expr{ah.IntLit(0)},
 			},
 			Cond: &ast.BinaryExpr{
-				X:  ast.NewIdent("i"),
+				X:  names.ident("i"),
 				Op: token.NEQ,
 				Y:  ah.IntLit(indexes[len(indexes)-1]),
 			},
 			Post: &ast.IncDecStmt{
-				X:   ast.NewIdent("counter"),
+				X:   names.ident("counter"),
 				Tok: token.INC,
 			},
 			Body: ah.BlockStmt(
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ast.NewIdent("decryptKey")},
+					Lhs: []ast.Expr{names.ident("decryptKey")},
 					Tok: token.XOR_ASSIGN,
 					Rhs: []ast.Expr{
 						&ast.BinaryExpr{
-							X:  ast.NewIdent("i"),
+							X:  names.ident("i"),
 							Op: token.MUL,
-							Y:  ast.NewIdent("counter"),
+							Y:  names.ident("counter"),
 						},
 					},
 				},
 				&ast.SwitchStmt{
-					Tag:  ast.NewIdent("i"),
+					Tag:  names.ident("i"),
 					Body: ah.BlockStmt(shuffleStmts(rand, switchCases...)...),
 				}),
 		},

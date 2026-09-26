@@ -16,7 +16,7 @@ type shuffle struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = shuffle{}
 
-func (shuffle) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
+func (shuffle) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	key := make([]byte, len(data))
 	rand.Read(key)
 
@@ -53,32 +53,32 @@ func (shuffle) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKe
 		shuffledFullData[shuffledIdxs[i]] = b
 	}
 
-	args := []ast.Expr{ast.NewIdent("data")}
+	args := []ast.Expr{names.ident("data")}
 	for i := range data {
 		keyIdx := rand.Intn(idxKeySize)
 		k := int(idxKey[keyIdx])
 
 		args = append(args, operatorToReversedBinaryExpr(
 			operators[i],
-			ah.IndexExpr("fullData", &ast.BinaryExpr{X: ah.IntLit(shuffledIdxs[i] ^ k), Op: token.XOR, Y: ah.CallExprByName("int", ah.IndexExpr("idxKey", ah.IntLit(keyIdx)))}),
-			ah.IndexExpr("fullData", &ast.BinaryExpr{X: ah.IntLit(shuffledIdxs[len(data)+i] ^ k), Op: token.XOR, Y: ah.CallExprByName("int", ah.IndexExpr("idxKey", ah.IntLit(keyIdx)))}),
+			ah.IndexExpr(names.name("fullData"), &ast.BinaryExpr{X: ah.IntLit(shuffledIdxs[i] ^ k), Op: token.XOR, Y: ah.CallExprByName("int", ah.IndexExpr(names.name("idxKey"), ah.IntLit(keyIdx)))}),
+			ah.IndexExpr(names.name("fullData"), &ast.BinaryExpr{X: ah.IntLit(shuffledIdxs[len(data)+i] ^ k), Op: token.XOR, Y: ah.CallExprByName("int", ah.IndexExpr(names.name("idxKey"), ah.IntLit(keyIdx)))}),
 		))
 	}
 
 	return ah.BlockStmt(
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("fullData")},
+			Lhs: []ast.Expr{names.ident("fullData")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, shuffledFullData, extKeys)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, names, shuffledFullData, extKeys)},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("idxKey")},
+			Lhs: []ast.Expr{names.ident("idxKey")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, idxKey, extKeys)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, names, idxKey, extKeys)},
 		},
-		makeDataStmt(len(data)),
+		makeDataStmt(names, len(data)),
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("data")},
+			Lhs: []ast.Expr{names.ident("data")},
 			Tok: token.ASSIGN,
 			Rhs: []ast.Expr{ah.CallExpr(ast.NewIdent("append"), args...)},
 		},

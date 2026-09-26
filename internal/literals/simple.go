@@ -16,7 +16,7 @@ type simple struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = simple{}
 
-func (simple) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt {
+func (simple) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	key := make([]byte, len(data))
 	rand.Read(key)
 
@@ -27,25 +27,25 @@ func (simple) obfuscate(rand *mathrand.Rand, data []byte, extKeys []*externalKey
 
 	return ah.BlockStmt(
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("key")},
+			Lhs: []ast.Expr{names.ident("key")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, key, extKeys)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, names, key, extKeys)},
 		},
 		&ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent("data")},
+			Lhs: []ast.Expr{names.ident("data")},
 			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, data, extKeys)},
+			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, names, data, extKeys)},
 		},
 		&ast.RangeStmt{
-			Key:   ast.NewIdent("i"),
-			Value: ast.NewIdent("b"),
+			Key:   names.ident("i"),
+			Value: names.ident("b"),
 			Tok:   token.DEFINE,
-			X:     ast.NewIdent("key"),
+			X:     names.ident("key"),
 			Body: &ast.BlockStmt{List: []ast.Stmt{
 				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.IndexExpr("data", ast.NewIdent("i"))},
+					Lhs: []ast.Expr{ah.IndexExpr(names.name("data"), names.ident("i"))},
 					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{operatorToReversedBinaryExpr(op, ah.IndexExpr("data", ast.NewIdent("i")), ast.NewIdent("b"))},
+					Rhs: []ast.Expr{operatorToReversedBinaryExpr(op, ah.IndexExpr(names.name("data"), names.ident("i")), names.ident("b"))},
 				},
 			}},
 		},

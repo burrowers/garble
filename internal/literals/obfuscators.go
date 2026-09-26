@@ -56,7 +56,7 @@ func (k *externalKey) IsUsed() bool {
 
 // obfuscator takes a byte slice and converts it to a ast.BlockStmt
 type obfuscator interface {
-	obfuscate(obfRand *mathrand.Rand, data []byte, extKeys []*externalKey) *ast.BlockStmt
+	obfuscate(obfRand *mathrand.Rand, names *generatedNames, data []byte, extKeys []*externalKey) *ast.BlockStmt
 }
 
 var (
@@ -147,21 +147,21 @@ var extKeyRanges = []struct {
 }
 
 // randExtKey generates a random external key with a unique name, type, value, and bitnesses
-func randExtKey(rand *mathrand.Rand, idx int) *externalKey {
+func randExtKey(rand *mathrand.Rand, names *generatedNames, idx int) *externalKey {
 	r := extKeyRanges[rand.Intn(len(extKeyRanges))]
 	return &externalKey{
-		name:  "garbleExternalKey" + strconv.Itoa(idx),
+		name:  names.name("garbleExternalKey" + strconv.Itoa(idx)),
 		typ:   r.typ,
 		value: rand.Uint64() & r.max,
 		bits:  r.bits,
 	}
 }
 
-func randExtKeys(rand *mathrand.Rand) []*externalKey {
+func randExtKeys(rand *mathrand.Rand, names *generatedNames) []*externalKey {
 	count := minExtKeyCount + rand.Intn(maxExtKeyCount-minExtKeyCount)
 	keys := make([]*externalKey, count)
 	for i := range count {
-		keys[i] = randExtKey(rand, i)
+		keys[i] = randExtKey(rand, names, i)
 	}
 	return keys
 }
@@ -203,8 +203,8 @@ func (key *externalKey) ToExpr(b int) ast.Expr {
 // makeDataStmt returns "data := make([]byte, 0, size)" for decoders which build
 // up their result via append. The capacity is exact, so that the decoded slice
 // has the same cap as the literal it replaces.
-func makeDataStmt(size int) *ast.AssignStmt {
-	return ah.AssignDefineStmt(ast.NewIdent("data"),
+func makeDataStmt(names *generatedNames, size int) *ast.AssignStmt {
+	return ah.AssignDefineStmt(names.ident("data"),
 		ah.CallExprByName("make", ah.ByteSliceType(), ah.IntLit(0), ah.IntLit(size)))
 }
 
@@ -215,7 +215,7 @@ func makeDataStmt(size int) *ast.AssignStmt {
 //		data[<index>] = data[<index>] <random operator> byte(<external key> >> <random shift>) // repeated random times
 //		return data
 //	}()
-func dataToByteSliceWithExtKeys(rand *mathrand.Rand, data []byte, extKeys []*externalKey) ast.Expr {
+func dataToByteSliceWithExtKeys(rand *mathrand.Rand, names *generatedNames, data []byte, extKeys []*externalKey) ast.Expr {
 	extKeyOpCount := minByteSliceExtKeyOps + rand.Intn(maxByteSliceExtKeyOps-minByteSliceExtKeyOps)
 
 	var stmts []ast.Stmt
@@ -226,9 +226,9 @@ func dataToByteSliceWithExtKeys(rand *mathrand.Rand, data []byte, extKeys []*ext
 		idx, op, b := rand.Intn(len(data)), randOperator(rand), rand.Intn(key.bits/8)
 		data[idx] = evalOperator(op, data[idx], byte(key.value>>(b*8)))
 		stmts = append(stmts, ah.AssignStmt(
-			ah.IndexExpr("data", ah.IntLit(idx)),
+			ah.IndexExpr(names.name("data"), ah.IntLit(idx)),
 			operatorToReversedBinaryExpr(op,
-				ah.IndexExpr("data", ah.IntLit(idx)),
+				ah.IndexExpr(names.name("data"), ah.IntLit(idx)),
 				key.ToExpr(b),
 			),
 		))
@@ -238,7 +238,7 @@ func dataToByteSliceWithExtKeys(rand *mathrand.Rand, data []byte, extKeys []*ext
 	// and it is important to invert the order of execution to correctly restore the original value
 	slices.Reverse(stmts)
 
-	stmts = append([]ast.Stmt{ah.AssignDefineStmt(ast.NewIdent("data"), ah.DataToByteSlice(data))}, append(stmts, ah.ReturnStmt(ast.NewIdent("data")))...)
+	stmts = append([]ast.Stmt{ah.AssignDefineStmt(names.ident("data"), ah.DataToByteSlice(data))}, append(stmts, ah.ReturnStmt(names.ident("data")))...)
 	return ah.LambdaCall(nil, ah.ByteSliceType(), ah.BlockStmt(stmts...), nil)
 }
 
