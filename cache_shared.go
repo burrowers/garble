@@ -497,13 +497,10 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// Similar flags to what go/packages uses.
 		"-json", "-export", "-compiled", "-e",
 	}
-	if mainBuild {
-		// When loading the top-level packages we are building,
-		// we want to transitively load all their dependencies as well.
-		// That is not the case when loading standard library packages,
-		// as runtimeAndLinknamed already contains transitive dependencies.
-		args = append(args, "-deps")
-	}
+	// Both the build targets and the extra linknamed packages need their
+	// transitive dependencies. The latter can reach standard packages absent
+	// from the build graph, which compile subprocesses cannot list themselves.
+	args = append(args, "-deps")
 	args = append(args, garbleBuildFlags...)
 	args = append(args, sharedCache.ForwardBuildFlags...)
 
@@ -583,6 +580,10 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// "build constraints exclude all Go files" and can be ignored.
 		// Real build errors will still be surfaced by `go build -toolexec` later.
 		if sharedCache.ListedPackages.has(pkg.ImportPath) {
+			if !mainBuild {
+				// Keep the original build variant and its build ID.
+				continue
+			}
 			return fmt.Errorf("duplicate package: %q", pkg.ImportPath)
 		}
 		// Note that GarbleActionID is filled by toolexecCmd once the listing
