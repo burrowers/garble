@@ -462,6 +462,102 @@ func (ri *reflectInspector) recordImplementedInterfaceMethods(method *types.Func
 	}
 }
 
+// matchReflectedInterfaceMethods resolves implementation relationships after
+// all dependency summaries have been merged. A concrete type need not import
+// the interface it implements; only the final build sees both packages.
+func matchReflectedInterfaceMethods(pkg *types.Package, result *pkgCache) {
+	targets := make(map[string]bool)
+	for _, edge := range result.ReflectCallEdges {
+		targets[edge.Callee] = true
+	}
+	if len(targets) == 0 {
+		return
+	}
+	packages := make(map[string]*types.Package)
+	var visit func(*types.Package)
+	visit = func(p *types.Package) {
+		if p == nil || packages[p.Path()] != nil {
+			return
+		}
+		packages[p.Path()] = p
+		for _, imp := range p.Imports() {
+			visit(imp)
+		}
+	}
+	visit(pkg)
+
+	type interfaceMethod struct {
+		iface  *types.Interface
+		method *types.Func
+	}
+	var interfaces []interfaceMethod
+	names := make(map[string]bool)
+	paths := slices.Sorted(maps.Keys(packages))
+	for _, path := range paths {
+		p := packages[path]
+		for _, name := range p.Scope().Names() {
+			obj, ok := p.Scope().Lookup(name).(*types.TypeName)
+			if !ok {
+				continue
+			}
+			iface, ok := obj.Type().Underlying().(*types.Interface)
+			if !ok {
+				continue
+			}
+			for method := range iface.Methods() {
+				if targets[method.FullName()] {
+					interfaces = append(interfaces, interfaceMethod{iface, method})
+					names[method.Name()] = true
+				}
+			}
+		}
+	}
+	if len(interfaces) == 0 {
+		return
+	}
+
+	type reflectedMethod struct {
+		receiver types.Type
+		params   map[int]bool
+	}
+	candidates := make(map[string][]reflectedMethod)
+	for _, path := range paths {
+		p := packages[path]
+		for _, name := range p.Scope().Names() {
+			obj, ok := p.Scope().Lookup(name).(*types.TypeName)
+			if !ok {
+				continue
+			}
+			if _, ok := obj.Type().Underlying().(*types.Interface); ok {
+				continue
+			}
+			receiver := types.NewPointer(obj.Type())
+			methods := types.NewMethodSet(receiver)
+			for selection := range methods.Methods() {
+				method := selection.Obj().(*types.Func)
+				if params := result.ReflectAPIs[method.FullName()]; names[method.Name()] && len(params) > 0 {
+					candidates[method.Name()] = append(candidates[method.Name()], reflectedMethod{receiver, params})
+				}
+			}
+		}
+	}
+	for _, target := range interfaces {
+		for _, concrete := range candidates[target.method.Name()] {
+			if !types.Implements(concrete.receiver, target.iface) {
+				continue
+			}
+			for pos := range concrete.params {
+				if pos > 0 {
+					if result.ReflectAPIs[target.method.FullName()] == nil {
+						result.ReflectAPIs[target.method.FullName()] = make(map[int]bool)
+					}
+					result.ReflectAPIs[target.method.FullName()][pos-1] = true
+				}
+			}
+		}
+	}
+}
+
 // localCallees resolves direct closures and closures assigned to a local
 // function variable. A recursive closure must be stored in an allocation so
 // it can refer to itself; StaticCallee does not resolve calls through that
