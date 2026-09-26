@@ -828,7 +828,8 @@ type Migrator interface{ AutoMigrate(...any) error }
 type migrator struct{}
 func Get() Migrator { return migrator{} }
 
-func (migrator) AutoMigrate(models ...any) error {
+func (migrator) AutoMigrate(models ...any) error { return parseModels(models...) }
+func parseModels(models ...any) error {
 	var parse func(any) error
 	parse = func(model any) error {
 		if model == nil {

@@ -257,9 +257,8 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 	f, _ := ssaFuncOrigin(fun).Object().(*types.Func)
 	var funcName string
-	genericFunc := false
 	if f != nil {
-		funcName, genericFunc = stripTypeArgs(f.FullName())
+		funcName, _ = stripTypeArgs(f.FullName())
 	}
 
 	reflectParams := make(map[int]bool)
@@ -380,25 +379,15 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 					}
 
 					pos := slices.Index(fun.Params, reflectedParam)
-					if genericFunc {
-						// Generic functions may include synthetic parameters.
-						extra := len(fun.Params) - fun.Signature.Params().Len()
-						if extra > 0 {
-							pos -= extra
-						}
-					}
+					// SSA methods include the receiver and generic functions may
+					// include synthetic leading parameters. Both ReflectAPIs and
+					// saved edges use declared, receiver-excluded parameter indexes.
+					pos -= len(fun.Params) - fun.Signature.Params().Len()
 					if pos < 0 {
 						continue
 					}
 
-					/* fmt.Printf("recorded param: %v func: %v\n", pos, fun) */
-
 					reflectParams[pos] = true
-					if fun.Signature.Recv() != nil && pos > 0 {
-						// Methods may be called with or without the receiver in
-						// Call.Args depending on SSA form. Record both indexes.
-						reflectParams[pos-1] = true
-					}
 					if flagDebug {
 						log.Printf("reflect: %s marks param %d reflected via %s argument %T", fun, pos, callName, arg)
 					}
@@ -450,12 +439,10 @@ func (ri *reflectInspector) recordImplementedInterfaceMethods(method *types.Func
 				if ri.result.ReflectAPIs[key] == nil {
 					ri.result.ReflectAPIs[key] = make(map[int]bool)
 				}
-				// A method's receiver occupies SSA parameter zero. Interface
-				// calls carry only declared parameters, so discard that slot.
+				// ReflectAPIs indexes declared parameters; the receiver is
+				// already excluded, including for deferred call edges.
 				for pos := range params {
-					if pos > 0 {
-						ri.result.ReflectAPIs[key][pos-1] = true
-					}
+					ri.result.ReflectAPIs[key][pos] = true
 				}
 			}
 		}
@@ -547,12 +534,10 @@ func matchReflectedInterfaceMethods(pkg *types.Package, result *pkgCache) {
 				continue
 			}
 			for pos := range concrete.params {
-				if pos > 0 {
-					if result.ReflectAPIs[target.method.FullName()] == nil {
-						result.ReflectAPIs[target.method.FullName()] = make(map[int]bool)
-					}
-					result.ReflectAPIs[target.method.FullName()][pos-1] = true
+				if result.ReflectAPIs[target.method.FullName()] == nil {
+					result.ReflectAPIs[target.method.FullName()] = make(map[int]bool)
 				}
+				result.ReflectAPIs[target.method.FullName()][pos] = true
 			}
 		}
 	}
