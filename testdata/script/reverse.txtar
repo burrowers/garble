@@ -66,6 +66,7 @@ go 1.23
 package main
 
 import (
+	"log"
 	"os"
 	"runtime"
 
@@ -75,10 +76,20 @@ import (
 func main() {
 	unexportedMainFunc()
 
+	// A decoded literal inside a chained call must not leave a position
+	// that garble reverse cannot recognize (issue #762).
+	log.SetFlags(log.Llongfile)
+	(&Logger{}).Fields("marker", "[request]").Info("first")
+
 	_, filename, _, _ := runtime.Caller(0)
 	println()
 	println("main filename:", filename)
 }
+
+type Logger struct{}
+
+func (l *Logger) Fields(args ...any) *Logger { return l }
+func (l *Logger) Info(message string) { _ = log.Output(2, message) }
 
 func unexportedMainFunc() {
 	anonFunc := func() {
@@ -161,10 +172,11 @@ test/main/lib.printStackTrace(...)
 test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
 	test/main/lib/long_lib.go:20 +0x??
 main.unexportedMainFunc.func1(...)
-	test/main/long_main.go:21
+	test/main/long_main.go:32
 main.unexportedMainFunc(...)
-	test/main/long_main.go:25 +0x??
+	test/main/long_main.go:36 +0x??
 main.main(...)
-	test/main/long_main.go:11 +0x??
+	test/main/long_main.go:12 +0x??
+test/main/long_main.go:17: first
 
 main filename: test/main/long_main.go

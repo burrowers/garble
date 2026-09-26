@@ -7,9 +7,12 @@ import (
 	"bufio"
 	"fmt"
 	"go/ast"
+	"go/constant"
+	"go/token"
 	"go/types"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -50,6 +53,7 @@ One can reverse a captured panic stack trace as follows:
 	// export data only exposes exported names. Parsing Go files is cheap,
 	// so it's unnecessary to try to avoid this cost.
 	var replaces []string
+	positions := make(map[string]string)
 
 	for _, lpkg := range sharedCache.ListedPackages.all() {
 		if !lpkg.ToObfuscate {
@@ -76,6 +80,22 @@ One can reverse a captured panic stack trace as follows:
 		}
 		for i, file := range files {
 			goFile := lpkg.CompiledGoFiles[i]
+			addPosition := func(nodePos token.Pos) {
+				pos := fset.Position(nodePos)
+				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
+				newFilename := hashWithPackage(lpkg, origPos) + ".go"
+				original := fmt.Sprintf("%s:%d", goFile, pos.Line)
+				positions[newFilename] = original
+
+				// A relative filename in a "//line" directive is recorded
+				// relative to the package's import path, so positions read
+				// as "obfuscatedpkg/obfuscated.go". We only replace the
+				// filename, as the import path before it is replaced above.
+				replaces = append(replaces,
+					newFilename+":1", original,
+					newFilename, goFile,
+				)
+			}
 			for node := range ast.Preorder(file) {
 				switch node := node.(type) {
 
@@ -101,31 +121,15 @@ One can reverse a captured panic stack trace as follows:
 
 				case *ast.CallExpr:
 					// Reverse position information of call sites.
-					pos := fset.Position(node.Pos())
-					origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
-					newFilename := hashWithPackage(lpkg, origPos) + ".go"
-
-					// A relative filename in a "//line" directive is recorded
-					// relative to the package's import path, so positions read
-					// as "obfuscatedpkg/obfuscated.go". We only replace the
-					// filename, as the import path before it is replaced above.
-
-					// Do "obfuscated.go:1", corresponding to the call site's line.
-					// Most common in stack traces.
-					replaces = append(replaces,
-						newFilename+":1",
-						fmt.Sprintf("%s:%d", goFile, pos.Line),
-					)
-
-					// Do "obfuscated.go" as a fallback.
-					// Most useful in build errors in obfuscated code,
-					// since those might land on any line.
-					// Any ":N" line number will end up being useless,
-					// but at least the filename will be correct.
-					replaces = append(replaces,
-						newFilename,
-						goFile,
-					)
+					addPosition(node.Pos())
+				case ast.Expr:
+					// Literal obfuscation turns a string constant expression into
+					// a decoder call at the expression's position. That call can
+					// set the position of a following call on the same line.
+					tv := tf.info.Types[node]
+					if flagLiterals && tv.Value != nil && tv.Value.Kind() == constant.String {
+						addPosition(node.Pos())
+					}
 				}
 			}
 		}
@@ -133,7 +137,7 @@ One can reverse a captured panic stack trace as follows:
 	repl := strings.NewReplacer(replaces...)
 
 	if len(args) == 0 {
-		modified, err := reverseContent(os.Stdout, os.Stdin, repl)
+		modified, err := reverseContent(os.Stdout, os.Stdin, repl, positions)
 		if err != nil {
 			return err
 		}
@@ -150,7 +154,7 @@ One can reverse a captured panic stack trace as follows:
 			return err
 		}
 		defer f.Close()
-		modified, err := reverseContent(os.Stdout, f, repl)
+		modified, err := reverseContent(os.Stdout, f, repl, positions)
 		if err != nil {
 			return err
 		}
@@ -163,7 +167,9 @@ One can reverse a captured panic stack trace as follows:
 	return nil
 }
 
-func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer) (bool, error) {
+var obfuscatedPosition = regexp.MustCompile(`[A-Za-z0-9_]+\.go:[1-9][0-9]*`)
+
+func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer, positions map[string]string) (bool, error) {
 	// Read line by line.
 	// Reading the entire content at once wouldn't be interactive,
 	// nor would it support large files well.
@@ -177,9 +183,20 @@ func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer) (bool, err
 		// we hit EOF without a newline.
 		// In that case, we still want to process the string.
 		line, readErr := br.ReadString('\n')
-
+		originalLine := line
+		if len(positions) > 0 {
+			// The compiler can report :2 (or later) when generated code
+			// spans lines after a //line directive that started at :1.
+			line = obfuscatedPosition.ReplaceAllStringFunc(line, func(pos string) string {
+				name, _, _ := strings.Cut(pos, ":")
+				if original, ok := positions[name]; ok {
+					return original
+				}
+				return pos
+			})
+		}
 		newLine := repl.Replace(line)
-		if newLine != line {
+		if newLine != originalLine {
 			modified = true
 		}
 		if _, err := io.WriteString(w, newLine); err != nil {

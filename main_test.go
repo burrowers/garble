@@ -577,7 +577,7 @@ func TestReplaceGoAsmNamesPreservesOtherIdentifiers(t *testing.T) {
 func TestReverseContentPreservesRuntimeFrames(t *testing.T) {
 	const input = "runtime.main()\n	runtime/proc.go:1 +0x1\nruntime.goexit()\n	runtime/asm_amd64.s:1 +0x1\n"
 	var out strings.Builder
-	modified, err := reverseContent(&out, strings.NewReader(input), strings.NewReplacer())
+	modified, err := reverseContent(&out, strings.NewReader(input), strings.NewReplacer(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -586,5 +586,19 @@ func TestReverseContentPreservesRuntimeFrames(t *testing.T) {
 	}
 	if got := out.String(); got != input {
 		t.Fatalf("reverseContent removed runtime frames:\n%s", got)
+	}
+}
+
+func TestReverseContentGeneratedLine(t *testing.T) {
+	const input = "obfPkg/Ab_12.go:2: first\nobfPkg/Ab_12.go:37: later\nunknown.go:2: untouched"
+	const want = "test/main/main.go:11: first\ntest/main/main.go:11: later\nunknown.go:2: untouched"
+	positions := map[string]string{"Ab_12.go": "main.go:11"}
+	var out strings.Builder
+	modified, err := reverseContent(&out, strings.NewReader(input), strings.NewReplacer("obfPkg", "test/main"), positions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !modified || out.String() != want {
+		t.Fatalf("reverseContent() = (%q, %v), want (%q, true)", out.String(), modified, want)
 	}
 }
