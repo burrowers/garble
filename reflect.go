@@ -88,6 +88,8 @@ type reflectInspector struct {
 	pkg  *types.Package
 
 	propagatedInstr map[ssa.Instruction]bool
+	// Function literals have no types.Func name to put in the package cache.
+	localReflectAPIs map[*ssa.Function]map[int]bool
 
 	result pkgCache
 }
@@ -117,6 +119,9 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 func (ri *reflectInspector) recordedCount() int {
 	n := len(ri.result.ReflectObjectNames)
 	for _, params := range ri.result.ReflectAPIs {
+		n += 1 + len(params)
+	}
+	for _, params := range ri.localReflectAPIs {
 		n += 1 + len(params)
 	}
 	return n
@@ -149,6 +154,7 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 				for at := range mset.Methods() {
 					if m := ssaPkg.Prog.MethodValue(at); m != nil {
 						ri.checkFunction(m)
+						ri.checkAnonFunctions(m)
 					} else {
 						m := at.Obj().(*types.Func)
 						// handle interface declarations
@@ -169,7 +175,15 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 			// functions like the initialization of global variables
 
 			ri.checkFunction(x)
+			ri.checkAnonFunctions(x)
 		}
+	}
+}
+
+func (ri *reflectInspector) checkAnonFunctions(fun *ssa.Function) {
+	for _, anon := range fun.AnonFuncs {
+		ri.checkFunction(anon)
+		ri.checkAnonFunctions(anon)
 	}
 }
 
@@ -263,6 +277,8 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 		if f.Exported() {
 			ri.checkMethodSignature(reflectParams, fun.Signature)
 		}
+	} else {
+		maps.Copy(reflectParams, ri.localReflectAPIs[fun])
 	}
 
 	// fmt.Printf("f: %v\n", f)
@@ -321,6 +337,9 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 				// record each call argument passed to a function parameter which is used in reflection
 				knownParams := ri.result.ReflectAPIs[callName]
+				if callee := inst.Call.StaticCallee(); callee != nil && callee.Object() == nil {
+					knownParams = ri.localReflectAPIs[callee]
+				}
 				// Iterate in a stable order too, like the member loop above.
 				for _, knownParam := range slices.Sorted(maps.Keys(knownParams)) {
 					sig := inst.Call.Signature()
@@ -380,14 +399,56 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 	if len(reflectParams) > 0 {
 		if funcName == "" {
+			if ri.localReflectAPIs == nil {
+				ri.localReflectAPIs = make(map[*ssa.Function]map[int]bool)
+			}
+			ri.localReflectAPIs[fun] = reflectParams
 			return
 		}
 		ri.result.ReflectAPIs[funcName] = reflectParams
+		if f != nil && fun.Signature.Recv() != nil {
+			ri.recordImplementedInterfaceMethods(f, reflectParams)
+		}
 		if flagDebug {
 			log.Printf("reflect: function %s has reflected params %v", funcName, reflectParams)
 		}
 
 		/* fmt.Printf("curPkgCache.ReflectAPIs: %v\n", curPkgCache.ReflectAPIs) */
+	}
+}
+
+// recordImplementedInterfaceMethods carries reflection use from a concrete method
+// to interface dispatches, including interfaces declared in an imported package.
+func (ri *reflectInspector) recordImplementedInterfaceMethods(method *types.Func, params map[int]bool) {
+	recv := method.Signature().Recv().Type()
+	for _, pkg := range append([]*types.Package{ri.pkg}, ri.pkg.Imports()...) {
+		for _, name := range pkg.Scope().Names() {
+			obj, ok := pkg.Scope().Lookup(name).(*types.TypeName)
+			if !ok {
+				continue
+			}
+			iface, ok := obj.Type().Underlying().(*types.Interface)
+			if !ok || !types.Implements(recv, iface) {
+				continue
+			}
+			for i := range iface.NumMethods() {
+				im := iface.Method(i)
+				if im.Name() != method.Name() {
+					continue
+				}
+				key := im.FullName()
+				if ri.result.ReflectAPIs[key] == nil {
+					ri.result.ReflectAPIs[key] = make(map[int]bool)
+				}
+				// A method's receiver occupies SSA parameter zero. Interface
+				// calls carry only declared parameters, so discard that slot.
+				for pos := range params {
+					if pos > 0 {
+						ri.result.ReflectAPIs[key][pos-1] = true
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -426,6 +487,18 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		return ri.recordArgReflected(val.X, visited)
 	case *ssa.Slice:
 		return ri.recordArgReflected(val.X, visited)
+	case *ssa.Call:
+		// A returned slice can contain the input models after reordering.
+		// Only follow same-typed arguments rather than tainting every input.
+		if _, ok := val.Type().(*types.Slice); ok {
+			for _, arg := range val.Call.Args {
+				if types.Identical(arg.Type(), val.Type()) {
+					if param := ri.recordArgReflected(arg, visited); param != nil {
+						return param
+					}
+				}
+			}
+		}
 	case *ssa.MakeInterface:
 		return ri.recordArgReflected(val.X, visited)
 	case *ssa.UnOp:

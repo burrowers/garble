@@ -8,7 +8,7 @@ stderr '^\*main\.StoredEarly$'
 stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
 stderr '^\*main\.SecondParam$'
-stderr '^relationship lookup failed$'
+! stderr '^relationship lookup failed$'
 
 [short] stop # no need to verify this with -short
 
