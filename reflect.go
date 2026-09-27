@@ -592,8 +592,8 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 // parent is needed to correctly get the obfuscated name of struct fields
 func (ri *reflectInspector) obfuscatedObjectName(obj types.Object, parent *types.Struct) string {
 	pkg := obj.Pkg()
-	if pkg == nil {
-		return "" // builtin types are never obfuscated
+	if pkg == nil || pkg.Path() == "$ssa" {
+		return "" // builtins and synthetic SSA types are never obfuscated
 	}
 
 	if v, ok := obj.(*types.Var); ok && parent != nil {
