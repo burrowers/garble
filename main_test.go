@@ -126,6 +126,9 @@ func TestScript(t *testing.T) {
 		// TODO: this condition should probably be supported by gotooltest
 		Condition: func(cond string) (bool, error) {
 			switch cond {
+			case "qemu-riscv64":
+				_, err := exec.LookPath("qemu-riscv64")
+				return err == nil, nil
 			case "cgo":
 				out, err := exec.Command("go", "env", "CGO_ENABLED").Output()
 				if err != nil {
