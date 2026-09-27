@@ -36,7 +36,7 @@ const (
 	GoSrcEnv = "GARBLE_GO_SRC"
 
 	// Bump when tool patch/build semantics change to invalidate cached binaries.
-	toolchainBuildVersion = "v3"
+	toolchainBuildVersion = "v4"
 )
 
 // Files that we may need to overlay from the modified source while building
@@ -411,24 +411,21 @@ func buildTool(goRoot, workingDir string, overlay map[string]string, outputPath,
 
 	goCmd := filepath.Join(goRoot, "bin", "go")
 	cmd := exec.Command(goCmd, "build", "-overlay", overlayPath, "-o", outputPath, toolPkg)
-
-	var env []string
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "GOPROXY=") ||
-			strings.HasPrefix(e, "GOTOOLCHAIN=") ||
-			strings.HasPrefix(e, "GOROOT=") ||
-			strings.HasPrefix(e, "GOMODCACHE=") {
-			continue
-		}
-		env = append(env, e)
-	}
-	env = append(env,
-		"GOENV=off", "GOOS=", "GOARCH=", "GOEXPERIMENT=", "GOFLAGS=",
+	// The tool is run by Garble on this machine, so build it for the platform
+	// Garble runs on, ignoring the settings for the target of the main build.
+	// Later entries take precedence, and cmd/go treats empty values as unset.
+	cmd.Env = append(os.Environ(),
+		"GOENV=off", "GOEXPERIMENT=", "GOFLAGS=", "GOTOOLCHAIN=",
+		"GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH,
+		// The target's architecture levels, such as GOAMD64=v3,
+		// could result in a tool which the host cannot run.
+		// See the list in cmd/go/internal/cfg.
+		"GO386=", "GOAMD64=", "GOARM=", "GOARM64=", "GOMIPS=", "GOMIPS64=",
+		"GOPPC64=", "GORISCV64=", "GOWASM=",
 		"GOROOT="+goRoot,
 		"GOMODCACHE="+filepath.Join(workingDir, "gomodcache"),
 		"GOPROXY=off",
 	)
-	cmd.Env = env
 	cmd.Dir = workingDir
 
 	out, err := cmd.CombinedOutput()
