@@ -47,6 +47,15 @@ jobs:
     - uses: namespacelabs/nscloud-cache-action@v1
       with:
         cache: go
+    # The RISC-V deferreturn regression runs only when qemu-riscv64 is available.
+    # Install it on the full Linux test job so the runtime assertion cannot be skipped.
+    - if: matrix.os == 'namespace-profile-linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-user
+        command -v qemu-riscv64
+    - if: matrix.os == 'namespace-profile-linux'
+      run: go test -run '^TestScript/runtime_obfuscation$' -v -count=1 -timeout=15m .
     - run: go test -timeout=15m ./...
     # macos and windows failures with bincmp can be hard to reproduce locally,
     # so upload the binaries as artifacts.
