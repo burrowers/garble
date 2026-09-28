@@ -29,7 +29,7 @@ jobs:
       fail-fast: false
       matrix:
         go-version: [1.27.x]
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v5
@@ -37,11 +37,8 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
         cache: false
-    - if: matrix.os != 'windows-latest'
-      run: go test -timeout=15m ./...
-    - if: matrix.os == 'windows-latest'
-      run: go test -json -timeout=25m ./...
-    # macos and windows failures with bincmp can be hard to reproduce locally,
+    - run: go test -timeout=15m ./...
+    # macos failures with bincmp can be hard to reproduce locally,
     # so upload the binaries as artifacts.
     - uses: actions/upload-artifact@v4
       if: failure()
@@ -62,6 +59,31 @@ jobs:
       with:
         version: "2026.2.1"
         install-go: false
+
+  # The full script suite can reach Go's 15-minute test deadline on Windows.
+  # Keep the expensive scripts on one runner and all other tests on another;
+  # -skip leaves new scripts in the remaining shard by default.
+  test-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [heavy, remaining]
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.27.x
+        cache: false
+    - if: matrix.shard == 'heavy'
+      run: go test -run '^TestScript/(asm|crossbuild|gogarble|seed)$' -timeout=15m .
+    - if: matrix.shard == 'remaining'
+      run: go test -skip '^TestScript/(asm|crossbuild|gogarble|seed)$' -timeout=15m ./...
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: bincmp_output-windows-${{ matrix.shard }}
+        path: bincmp_output/
 
   # We don't care about GOARCH=386 particularly, hence -short,
   # but it helps ensure we support 32-bit hosts and targets well.
