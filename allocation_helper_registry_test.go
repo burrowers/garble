@@ -4,8 +4,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -21,7 +21,11 @@ func missingAllocationHelper(expected map[string]bool, registry []string) string
 }
 
 func TestAllocationHelperRegistryMatchesPinnedRuntime(t *testing.T) {
-	source := filepath.Join(runtime.GOROOT(), "src/runtime/malloc_generated.go")
+	out, err := exec.Command("go", "env", "GOROOT").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(strings.TrimSpace(string(out)), "src/runtime/malloc_generated.go")
 	file, err := parser.ParseFile(token.NewFileSet(), source, nil, 0)
 	if err != nil {
 		t.Fatal(err)
