@@ -593,7 +593,12 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 func (ri *reflectInspector) obfuscatedObjectName(obj types.Object, parent *types.Struct) string {
 	pkg := obj.Pkg()
 	if pkg == nil {
-		return "" // builtin types are never obfuscated
+		return "" // builtin objects have no package or obfuscated name
+	}
+	if pkg.Path() == "$ssa" {
+		// go/ssa creates these types for analysis, not from source Garble can rename.
+		// There is no listed package or obfuscated name to record for them.
+		return ""
 	}
 
 	if v, ok := obj.(*types.Var); ok && parent != nil {

@@ -274,6 +274,19 @@ func main() {
 	hopToSink(&TaintedLate{TaintedLateField: "late"})
 
 	callBothTypes()
+
+	// SSA gives range-over-func defers a synthetic $ssa.deferStack type.
+	for i := range rangeFuncSequence {
+		defer fmt.Println("range defer", i)
+	}
+}
+
+func rangeFuncSequence(yield func(int) bool) {
+	for i := 0; i < 3; i++ {
+		if !yield(i) {
+			return
+		}
+	}
 }
 
 type EmbeddingIndirect struct {
@@ -802,3 +815,6 @@ TypeOfParent's own name: TypeOfParent
 TypeOfParent named: TypeOfNamedField NamedReflectionField
 TypeOfParent embedded: TypeOfEmbeddedField EmbeddedReflectionField
 main.Connection
+range defer 2
+range defer 1
+range defer 0
