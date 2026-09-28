@@ -1,0 +1,83 @@
+From 185c37fcdf0e00ce9aeb8b4d166bb36b9224c462 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Sun, 27 Sep 2026 23:35:56 +0000
+Subject: [PATCH] fix(link): recognize obfuscated deferreturn trampolines
+
+The linker tracks calls through deferreturn trampolines by comparing the target name with the canonical runtime symbol. Garble renames that target, so the function metadata loses its deferreturn PC and panic recovery can fail.
+
+Compare the relocation target with the loader lookup for the same symbol version. The lookup already translates runtime names when obfuscation is enabled and retains the stock behavior otherwise.
+
+Fixes #1106.
+---
+ cmd/link/internal/arm/asm.go     | 2 +-
+ cmd/link/internal/arm64/asm.go   | 2 +-
+ cmd/link/internal/loong64/asm.go | 2 +-
+ cmd/link/internal/ppc64/asm.go   | 2 +-
+ cmd/link/internal/riscv64/asm.go | 2 +-
+ 5 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/cmd/link/internal/arm/asm.go b/cmd/link/internal/arm/asm.go
+index 248ec648bc..bd7e0cb4d1 100644
+--- a/cmd/link/internal/arm/asm.go
++++ b/cmd/link/internal/arm/asm.go
+@@ -406,7 +406,7 @@ func trampoline(ctxt *ld.Link, ldr *loader.Loader, ri int, rs, s loader.Sym) {
+ 					// don't reuse trampoline defined in other module
+ 					continue
+ 				}
+-				if oName == "runtime.deferreturn" {
++				if rs == ldr.Lookup("runtime.deferreturn", ldr.SymVersion(rs)) {
+ 					ldr.SetIsDeferReturnTramp(tramp, true)
+ 				}
+ 				if ldr.SymValue(tramp) == 0 {
+diff --git a/cmd/link/internal/arm64/asm.go b/cmd/link/internal/arm64/asm.go
+index 9864788e1b..04c7fd51da 100644
+--- a/cmd/link/internal/arm64/asm.go
++++ b/cmd/link/internal/arm64/asm.go
+@@ -1392,7 +1392,7 @@ func trampoline(ctxt *ld.Link, ldr *loader.Loader, ri int, rs, s loader.Sym) {
+ 					// don't reuse trampoline defined in other module
+ 					continue
+ 				}
+-				if oName == "runtime.deferreturn" {
++				if rs == ldr.Lookup("runtime.deferreturn", ldr.SymVersion(rs)) {
+ 					ldr.SetIsDeferReturnTramp(tramp, true)
+ 				}
+ 				if ldr.SymValue(tramp) == 0 {
+diff --git a/cmd/link/internal/loong64/asm.go b/cmd/link/internal/loong64/asm.go
+index e1a8dcaaa8..2001d27963 100644
+--- a/cmd/link/internal/loong64/asm.go
++++ b/cmd/link/internal/loong64/asm.go
+@@ -800,7 +800,7 @@ func trampoline(ctxt *ld.Link, ldr *loader.Loader, ri int, rs, s loader.Sym) {
+ 					// don't reuse trampoline defined in other module
+ 					continue
+ 				}
+-				if oName == "runtime.deferreturn" {
++				if rs == ldr.Lookup("runtime.deferreturn", ldr.SymVersion(rs)) {
+ 					ldr.SetIsDeferReturnTramp(tramp, true)
+ 				}
+ 				if ldr.SymValue(tramp) == 0 {
+diff --git a/cmd/link/internal/ppc64/asm.go b/cmd/link/internal/ppc64/asm.go
+index 5fac9d9690..010eab2c61 100644
+--- a/cmd/link/internal/ppc64/asm.go
++++ b/cmd/link/internal/ppc64/asm.go
+@@ -1208,7 +1208,7 @@ func trampoline(ctxt *ld.Link, ldr *loader.Loader, ri int, rs, s loader.Sym) {
+ 				// Look up the trampoline in case it already exists
+ 
+ 				tramp = ldr.LookupOrCreateSym(name, ldr.SymVersion(rs))
+-				if oName == "runtime.deferreturn" {
++				if rs == ldr.Lookup("runtime.deferreturn", ldr.SymVersion(rs)) {
+ 					ldr.SetIsDeferReturnTramp(tramp, true)
+ 				}
+ 				if ldr.SymValue(tramp) == 0 {
+diff --git a/cmd/link/internal/riscv64/asm.go b/cmd/link/internal/riscv64/asm.go
+index 9d69152af0..5dfb744920 100644
+--- a/cmd/link/internal/riscv64/asm.go
++++ b/cmd/link/internal/riscv64/asm.go
+@@ -725,7 +725,7 @@ func trampoline(ctxt *ld.Link, ldr *loader.Loader, ri int, rs, s loader.Sym) {
+ 				// Do not reuse trampoline defined in other module.
+ 				continue
+ 			}
+-			if oName == "runtime.deferreturn" {
++			if rs == ldr.Lookup("runtime.deferreturn", ldr.SymVersion(rs)) {
+ 				ldr.SetIsDeferReturnTramp(tramp, true)
+ 			}
+ 			if ldr.SymValue(tramp) == 0 {

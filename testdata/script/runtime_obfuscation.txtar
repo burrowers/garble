@@ -47,9 +47,8 @@ stderr '^main\.main\('
 # RISC-V calls to runtime.deferreturn normally use a trampoline. A missing
 # deferreturn PC in the open-coded defer metadata breaks panic recovery.
 [linux] [qemu-riscv64] exec garble build -ldflags=-debugtramp=2 -o=recover-riscv64 ./recover
-# TODO(#1106): recovery must succeed through an obfuscated deferreturn trampoline.
-[linux] [qemu-riscv64] ! exec qemu-riscv64 ./recover-riscv64
-[linux] [qemu-riscv64] stderr 'fatal error: missing deferreturn'
+[linux] [qemu-riscv64] exec qemu-riscv64 ./recover-riscv64
+[linux] [qemu-riscv64] stdout '^deferreturn-ok$'
 [linux] env GOARCH=s390x
 [linux] exec garble build -o=main-s390x ./arch
 
