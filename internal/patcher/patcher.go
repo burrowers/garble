@@ -446,14 +446,10 @@ func patchAndBuildTool(toolName, toolPkg, goSrcRoot, goRoot, goVersion, cacheDir
 		return "", fmt.Errorf("cannot retrieve toolchain patches: %v", err)
 	}
 
-	buildGoRoot, err := normalizeGoRoot(goRoot, tempDir)
-	if err != nil {
-		return "", err
-	}
 	toolPatchFiles := filterFiles(patchFiles, extraOverlayFiles)
 	toolDeletedFiles := filterFiles(deletedFiles, extraOverlayFiles)
 
-	overlayRelFiles, overlayAbsFiles := collectOverlayFiles(goSrcRoot, buildGoRoot, toolPatchFiles, extraOverlayFiles)
+	overlayRelFiles, overlayAbsFiles := collectOverlayFiles(goSrcRoot, goRoot, toolPatchFiles, extraOverlayFiles)
 	overlayHash := ""
 	if len(overlayAbsFiles) > 0 {
 		overlayHash, err = hashFiles(overlayAbsFiles)
@@ -494,6 +490,12 @@ func patchAndBuildTool(toolName, toolPkg, goSrcRoot, goRoot, goVersion, cacheDir
 		return outputPath, nil
 	}
 
+	// Only mirror GOROOT once we know we need to build the tool, as it
+	// is costly without symlinks, needing hard links or copies of every file.
+	buildGoRoot, err := normalizeGoRoot(goRoot, tempDir)
+	if err != nil {
+		return "", err
+	}
 	srcDir := filepath.Join(buildGoRoot, "src")
 	// The workspace follows the immutable output key. Different Go versions or
 	// overlay hashes therefore never remove or rewrite one another's sources.
