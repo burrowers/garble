@@ -860,9 +860,10 @@ To install Go, see: https://go.dev/doc/install
 	// to one of the available versions. Given that later we build a patched linker
 	// from GOROOT/src via `go build -overlay`, we need to resolve any symlinks.
 	// Note that this edge case has no tests as it's relatively rare.
-	sharedCache.GoEnv.GOROOT, err = filepath.EvalSymlinks(sharedCache.GoEnv.GOROOT)
+	goroot := sharedCache.GoEnv.GOROOT
+	sharedCache.GoEnv.GOROOT, err = filepath.EvalSymlinks(goroot)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot resolve symlinks in GOROOT %q: %w", goroot, err)
 	}
 
 	sharedCache.GoCmd = filepath.Join(sharedCache.GoEnv.GOROOT, "bin", "go")
