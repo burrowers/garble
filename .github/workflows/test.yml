@@ -29,7 +29,20 @@ jobs:
       fail-fast: false
       matrix:
         go-version: [1.27.x]
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # We have a sponsorship from Namespace which gives us a business plan,
+        # with concurrency limits set at:
+        #
+        #  * Linux: 160 vCPU, 320 GB RAM
+        #  * Windows: 80 vCPU, 160 GB RAM
+        #  * macOS: 48 vCPU, 112 GB RAM
+        #
+        # We've sized the runner profiles below as follows,
+        # which is plenty powerful while still allowing concurrent CI runs:
+        #
+        #  * Linux (amd64, Ubuntu 26.04): 16 vCPU, 32 GB RAM
+        #  * Windows (amd64, Server 2022): 16 vCPU, 32 GB RAM
+        #  * macOS (arm64, Tahoe 26): 12 vCPU, 28 GB RAM
+        os: [namespace-profile-linux, namespace-profile-macos, namespace-profile-windows]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v5
@@ -48,13 +61,13 @@ jobs:
 
     # Static checks from this point forward. Only run on one Go version and on
     # linux, since it's the fastest platform, and the tools behave the same.
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.27.x'
+    - if: matrix.os == 'namespace-profile-linux' && matrix.go-version == '1.27.x'
       run: ./scripts/crlf-test.sh
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.27.x'
+    - if: matrix.os == 'namespace-profile-linux' && matrix.go-version == '1.27.x'
       run: diff <(echo -n) <(gofmt -d .)
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.27.x'
+    - if: matrix.os == 'namespace-profile-linux' && matrix.go-version == '1.27.x'
       run: go vet ./...
-    - if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.27.x'
+    - if: matrix.os == 'namespace-profile-linux' && matrix.go-version == '1.27.x'
       uses: dominikh/staticcheck-action@v1
       with:
         version: "2026.2.1"
@@ -65,7 +78,7 @@ jobs:
   # TODO: use CGO_ENABLED=1 once we figure out how to install gcc-multilib,
   # and once gotooltest forwards the value of CGO_ENABLED to the scripts.
   test-386:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux
     env:
       GOARCH: 386
     steps:
@@ -80,7 +93,7 @@ jobs:
   # We only test on Linux, as races are unlikely to be OS-specific.
   # We use GOAMD64=v3 because that significantly speeds up the race detector.
   test-race:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux
     env:
       GOAMD64: v3
     steps:
@@ -92,7 +105,7 @@ jobs:
     - run: go test -short -race ./...
 
   test-third-party:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux
     steps:
     - uses: actions/checkout@v5
     - uses: actions/setup-go@v5
