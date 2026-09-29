@@ -178,3 +178,6 @@ We welcome new contributors. If you would like to contribute, see
 
 Please file an issue before sending a PR, whether it is a bug report or a
 feature request, so that we can agree on the problem and its solution first.
+
+
+[![CI powered by Namespace](https://namespace.so/oss/badge.svg)](https://namespace.so/github-actions/?utm_source=oss&utm_campaign=garble)
