@@ -11,14 +11,8 @@ on:
 # as it runs many builds under the hood.
 # The default -timeout=10m can be hit by the hosted runners.
 #
-# Also note that we don't use Actions caching for Go on purpose.
-# Caching GOMODCACHE wouldn't help much, as we have few deps.
-# Caching GOCACHE would do more harm than good,
-# as the tests redo most of their work if the garble version changes,
-# and the majority of commits or PRs will do so.
-# Moreover, GitHub saves and restores caches via compressed archives over the
-# network, which means it can easily add one minute of overhead on its own for
-# just a few hundred megabytes worth of files.
+# Also note that we cache Go via Namespace's cache volumes,
+# which requires the runner profiles to have caching and git mirrors enabled.
 
 name: Test
 jobs:
@@ -45,11 +39,14 @@ jobs:
         os: [namespace-profile-linux, namespace-profile-macos, namespace-profile-windows]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v5
-    - uses: actions/setup-go@v5
+    - uses: namespacelabs/nscloud-checkout-action@v9
+    - uses: actions/setup-go@v7
       with:
         go-version: ${{ matrix.go-version }}
         cache: false
+    - uses: namespacelabs/nscloud-cache-action@v1
+      with:
+        cache: go
     - run: go test -timeout=15m ./...
     # macos and windows failures with bincmp can be hard to reproduce locally,
     # so upload the binaries as artifacts.
@@ -82,11 +79,14 @@ jobs:
     env:
       GOARCH: 386
     steps:
-    - uses: actions/checkout@v5
-    - uses: actions/setup-go@v5
+    - uses: namespacelabs/nscloud-checkout-action@v9
+    - uses: actions/setup-go@v7
       with:
         go-version: 1.27.x
         cache: false
+    - uses: namespacelabs/nscloud-cache-action@v1
+      with:
+        cache: go
     - run: go test -short ./...
 
   # Only run the short tests with -race, because otherwise the overhead is too much.
@@ -97,20 +97,26 @@ jobs:
     env:
       GOAMD64: v3
     steps:
-    - uses: actions/checkout@v5
-    - uses: actions/setup-go@v5
+    - uses: namespacelabs/nscloud-checkout-action@v9
+    - uses: actions/setup-go@v7
       with:
         go-version: 1.27.x
         cache: false
+    - uses: namespacelabs/nscloud-cache-action@v1
+      with:
+        cache: go
     - run: go test -short -race ./...
 
   test-third-party:
     runs-on: namespace-profile-linux
     steps:
-    - uses: actions/checkout@v5
-    - uses: actions/setup-go@v5
+    - uses: namespacelabs/nscloud-checkout-action@v9
+    - uses: actions/setup-go@v7
       with:
         go-version: 1.27.x
         cache: false
+    - uses: namespacelabs/nscloud-cache-action@v1
+      with:
+        cache: go
     - run: go install
     - run: ./scripts/check-third-party.sh
