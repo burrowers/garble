@@ -195,9 +195,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		if err != nil {
 			return "", nil, nil, fmt.Errorf("controlflow directive on %s: %w", ssaFunc, err)
 		}
-		if passes == 0 {
-			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
-		}
+
 		flattenHardening := params.StringSlice("flatten_hardening")
 
 		trashBlockCount, err := params.GetInt("trash_blocks", defaultTrashBlocks, maxTrashBlocks)
@@ -208,7 +206,17 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			trashGen = newTrashGenerator(ssaPkg.Prog, funcConfig.ImportNameResolver, obfRand)
 		}
 
+		liveIntegers, err := params.GetInt("live_integers", 0, 1)
+		if err != nil || liveIntegers < 0 {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: live_integers must be 0 or 1", ssaFunc)
+		}
+		if passes == 0 && liveIntegers == 0 {
+			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
+		}
 		applyObfuscation := func(ssaFunc *ssa.Function) []dispatcherInfo {
+			if liveIntegers == 1 {
+				substituteLiveIntegers(ssaFunc, obfRand)
+			}
 			if trashBlockCount > 0 {
 				addTrashBlockMarkers(ssaFunc, trashBlockCount, obfRand)
 			}
