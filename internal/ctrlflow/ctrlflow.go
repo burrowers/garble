@@ -208,6 +208,19 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			trashGen = newTrashGenerator(ssaPkg.Prog, funcConfig.ImportNameResolver, obfRand)
 		}
 
+		transitions, err := params.GetInt("state_transitions", 0, 1)
+		if err != nil || transitions < 0 {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: state_transitions must be 0 or 1", ssaFunc)
+		}
+		if transitions == 1 && passes != 1 {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: state_transitions requires flatten_passes=1", ssaFunc)
+		}
+		if transitions == 1 && (split != 0 || junkCount != 0 || trashBlockCount != 0) {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: state_transitions requires block_splits=0 junk_jumps=0 trash_blocks=0", ssaFunc)
+		}
+		if transitions == 1 && len(flattenHardening) > 0 {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: state_transitions cannot be combined with flatten_hardening", ssaFunc)
+		}
 		applyObfuscation := func(ssaFunc *ssa.Function) []dispatcherInfo {
 			if trashBlockCount > 0 {
 				addTrashBlockMarkers(ssaFunc, trashBlockCount, obfRand)
@@ -222,7 +235,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			}
 			var dispatchers []dispatcherInfo
 			for range passes {
-				if info := applyFlattening(ssaFunc, obfRand); info != nil {
+				if info := applyFlattening(ssaFunc, obfRand, transitions == 1); info != nil {
 					dispatchers = append(dispatchers, info)
 				}
 			}
