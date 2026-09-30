@@ -75,7 +75,7 @@ Run "garble map" with the same garble flags used to build, since flags such as
 
 	result := make(map[string]mapPackage)
 	for _, lpkg := range sharedCache.ListedPackages.all() {
-		if !lpkg.ToObfuscate {
+		if !lpkg.toObfuscate() {
 			continue
 		}
 		tf, _, err := transformerForListedPackage(lpkg)

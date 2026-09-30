@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/tinylib/msgp/msgp"
-	"golang.org/x/mod/module"
 )
 
 //go:generate go run scripts/gen_go_std_tables.go
@@ -54,8 +53,6 @@ type sharedCacheType struct {
 	// The only unique way to identify garble's version without being published
 	// or committed is to use its content ID from the build cache.
 	BinaryContentID []byte
-
-	GOGARBLE string
 
 	// GoCmd is [GoEnv.GOROOT]/bin/go, so that we run exactly the same version
 	// of the Go tool that the original "go build" invocation did.
@@ -289,13 +286,23 @@ type listedPackage struct {
 
 	// GarbleActionID is a hash combining the Action ID from BuildID,
 	// with Garble's own inputs as per addGarbleToHash.
-	// It is set even when ToObfuscate is false, as it is also used for random
+	// It is set even when toObfuscate is false, as it is also used for random
 	// seeds and build cache paths, and not just to obfuscate names.
 	GarbleActionID [sha256.Size]byte `json:"-"`
+}
 
-	// ToObfuscate records whether the package should be obfuscated.
-	// When true, GarbleActionID must not be empty.
-	ToObfuscate bool `json:"-"`
+// toObfuscate excludes runtime/cgo (which crashes on Windows), FIPS packages
+// (whose special symbols and no-relocation rule prevent obfuscation), and empty
+// packages such as OS-specific packages with no matching files.
+func (p *listedPackage) toObfuscate() bool {
+	path := p.ImportPath
+	if p.ForTest != "" {
+		path = p.ForTest
+	}
+	return path != "runtime/cgo" &&
+		path != "crypto/internal/fips140" &&
+		!strings.HasPrefix(path, "crypto/internal/fips140/") &&
+		len(p.CompiledGoFiles) > 0
 }
 
 func (p *listedPackage) hasDep(path string) bool {
@@ -337,7 +344,7 @@ type packageError struct {
 // The package name must stay in sync with the import path - if the import path is not
 // obfuscated (e.g., for compiler intrinsics), the name must also be preserved.
 func (p *listedPackage) obfuscatedPackageName() string {
-	if p.Name == "main" || !p.ToObfuscate {
+	if p.Name == "main" || !p.toObfuscate() {
 		return p.Name
 	}
 	// If the import path is not obfuscated, the package name shouldn't be either.
@@ -365,7 +372,7 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	if p.Name == "main" && p.ForTest == "" {
 		return "main"
 	}
-	if !p.ToObfuscate {
+	if !p.toObfuscate() {
 		return p.ImportPath
 	}
 	// Keep import paths whose toolchain contracts are not yet translated.
@@ -435,7 +442,7 @@ func buildSymbolMap() string {
 	pkgPaths := slices.Sorted(maps.Keys(compilerIntrinsics))
 	for _, pkgPath := range pkgPaths {
 		lpkg, _ := sharedCache.ListedPackages.get(pkgPath)
-		if lpkg == nil || !lpkg.ToObfuscate {
+		if lpkg == nil || !lpkg.toObfuscate() {
 			continue
 		}
 		obfuscatedPath := lpkg.obfuscatedImportPath()
@@ -450,7 +457,7 @@ func buildSymbolMap() string {
 	pkgPaths = slices.Sorted(maps.Keys(builtinSymbols))
 	for _, pkgPath := range pkgPaths {
 		lpkg, _ := sharedCache.ListedPackages.get(pkgPath)
-		if lpkg == nil || !lpkg.ToObfuscate {
+		if lpkg == nil || !lpkg.toObfuscate() {
 			continue
 		}
 		obfuscatedPath := lpkg.obfuscatedImportPath()
@@ -541,7 +548,6 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 
 	dec := json.NewDecoder(stdout)
 	var pkgErrors strings.Builder
-	anyToObfuscate := false
 	for dec.More() {
 		var pkg listedPackage
 		if err := dec.Decode(&pkg); err != nil {
@@ -589,37 +595,6 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// Note that GarbleActionID is filled by toolexecCmd once the listing
 		// is done, as hashing it needs garble's own content ID.
 
-		// Decide ToObfuscate as we read each package, to avoid a second pass
-		// that would force a full decode of the lazy map in sub-processes.
-		// If "GOGARBLE=foo/bar", "foo/bar_test" should also match.
-		path := pkg.ImportPath
-		if pkg.ForTest != "" {
-			path = pkg.ForTest
-		}
-		switch {
-		// runtime/cgo and FIPS still have independent unsupported contracts.
-		case // "unknown pc" crashes on windows in the cgo test otherwise.
-			path == "runtime/cgo",
-			// Obfuscating any of the fips140 packages breaks builds,
-			// not just because their import paths get special treatment,
-			// but also because they have special vars like "RODATA"
-			// and forbid relocations caused by literal obfuscation.
-			path == "crypto/internal/fips140", strings.HasPrefix(path, "crypto/internal/fips140/"):
-
-		// No point in obfuscating empty packages, like OS-specific ones that don't match.
-		case len(pkg.CompiledGoFiles) == 0:
-
-		// Test main packages like "foo/bar.test" are always obfuscated,
-		// just like unnamed and plugin main packages.
-		case pkg.Name == "main" && strings.HasSuffix(path, ".test"),
-			path == "command-line-arguments",
-			strings.HasPrefix(path, "plugin/unnamed"),
-			module.MatchPrefixPatterns(sharedCache.GOGARBLE, path):
-
-			pkg.ToObfuscate = true
-			anyToObfuscate = true
-		}
-
 		sharedCache.ListedPackages.set(pkg.ImportPath, &pkg)
 	}
 
@@ -628,13 +603,6 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 	}
 	if pkgErrors.Len() > 0 {
 		return errors.New(pkgErrors.String())
-	}
-
-	// Only the top-level build must match packages to obfuscate; the later
-	// runtime-linknamed std fill need not.
-	// Don't error if the user ran: GOGARBLE='*' garble build runtime
-	if mainBuild && !anyToObfuscate && !module.MatchPrefixPatterns(sharedCache.GOGARBLE, "runtime") {
-		return fmt.Errorf("GOGARBLE=%q does not match any packages to be built", sharedCache.GOGARBLE)
 	}
 
 	if mainBuild {

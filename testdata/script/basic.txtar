@@ -1,4 +1,4 @@
-# Check that the simplest use of garble works. Note the lack of a module or GOGARBLE.
+# Check that the simplest use of garble works with a module.
 exec garble build -o=main$exe garble_main.go
 exec ./main
 cmp stderr main.stderr
@@ -24,6 +24,27 @@ stdout 'unknown'
 
 # The binary can't contain the version string either.
 ! binsubstr main$exe ${WORK} 'garble_main.go' 'globalVar' 'globalFunc' 'garble' $gofullversion
+
+# Both the main package and an imported package are obfuscated by default.
+exec garble build -o=app_binary$exe ./importer
+! binsubstr app_binary$exe 'test/mainfoo/dep' 'test/mainfoo/importer' 'dep.Message'
+exec ./app_binary$exe
+stderr 'unique sentinel from imported package for obfuscation'
+stderr 'unique sentinel from main package for obfuscation'
+
+# Explicit * and an empty value behave like an unset GOGARBLE.
+env GOGARBLE=*
+exec garble build -o=app_binary$exe ./importer
+env GOGARBLE=
+exec garble build -o=app_binary$exe ./importer
+exec ./app_binary$exe
+stderr 'unique sentinel from imported package for obfuscation'
+stderr 'unique sentinel from main package for obfuscation'
+# Partial selections fail with an explanation of the new behavior.
+env GOGARBLE=test/mainfoo/dep
+! exec garble build -o=app_binary$exe ./importer
+stderr 'GOGARBLE=.*is no longer supported; all packages including the runtime are obfuscated now'
+env GOGARBLE=*
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -71,6 +92,19 @@ func main() {
 	println(globalVar)
 	globalFunc()
 }
+-- importer/main.go --
+package main
+
+import "test/mainfoo/dep"
+
+func main() {
+	println(dep.Message())
+	println("unique sentinel from main package for obfuscation")
+}
+-- dep/dep.go --
+package dep
+
+func Message() string { return "unique sentinel from imported package for obfuscation" }
 -- main.stderr --
 global value
 global func body

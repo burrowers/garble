@@ -631,7 +631,7 @@ func isToolchainNameDependency(path, name string) bool {
 // obfuscatedPackageObjectName is the shared package-level naming rule used by
 // source transformation and the symbol map consumed by patched tools.
 func obfuscatedPackageObjectName(lpkg *listedPackage, name string) string {
-	if !lpkg.ToObfuscate || isToolchainNameDependency(lpkg.ImportPath, name) {
+	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.ImportPath, name) {
 		return name
 	}
 	return hashWithPackage(lpkg, name)
@@ -729,7 +729,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 					panic(err) // shouldn't happen
 				}
 			}
-			if lpkg.ToObfuscate {
+			if lpkg.toObfuscate() {
 				obfuscatedPath := lpkg.obfuscatedImportPath()
 				if obfuscatedPath == lpkg.ImportPath {
 					// Keep the assembly spelling (Unicode slash/period) when the
@@ -761,7 +761,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		name := string(remaining[:nameEnd])
 		remaining = remaining[nameEnd:]
 
-		if lpkg.ToObfuscate && !isToolchainNameDependency(lpkg.ImportPath, name) {
+		if lpkg.toObfuscate() && !isToolchainNameDependency(lpkg.ImportPath, name) {
 			newName := hashWithPackage(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, tf.curPkg.GarbleActionID, newName)
@@ -897,7 +897,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		}
 	}
 
-	if len(tf.curPkg.SFiles) > 0 && tf.curPkg.ToObfuscate {
+	if len(tf.curPkg.SFiles) > 0 && tf.curPkg.toObfuscate() {
 		if err := tf.saveGoAsmNames(); err != nil {
 			return nil, err
 		}
@@ -1043,7 +1043,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 }
 
 func (tf *transformer) directiveLocalName(localName string) string {
-	if tf.curPkg.ToObfuscate && !isToolchainNameDependency(tf.curPkg.ImportPath, localName) {
+	if tf.curPkg.toObfuscate() && !isToolchainNameDependency(tf.curPkg.ImportPath, localName) {
 		return hashWithPackage(tf.curPkg, localName)
 	}
 	return localName
@@ -1114,7 +1114,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		panic(err) // shouldn't happen
 	}
 
-	if !lpkg.ToObfuscate || isToolchainNameDependency(lpkg.ImportPath, foreignName) {
+	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.ImportPath, foreignName) {
 		// We're not obfuscating that package or name.
 		return localName, newName
 	}
@@ -1213,7 +1213,7 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 		if err != nil {
 			return "", err
 		}
-		if lpkg.ToObfuscate {
+		if lpkg.toObfuscate() {
 			// Note that beforePath is not the canonical path.
 			// For beforePath="vendor/foo", afterPath and
 			// lpkg.ImportPath can be just "foo".
@@ -1408,7 +1408,7 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 	if err != nil {
 		panic(err) // shouldn't happen
 	}
-	if !lpkg.ToObfuscate {
+	if !lpkg.toObfuscate() {
 		return "", false // we're not obfuscating this package
 	}
 	if isToolchainNameDependency(path, name) {
@@ -1487,7 +1487,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// We can't obfuscate literals in the runtime and its dependencies,
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
-	if flagLiterals && tf.curPkg.ToObfuscate && !isRuntimePkgPath(tf.curPkg.ImportPath) {
+	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.ImportPath) {
 		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings, randomName)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
