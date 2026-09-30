@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestVersionedToolName(t *testing.T) {
@@ -29,6 +30,81 @@ func TestVersionedToolName(t *testing.T) {
 	}
 	if strings.ContainsAny(name, `/\`) {
 		t.Fatalf("versioned tool name is not a base name: %q", name)
+	}
+}
+
+func TestTrimToolCache(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	now := time.Now()
+	recent := now.Add(-time.Hour)
+	stale := now.Add(-toolTrimAge - time.Hour)
+	for name, mtime := range map[string]time.Time{
+		// In use; the version and lock files are as old as the last build.
+		"compile-aaaa":         recent,
+		"compile-aaaa.version": stale,
+		"compile-aaaa.lock":    stale,
+		// Unused, including a lock left by a failed build.
+		"compile-bbbb":         stale,
+		"compile-bbbb.version": stale,
+		"compile-bbbb.lock":    stale,
+		"link-cccc.lock":       stale,
+		// Unversioned tools from older Garble versions go regardless of age.
+		"link":         recent,
+		"link.version": recent,
+		"link.lock":    recent,
+	} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, nil, 0o666); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	trimToolCache(dir, now)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, entry := range entries {
+		got = append(got, entry.Name())
+	}
+	want := []string{"compile-aaaa", "compile-aaaa.lock", "compile-aaaa.version"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("kept %q, want %q", got, want)
+	}
+}
+
+func TestMarkToolUsed(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "compile-aaaa")
+	if err := os.WriteFile(path, nil, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	for _, test := range []struct {
+		mtime, want time.Time
+	}{
+		{now.Add(-toolUsedInterval / 2), now.Add(-toolUsedInterval / 2)},
+		{now.Add(-2 * toolUsedInterval), now},
+	} {
+		if err := os.Chtimes(path, test.mtime, test.mtime); err != nil {
+			t.Fatal(err)
+		}
+		markToolUsed(path, test.mtime, now)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.ModTime(); !got.Equal(test.want) {
+			t.Errorf("mtime %v became %v, want %v", test.mtime, got, test.want)
+		}
 	}
 }
 
