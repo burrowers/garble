@@ -4,7 +4,6 @@
 # An empty CPU profile is sufficient; no benchmark or CPU samples are needed.
 go test -p=2 -run=^$ -cpuprofile=default.pgo .
 rm pgo.test$exe
-env GOGARBLE=example.com/pgo
 exec garble build -p=2 -pgo=auto -o=app$exe .
 exec ./app
 stdout '900150983cd24fb0d6963f7d28e17f72'

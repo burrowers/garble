@@ -2,7 +2,7 @@
 # Goroutine startup and exit cross compiler, assembly, and runtime boundaries;
 # exercising them verifies that those symbol mappings and stack metadata agree.
 # Companion tiny, atomic, reverse, reflect, cgo, and crossbuild scripts also use
-# the default GOGARBLE=* and therefore exercise the obfuscated runtime end to end.
+# the default package selection and therefore exercise the obfuscated runtime end to end.
 # Runtime obfuscation requires rebuilding a large part of the standard library.
 [short] skip 'runtime obfuscation is an integration test'
 
