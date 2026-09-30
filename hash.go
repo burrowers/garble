@@ -121,6 +121,9 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 	if flagLiterals && sharedCache.strongLiteralInit() {
 		io.WriteString(hasher, " literal-inits=strong")
 	}
+	if len(sharedCache.Words) > 0 {
+		fmt.Fprintf(hasher, " wordlist=%d:%s", sharedCache.WordCount, strings.Join(sharedCache.Words, ","))
+	}
 	// addGarbleToHash returns the sum buffer, so we need a new copy.
 	// Otherwise the next use of the global sumBuffer would conflict.
 	var sumBuffer [sha256.Size]byte
@@ -339,6 +342,10 @@ func hashWithCustomSalt(salt []byte, name string) string {
 	hasher.Write(flagSeed.bytes)
 	io.WriteString(hasher, name)
 	sum := hasher.Sum(sumBuffer[:0])
+
+	if sharedCache != nil && len(sharedCache.Words) > 0 {
+		return wordListName(sum, name)
+	}
 
 	// The byte after neededSumBytes is never used as part of the name,
 	// but it is still deterministic and hard to predict,
