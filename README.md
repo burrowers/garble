@@ -69,6 +69,32 @@ similar to the [common practice in Android](https://developer.android.com/build/
 Obfuscation has also helped some open source developers work around
 anti-virus scans incorrectly treating Go binaries as malware.
 
+### Word-list naming
+
+Use `garble -wordlist=words.txt build ./...` to replace identifier, package-path,
+and filename hashes with underscore-separated combinations of words. This does
+not replace string literals; `-literals` remains a separate option.
+
+The file contains one lowercase ASCII word per line, at most eight letters per
+word. Blank lines and surrounding whitespace are ignored. The list is sorted
+and deduplicated, so changing its order or location does not change obfuscation.
+It must contain between 2 and 65,536 distinct words. No dictionary is bundled.
+
+Garble chooses the smallest word count, at least two, whose combination space
+contains at least 48 bits. For example, 256 words require six words per name.
+Underscores make combinations unambiguous, and the first letter preserves a
+Go identifier's exported status. Lists that could produce names longer than
+128 bytes are rejected. Names are never truncated, because truncation would
+increase collisions. The mapping uses the same salted hash as the normal mode,
+without assigning names in traversal order.
+
+The root process snapshots the list for compiler subprocesses, and its canonical
+contents are included in build-cache keys. Supply the same list and seed to
+`garble reverse` that you used for the build. Word names are longer than the
+normal hashes and can increase binary size, especially with a small dictionary.
+This option is disabled by default and makes no guarantee about antivirus
+classification or the entropy of the whole binary.
+
 ### Literal obfuscation
 
 Using the `-literals` flag causes literal expressions such as strings to be

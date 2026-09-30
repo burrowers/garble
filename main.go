@@ -103,7 +103,7 @@ var booleanFlags = map[string]bool{
 }
 
 var flagSet = flag.NewFlagSet("garble", flag.ExitOnError)
-var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed)(?:$|=)`)
+var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed|wordlist)(?:$|=)`)
 
 var (
 	flagLiterals bool
@@ -111,6 +111,7 @@ var (
 	flagDebug    bool
 	flagDebugDir string
 	flagSeed     seedFlag
+	flagWordList string
 	// TODO(pagran): in the future, when control flow obfuscation will be stable migrate to flag
 	flagControlFlow = os.Getenv("GARBLE_EXPERIMENTAL_CONTROLFLOW") == "1"
 
@@ -122,6 +123,7 @@ var (
 
 func init() {
 	flagSet.Usage = usage
+	flagSet.StringVar(&flagWordList, "wordlist", "", "Use combinations of words from a newline-separated file for obfuscated names")
 	flagSet.BoolVar(&flagLiterals, "literals", false, "Obfuscate literals such as strings")
 	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
@@ -431,6 +433,17 @@ This command wraps "go %s". Below is its help:
 	// Here is the only place we initialize the cache.
 	// The sub-processes will parse it from a shared file.
 	sharedCache = &sharedCacheType{ListedPackages: newListedPackages()}
+	if flagWordList != "" {
+		data, err := os.ReadFile(flagWordList)
+		if err != nil {
+			return nil, fmt.Errorf("wordlist: %w", err)
+		}
+		words, count, err := parseWordList(string(data))
+		if err != nil {
+			return nil, err
+		}
+		sharedCache.Words, sharedCache.WordCount = words, count
+	}
 
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.

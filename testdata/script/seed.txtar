@@ -17,6 +17,30 @@ binsubstr main$exe 'teststring' 'imported var value'
 
 [short] stop # the extra checks are relatively expensive
 
+# Word-list naming preserves behavior, canonicalizes input, and caches by content.
+exec garble -seed=${SEED1} -wordlist=words.txt build
+exec ./main$exe words
+cmp stderr main.stderr
+cp main$exe main_words$exe
+cp words.txt words-original.txt
+cp words-equivalent.txt words.txt
+exec garble -seed=${SEED1} -wordlist=words.txt build -v
+! stderr .
+bincmp main$exe main_words$exe
+cp words-different.txt words.txt
+exec garble -seed=${SEED1} -wordlist=words.txt build
+! bincmp main$exe main_words$exe
+exec ./main$exe words
+cmp stderr main.stderr
+! exec ./main$exe panic
+cp stderr panic-words.txt
+exec garble -seed=${SEED1} -wordlist=words.txt reverse . panic-words.txt
+stdout 'main\.mainFunc'
+stdout 'main\.go:[0-9]+'
+exec garble -seed=${SEED1} -wordlist=words.txt test ./...
+cp words-original.txt words.txt
+exec garble -seed=${SEED1} build
+
 exec ./main$exe test/main/imported
 cp stderr importedpkg-seed-static-1
 
@@ -94,6 +118,59 @@ exec ./main$exe test/main
 cmp stderr mainpkg.stderr
 exec ./main$exe test/main/imported
 cmp stderr importedpkg.stderr
+-- words.txt --
+ant
+bat
+cat
+dog
+eel
+fox
+hen
+jay
+koi
+owl
+pig
+ram
+rat
+ray
+yak
+yew
+-- words-equivalent.txt --
+yew
+yak
+ray
+rat
+ram
+pig
+owl
+koi
+jay
+hen
+fox
+eel
+dog
+cat
+bat
+ant
+ant
+
+-- words-different.txt --
+ant
+bat
+cat
+dog
+eel
+fox
+hen
+jay
+koi
+owl
+pig
+ram
+rat
+ray
+yak
+emu
 -- go.mod --
 module test/main
 
@@ -103,6 +180,8 @@ package main
 
 import (
 	"os"
+	"strings"
+	_ "unsafe"
 
 	"test/main/imported"
 )
@@ -111,9 +190,21 @@ var teststringVar = "teststring"
 
 func main() { mainFunc() }
 
+//go:linkname linkedValue test/main/imported.LinkValue
+func linkedValue() string
+
 func mainFunc() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "words":
+			println(teststringVar)
+			println(imported.ImportedVar)
+			if linkedValue() != imported.ImportedVar { panic("linkname mismatch") }
+			for _, name := range hashedNames {
+				if strings.Count(name, "_") != 11 { panic("not a twelve-word name: " + name) }
+			}
+		case "panic":
+			panic("test panic")
 		case "test/main":
 			imported.PrintNames(NamedTypeValue, NamedFunc)
 		case "test/main/imported":
@@ -196,6 +287,8 @@ import (
 )
 
 var ImportedVar = "imported var value"
+
+func LinkValue() string { return ImportedVar }
 
 type NamedType struct {
 	NamedField int

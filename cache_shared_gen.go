@@ -570,12 +570,21 @@ func (z pkgRange) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 7
+	// map header, size 9
+	// string "Words"
+	o = append(o, 0x89, 0xa5, 0x57, 0x6f, 0x72, 0x64, 0x73)
+	o = msgp.AppendArrayHeader(o, uint32(len(z.Words)))
+	for za0001 := range z.Words {
+		o = msgp.AppendString(o, z.Words[za0001])
+	}
+	// string "WordCount"
+	o = append(o, 0xa9, 0x57, 0x6f, 0x72, 0x64, 0x43, 0x6f, 0x75, 0x6e, 0x74)
+	o = msgp.AppendInt(o, z.WordCount)
 	// string "ForwardBuildFlags"
-	o = append(o, 0x87, 0xb1, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x46, 0x6c, 0x61, 0x67, 0x73)
+	o = append(o, 0xb1, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x46, 0x6c, 0x61, 0x67, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.ForwardBuildFlags)))
-	for za0001 := range z.ForwardBuildFlags {
-		o = msgp.AppendString(o, z.ForwardBuildFlags[za0001])
+	for za0002 := range z.ForwardBuildFlags {
+		o = msgp.AppendString(o, z.ForwardBuildFlags[za0002])
 	}
 	// string "CacheDir"
 	o = append(o, 0xa8, 0x43, 0x61, 0x63, 0x68, 0x65, 0x44, 0x69, 0x72)
@@ -636,22 +645,47 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			return
 		}
 		switch msgp.UnsafeString(field) {
-		case "ForwardBuildFlags":
+		case "Words":
 			var zb0002 uint32
 			zb0002, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "Words")
+				return
+			}
+			if cap(z.Words) >= int(zb0002) {
+				z.Words = (z.Words)[:zb0002]
+			} else {
+				z.Words = make([]string, zb0002)
+			}
+			for za0001 := range z.Words {
+				z.Words[za0001], bts, err = msgp.ReadStringBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "Words", za0001)
+					return
+				}
+			}
+		case "WordCount":
+			z.WordCount, bts, err = msgp.ReadIntBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "WordCount")
+				return
+			}
+		case "ForwardBuildFlags":
+			var zb0003 uint32
+			zb0003, bts, err = msgp.ReadArrayHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "ForwardBuildFlags")
 				return
 			}
-			if cap(z.ForwardBuildFlags) >= int(zb0002) {
-				z.ForwardBuildFlags = (z.ForwardBuildFlags)[:zb0002]
+			if cap(z.ForwardBuildFlags) >= int(zb0003) {
+				z.ForwardBuildFlags = (z.ForwardBuildFlags)[:zb0003]
 			} else {
-				z.ForwardBuildFlags = make([]string, zb0002)
+				z.ForwardBuildFlags = make([]string, zb0003)
 			}
-			for za0001 := range z.ForwardBuildFlags {
-				z.ForwardBuildFlags[za0001], bts, err = msgp.ReadStringBytes(bts)
+			for za0002 := range z.ForwardBuildFlags {
+				z.ForwardBuildFlags[za0002], bts, err = msgp.ReadStringBytes(bts)
 				if err != nil {
-					err = msgp.WrapError(err, "ForwardBuildFlags", za0001)
+					err = msgp.WrapError(err, "ForwardBuildFlags", za0002)
 					return
 				}
 			}
@@ -697,14 +731,14 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				return
 			}
 		case "GoEnv":
-			var zb0003 uint32
-			zb0003, bts, err = msgp.ReadMapHeaderBytes(bts)
+			var zb0004 uint32
+			zb0004, bts, err = msgp.ReadMapHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "GoEnv")
 				return
 			}
-			for zb0003 > 0 {
-				zb0003--
+			for zb0004 > 0 {
+				zb0004--
 				field, bts, err = msgp.ReadMapKeyZC(bts)
 				if err != nil {
 					err = msgp.WrapError(err, "GoEnv")
@@ -757,9 +791,13 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z *sharedCacheType) Msgsize() (s int) {
-	s = 1 + 18 + msgp.ArrayHeaderSize
-	for za0001 := range z.ForwardBuildFlags {
-		s += msgp.StringPrefixSize + len(z.ForwardBuildFlags[za0001])
+	s = 1 + 6 + msgp.ArrayHeaderSize
+	for za0001 := range z.Words {
+		s += msgp.StringPrefixSize + len(z.Words[za0001])
+	}
+	s += 10 + msgp.IntSize + 18 + msgp.ArrayHeaderSize
+	for za0002 := range z.ForwardBuildFlags {
+		s += msgp.StringPrefixSize + len(z.ForwardBuildFlags[za0002])
 	}
 	s += 9 + msgp.StringPrefixSize + len(z.CacheDir) + 15
 	if z.ListedPackages == nil {

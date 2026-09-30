@@ -38,6 +38,8 @@ import (
 // store it into a temporary file via msgp encoding, and then reuse that file
 // in each of the garble toolexec sub-processes.
 type sharedCacheType struct {
+	Words             []string
+	WordCount         int
 	ForwardBuildFlags []string // build flags fed to the original "garble ..." command
 
 	CacheDir string // absolute path to the GARBLE_CACHE directory being used
