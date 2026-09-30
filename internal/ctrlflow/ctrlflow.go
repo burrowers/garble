@@ -208,6 +208,13 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			trashGen = newTrashGenerator(ssaPkg.Prog, funcConfig.ImportNameResolver, obfRand)
 		}
 
+		regions, err := params.GetInt("flatten_regions", 0, 2)
+		if err != nil || (regions != 0 && regions != 2) {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: flatten_regions must be 0 or 2", ssaFunc)
+		}
+		if regions == 2 && passes != 1 {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: flatten_regions requires flatten_passes=1", ssaFunc)
+		}
 		applyObfuscation := func(ssaFunc *ssa.Function) []dispatcherInfo {
 			if trashBlockCount > 0 {
 				addTrashBlockMarkers(ssaFunc, trashBlockCount, obfRand)
@@ -221,9 +228,13 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 				addJunkBlocks(ssaFunc, junkCount, obfRand)
 			}
 			var dispatchers []dispatcherInfo
-			for range passes {
-				if info := applyFlattening(ssaFunc, obfRand); info != nil {
-					dispatchers = append(dispatchers, info)
+			if regions == 2 {
+				dispatchers = applyPartialFlattening(ssaFunc, obfRand)
+			} else {
+				for range passes {
+					if info := applyFlattening(ssaFunc, obfRand); info != nil {
+						dispatchers = append(dispatchers, info)
+					}
 				}
 			}
 			fixBlockIndexes(ssaFunc)
