@@ -11,9 +11,9 @@ import (
 // MarshalMsg implements msgp.Marshaler
 func (z *listedPackage) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 14
+	// map header, size 13
 	// string "Name"
-	o = append(o, 0x8e, 0xa4, 0x4e, 0x61, 0x6d, 0x65)
+	o = append(o, 0x8d, 0xa4, 0x4e, 0x61, 0x6d, 0x65)
 	o = msgp.AppendString(o, z.Name)
 	// string "ImportPath"
 	o = append(o, 0xaa, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x68)
@@ -74,9 +74,6 @@ func (z *listedPackage) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "GarbleActionID"
 	o = append(o, 0xae, 0x47, 0x61, 0x72, 0x62, 0x6c, 0x65, 0x41, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x44)
 	o = msgp.AppendBytes(o, (z.GarbleActionID)[:])
-	// string "ToObfuscate"
-	o = append(o, 0xab, 0x54, 0x6f, 0x4f, 0x62, 0x66, 0x75, 0x73, 0x63, 0x61, 0x74, 0x65)
-	o = msgp.AppendBool(o, z.ToObfuscate)
 	return
 }
 
@@ -277,12 +274,6 @@ func (z *listedPackage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "GarbleActionID")
 				return
 			}
-		case "ToObfuscate":
-			z.ToObfuscate, bts, err = msgp.ReadBoolBytes(bts)
-			if err != nil {
-				err = msgp.WrapError(err, "ToObfuscate")
-				return
-			}
 		default:
 			bts, err = msgp.Skip(bts)
 			if err != nil {
@@ -322,7 +313,7 @@ func (z *listedPackage) Msgsize() (s int) {
 	} else {
 		s += 1 + 4 + msgp.StringPrefixSize + len(z.Error.Pos) + 4 + msgp.StringPrefixSize + len(z.Error.Err)
 	}
-	s += 15 + msgp.ArrayHeaderSize + (sha256.Size * (msgp.ByteSize)) + 12 + msgp.BoolSize
+	s += 15 + msgp.ArrayHeaderSize + (sha256.Size * (msgp.ByteSize))
 	return
 }
 
@@ -570,9 +561,9 @@ func (z pkgRange) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 9
+	// map header, size 8
 	// string "Words"
-	o = append(o, 0x89, 0xa5, 0x57, 0x6f, 0x72, 0x64, 0x73)
+	o = append(o, 0x88, 0xa5, 0x57, 0x6f, 0x72, 0x64, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.Words)))
 	for za0001 := range z.Words {
 		o = msgp.AppendString(o, z.Words[za0001])
@@ -603,9 +594,6 @@ func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "BinaryContentID"
 	o = append(o, 0xaf, 0x42, 0x69, 0x6e, 0x61, 0x72, 0x79, 0x43, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x49, 0x44)
 	o = msgp.AppendBytes(o, z.BinaryContentID)
-	// string "GOGARBLE"
-	o = append(o, 0xa8, 0x47, 0x4f, 0x47, 0x41, 0x52, 0x42, 0x4c, 0x45)
-	o = msgp.AppendString(o, z.GOGARBLE)
 	// string "GoCmd"
 	o = append(o, 0xa5, 0x47, 0x6f, 0x43, 0x6d, 0x64)
 	o = msgp.AppendString(o, z.GoCmd)
@@ -718,12 +706,6 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "BinaryContentID")
 				return
 			}
-		case "GOGARBLE":
-			z.GOGARBLE, bts, err = msgp.ReadStringBytes(bts)
-			if err != nil {
-				err = msgp.WrapError(err, "GOGARBLE")
-				return
-			}
 		case "GoCmd":
 			z.GoCmd, bts, err = msgp.ReadStringBytes(bts)
 			if err != nil {
@@ -805,6 +787,6 @@ func (z *sharedCacheType) Msgsize() (s int) {
 	} else {
 		s += z.ListedPackages.Msgsize()
 	}
-	s += 16 + msgp.BytesPrefixSize + len(z.BinaryContentID) + 9 + msgp.StringPrefixSize + len(z.GOGARBLE) + 6 + msgp.StringPrefixSize + len(z.GoCmd) + 6 + 1 + 5 + msgp.StringPrefixSize + len(z.GoEnv.GOOS) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOARCH) + 10 + msgp.StringPrefixSize + len(z.GoEnv.GOVERSION) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOROOT)
+	s += 16 + msgp.BytesPrefixSize + len(z.BinaryContentID) + 6 + msgp.StringPrefixSize + len(z.GoCmd) + 6 + 1 + 5 + msgp.StringPrefixSize + len(z.GoEnv.GOOS) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOARCH) + 10 + msgp.StringPrefixSize + len(z.GoEnv.GOVERSION) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOROOT)
 	return
 }

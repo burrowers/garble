@@ -99,7 +99,7 @@ var (
 // and returns a new hash which also contains garble's own deterministic inputs.
 //
 // This includes garble's own version, obtained via its own binary's content ID,
-// as well as any other options which affect a build, such as GOGARBLE and -tiny.
+// as well as any other options which affect a build, such as -tiny.
 func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 	// Join the two content IDs together into a single base64-encoded sha256
 	// sum. This includes the original tool's content ID, and garble's own
@@ -111,10 +111,7 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 	}
 	hasher.Write(sharedCache.BinaryContentID)
 
-	// We also need to add the selected options to the full version string,
-	// because all of them result in different output. We use spaces to
-	// separate the env vars and flags, to reduce the chances of collisions.
-	fmt.Fprintf(hasher, " GOGARBLE=%s", sharedCache.GOGARBLE)
+	// Include options which affect the build output in the hash.
 	appendFlags(hasher, true)
 	if len(sharedCache.Words) > 0 {
 		fmt.Fprintf(hasher, " wordlist=%d:%s", sharedCache.WordCount, strings.Join(sharedCache.Words, ","))

@@ -56,7 +56,7 @@ One can reverse a captured panic stack trace as follows:
 	positions := make(map[string]string)
 
 	for _, lpkg := range sharedCache.ListedPackages.all() {
-		if !lpkg.ToObfuscate {
+		if !lpkg.toObfuscate() {
 			continue
 		}
 		addHashedWithPackage := func(str string) {

@@ -19,7 +19,7 @@ var printBuf1, printBuf2 bytes.Buffer
 // printFile prints a Go file to a buffer, while also removing non-directive
 // comments and adding extra compiler directives to obfuscate position information.
 func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
-	if lpkg.ToObfuscate {
+	if lpkg.toObfuscate() {
 		// Omit comments from the final Go code.
 		// Keep directives, as they affect the build.
 		// We do this before printing to print fewer bytes below.
@@ -45,7 +45,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	}
 	src := printBuf1.Bytes()
 
-	if !lpkg.ToObfuscate {
+	if !lpkg.toObfuscate() {
 		// We lightly transform packages which shouldn't be obfuscated,
 		// such as when rewriting go:linkname directives to obfuscated packages.
 		// We still need to print the files, but without obfuscating positions.
