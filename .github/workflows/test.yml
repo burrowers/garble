@@ -56,8 +56,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y qemu-user
         command -v qemu-riscv64
-    - if: matrix.os == 'namespace-profile-linux'
-      run: go test -run '^TestScript/runtime$' -v -count=1 -timeout=15m .
     - run: go test -timeout=15m ./...
     # macos and windows failures with bincmp can be hard to reproduce locally,
     # so upload the binaries as artifacts.
