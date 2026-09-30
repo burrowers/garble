@@ -44,6 +44,11 @@ stderr '^main\.main\('
 [linux] exec garble build -o=main-mips64le ./arch
 [linux] env GOARCH=riscv64
 [linux] exec garble build -o=main-riscv64 ./arch
+# RISC-V calls to runtime.deferreturn normally use a trampoline. A missing
+# deferreturn PC in the open-coded defer metadata breaks panic recovery.
+[linux] [qemu-riscv64] exec garble build -ldflags=-debugtramp=2 -o=recover-riscv64 ./recover
+[linux] [qemu-riscv64] exec qemu-riscv64 ./recover-riscv64
+[linux] [qemu-riscv64] stdout '^deferreturn-ok$'
 [linux] env GOARCH=s390x
 [linux] exec garble build -o=main-s390x ./arch
 
@@ -59,6 +64,24 @@ func main() {}
 package main
 
 func main() { panic("boom") }
+-- recover/main.go --
+package main
+
+import "fmt"
+
+func recoverPanic(doPanic bool) (result string) {
+	defer func() {
+		if recover() != nil {
+			result = "deferreturn-ok"
+		}
+	}()
+	if doPanic {
+		panic("boom")
+	}
+	return "no-panic"
+}
+
+func main() { fmt.Println(recoverPanic(true)) }
 -- main.go --
 package main
 
