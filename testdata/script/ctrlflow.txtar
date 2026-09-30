@@ -42,6 +42,9 @@ import (
 	"unsafe"
 )
 
+//garble:controlflow flatten_passes=0 live_integers=1
+func liveAdd(x, y uint64) uint64 { return x + y }
+
 //garble:controlflow flatten_passes=0 junk_jumps=max block_splits=max
 func func1() {}
 
@@ -219,6 +222,9 @@ func main() {
 	}
 	if got := namedClosureResult(); got != 12 {
 		panic("deferred closure result was lost")
+	}
+	if liveAdd(^uint64(0), 2) != 1 {
+		panic("live integer overflow")
 	}
 	// Reference to the unexported interface triggers creation of a new interface
 	// with a list of all functions of the private interface
