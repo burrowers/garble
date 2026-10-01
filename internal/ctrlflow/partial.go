@@ -29,23 +29,94 @@ func reaches(from, target *ssa.BasicBlock, seen map[*ssa.BasicBlock]bool) bool {
 	return false
 }
 
-func applyPartialFlattening(fn *ssa.Function, rnd *mathrand.Rand) []dispatcherInfo {
-	var edges []regionEdge
-	for _, block := range fn.Blocks {
-		for i, target := range block.Succs {
-			// Keep all edges within cycles direct, rather than charging dispatch on loop iterations.
-			if !reaches(target, block, make(map[*ssa.BasicBlock]bool)) {
-				edges = append(edges, regionEdge{block, target, i})
+type partialRegion struct {
+	root   *ssa.BasicBlock
+	blocks map[*ssa.BasicBlock]bool
+	edges  []regionEdge
+}
+
+// Grow only when every incoming edge is already inside the region. The root
+// is its only possible entry, and cycle blocks never incur dispatch overhead.
+func selectPartialRegions(fn *ssa.Function, rnd *mathrand.Rand) []partialRegion {
+	cyclic := make(map[*ssa.BasicBlock]bool)
+	for _, b := range fn.Blocks {
+		for _, s := range b.Succs {
+			if reaches(s, b, make(map[*ssa.BasicBlock]bool)) {
+				cyclic[b] = true
+				break
 			}
 		}
 	}
-	if len(edges) < 8 {
+	var candidates []partialRegion
+	for _, root := range fn.Blocks {
+		if cyclic[root] {
+			continue
+		}
+		r := partialRegion{root: root, blocks: map[*ssa.BasicBlock]bool{root: true}}
+		limit := 3 + rnd.Intn(2)
+		for len(r.blocks) < limit {
+			var next []*ssa.BasicBlock
+			for _, b := range fn.Blocks {
+				if cyclic[b] || r.blocks[b] || len(b.Preds) == 0 {
+					continue
+				}
+				eligible := true
+				for _, p := range b.Preds {
+					if !r.blocks[p] {
+						eligible = false
+						break
+					}
+				}
+				if eligible {
+					next = append(next, b)
+				}
+			}
+			if len(next) == 0 {
+				break
+			}
+			r.blocks[next[rnd.Intn(len(next))]] = true
+		}
+		for _, b := range fn.Blocks {
+			if !r.blocks[b] {
+				continue
+			}
+			for i, s := range b.Succs {
+				if r.blocks[s] {
+					r.edges = append(r.edges, regionEdge{b, s, i})
+				}
+			}
+		}
+		if len(r.edges) >= 2 {
+			candidates = append(candidates, r)
+		}
+	}
+	rnd.Shuffle(len(candidates), func(i, j int) { candidates[i], candidates[j] = candidates[j], candidates[i] })
+	for i, a := range candidates {
+		for _, b := range candidates[i+1:] {
+			disjoint := true
+			for block := range a.blocks {
+				if b.blocks[block] {
+					disjoint = false
+					break
+				}
+			}
+			if disjoint {
+				return []partialRegion{a, b}
+			}
+		}
+	}
+	return nil
+}
+
+func applyPartialFlattening(fn *ssa.Function, rnd *mathrand.Rand) []dispatcherInfo {
+	regions := selectPartialRegions(fn, rnd)
+	if len(regions) == 0 {
 		return nil
 	}
-	rnd.Shuffle(len(edges), func(i, j int) { edges[i], edges[j] = edges[j], edges[i] })
-	edges = edges[:min(len(edges)/2, 32)]
 	var infos []dispatcherInfo
-	for group := 0; group < 2; group++ {
+	for _, region := range regions {
+		edges := region.edges
+		rnd.Shuffle(len(edges), func(i, j int) { edges[i], edges[j] = edges[j], edges[i] })
 		phi := &ssa.Phi{Comment: "ctrflow.region"}
 		setType(phi, types.Typ[types.Int])
 		entry := &ssa.BasicBlock{Comment: "ctrflow.region.entry", Instrs: []ssa.Instruction{phi, &ssa.Jump{}}}
@@ -54,7 +125,7 @@ func applyPartialFlattening(fn *ssa.Function, rnd *mathrand.Rand) []dispatcherIn
 		fn.Blocks = append(fn.Blocks, entry)
 		var info dispatcherInfo
 		var comparisons []*ssa.BasicBlock
-		for i := group; i < len(edges); i += 2 {
+		for i := range edges {
 			edge := edges[i]
 			key := makeSsaInt(len(info) + 1)
 			cfg := cfgInfo{StoreVar: key, CompareVar: makeSsaInt(len(info) + 1)}
