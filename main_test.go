@@ -408,10 +408,8 @@ func TestSplitFlagsFromFiles(t *testing.T) {
 			flags := []string{"-p", "package.go", "-trimpath", backing + "=>original" + ext + ";unused=>", "-pack"}
 			args := append(slices.Clone(flags), "normal"+ext, path)
 			gotFlags, gotPaths := splitFlagsFromFiles(args, ext)
-			// TODO: overlay backing files without the source extension are
-			// currently treated as flags. The next change will fix this.
-			qt.Assert(t, qt.DeepEquals(gotFlags, args))
-			qt.Assert(t, qt.DeepEquals(gotPaths, []string{}))
+			qt.Assert(t, qt.DeepEquals(gotFlags, flags))
+			qt.Assert(t, qt.DeepEquals(gotPaths, []string{"normal" + ext, path}))
 		}
 	}
 }

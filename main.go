@@ -801,11 +801,27 @@ func rejectUnknownBuildFlags(flags []string) error {
 //	compile [flags...] -p pkg/path.go [more flags...] file1.go file2.go
 //
 // For now, since those confusing flags are always followed by more flags,
-// iterating in reverse order works around them entirely.
+// iterating in reverse order works around them entirely. Source overlays can
+// have arbitrary backing-file names; cmd/go identifies them in -trimpath.
 func splitFlagsFromFiles(all []string, ext string) (flags, paths []string) {
+	var overlayFiles map[string]bool
+	for rewrite := range strings.SplitSeq(flagValue(all, "-trimpath"), ";") {
+		from, to, ok := strings.Cut(rewrite, "=>")
+		if ok && strings.HasSuffix(to, ext) {
+			if overlayFiles == nil {
+				overlayFiles = make(map[string]bool)
+			}
+			overlayFiles[filepath.Clean(from)] = true
+		}
+	}
 	for i := len(all) - 1; i >= 0; i-- {
 		arg := all[i]
-		if strings.HasPrefix(arg, "-") || !strings.HasSuffix(arg, ext) {
+		isFile := strings.HasSuffix(arg, ext)
+		if !isFile && len(overlayFiles) > 0 {
+			abs, err := filepath.Abs(arg)
+			isFile = err == nil && overlayFiles[abs]
+		}
+		if strings.HasPrefix(arg, "-") || !isFile {
 			cutoff := i + 1 // arg is a flag, not a path
 			return all[:cutoff:cutoff], all[cutoff:]
 		}
