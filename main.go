@@ -412,6 +412,28 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 	// Split the flags from the package arguments, since we'll need
 	// to run 'go list' on the same set of packages.
 	flags, args := splitFlagsFromArgs(args)
+	// Go handles a leading -C before loading module and toolchain settings.
+	// Consume it here so our injected flags do not precede it in nested calls.
+	if len(flags) > 0 {
+		first := flags[0]
+		if strings.HasPrefix(first, "--") {
+			first = first[1:]
+		}
+		if first == "-C" || strings.HasPrefix(first, "-C=") {
+			var dir string
+			if first == "-C" {
+				if len(flags) < 2 {
+					return nil, fmt.Errorf("flag needs an argument: -C")
+				}
+				dir, flags = flags[1], flags[2:]
+			} else {
+				dir, flags = strings.TrimPrefix(first, "-C="), flags[1:]
+			}
+			if err := os.Chdir(dir); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if hasHelpFlag(flags) {
 		out, _ := exec.Command("go", command, "-h").CombinedOutput()
 		fmt.Fprintf(os.Stderr, `
