@@ -529,7 +529,18 @@ This command wraps "go %s". Below is its help:
 		startPatchingLinker()
 	}
 
-	if listErr := appendListedPackages(args, true); listErr != nil {
+	listArgs := args
+	if command == "run" && len(args) > 0 {
+		// go run accepts either one package or a sequence of .go files.
+		// Everything after the target is passed to the program itself.
+		listArgs = args[:1]
+		if strings.HasSuffix(args[0], ".go") {
+			for len(listArgs) < len(args) && strings.HasSuffix(args[len(listArgs)], ".go") {
+				listArgs = args[:len(listArgs)+1]
+			}
+		}
+	}
+	if listErr := appendListedPackages(listArgs, true); listErr != nil {
 		// A Go tool which can't be run at all fails here as well as in the
 		// background fetch above; prefer that error, as it is the root cause.
 		if err := <-binaryContentID; err != nil {
