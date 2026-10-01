@@ -23,7 +23,7 @@ Go 1.27.0, linux/amd64 results:
 | Existing full flattening | 364 / 351 / 368 | 93 / 90 / 93 |
 | State-dependent transitions | 376 / 401 / 401 | 79 / 85 / 85 |
 
-The transition calculations survive optimization. The resulting instruction sequences differ across seeds, although seeds 2 and 3 have the same opcode-only sequence. Sharing destination keys lets the compiler eliminate some repeated dispatch comparisons, so a lower instruction count does not mean stronger obfuscation. No recovered-control-flow or function-matching experiment has been performed.
+The transition calculations survive optimization. The resulting instruction sequences differ across seeds, although seeds 2 and 3 have the same opcode-only sequence. Sharing destination keys lets the compiler eliminate some repeated dispatch comparisons, so a lower instruction count does not mean stronger obfuscation. The state-propagation evaluation below does not support promotion of this rule.
 
 Runtime and executable-size data are also emitted by the probe. All benchmark samples reported zero allocations. Shared-machine runtime noise prevents a defensible slowdown estimate from these samples.
 
@@ -35,4 +35,16 @@ go test ./internal/ctrlflow -run '^TestExperimentMetrics$' -v -count=1
 
 Normal tests execute loops and joins over several inputs and seeds and check same-seed reproducibility. The existing `ctrlflow.txtar` fixture exercises the mode through Garble with literal obfuscation.
 
-Before promotion, test a larger corpus, state propagation attacks, hardening composition, nested flattening, and cost on a quiet machine. The existing SSA-to-AST map-iteration caveat remains unchanged.
+## State-propagation attack
+
+`TestStatePropagationAttack` follows dispatcher Phi assignments, evaluates XOR transitions, and prunes dispatcher comparisons with concrete propagated states. It never reads the generator's key map, block comments, or `dispatcherInfo`. Unknown parameters and dynamic state calculations stay unknown and the attack fails closed on them.
+
+The original-block boundary set is supplied by the evaluation, and the bootstrap state is known to be zero. The expected original edges are snapshotted independently before transformation, then compared with the recovered edges. This is a known-boundary SSA attack, not blind machine-code recovery. It explores both arms of real program decisions without trying to prove data-dependent path feasibility.
+
+Across six fixtures and eight seeds, it recovered all 344 original edge instances for ordinary full flattening and all 344 for state-dependent transitions. The fixtures include loops, nested loops, break/continue, joins with multiple Phis, switches, and early returns. Unknown-state tests also pass.
+
+```sh
+go test ./internal/ctrlflow -run '^TestState(PropagationAttack|AttackUnknown)$' -v -count=1
+```
+
+This is a negative result for the canonical-key XOR rule. A small propagation attack removes its added dependency under these assumptions. Keep it as a research baseline, not a stronger default obfuscation mode. Binary-only recovery and broader cost measurements remain separate work. The existing SSA-to-AST map-iteration caveat remains unchanged; these fixtures do not use map iteration.
