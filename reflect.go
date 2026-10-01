@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"go/types"
+	"iter"
 	"log"
 	"maps"
 	"os"
@@ -155,7 +156,6 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 				for at := range mset.Methods() {
 					if m := ssaPkg.Prog.MethodValue(at); m != nil {
 						ri.checkFunction(m)
-						ri.checkAnonFunctions(m)
 					} else {
 						m := at.Obj().(*types.Func)
 						// handle interface declarations
@@ -176,15 +176,7 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 			// functions like the initialization of global variables
 
 			ri.checkFunction(x)
-			ri.checkAnonFunctions(x)
 		}
-	}
-}
-
-func (ri *reflectInspector) checkAnonFunctions(fun *ssa.Function) {
-	for _, anon := range fun.AnonFuncs {
-		ri.checkFunction(anon)
-		ri.checkAnonFunctions(anon)
 	}
 }
 
@@ -250,6 +242,9 @@ func (ri *reflectInspector) checkInterfaceMethod(m *types.Func) {
 
 // Checks all callsites in a function declaration for use of reflection.
 func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
+	for _, anon := range fun.AnonFuncs {
+		ri.checkFunction(anon)
+	}
 	// if fun != nil && fun.Synthetic != "loaded from gc object file" {
 	// 	// fun.WriteTo crashes otherwise
 	// 	fun.WriteTo(os.Stdout)
@@ -416,42 +411,50 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 	}
 }
 
-// recordImplementedInterfaceMethods carries reflection use from a concrete method
-// to interface dispatches, including interfaces declared in an imported package.
-func (ri *reflectInspector) recordImplementedInterfaceMethods(method *types.Func, params map[int]bool) {
-	recv := method.Signature().Recv().Type()
-	for _, pkg := range append([]*types.Package{ri.pkg}, ri.pkg.Imports()...) {
+func mergeReflectParams(apis map[string]map[int]bool, name string, params map[int]bool) {
+	if apis[name] == nil {
+		apis[name] = make(map[int]bool)
+	}
+	maps.Copy(apis[name], params)
+}
+
+func packageTypes(pkg *types.Package) iter.Seq[types.Type] {
+	return func(yield func(types.Type) bool) {
 		for _, name := range pkg.Scope().Names() {
-			obj, ok := pkg.Scope().Lookup(name).(*types.TypeName)
-			if !ok {
-				continue
+			if obj, ok := pkg.Scope().Lookup(name).(*types.TypeName); ok && !yield(obj.Type()) {
+				return
 			}
-			iface, ok := obj.Type().Underlying().(*types.Interface)
-			if !ok || !types.Implements(recv, iface) {
-				continue
-			}
-			for i := range iface.NumMethods() {
-				im := iface.Method(i)
-				if im.Name() != method.Name() {
-					continue
-				}
-				key := im.FullName()
-				if ri.result.ReflectAPIs[key] == nil {
-					ri.result.ReflectAPIs[key] = make(map[int]bool)
-				}
-				// ReflectAPIs indexes declared parameters; the receiver is
-				// already excluded, including for deferred call edges.
-				for pos := range params {
-					ri.result.ReflectAPIs[key][pos] = true
+		}
+	}
+}
+
+func interfaceMethods(pkg *types.Package) iter.Seq2[*types.Interface, *types.Func] {
+	return func(yield func(*types.Interface, *types.Func) bool) {
+		for typ := range packageTypes(pkg) {
+			if iface, ok := typ.Underlying().(*types.Interface); ok {
+				for method := range iface.Methods() {
+					if !yield(iface, method) {
+						return
+					}
 				}
 			}
 		}
 	}
 }
 
-// matchReflectedInterfaceMethods resolves implementation relationships after
-// all dependency summaries have been merged. A concrete type need not import
-// the interface it implements; only the final build sees both packages.
+// Imported interfaces can dispatch to a reflective method in this package.
+func (ri *reflectInspector) recordImplementedInterfaceMethods(method *types.Func, params map[int]bool) {
+	for _, pkg := range append([]*types.Package{ri.pkg}, ri.pkg.Imports()...) {
+		for iface, im := range interfaceMethods(pkg) {
+			if im.Name() == method.Name() && types.Implements(method.Signature().Recv().Type(), iface) {
+				mergeReflectParams(ri.result.ReflectAPIs, im.FullName(), params)
+			}
+		}
+	}
+}
+
+// A concrete type need not import the interface it implements; only the final
+// build sees both packages and can match their merged reflection summaries.
 func matchReflectedInterfaceMethods(pkg *types.Package, result *pkgCache) {
 	targets := make(map[string]bool)
 	for _, edge := range result.ReflectCallEdges {
@@ -460,13 +463,15 @@ func matchReflectedInterfaceMethods(pkg *types.Package, result *pkgCache) {
 	if len(targets) == 0 {
 		return
 	}
-	packages := make(map[string]*types.Package)
+	var packages []*types.Package
+	seen := make(map[*types.Package]bool)
 	var visit func(*types.Package)
 	visit = func(p *types.Package) {
-		if p == nil || packages[p.Path()] != nil {
+		if seen[p] {
 			return
 		}
-		packages[p.Path()] = p
+		seen[p] = true
+		packages = append(packages, p)
 		for _, imp := range p.Imports() {
 			visit(imp)
 		}
@@ -477,67 +482,34 @@ func matchReflectedInterfaceMethods(pkg *types.Package, result *pkgCache) {
 		iface  *types.Interface
 		method *types.Func
 	}
-	var interfaces []interfaceMethod
-	names := make(map[string]bool)
-	paths := slices.Sorted(maps.Keys(packages))
-	for _, path := range paths {
-		p := packages[path]
-		for _, name := range p.Scope().Names() {
-			obj, ok := p.Scope().Lookup(name).(*types.TypeName)
-			if !ok {
-				continue
-			}
-			iface, ok := obj.Type().Underlying().(*types.Interface)
-			if !ok {
-				continue
-			}
-			for method := range iface.Methods() {
-				if targets[method.FullName()] {
-					interfaces = append(interfaces, interfaceMethod{iface, method})
-					names[method.Name()] = true
-				}
+	interfaces := make(map[string][]interfaceMethod)
+	for _, p := range packages {
+		for iface, method := range interfaceMethods(p) {
+			if targets[method.FullName()] {
+				interfaces[method.Name()] = append(interfaces[method.Name()], interfaceMethod{iface, method})
 			}
 		}
 	}
 	if len(interfaces) == 0 {
 		return
 	}
-
-	type reflectedMethod struct {
-		receiver types.Type
-		params   map[int]bool
-	}
-	candidates := make(map[string][]reflectedMethod)
-	for _, path := range paths {
-		p := packages[path]
-		for _, name := range p.Scope().Names() {
-			obj, ok := p.Scope().Lookup(name).(*types.TypeName)
-			if !ok {
+	for _, p := range packages {
+		for typ := range packageTypes(p) {
+			if _, ok := typ.Underlying().(*types.Interface); ok {
 				continue
 			}
-			if _, ok := obj.Type().Underlying().(*types.Interface); ok {
-				continue
-			}
-			receiver := types.NewPointer(obj.Type())
-			methods := types.NewMethodSet(receiver)
-			for selection := range methods.Methods() {
+			receiver := types.NewPointer(typ)
+			for selection := range types.NewMethodSet(receiver).Methods() {
 				method := selection.Obj().(*types.Func)
-				if params := result.ReflectAPIs[method.FullName()]; names[method.Name()] && len(params) > 0 {
-					candidates[method.Name()] = append(candidates[method.Name()], reflectedMethod{receiver, params})
+				params := result.ReflectAPIs[method.FullName()]
+				if len(params) == 0 {
+					continue
 				}
-			}
-		}
-	}
-	for _, target := range interfaces {
-		for _, concrete := range candidates[target.method.Name()] {
-			if !types.Implements(concrete.receiver, target.iface) {
-				continue
-			}
-			for pos := range concrete.params {
-				if result.ReflectAPIs[target.method.FullName()] == nil {
-					result.ReflectAPIs[target.method.FullName()] = make(map[int]bool)
+				for _, target := range interfaces[method.Name()] {
+					if types.Implements(receiver, target.iface) {
+						mergeReflectParams(result.ReflectAPIs, target.method.FullName(), params)
+					}
 				}
-				result.ReflectAPIs[target.method.FullName()][pos] = true
 			}
 		}
 	}
