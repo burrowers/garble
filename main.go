@@ -94,12 +94,20 @@ var booleanFlags = map[string]bool{
 	"-x":          true,
 
 	// Test flags (TODO: support its special -args flag)
-	"-benchmem": true,
-	"-c":        true,
-	"-failfast": true,
-	"-fullpath": true,
-	"-json":     true,
-	"-short":    true,
+	"-artifacts": true,
+	"-benchmem":  true,
+	"-c":         true,
+	"-failfast":  true,
+	"-fullpath":  true,
+	"-json":      true,
+	"-short":     true,
+
+	"-test.artifacts": true,
+	"-test.benchmem":  true,
+	"-test.failfast":  true,
+	"-test.fullpath":  true,
+	"-test.short":     true,
+	"-test.v":         true,
 }
 
 var flagSet = flag.NewFlagSet("garble", flag.ExitOnError)

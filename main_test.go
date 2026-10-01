@@ -426,10 +426,9 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 			[2][]string{{"-race"}, {"pkg"}},
 		},
 		{
-			// TODO: retain the package after test.-prefixed boolean flags.
 			"PrefixedBoolFlagsAndArgs",
 			[]string{"-test.v", "pkg"},
-			[2][]string{{"-test.v", "pkg"}, nil},
+			[2][]string{{"-test.v"}, {"pkg"}},
 		},
 		{
 			"LongBoolFlagsAndArgs",
@@ -460,6 +459,19 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 
 			qt.Assert(t, qt.DeepEquals(got, test.want))
 		})
+	}
+}
+
+func TestTestBooleanFlags(t *testing.T) {
+	for _, name := range []string{"artifacts", "benchmem", "failfast", "fullpath", "short", "v"} {
+		for _, prefix := range []string{"-", "-test.", "--test."} {
+			arg := prefix + name
+			flags, args := splitFlagsFromArgs([]string{arg, "pkg"})
+			qt.Assert(t, qt.DeepEquals(flags, []string{arg}))
+			qt.Assert(t, qt.DeepEquals(args, []string{"pkg"}))
+			forwarded, _ := filterForwardBuildFlags([]string{arg, "-tags", "tag"})
+			qt.Assert(t, qt.DeepEquals(forwarded, []string{"-tags", "tag"}))
+		}
 	}
 }
 
