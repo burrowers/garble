@@ -567,6 +567,11 @@ This command wraps "go %s". Below is its help:
 	if err := <-binaryContentID; err != nil {
 		return nil, err
 	}
+	if flagLiterals {
+		if err := computeLiteralLinkerFlags(); err != nil {
+			return nil, err
+		}
+	}
 	for _, lpkg := range sharedCache.ListedPackages.all() {
 		if lpkg.BuildID != "" {
 			lpkg.GarbleActionID = addGarbleToHash(decodeBuildIDHash(splitActionID(lpkg.BuildID)))

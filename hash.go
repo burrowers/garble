@@ -12,8 +12,10 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	"maps"
 	mathrand "math/rand"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -113,6 +115,21 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 
 	// Include options which affect the build output in the hash.
 	appendFlags(hasher, true)
+	if flagLiterals {
+		// Relative patterns and workspace aliases can resolve differently
+		// with identical command-line text. Hash effective -X values, which
+		// affect compilation, but not unrelated linker options.
+		for _, path := range slices.Sorted(maps.Keys(sharedCache.LinkerFlags)) {
+			values := make(map[string]string)
+			for value := range flagValues(sharedCache.LinkerFlags[path], "-X") {
+				name, value, _ := strings.Cut(value, "=")
+				values[name] = value
+			}
+			for _, name := range slices.Sorted(maps.Keys(values)) {
+				fmt.Fprintf(hasher, " linkerString[%q][%q]=%q", path, name, values[name])
+			}
+		}
+	}
 	// addGarbleToHash returns the sum buffer, so we need a new copy.
 	// Otherwise the next use of the global sumBuffer would conflict.
 	var sumBuffer [sha256.Size]byte
