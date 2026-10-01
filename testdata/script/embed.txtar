@@ -7,11 +7,6 @@ exec garble -literals build -o app$exe
 exec ./app$exe
 cmp stdout want.stdout
 ! binsubstr app$exe 'GARBLE_EMBED_STRING_SECRET_194' 'GARBLE_EMBED_BYTES_SECRET_194' 'GARBLE_FS_SECRET_194'
-env GOGARBLE=test/main/obfuscate
-exec garble -literals build -o app$exe
-exec ./app$exe
-cmp stdout want.stdout
-! binsubstr app$exe 'GARBLE_EMBED_STRING_SECRET_194' 'GARBLE_EMBED_BYTES_SECRET_194' 'GARBLE_FS_SECRET_194'
 
 [short] stop
 

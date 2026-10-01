@@ -6,31 +6,76 @@ stderr 'usage: garble \[garble flags\] map'
 ! exec garble map -badflag=foo .
 stderr 'flag provided but not defined'
 
-# Only obfuscate our own module, so the output is small and deterministic;
-# the default GOGARBLE='*' would dump every dependency.
-env GOGARBLE=test/main
 env SEED=OQg9kACEECQ
 
-# A fixed seed makes the obfuscated names deterministic, so we can compare
-# against a golden file.
+# A fixed seed makes the obfuscated names deterministic. Compare the complete
+# module entries, without depending on which standard packages also appear.
 exec garble -seed=${SEED} map ./...
-cmp stdout map.golden
+cp stdout map.json
+exec go run checkmap.go map.json
+cmp stdout expected.json
 
-[short] stop # the extra checks below don't need a real build
+# The imported package's path is obfuscated, while the main package keeps
+# 'main'. Exported interface methods and unreachable names have no entries.
+# The exact objects map also checks that the unexported method is Type.M1.
 
-# The obfuscated import path of an imported package replaces the original,
-# while a main package keeps its 'main' path.
-stdout '"test/main/lib"'
-! stdout '"path": "test/main/lib"'
-stdout '"path": "main"'
+-- checkmap.go --
+//go:build ignore
 
-# Exported methods may implement an interface, so they are not obfuscated and
-# get no entry; only the unexported method shows up, as Type.M1 rather than M0.
-! stdout '"Type.M0"'
+package main
 
-# Non-exported funcs have no object path, so they never appear.
-! stdout 'unexportedFunc'
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+)
 
+func main() {
+	data, err := os.ReadFile(os.Args[1])
+	if err != nil {
+		panic(err)
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		panic(err)
+	}
+	selected := make(map[string]any)
+	for _, path := range []string{"test/main", "test/main/lib"} {
+		entry, ok := all[path]
+		if !ok {
+			panic(fmt.Sprintf("missing %s", path))
+		}
+		var value any
+		if err := json.Unmarshal(entry, &value); err != nil {
+			panic(err)
+		}
+		selected[path] = value
+	}
+	out, err := json.MarshalIndent(selected, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(out))
+}
+-- expected.json --
+{
+  "test/main": {
+    "objects": {},
+    "path": "main"
+  },
+  "test/main/lib": {
+    "objects": {
+      "Func": "WyCltOQD7",
+      "Type": "DhGKDlt9JmL",
+      "Type.M1": "gjmYsc0O8lJ",
+      "Type.UF0": "C8xgTKGxp",
+      "Type.UF1": "bY3gZ_F_i",
+      "hidden": "b5SrWf",
+      "hidden.UF0": "NjPGe8"
+    },
+    "path": "oe8YBK"
+  }
+}
 -- go.mod --
 module test/main
 
@@ -64,22 +109,3 @@ func unexportedFunc() {}
 
 // hidden is an unexported type, still referenceable via objectpath.
 type hidden struct{ Field int }
--- map.golden --
-{
-	"test/main": {
-		"path": "main",
-		"objects": {}
-	},
-	"test/main/lib": {
-		"path": "oe8YBK",
-		"objects": {
-			"Func": "WyCltOQD7",
-			"Type": "DhGKDlt9JmL",
-			"Type.M1": "gjmYsc0O8lJ",
-			"Type.UF0": "C8xgTKGxp",
-			"Type.UF1": "bY3gZ_F_i",
-			"hidden": "b5SrWf",
-			"hidden.UF0": "NjPGe8"
-		}
-	}
-}

@@ -35,13 +35,9 @@ order to:
 * Obfuscate embedded files as part of `-literals`
 * Remove [extra information](#tiny-mode), if the `-tiny` flag is given
 
-By default, the tool obfuscates all the packages being built.
-You can manually specify which packages to obfuscate via `GOGARBLE`,
-a comma-separated list of glob patterns matching package path prefixes.
-This format is borrowed from `GOPRIVATE`; see `go help private`.
-
-When selected by `GOGARBLE`, the standard runtime is obfuscated as well. Runtime
-obfuscation follows Go's supported `GOOS`/`GOARCH` targets; Garble does not
+The tool obfuscates all supported packages being built, including the standard runtime.
+The unsupported `runtime/cgo` and `crypto/internal/fips140` packages are excluded.
+Runtime obfuscation follows Go's supported `GOOS`/`GOARCH` targets; Garble does not
 maintain a narrower architecture allowlist.
 
 Note that commands like `garble build` will use the `go` version found in your
@@ -91,8 +87,7 @@ With `-literals`, Garble replaces `//go:embed` variables of type `string` or
 types. For `embed.FS`, Garble substitutes encoded file contents in the compiler's
 embed configuration and adapts the standard `embed` package to decode them when
 opened. Its paths, directory entries, file sizes, seeking, and `ReadAt` behavior
-remain available. The original files remain untouched, and the option only
-obfuscates assets in packages selected by `GOGARBLE`.
+remain available. The original files remain untouched.
 
 Embedded string and byte-slice variables use the literal obfuscators. Values
 larger than 2 KiB use a linear-time decoder with a bounded number of AST nodes,
@@ -173,8 +168,7 @@ to document the current shortcomings of this tool.
   be required by interfaces. This area is a work in progress; see
   [#3](https://github.com/burrowers/garble/issues/3).
 
-* Aside from `GOGARBLE` to select patterns of packages to obfuscate,
-  there is no supported way to exclude obfuscating a selection of files or packages.
+* There is no supported way to exclude obfuscating a selection of files or packages.
   More often than not, a user would want to do this to work around a bug; please file the bug instead.
 
 * Go programs [are initialized](https://go.dev/ref/spec#Program_initialization) one package at a time,

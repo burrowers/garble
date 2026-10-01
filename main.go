@@ -427,6 +427,9 @@ This command wraps "go %s". Below is its help:
 			return nil, fmt.Errorf("garble flags must precede command, like: garble %s build ./pkg", flag)
 		}
 	}
+	if value := os.Getenv("GOGARBLE"); value != "" && value != "*" {
+		return nil, fmt.Errorf("GOGARBLE=%q is no longer supported; all packages including the runtime are obfuscated now", value)
+	}
 
 	// Here is the only place we initialize the cache.
 	// The sub-processes will parse it from a shared file.
@@ -871,7 +874,6 @@ To install Go, see: https://go.dev/doc/install
 	}
 
 	sharedCache.GoCmd = filepath.Join(sharedCache.GoEnv.GOROOT, "bin", "go")
-	sharedCache.GOGARBLE = cmp.Or(os.Getenv("GOGARBLE"), "*") // we default to obfuscating everything
 	return nil
 }
 

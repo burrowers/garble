@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 	"github.com/rogpeppe/go-internal/lockedfile"
@@ -82,7 +83,10 @@ var linkerOverlayFiles = []string{
 	"cmd/link/internal/ld/inittask.go",
 	"cmd/link/internal/ld/xcoff.go",
 	"cmd/link/internal/ppc64/asm.go",
+	"cmd/link/internal/arm/asm.go",
 	"cmd/link/internal/arm64/asm.go",
+	"cmd/link/internal/loong64/asm.go",
+	"cmd/link/internal/riscv64/asm.go",
 	"cmd/link/internal/wasm/asm.go",
 	"cmd/internal/goobj/builtin.go",
 	"cmd/internal/objabi/garble.go",
@@ -283,7 +287,7 @@ func normalizeGoRoot(goRoot, tempDir string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(goRoot))
 	mirrorRoot := filepath.Join(tempDir, fmt.Sprintf("toolchain-%x", sum[:8]))
-	mutex := lockedfile.MutexAt(mirrorRoot + ".lock")
+	mutex := lockedfile.MutexAt(mirrorRoot + lockExt)
 	unlock, err := mutex.Lock()
 	if err != nil {
 		return "", err
@@ -319,6 +323,54 @@ func cachePathForTool(cacheDir, toolName string) (string, error) {
 	return filepath.Join(cacheDir, toolName+goExe), nil
 }
 
+// Like cmd/go's GOCACHE, record uses via mtimes and trim after days of disuse.
+const (
+	// Cached tools unused for this long are removed when building a new tool.
+	toolTrimAge = 5 * 24 * time.Hour
+	// Limits how often a cached tool's mtime is updated to record its use.
+	toolUsedInterval = time.Hour
+)
+
+// markToolUsed records that a cached tool is in use via its mtime,
+// so that [trimToolCache] keeps it.
+func markToolUsed(toolPath string, mtime, now time.Time) {
+	if now.Sub(mtime) > toolUsedInterval {
+		os.Chtimes(toolPath, now, now) // best-effort
+	}
+}
+
+// trimToolCache removes cached tools which have not been used in [toolTrimAge],
+// as well as any unversioned tools left behind by older Garble versions.
+// Removal is best-effort, as a tool may be running on Windows.
+func trimToolCache(cacheDir string, now time.Time) {
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		return
+	}
+	// Group each tool with its version and lock files.
+	lastUsed := make(map[string]time.Time)
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), versionExt)
+		name = strings.TrimSuffix(name, lockExt)
+		if t := info.ModTime(); t.After(lastUsed[name]) {
+			lastUsed[name] = t
+		}
+	}
+	for name, t := range lastUsed {
+		versioned := strings.Contains(name, "-") // see [versionedToolName]
+		if versioned && now.Sub(t) < toolTrimAge {
+			continue
+		}
+		for _, suffix := range []string{"", versionExt, lockExt} {
+			os.Remove(filepath.Join(cacheDir, name+suffix))
+		}
+	}
+}
+
 func versionedToolName(toolName, goVersion, patchVersion string) string {
 	sum := sha256.Sum256([]byte(goVersion + "\x00" + patchVersion))
 	return fmt.Sprintf("%s-%x", toolName, sum[:8])
@@ -332,7 +384,10 @@ func getCurrentVersion(goVersion, patchesVer string) string {
 	return goVersion + " " + patchesVer + "\n"
 }
 
-const versionExt = ".version"
+const (
+	versionExt = ".version"
+	lockExt    = ".lock"
+)
 
 func checkVersion(toolPath, goVersion, patchesVer string) (bool, error) {
 	versionPath := toolPath + versionExt
@@ -467,7 +522,7 @@ func patchAndBuildTool(toolName, toolPkg, goSrcRoot, goRoot, goVersion, cacheDir
 		return "", err
 	}
 
-	mutex := lockedfile.MutexAt(outputPath + ".lock")
+	mutex := lockedfile.MutexAt(outputPath + lockExt)
 	unlock, err := mutex.Lock()
 	if err != nil {
 		return "", err
@@ -484,9 +539,10 @@ func patchAndBuildTool(toolName, toolPkg, goSrcRoot, goRoot, goVersion, cacheDir
 	if err != nil {
 		return "", err
 	}
-	if isCorrectVer && fileExists(outputPath) {
+	if info, err := os.Stat(outputPath); isCorrectVer && err == nil && !info.IsDir() {
 		unlock()
 		lockHeld = false
+		markToolUsed(outputPath, info.ModTime(), time.Now())
 		return outputPath, nil
 	}
 
@@ -523,6 +579,9 @@ func patchAndBuildTool(toolName, toolPkg, goSrcRoot, goRoot, goVersion, cacheDir
 
 	unlock()
 	lockHeld = false
+	// Building a new tool is rare, and typically means that Go or Garble were
+	// upgraded, so it is a good time to remove unused tools.
+	trimToolCache(filepath.Dir(outputPath), time.Now())
 	return outputPath, nil
 }
 

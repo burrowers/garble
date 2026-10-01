@@ -1,25 +1,9 @@
-# Ensure that "does not match any packages" works.
-env GOGARBLE=match-absolutely/nothing
-! exec garble build -o=main$exe ./standalone
-stderr '^GOGARBLE="match-absolutely/nothing" does not match any packages to be built$'
-
-# A build where just some packages are obfuscated.
-env GOGARBLE=test/main/imported
-exec garble -literals build -o=main$exe ./importer
-
-! binsubstr main$exe 'some long string to obfuscate'
-binsubstr main$exe 'some long string to not obfuscate'
-
-# Obfuscated packages which import non-obfuscated std packages.
-# Some of the imported std packages use "import maps" due to vendoring,
-# and a past bug made this case fail for "garble build".
-env GOGARBLE=test/main
+# Link a binary importing std packages, including vendored copies.
 exec garble build -o=main$exe ./std_importer
+! stderr . # no warnings
+! binsubstr main$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
 
 [short] stop # rebuilding std is slow
-
-# Go back to the default of obfuscating all packages.
-env GOGARBLE='*'
 
 # Try garbling all of std, given some std packages.
 # No need for a main package here; building the std packages directly works the
@@ -27,16 +11,9 @@ env GOGARBLE='*'
 # This used to cause multiple errors, mainly since std vendors some external
 # packages so we must properly support ImportMap.
 # Plus, some packages like net make heavy use of complex features like Cgo.
-# Note that we won't obfuscate a few std packages just yet, mainly those around runtime.
+# Unsupported std packages such as runtime/cgo and FIPS remain excluded.
 exec garble build std
 ! stderr . # no warnings
-
-# Link a binary importing a good chunk of the standard library,
-# which will catch whether or not we support ImportMap when linking.
-# Also ensure we are obfuscating low-level std packages.
-exec garble build -o=main$exe ./std_importer
-! stderr . # no warnings
-! binsubstr main$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
 
 # Ensure that the embedded runtime.GOROOT and runtime.Version are unset.
 # Note that testscript sets GOROOT explicitly, which we don't want to use.
@@ -63,26 +40,6 @@ bincmp debug_rebuild$exe debug$exe
 module test/main
 
 go 1.23
--- standalone/main.go --
-package main
-
-func main() {}
-
--- importer/importer.go --
-package main
-
-import "test/main/imported"
-
-func main() {
-	println(imported.LongString)
-	println("some long string to not obfuscate")
-}
-
--- imported/imported.go --
-package imported
-
-var LongString = "some long string to obfuscate"
-
 -- std_importer/main.go --
 package main
 
