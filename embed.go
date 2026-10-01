@@ -1,15 +1,18 @@
+// Copyright (c) 2026, The Garble Authors.
+// See LICENSE for licensing information.
+
 package main
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"go/types"
 	"os"
 	"strings"
+
+	"mvdan.cc/garble/internal/literals"
 )
 
 // The compiler's embedcfg resolves each pattern to filenames and filenames to
@@ -87,21 +90,21 @@ func (tf *transformer) obfuscateEmbeds(files []*ast.File, flags []string) error 
 				case *types.Basic:
 					isString = t.Info()&types.IsString != 0
 					if !isString {
-						return fmt.Errorf("-embed does not support %s (%s)", spec.Names[0].Name, obj.Type())
+						return fmt.Errorf("embed does not support %s (%s)", spec.Names[0].Name, obj.Type())
 					}
 				case *types.Slice:
 					elem, ok := t.Elem().Underlying().(*types.Basic)
 					if !ok || elem.Kind() != types.Byte {
-						return fmt.Errorf("-embed does not support %s (%s)", spec.Names[0].Name, obj.Type())
+						return fmt.Errorf("embed does not support %s (%s)", spec.Names[0].Name, obj.Type())
 					}
 				default:
 					if !isEmbedFS(obj.Type()) {
-						return fmt.Errorf("-embed does not support %s (%s)", spec.Names[0].Name, obj.Type())
+						return fmt.Errorf("embed does not support %s (%s)", spec.Names[0].Name, obj.Type())
 					}
 					for _, pattern := range patterns {
 						matches, ok := cfg.Patterns[pattern]
 						if !ok || len(matches) == 0 {
-							return fmt.Errorf("-embed: no files for pattern %q", pattern)
+							return fmt.Errorf("embed: no files for pattern %q", pattern)
 						}
 						for _, name := range matches {
 							used[name] = true
@@ -113,26 +116,28 @@ func (tf *transformer) obfuscateEmbeds(files []*ast.File, flags []string) error 
 				for _, pattern := range patterns {
 					matches, ok := cfg.Patterns[pattern]
 					if !ok || len(matches) == 0 {
-						return fmt.Errorf("-embed: no files for pattern %q", pattern)
+						return fmt.Errorf("embed: no files for pattern %q", pattern)
 					}
 					names = append(names, matches...)
 				}
 				if len(names) != 1 {
-					return fmt.Errorf("-embed: %s matches %d files; string and []byte require one", spec.Names[0].Name, len(names))
+					return fmt.Errorf("embed: %s matches %d files; string and []byte require one", spec.Names[0].Name, len(names))
 				}
 				name := names[0]
 				path, ok := cfg.Files[name]
 				if !ok {
-					return fmt.Errorf("-embed: no file path for %q", name)
+					return fmt.Errorf("embed: no file path for %q", name)
 				}
 				plain, err := os.ReadFile(path)
 				if err != nil {
-					return fmt.Errorf("-embed: %q: %w", name, err)
+					return fmt.Errorf("embed: %q: %w", name, err)
 				}
-				expr, err := embedDecoder(plain, name, tf.curPkg.GarbleActionID[:], isString)
-				if err != nil {
-					return err
+				// Defer decoder generation to the literal pass, which owns its proxy declarations.
+				var expr ast.Expr = &ast.BasicLit{Kind: token.STRING, Value: `""`, ValuePos: spec.Names[0].Pos()}
+				if tf.embeddedValues == nil {
+					tf.embeddedValues = make(map[ast.Expr]literals.EmbeddedValue)
 				}
+				tf.embeddedValues[expr] = literals.EmbeddedValue{Data: plain, String: isString}
 				if _, named := types.Unalias(obj.Type()).(*types.Named); named {
 					expr = &ast.CallExpr{Fun: spec.Type, Args: []ast.Expr{expr}}
 				}
@@ -152,46 +157,8 @@ func (tf *transformer) obfuscateEmbeds(files []*ast.File, flags []string) error 
 	}
 	for name := range cfg.Files {
 		if !used[name] {
-			return fmt.Errorf("-embed: unhandled embedded file %q", name)
+			return fmt.Errorf("embed: unhandled embedded file %q", name)
 		}
 	}
 	return nil
-}
-
-func embedKey(name string, actionID []byte) []byte {
-	hash := sha256.New()
-	hash.Write(actionID)
-	hash.Write([]byte(name))
-	return hash.Sum(nil)
-}
-
-func embedDecoder(plain []byte, name string, actionID []byte, asString bool) (ast.Expr, error) {
-	key := embedKey(name, actionID)
-	var src strings.Builder
-	src.WriteString("func() ")
-	if asString {
-		src.WriteString("string")
-	} else {
-		src.WriteString("[]byte")
-	}
-	src.WriteString(" { b := []byte{")
-	for i, b := range plain {
-		fmt.Fprintf(&src, "%d,", b^key[i%len(key)])
-	}
-	src.WriteString("}; k := []byte{")
-	for _, b := range key {
-		fmt.Fprintf(&src, "%d,", b)
-	}
-	src.WriteString("}; for i := range b { b[i] ^= k[i%len(k)] }; return ")
-	if asString {
-		src.WriteString("string(b)")
-	} else {
-		src.WriteString("b")
-	}
-	src.WriteString(" }()")
-	expr, err := parser.ParseExpr(src.String())
-	if err != nil {
-		return nil, fmt.Errorf("-embed: generated decoder: %w", err)
-	}
-	return expr, nil
 }

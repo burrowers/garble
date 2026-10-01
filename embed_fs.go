@@ -1,3 +1,6 @@
+// Copyright (c) 2026, The Garble Authors.
+// See LICENSE for licensing information.
+
 package main
 
 import (
@@ -8,21 +11,21 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
-)
 
-// Encrypted FS data remains a string in the compiler-generated embed.file layout.
-// The key travels with the ciphertext: this is obfuscation, not encryption.
-const embedMagic = "\x00garble:embed:v1\x00"
+	"mvdan.cc/garble/internal/literals"
+)
 
 func isEmbedFS(t types.Type) bool {
 	named, ok := types.Unalias(t).(*types.Named)
 	return ok && named.Obj().Name() == "FS" && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == "embed"
 }
 
-func (tf *transformer) encryptEmbedFiles(flags []string) ([]string, error) {
+func (tf *transformer) obfuscateEmbedFiles(flags []string) ([]string, error) {
 	cfgPath := flagValue(flags, "-embedcfg")
 	if cfgPath == "" {
 		return flags, nil
@@ -35,18 +38,13 @@ func (tf *transformer) encryptEmbedFiles(flags []string) ([]string, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("invalid embedcfg: %w", err)
 	}
-	for name, path := range cfg.Files {
+	for _, name := range slices.Sorted(maps.Keys(cfg.Files)) {
+		path := cfg.Files[name]
 		plain, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("-embed: %q: %w", name, err)
+			return nil, fmt.Errorf("embed: %q: %w", name, err)
 		}
-		key := embedKey(name, tf.curPkg.GarbleActionID[:])
-		encoded := make([]byte, len(embedMagic)+len(key)+len(plain))
-		copy(encoded, embedMagic)
-		copy(encoded[len(embedMagic):], key)
-		for i, b := range plain {
-			encoded[len(embedMagic)+len(key)+i] = b ^ key[i%len(key)]
-		}
+		encoded := literals.EncodeBlob(tf.obfRand, plain)
 		// Use a basename independent of package-relative names, which may have slashes.
 		hash := sha256.Sum256([]byte(name))
 		newPath, err := tf.writeSourceFile(fmt.Sprintf("embed-%x", hash[:8]), fmt.Sprintf("embed-%x", hash[:8]), encoded)
@@ -80,12 +78,11 @@ func garbleEmbedSize(s string) int {
 }
 func garbleEmbedDecode(s string) string {
  if len(s) < len(garbleEmbedMagic)+32 || s[:len(garbleEmbedMagic)] != garbleEmbedMagic { return s }
- key := s[len(garbleEmbedMagic):len(garbleEmbedMagic)+32]
- b := []byte(s[len(garbleEmbedMagic)+32:])
- for i := range b { b[i] ^= key[i%len(key)] }
- return string(b)
-}`
-	helpSource := strings.Replace(helperTemplate, "EMBED_MAGIC", strconv.Quote(embedMagic), 1)
+ return string(garbleBlobDecode(s))
+}
+func garbleBlobDecode(s string) []byte DECODE_BODY`
+	helpSource := strings.Replace(helperTemplate, "EMBED_MAGIC", strconv.Quote(literals.BlobMagic), 1)
+	helpSource = strings.Replace(helpSource, "DECODE_BODY", literals.BlobDecodeBody("s", "b", "key", "i"), 1)
 	generated, err := parser.ParseFile(fset, "garble_embed.go", helpSource, 0)
 	if err != nil {
 		return err
