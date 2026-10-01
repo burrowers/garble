@@ -35,6 +35,8 @@ func main() {
 
 ### Parameter explanation
 
+The opt-in `decision_lowering` prototype is documented in [the multi-way decision experiment](CONTROLFLOW_DECISION_EXPERIMENT.md). It defaults to zero and requires `flatten_passes=0` with no other structural or hardening passes.
+
 > Unlike other garble features (which just work), we recommend that you understand how parameters affect control flow obfuscation and which caveats exist.
 
 > Code snippets below without name obfuscation, for better readability.
