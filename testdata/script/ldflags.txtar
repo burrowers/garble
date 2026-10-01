@@ -5,7 +5,7 @@
 #   -X=name=value
 #   -X name=value
 #   -X "name=value" (or with single quotes, allows spaces in value)
-env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/missing/path.missingVar=value -X=main.someType=notAVariable'
+env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/main/imported.AnotherUnset=another_replaced -X=domain.test/missing/path.missingVar=value -X=main.someType=notAVariable'
 
 exec garble build -ldflags=${LDFLAGS}
 exec ./main
@@ -19,6 +19,7 @@ exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'unexportedVersion' 'ExportedUnset'
 binsubstr main$exe 'v1.22.33' 'garble_replaced' # TODO: obfuscate injected strings too
+binsubstr main$exe 'another_replaced' # TODO: obfuscate grouped zero-value injections
 binsubstr main$exe 'kept_before' 'kept_after' # TODO: obfuscate strings near ldflags vars
 
 go build -ldflags=${LDFLAGS}
@@ -51,6 +52,7 @@ const someConst = "untouchable"
 func someFunc() string { return "untouchable" }
 
 func main() {
+	if imported.AnotherUnset != "another_replaced" { panic("bad grouped zero-value declaration") }
 	fmt.Printf("version: %q\n", unexportedVersion)
 	fmt.Printf("becomes empty: %q\n", replacedWithEmpty)
 	fmt.Printf("becomes string with spaces: %q\n", replacedWithSpaces)
