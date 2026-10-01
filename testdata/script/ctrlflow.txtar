@@ -96,8 +96,12 @@ func ModifyValue() {
 	println("New value of a:", a)
 }
 
+//garble:controlflow flatten_passes=0 decision_lowering=1
+func decisionTest(n uint32) uint32 { switch n { case 0:return 4; case 1:return 8; case 2:return 13; case 6:return 9; case 17:return 34; default:return n*3 } }
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
+	if decisionTest(0)!=4 || decisionTest(17)!=34 || decisionTest(31)!=93 { panic("decision") }
 	// Reference to the unexported interface triggers creation of a new interface
 	// with a list of all functions of the private interface
 	endian := binary.LittleEndian

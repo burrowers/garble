@@ -182,6 +182,10 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
+		decision, err := params.GetInt("decision_lowering", 0, 1)
+		if err != nil || decision < 0 {
+			return "", nil, nil, fmt.Errorf("decision_lowering must be 0 or 1")
+		}
 
 		split, err := params.GetInt("block_splits", defaultBlockSplits, maxBlockSplits)
 		if err != nil {
@@ -195,7 +199,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		if err != nil {
 			return "", nil, nil, fmt.Errorf("controlflow directive on %s: %w", ssaFunc, err)
 		}
-		if passes == 0 {
+		if passes == 0 && decision == 0 {
 			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
 		}
 		flattenHardening := params.StringSlice("flatten_hardening")
@@ -208,7 +212,13 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			trashGen = newTrashGenerator(ssaPkg.Prog, funcConfig.ImportNameResolver, obfRand)
 		}
 
+		if decision == 1 && (passes != 0 || split != 0 || junkCount != 0 || trashBlockCount != 0 || len(flattenHardening) != 0) {
+			return "", nil, nil, fmt.Errorf("decision_lowering requires flatten_passes=0 and no structural or hardening passes")
+		}
 		applyObfuscation := func(ssaFunc *ssa.Function) []dispatcherInfo {
+			if decision == 1 {
+				lowerDecision(ssaFunc, obfRand)
+			}
 			if trashBlockCount > 0 {
 				addTrashBlockMarkers(ssaFunc, trashBlockCount, obfRand)
 			}
