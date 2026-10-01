@@ -21,11 +21,15 @@ cmp stdout main.stdout
 ! binsubstr main$exe 'v1.22.33' 'garble_replaced'
 ! binsubstr main$exe 'kept_before' 'kept_after'
 
-# Patterned flags also apply to injected values in dependencies.
-exec garble -literals -seed=0002deadbeef build -ldflags=all=${LDFLAGS}
+# Default mode also obfuscates the injected strings.
+exec garble -literals -seed=0002deadbeef build -ldflags=${LDFLAGS}
 exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'v1.22.33' 'garble_replaced' 'another_replaced' 'ignored_value'
+
+# Package-specific flags cannot safely share compiled dependencies.
+! exec garble -literals build -ldflags=all=${LDFLAGS}
+stderr 'package patterns in -ldflags are not supported with -literals'
 
 # -X main refers to the generated test main, not the tested package main.
 exec garble -literals -seed=0002deadbeef test -ldflags=${LDFLAGS} ./...

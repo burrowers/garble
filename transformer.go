@@ -33,67 +33,37 @@ import (
 
 //go:generate go tool bundle -o cmdgo_quoted.go -prefix cmdgoQuoted cmd/internal/quoted
 //go:generate sed -i /go:generate/d cmdgo_quoted.go
-//go:generate go tool bundle -o cmdgo_pkgpattern.go -prefix cmdgoPkgPattern cmd/internal/pkgpattern
-//go:generate sed -i /go:generate/d cmdgo_pkgpattern.go
 
-// computeLinkerVariableStrings iterates over the -ldflags arguments,
-// filling a map with all the string values set via the linker's -X flag.
-// TODO: can we put this in sharedCache, using the obfuscated object name as a key?
+// computeLinkerVariableStrings resolves -X assignments before literal obfuscation.
 func computeLinkerVariableStrings(pkg *types.Package, isMain bool) (map[*types.Var]string, error) {
 	values := make(map[*types.Var]string)
-	if len(sharedCache.LinkerFlags) == 0 {
-		return values, nil
+	ldflags, err := cmdgoQuotedSplit(flagValue(sharedCache.ForwardBuildFlags, "-ldflags"))
+	if err != nil {
+		return nil, err
 	}
 	pkgPath, _, _ := strings.Cut(pkg.Path(), " [")
-	var perMain []map[*types.Var]string
-	for _, mainPkg := range sharedCache.ListedPackages.all() {
-		if mainPkg.Name != "main" || mainPkg.ForTest != "" {
+	for val := range flagValues(ldflags, "-X") {
+		fullName, value, found := strings.Cut(val, "=")
+		i := strings.LastIndexByte(fullName, '.')
+		if !found || i < 0 {
+			continue // let cmd/link report malformed flags
+		}
+		path, name := fullName[:i], fullName[i+1:]
+		if path == "main" {
+			if !isMain {
+				continue // -X main targets the executable, including generated test mains
+			}
+		} else if path != pkgPath {
 			continue
 		}
-		if _, testing := sharedCache.ListedPackages.get(mainPkg.ImportPath + ".test"); testing {
-			continue // the generated test main is the link target
-		}
-		if mainPkg.ImportPath != pkgPath && !mainPkg.hasDep(pkg.Path()) && !mainPkg.hasDep(pkgPath) {
+		obj, _ := pkg.Scope().Lookup(name).(*types.Var)
+		if obj == nil {
 			continue
 		}
-		ldflags := sharedCache.LinkerFlags[mainPkg.ImportPath]
-		current := make(map[*types.Var]string)
-		for val := range flagValues(ldflags, "-X") {
-			fullName, value, found := strings.Cut(val, "=")
-			i := strings.LastIndexByte(fullName, '.')
-			if !found || i < 0 {
-				continue // let cmd/link report malformed flags
-			}
-			path, name := fullName[:i], fullName[i+1:]
-			if path == "main" {
-				if !isMain || pkgPath != mainPkg.ImportPath {
-					continue
-				}
-			} else if path != pkgPath {
-				continue
-			}
-			obj, _ := pkg.Scope().Lookup(name).(*types.Var)
-			if obj != nil {
-				current[obj] = value
-			}
+		if !types.Identical(obj.Type(), types.Typ[types.String]) {
+			return nil, fmt.Errorf("%s: cannot set with -X: not a var of type string (%s)", obj.Name(), obj.Type())
 		}
-		for obj, value := range current {
-			if !types.Identical(obj.Type(), types.Typ[types.String]) {
-				return nil, fmt.Errorf("%s: cannot set with -X: not a var of type string (%s)", obj.Name(), obj.Type())
-			}
-			if previous, ok := values[obj]; ok && previous != value {
-				return nil, fmt.Errorf("-literals: conflicting -X values for %s.%s across main packages; build each command separately", pkg.Path(), obj.Name())
-			}
-			values[obj] = value
-		}
-		perMain = append(perMain, current)
-	}
-	for obj := range values {
-		for _, current := range perMain {
-			if _, ok := current[obj]; !ok {
-				return nil, fmt.Errorf("-literals: conflicting -X values for %s.%s across main packages; build each command separately", pkgPath, obj.Name())
-			}
-		}
+		values[obj] = value
 	}
 	return values, nil
 }
