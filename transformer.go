@@ -253,6 +253,9 @@ func splitFlagsFromArgs(all []string) (flags, args []string) {
 		if !strings.HasPrefix(arg, "-") {
 			return all[:i:i], all[i:]
 		}
+		if strings.HasPrefix(arg, "--") {
+			arg = arg[1:]
+		}
 		if booleanFlags[arg] || strings.Contains(arg, "=") {
 			// Either "-bool" or "-name=value".
 			continue
