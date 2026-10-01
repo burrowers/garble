@@ -21,7 +21,8 @@ stdin empty-reverse.txt
 ! exec garble reverse .
 ! stderr .
 
-exec garble -tiny build
+cp imported/imported_amd64.s imported/backing.txt
+exec garble -tiny build -overlay overlay.json
 exec ./main
 cmp stderr main.stderr
 ! binsubstr main$exe 'addJmp' 'AddImpl'
@@ -189,4 +190,6 @@ TEXT ·AddImpl(SB),$0-16
 7
 35
 24
+-- overlay.json --
+{"Replace":{"imported/imported_amd64.s":"imported/backing.txt"}}
 -- empty-reverse.txt --

@@ -32,6 +32,14 @@ exec ./app_binary$exe
 stderr 'unique sentinel from imported package for obfuscation'
 stderr 'unique sentinel from main package for obfuscation'
 
+# An overlay backing file need not have a .go extension.
+cp dep/dep.go dep/dep.txt
+exec garble build -overlay overlay.json -o=overlay_binary$exe ./importer
+exec ./overlay_binary$exe
+stderr 'overlaid sentinel from main package for obfuscation'
+stderr 'unique sentinel from imported package for obfuscation'
+! binsubstr overlay_binary$exe 'dep.Message'
+
 # Explicit * and an empty value behave like an unset GOGARBLE.
 env GOGARBLE=*
 exec garble build -o=app_binary$exe ./importer
@@ -124,6 +132,17 @@ func main() {
 package dep
 
 func Message() string { return "unique sentinel from imported package for obfuscation" }
+-- overlay.json --
+{"Replace":{"importer/main.go":"importer/main.txt","dep/dep.go":"dep/dep.txt"}}
+-- importer/main.txt --
+package main
+
+import "test/mainfoo/dep"
+
+func main() {
+	println(dep.Message())
+	println("overlaid sentinel from main package for obfuscation")
+}
 -- main.stderr --
 global value
 global func body
