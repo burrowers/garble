@@ -5,7 +5,7 @@
 #   -X=name=value
 #   -X name=value
 #   -X "name=value" (or with single quotes, allows spaces in value)
-env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/main/imported.AnotherUnset=another_replaced -X=domain.test/missing/path.missingVar=value -X=main.someType=notAVariable'
+env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/main/imported.AnotherUnset=another_replaced -X=main.nonConstant=ignored_value -X=domain.test/missing/path.missingVar=value -X=main.someType=notAVariable'
 
 exec garble build -ldflags=${LDFLAGS}
 exec ./main
@@ -18,9 +18,32 @@ exec garble -tiny -literals -seed=0002deadbeef build -ldflags=${LDFLAGS}
 exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'unexportedVersion' 'ExportedUnset'
-binsubstr main$exe 'v1.22.33' 'garble_replaced' # TODO: obfuscate injected strings too
-binsubstr main$exe 'another_replaced' # TODO: obfuscate grouped zero-value injections
-binsubstr main$exe 'kept_before' 'kept_after' # TODO: obfuscate strings near ldflags vars
+! binsubstr main$exe 'v1.22.33' 'garble_replaced'
+! binsubstr main$exe 'kept_before' 'kept_after'
+
+# Patterned flags also apply to injected values in dependencies.
+exec garble -literals -seed=0002deadbeef build -ldflags=all=${LDFLAGS}
+exec ./main
+cmp stdout main.stdout
+! binsubstr main$exe 'v1.22.33' 'garble_replaced' 'another_replaced' 'ignored_value'
+
+# -X main refers to the generated test main, not the tested package main.
+exec garble -literals -seed=0002deadbeef test -ldflags=${LDFLAGS} ./...
+stdout 'ok'
+
+# ldflags now affect compilation, so cached builds must use the new value.
+exec garble -tiny -literals -seed=0002deadbeef build -ldflags=${LDFLAGS}' -X main.unexportedVersion=cache_changed_717 -X main.unexportedVersion=cache_final_717'
+exec ./main
+stdout 'version: "cache_final_717"'
+! binsubstr main$exe 'cache_changed_717' 'cache_final_717'
+
+# Linker type errors must not disappear when values move to compilation.
+! exec garble -literals build -ldflags=-X=main.notString=invalid
+stderr 'cannot set with -X: not a var of type string'
+
+# Invalid targets must produce a linker error, not an obfuscator panic.
+! exec garble -literals build -ldflags=-X=invalid=value
+stderr '-X flag requires argument of the form importpath.name=value'
 
 go build -ldflags=${LDFLAGS}
 exec ./main
@@ -45,19 +68,45 @@ var notReplacedBefore, replacedWithEmpty, notReplacedAfter = "kept_before", "ori
 
 var replacedWithSpaces = "original"
 
+var notString = 42
+
+var copiedVersion = unexportedVersion
+var nonConstant = someFunc()
+
 type someType int
 
 const someConst = "untouchable"
 
+//go:noinline
 func someFunc() string { return "untouchable" }
 
 func main() {
+	if notString != 42 { panic("bad integer") }
+	if copiedVersion != unexportedVersion { panic("bad initialization order") }
+	if nonConstant != "untouchable" { panic("overrode non-constant initializer") }
 	if imported.AnotherUnset != "another_replaced" { panic("bad grouped zero-value declaration") }
 	fmt.Printf("version: %q\n", unexportedVersion)
 	fmt.Printf("becomes empty: %q\n", replacedWithEmpty)
 	fmt.Printf("becomes string with spaces: %q\n", replacedWithSpaces)
 	fmt.Printf("should be kept: %q, %q\n", notReplacedBefore, notReplacedAfter)
 	fmt.Printf("no longer unset: %q\n", imported.ExportedUnset)
+}
+
+-- main_test.go --
+package main
+
+import (
+	"testing"
+	"domain.test/main/imported"
+)
+
+func TestLinkerValues(t *testing.T) {
+	if unexportedVersion != "unknown" {
+		t.Fatal("-X main unexpectedly changed the tested package")
+	}
+	if imported.ExportedUnset != "garble_replaced" || imported.AnotherUnset != "another_replaced" {
+		t.Fatal("dependency values were not injected")
+	}
 }
 
 -- imported/imported.go --
@@ -68,6 +117,17 @@ var (
 
 	otherVar int
 )
+
+-- imported/imported_test.go --
+package imported
+
+import "testing"
+
+func TestValues(t *testing.T) {
+	if ExportedUnset != "garble_replaced" || AnotherUnset != "another_replaced" {
+		t.Fatal("values in the tested package were not injected")
+	}
+}
 
 -- main.stdout --
 version: "v1.22.33"
