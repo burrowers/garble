@@ -72,6 +72,10 @@ replaced with more complex expressions, resolving to the same value at run-time.
 String literals injected via `-ldflags=-X` are also replaced by this flag.
 This feature is opt-in, as it can cause slow-downs depending on the input code.
 
+Injected strings use the same size limits as source literals. Variables in the
+runtime and its dependencies are not covered. With `-literals`, `-ldflags` must
+be unpatterned; build commands separately if they need different injected values.
+
 Literals used in constant expressions cannot be obfuscated, since they are
 resolved at compile time. This includes any expressions part of a `const`
 declaration, for example.

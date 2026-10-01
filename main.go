@@ -460,6 +460,13 @@ This command wraps "go %s". Below is its help:
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.
 	sharedCache.ForwardBuildFlags, _ = filterForwardBuildFlags(flags)
+	if flagLiterals {
+		for value := range flagValues(flags, "-ldflags") {
+			if value = strings.TrimSpace(value); value != "" && !strings.HasPrefix(value, "-") {
+				return nil, fmt.Errorf("package patterns in -ldflags are not supported with -literals; use unpatterned flags and build commands separately")
+			}
+		}
+	}
 	if command == "test" {
 		sharedCache.ForwardBuildFlags = append(sharedCache.ForwardBuildFlags, "-test")
 	}
