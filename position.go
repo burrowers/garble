@@ -51,9 +51,10 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		// We still need to print the files, but without obfuscating positions.
 		return src, nil
 	}
+	// Tiny mode strips source positions in the linker, so directives are unnecessary.
 	// Don't obfuscate positions in runtime - the //line directives confuse
 	// the compiler's linkname verification
-	if lpkg.ImportPath == "runtime" {
+	if flagTiny || lpkg.ImportPath == "runtime" {
 		return src, nil
 	}
 

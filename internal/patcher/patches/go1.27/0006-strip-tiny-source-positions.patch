@@ -1,0 +1,118 @@
+From e0e5da3e8519025ddc27ee135564e6b627149055 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Thu, 1 Oct 2026 00:05:49 +0000
+Subject: [PATCH] link: strip tiny source position tables
+
+Tiny mode still retains filename and line mappings after rewriting
+source positions. Omit these tables and clear pcfile, pcline and
+start-line fields only when GARBLE_LINK_TINY is enabled.
+
+Retain stack maps, pcsp, inline parent PCs and other execution metadata.
+Port the implementation from Maremagnum to the composed Go 1.27.1 series.
+
+Refs burrowers/garble#1065.
+---
+ cmd/link/internal/ld/pcln.go | 38 +++++++++++++++++++++++++++++++-----
+ 1 file changed, 33 insertions(+), 5 deletions(-)
+
+diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
+index 7d34658..b91b042 100644
+--- a/cmd/link/internal/ld/pcln.go
++++ b/cmd/link/internal/ld/pcln.go
+@@ -190,6 +190,7 @@ func computeDeferReturn(ctxt *Link, deferReturnSym, s loader.Sym) uint32 {
+ // specified FuncInfo.
+ func genInlTreeSym(ctxt *Link, cu *sym.CompilationUnit, fi loader.FuncInfo, arch *sys.Arch, nameOffsets map[loader.Sym]uint32) loader.Sym {
+ 	ldr := ctxt.loader
++	garbleTiny := os.Getenv("GARBLE_LINK_TINY") == "true"
+ 	its := ldr.CreateExtSym("", 0)
+ 	inlTreeSym := ldr.MakeSymbolUpdater(its)
+ 	// Note: the generated symbol is given a type of sym.SGOFUNC, as a
+@@ -212,7 +213,9 @@ func genInlTreeSym(ctxt *Link, cu *sym.CompilationUnit, fi loader.FuncInfo, arch
+ 		startLine := int32(0)
+ 		if inlFunc.Valid() {
+ 			funcID = inlFunc.FuncID()
+-			startLine = inlFunc.StartLine()
++			if !garbleTiny {
++				startLine = inlFunc.StartLine()
++			}
+ 		} else if !ctxt.linkShared {
+ 			// Inlined functions are always Go functions, and thus
+ 			// must have FuncInfo.
+@@ -516,6 +519,19 @@ func walkFilenames(ctxt *Link, funcs []loader.Sym, f func(*sym.CompilationUnit,
+ //  2. Find filename offset:   fileOffset := runtime.cutab[M+K]
+ //  3. Get the filename:       getcstring(runtime.filetab[fileOffset])
+ func (state *pclntab) generateFilenameTabs(ctxt *Link, compUnits []*sym.CompilationUnit, funcs []loader.Sym) []uint32 {
++	if os.Getenv("GARBLE_LINK_TINY") == "true" {
++		// Keep non-empty placeholder symbols so pcHeader offsets and moduledata
++		// layout remain valid, but do not copy any source filenames or CU tables.
++		state.cutab = state.addGeneratedSym(ctxt, "runtime.cutab", 4, 4, func(ctxt *Link, s loader.Sym) {
++			ctxt.loader.MakeSymbolUpdater(s).SetUint32(ctxt.Arch, 0, ^uint32(0))
++		})
++		state.filetab = state.addGeneratedSym(ctxt, "runtime.filetab", 2, 1, func(ctxt *Link, s loader.Sym) {
++			ctxt.loader.MakeSymbolUpdater(s).AddCStringAt(0, "?")
++		})
++		state.nfiles = 0
++		return make([]uint32, len(compUnits))
++	}
++
+ 	// On a per-CU basis, keep track of all the filenames we need.
+ 	//
+ 	// Note, that we store the filenames in a separate section in the object
+@@ -602,6 +618,7 @@ func (state *pclntab) generateFilenameTabs(ctxt *Link, compUnits []*sym.Compilat
+ // deduplicated pcdata.
+ func (state *pclntab) generatePctab(ctxt *Link, funcs []loader.Sym) {
+ 	ldr := ctxt.loader
++	garbleTiny := os.Getenv("GARBLE_LINK_TINY") == "true"
+ 
+ 	// Pctab offsets of 0 are considered invalid in the runtime. We respect
+ 	// that by just padding a single byte at the beginning of runtime.pctab,
+@@ -633,7 +650,10 @@ func (state *pclntab) generatePctab(ctxt *Link, funcs []loader.Sym) {
+ 		fi.Preload()
+ 		pcsp, pcfile, pcline, pcinline, pcdata = ldr.PcdataAuxs(s, pcdata)
+ 
+-		pcSyms := []loader.Sym{pcsp, pcfile, pcline}
++		pcSyms := []loader.Sym{pcsp}
++		if !garbleTiny {
++			pcSyms = append(pcSyms, pcfile, pcline)
++		}
+ 		for _, pcSym := range pcSyms {
+ 			saveOffset(pcSym)
+ 		}
+@@ -948,6 +968,7 @@ func writePCToFunc(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, sta
+ // writeFuncs writes the func structures and pcdata to runtime.functab.
+ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSyms map[loader.Sym]loader.Sym, startLocations, cuOffsets []uint32, nameOffsets map[loader.Sym]uint32) {
+ 	ldr := ctxt.loader
++	garbleTiny := os.Getenv("GARBLE_LINK_TINY") == "true"
+ 	deferReturnSym := ldr.Lookup("runtime.deferreturn", abiInternalVer)
+ 	textStart := ldr.SymValue(ldr.Lookup("runtime.text", 0))
+ 	funcdata := []loader.Sym{}
+@@ -961,7 +982,9 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
+ 		if fi.Valid() {
+ 			fi.Preload()
+ 			pcsp, pcfile, pcline, pcinline, pcdata = ldr.PcdataAuxs(s, pcdata)
+-			startLine = fi.StartLine()
++			if !garbleTiny {
++				startLine = fi.StartLine()
++			}
+ 		}
+ 
+ 		off := int64(startLocations[i])
+@@ -991,8 +1014,13 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
+ 		// pcdata
+ 		if fi.Valid() {
+ 			off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcsp)))
+-			off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcfile)))
+-			off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcline)))
++			if garbleTiny {
++				off = sb.SetUint32(ctxt.Arch, off, 0)
++				off = sb.SetUint32(ctxt.Arch, off, 0)
++			} else {
++				off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcfile)))
++				off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcline)))
++			}
+ 		} else {
+ 			off += 12
+ 		}
+-- 
+2.47.3
+

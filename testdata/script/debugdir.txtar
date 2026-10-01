@@ -30,6 +30,9 @@ exec garble -debugdir=debug1 build
 ! exists $WORK/debug1/some_file_from_prev_build.go
 exists 'debug1/source/test/main/main.go' 'debug1/garbled/test/main/main.go'
 
+exec garble -tiny -debugdir=debug1 build
+! grep '(/\*|//)line ' $WORK/debug1/garbled/test/main/main.go
+
 -- notdebug/important_data.txt --
 This file should not be deleted by -debugdir.
 -- notdebug/subdir/important_data.txt --
