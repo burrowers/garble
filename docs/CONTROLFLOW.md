@@ -35,6 +35,8 @@ func main() {
 
 ### Parameter explanation
 
+The opt-in `outline_ops` and `outline_noinline` prototype is documented in [the outlining experiment](CONTROLFLOW_OUTLINING_EXPERIMENT.md). Both default to zero and are not recommended for automatic use.
+
 > Unlike other garble features (which just work), we recommend that you understand how parameters affect control flow obfuscation and which caveats exist.
 
 > Code snippets below without name obfuscation, for better readability.
