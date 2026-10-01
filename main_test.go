@@ -426,6 +426,21 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 			[2][]string{{"-race"}, {"pkg"}},
 		},
 		{
+			"LongBoolFlagsAndArgs",
+			[]string{"--trimpath", "pkg"},
+			[2][]string{{"--trimpath", "pkg"}, nil}, // TODO: keep pkg as an argument.
+		},
+		{
+			"LongExplicitBoolFlag",
+			[]string{"--race=false", "pkg"},
+			[2][]string{{"--race=false"}, {"pkg"}},
+		},
+		{
+			"LongValueFlag",
+			[]string{"--tags", "tag", "pkg"},
+			[2][]string{{"--tags", "tag"}, {"pkg"}},
+		},
+		{
 			"ExplicitBoolFlag",
 			[]string{"-race=true", "pkg"},
 			[2][]string{{"-race=true"}, {"pkg"}},

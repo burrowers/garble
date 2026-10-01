@@ -26,6 +26,9 @@ stdout 'unknown'
 ! binsubstr main$exe ${WORK} 'garble_main.go' 'globalVar' 'globalFunc' 'garble' $gofullversion
 
 # Both the main package and an imported package are obfuscated by default.
+# TODO: a double-hyphen boolean flag must not consume the package argument.
+! exec garble build -o=app_binary$exe --trimpath ./importer
+stderr 'TOOLEXEC_IMPORTPATH package not found in listed packages: test/mainfoo/dep'
 exec garble build -o=app_binary$exe ./importer
 ! binsubstr app_binary$exe 'test/mainfoo/dep' 'test/mainfoo/importer' 'dep.Message'
 exec ./app_binary$exe
