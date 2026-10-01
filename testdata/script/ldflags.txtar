@@ -19,7 +19,7 @@ exec ./main
 cmp stdout main.stdout
 ! binsubstr main$exe 'unexportedVersion' 'ExportedUnset'
 ! binsubstr main$exe 'v1.22.33' 'garble_replaced'
-! binsubstr main$exe 'kept_before' 'kept_after'
+! binsubstr main$exe 'unchanged_before' 'unchanged_after'
 
 # Default mode also obfuscates the injected strings.
 exec garble -literals -seed=0002deadbeef build -ldflags=${LDFLAGS}
@@ -68,7 +68,7 @@ import (
 
 var unexportedVersion = "unknown"
 
-var notReplacedBefore, replacedWithEmpty, notReplacedAfter = "kept_before", "original", "kept_after"
+var notReplacedBefore, replacedWithEmpty, notReplacedAfter = "unchanged_before", "original", "unchanged_after"
 
 var replacedWithSpaces = "original"
 
@@ -85,14 +85,14 @@ const someConst = "untouchable"
 func someFunc() string { return "untouchable" }
 
 func main() {
-	if notString != 42 { panic("bad integer") }
-	if copiedVersion != unexportedVersion { panic("bad initialization order") }
-	if nonConstant != "untouchable" { panic("overrode non-constant initializer") }
-	if imported.AnotherUnset != "another_replaced" { panic("bad grouped zero-value declaration") }
+	fmt.Printf("integer: %d\n", notString)
+	fmt.Printf("copied version: %q\n", copiedVersion)
+	fmt.Printf("non-constant initializer: %q\n", nonConstant)
+	fmt.Printf("grouped zero-value declaration: %q\n", imported.AnotherUnset)
 	fmt.Printf("version: %q\n", unexportedVersion)
 	fmt.Printf("becomes empty: %q\n", replacedWithEmpty)
 	fmt.Printf("becomes string with spaces: %q\n", replacedWithSpaces)
-	fmt.Printf("should be kept: %q, %q\n", notReplacedBefore, notReplacedAfter)
+	fmt.Printf("not replaced: %q, %q\n", notReplacedBefore, notReplacedAfter)
 	fmt.Printf("no longer unset: %q\n", imported.ExportedUnset)
 }
 
@@ -134,8 +134,12 @@ func TestValues(t *testing.T) {
 }
 
 -- main.stdout --
+integer: 42
+copied version: "v1.22.33"
+non-constant initializer: "untouchable"
+grouped zero-value declaration: "another_replaced"
 version: "v1.22.33"
 becomes empty: ""
 becomes string with spaces: " foo bar "
-should be kept: "kept_before", "kept_after"
+not replaced: "unchanged_before", "unchanged_after"
 no longer unset: "garble_replaced"

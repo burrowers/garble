@@ -49,16 +49,13 @@ func computeLinkerVariableStrings(pkg *types.Package, isMain bool) (map[*types.V
 			continue // let cmd/link report malformed flags
 		}
 		path, name := fullName[:i], fullName[i+1:]
-		if path == "main" {
-			if !isMain {
-				continue // -X main targets the executable, including generated test mains
-			}
-		} else if path != pkgPath {
-			continue
+		// -X main targets the executable, including generated test mains.
+		if (path == "main" && !isMain) || (path != "main" && path != pkgPath) {
+			continue // not the current package
 		}
 		obj, _ := pkg.Scope().Lookup(name).(*types.Var)
 		if obj == nil {
-			continue
+			continue // no such variable; skip
 		}
 		if !types.Identical(obj.Type(), types.Typ[types.String]) {
 			return nil, fmt.Errorf("%s: cannot set with -X: not a var of type string (%s)", obj.Name(), obj.Type())
