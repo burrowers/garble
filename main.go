@@ -103,11 +103,10 @@ var booleanFlags = map[string]bool{
 }
 
 var flagSet = flag.NewFlagSet("garble", flag.ExitOnError)
-var rxGarbleFlag = regexp.MustCompile(`-(?:embed|literals|tiny|debug|debugdir|seed)(?:$|=)`)
+var rxGarbleFlag = regexp.MustCompile(`-(?:literals|tiny|debug|debugdir|seed)(?:$|=)`)
 
 var (
 	flagLiterals bool
-	flagEmbed    bool
 	flagTiny     bool
 	flagDebug    bool
 	flagDebugDir string
@@ -123,8 +122,7 @@ var (
 
 func init() {
 	flagSet.Usage = usage
-	flagSet.BoolVar(&flagLiterals, "literals", false, "Obfuscate literals such as strings")
-	flagSet.BoolVar(&flagEmbed, "embed", false, "Obfuscate files embedded via //go:embed")
+	flagSet.BoolVar(&flagLiterals, "literals", false, "Obfuscate literals and embedded files")
 	flagSet.BoolVar(&flagTiny, "tiny", false, "Optimize for binary size, losing some ability to reverse the process")
 	flagSet.BoolVar(&flagDebug, "debug", false, "Print debug logs to stderr")
 	flagSet.StringVar(&flagDebugDir, "debugdir", "", "Write source and obfuscated trees to a directory, e.g. -debugdir=out")

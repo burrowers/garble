@@ -295,7 +295,7 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 		)
 	}
 
-	// 5 huge literals past MaxSize, without uniqueLitString; not obfuscated.
+	// 5 huge literals past MaxSize exercise the bounded-AST decoder.
 	for range 5 {
 		size := literals.MaxSize + 1 + testRand.Intn(128<<10)
 		buffer := make([]byte, size)
@@ -305,7 +305,7 @@ func generateLiterals(ts *testscript.TestScript, neg bool, args []string) {
 			&ast.AssignStmt{
 				Lhs: []ast.Expr{ast.NewIdent("x")},
 				Tok: token.ADD_ASSIGN,
-				Rhs: []ast.Expr{ah.StringLit(string(buffer))},
+				Rhs: []ast.Expr{ah.StringLit(string(buffer) + uniqueLitString)},
 			},
 		)
 	}

@@ -127,9 +127,6 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 // Errors are ignored, as w is always a buffer or hasher.
 // If forBuildHash is set, only the flags affecting a build are written.
 func appendFlags(w io.Writer, forBuildHash bool) {
-	if flagEmbed {
-		io.WriteString(w, " -embed")
-	}
 	if flagLiterals {
 		io.WriteString(w, " -literals")
 	}
