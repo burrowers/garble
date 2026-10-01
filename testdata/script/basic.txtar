@@ -46,6 +46,12 @@ env GOGARBLE=test/mainfoo/dep
 stderr 'GOGARBLE=.*is no longer supported; all packages including the runtime are obfuscated now'
 env GOGARBLE=*
 
+# TODO: a leading -C should change directory before module discovery.
+cd ..
+! exec garble build -C basic -o=chdir_binary$exe garble_main.go
+stderr '-C flag must be first flag on command line'
+cd $WORK
+
 [short] stop # checking that the build is reproducible is slow
 
 # Check that we fail if the user used "go build -toolexec garble" instead of "garble build"
