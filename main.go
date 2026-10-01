@@ -438,6 +438,13 @@ This command wraps "go %s". Below is its help:
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.
 	sharedCache.ForwardBuildFlags, _ = filterForwardBuildFlags(flags)
+	if flagLiterals {
+		for value := range flagValues(flags, "-ldflags") {
+			if value = strings.TrimSpace(value); value != "" && !strings.HasPrefix(value, "-") {
+				return nil, fmt.Errorf("package patterns in -ldflags are not supported with -literals; use unpatterned flags and build commands separately")
+			}
+		}
+	}
 	if command == "test" {
 		sharedCache.ForwardBuildFlags = append(sharedCache.ForwardBuildFlags, "-test")
 	}
@@ -511,11 +518,6 @@ This command wraps "go %s". Below is its help:
 	// Now that we have both halves, hash each package's action ID with ours.
 	if err := <-binaryContentID; err != nil {
 		return nil, err
-	}
-	if flagLiterals {
-		if err := computeLiteralLinkerFlags(); err != nil {
-			return nil, err
-		}
 	}
 	for _, lpkg := range sharedCache.ListedPackages.all() {
 		if lpkg.BuildID != "" {

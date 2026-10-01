@@ -37,8 +37,7 @@ import (
 // store it into a temporary file via msgp encoding, and then reuse that file
 // in each of the garble toolexec sub-processes.
 type sharedCacheType struct {
-	ForwardBuildFlags []string            // build flags fed to the original "garble ..." command
-	LinkerFlags       map[string][]string // effective linker flags for each main package
+	ForwardBuildFlags []string // build flags fed to the original "garble ..." command
 
 	CacheDir string // absolute path to the GARBLE_CACHE directory being used
 
