@@ -62,10 +62,7 @@ type reflectCallEdge struct {
 
 func (c *pkgCache) CopyFrom(c2 pkgCache) {
 	for name, params := range c2.ReflectAPIs {
-		if c.ReflectAPIs[name] == nil {
-			c.ReflectAPIs[name] = make(map[int]bool)
-		}
-		maps.Copy(c.ReflectAPIs[name], params)
+		mergeReflectParams(c.ReflectAPIs, name, params)
 	}
 	maps.Copy(c.ReflectObjectNames, c2.ReflectObjectNames)
 	if len(c2.ReflectCallEdges) > 0 {

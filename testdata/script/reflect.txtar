@@ -9,6 +9,8 @@ stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
 stderr '^\*main\.SecondParam$'
 ! stderr '^relationship lookup failed$'
+stderr '^main.FirstOnly main.SecondOnly main.MergeFirst main.MergeSecond$'
+! binsubstr main$exe 'UnusedFirst' 'UnusedSecond'
 
 [short] stop # no need to verify this with -short
 
@@ -43,6 +45,8 @@ import (
 	"test/main/importedpkg"
 	"test/main/importedpkg2"
 	"test/main/migrate"
+	"test/main/migratefirst"
+	"test/main/migrateother"
 	"test/main/ormapi"
 )
 
@@ -222,6 +226,12 @@ func main() {
 	if err := ormapi.New(migrate.Get()).AutoMigrate(&ForeignPerson{}, &ForeignAccount{}); err != nil {
 		fmt.Fprintln(os.Stderr, "relationship lookup failed")
 	}
+	// Deferred interface matching must preserve exact parameter indexes.
+	ormapi.Inspect(migrate.Inspector{}, FirstOnly{}, UnusedFirst{}, UnusedSecond{}, SecondOnly{})
+	// Two dependency caches contribute different parameters to the same interface.
+	ormapi.Merger(migratefirst.Inspector{}).Merge(MergeFirst{}, MergeSecond{})
+	ormapi.Merger(migrateother.Inspector{}).Merge(MergeFirst{}, MergeSecond{})
+	fmt.Fprintf(os.Stderr, "%T %T %T %T\n", FirstOnly{}, SecondOnly{}, MergeFirst{}, MergeSecond{})
 
 	// Similar to gorm with composite literals instead of direct assignments
 	userComp := StatCompUser{}
@@ -488,6 +498,12 @@ type ForeignPerson struct {
 	ID        uint
 	AccountID uint
 }
+type FirstOnly struct{}
+type SecondOnly struct{}
+type UnusedFirst struct{}
+type UnusedSecond struct{}
+type MergeFirst struct{}
+type MergeSecond struct{}
 type ForeignAccount struct {
 	Person ForeignPerson
 	ID     uint
@@ -816,6 +832,10 @@ func (db *DB) forward(models ...any) error {
 	return db.migrator.AutoMigrate(models...)
 }
 
+type Inspector interface { First(any, any); Second(any, any) }
+type Merger interface { Merge(any, any) }
+func Inspect(i Inspector, a, unusedA, unusedB, b any) { i.First(a, unusedA); i.Second(unusedB, b) }
+
 -- migrate/migrate.go --
 package migrate
 
@@ -825,6 +845,9 @@ import (
 )
 
 type Migrator interface{ AutoMigrate(...any) error }
+type Inspector struct{}
+func (Inspector) First(a, b any) { _ = reflect.TypeOf(a) }
+func (Inspector) Second(a, b any) { _ = reflect.TypeOf(b) }
 type migrator struct{}
 func Get() Migrator { return migrator{} }
 
@@ -860,6 +883,30 @@ func parseModels(models ...any) error {
 }
 
 func reorder(models []any) []any { return models }
+
+-- migrateother/migrate.go --
+package migrateother
+
+import (
+	"reflect"
+	"test/main/ormapi"
+)
+
+type Inspector struct{}
+func (Inspector) Merge(a, b any) { _ = reflect.TypeOf(b) }
+var _ ormapi.Merger = Inspector{}
+
+-- migratefirst/migrate.go --
+package migratefirst
+
+import (
+	"reflect"
+	"test/main/ormapi"
+)
+
+type Inspector struct{}
+func (Inspector) Merge(a, b any) { _ = reflect.TypeOf(a) }
+var _ ormapi.Merger = Inspector{}
 
 -- main.stdout --
 9000
