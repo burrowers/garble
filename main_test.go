@@ -426,6 +426,12 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 			[2][]string{{"-race"}, {"pkg"}},
 		},
 		{
+			// TODO: retain the package after test.-prefixed boolean flags.
+			"PrefixedBoolFlagsAndArgs",
+			[]string{"-test.v", "pkg"},
+			[2][]string{{"-test.v", "pkg"}, nil},
+		},
+		{
 			"LongBoolFlagsAndArgs",
 			[]string{"--trimpath", "pkg"},
 			[2][]string{{"--trimpath"}, {"pkg"}},
