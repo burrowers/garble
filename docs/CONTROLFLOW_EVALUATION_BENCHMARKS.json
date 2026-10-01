@@ -1,0 +1,804 @@
+{
+  "seed": 1,
+  "scope": "shared-machine timings, not quiet-machine performance evidence",
+  "variants": {
+    "ordinary": {
+      "sha": "8a9900ebe07d1915fc09cb56f8358cbe400bde1c",
+      "directive": "",
+      "samples": [
+        {
+          "function": 0,
+          "ns_per_op": 3.794,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 18.98,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 3.678,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 70.07,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 1027.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 29.38,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 4.106,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 6.729,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 8.183,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 102.5,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 47.56,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 977.1,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 4.409,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 7.039,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 3.758,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 12.19,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 13.97,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 13.05,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        }
+      ]
+    },
+    "ssa": {
+      "sha": "8a9900ebe07d1915fc09cb56f8358cbe400bde1c",
+      "directive": "flatten_passes=0",
+      "samples": [
+        {
+          "function": 0,
+          "ns_per_op": 8.449,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 3.509,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 6.859,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 69.96,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 83.6,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 30.05,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 906.3,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 9.496,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 4.89,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 41.14,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 973.6,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 74.84,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 5.054,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 4.345,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 4.923,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 11.75,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 33.49,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 43.2,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        }
+      ]
+    },
+    "full": {
+      "sha": "8a9900ebe07d1915fc09cb56f8358cbe400bde1c",
+      "directive": "flatten_passes=1",
+      "samples": [
+        {
+          "function": 0,
+          "ns_per_op": 1013.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 915.4,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 925.2,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 2039.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 2990.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 1105.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 22.34,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 21.25,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 23.25,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 7033.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 7010.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 7948.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 933.4,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 25.25,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 25.64,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 993.4,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 81.14,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 1051.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        }
+      ]
+    },
+    "partial": {
+      "sha": "cfec77bba12f0d9be2ae387e72b5d5e9a5c6b9a0",
+      "directive": "flatten_passes=1 flatten_regions=2",
+      "samples": [
+        {
+          "function": 0,
+          "ns_per_op": 8.871,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 10.4,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 9.764,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 962.9,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 36.91,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 37.52,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 7.136,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 7.19,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 7.164,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 44.09,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 49.82,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 57.71,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 6.472,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 13.76,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 7.334,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 17.32,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 13.76,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 13.3,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        }
+      ]
+    },
+    "state": {
+      "sha": "c6e0c4e4fcb2ddbfa7d9079ba1352da3ac9cee66",
+      "directive": "flatten_passes=1 state_transitions=1",
+      "samples": [
+        {
+          "function": 0,
+          "ns_per_op": 45.27,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 39.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 38.53,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 1007.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 170.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 1010.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 799.6,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 38.12,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 20.92,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 2936.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 1961.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 2083.0,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 22.37,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 27.07,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 23.57,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 67.31,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 71.53,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 81.94,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        }
+      ]
+    },
+    "integers": {
+      "sha": "1aafa5a7cc3788fc9682023274fe0ab0ac6520c3",
+      "directive": "flatten_passes=0 live_integers=1",
+      "samples": [
+        {
+          "function": 0,
+          "ns_per_op": 5.9,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 7.43,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 6.661,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 44.13,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 43.68,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 40.92,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 5.535,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 10.47,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 5.207,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 63.38,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 75.15,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 998.6,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 4.865,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 4.712,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 4.64,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 18.02,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 19.84,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 20.35,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        }
+      ]
+    },
+    "duplication": {
+      "sha": "65dc23d798fe40a88c08f7a515221698efa19e93",
+      "directive": "flatten_passes=0 block_duplicates=1",
+      "samples": [
+        {
+          "function": 0,
+          "ns_per_op": 3.836,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 4.544,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 0,
+          "ns_per_op": 4.005,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 50.53,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 36.55,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 1,
+          "ns_per_op": 34.61,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 5.224,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 6.754,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 2,
+          "ns_per_op": 5.024,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 41.99,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 46.73,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 3,
+          "ns_per_op": 51.87,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 4.431,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 4.657,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 4,
+          "ns_per_op": 4.728,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 10.47,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 12.62,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        },
+        {
+          "function": 5,
+          "ns_per_op": 16.18,
+          "bytes_per_op": 0,
+          "allocations_per_op": 0
+        }
+      ]
+    }
+  }
+}
