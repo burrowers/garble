@@ -2,11 +2,15 @@ exec garble run garble_main.go
 ! stdout '^garble_main\.go 9$'
 stdout '\.go \d'
 
-# TODO: program arguments should reach the executable, not go list.
-! exec garble run garble_main.go hello
-stderr 'named files must be .go files: hello'
-! exec garble run . hello
-stderr 'package hello is not in std'
+# Program arguments belong to the executable, not the package listing.
+exec garble run garble_main.go hello
+stdout 'args=\["hello"\]'
+exec garble run . hello
+stdout 'args=\["hello"\]'
+exec garble run garble_main.go -value
+stdout 'args=\["-value"\]'
+exec garble run garble_main.go extra.go hello
+stdout 'args=\["hello"\]'
 
 [short] stop # no need to verify this with -short
 
@@ -17,6 +21,10 @@ stdout '\.go \d'
 
 go run garble_main.go
 stdout 'garble_main\.go 10$'
+-- extra.go --
+package main
+
+var _ = "multi-file input"
 -- go.mod --
 module test/main
 
