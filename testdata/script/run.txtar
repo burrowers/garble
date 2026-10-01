@@ -2,6 +2,12 @@ exec garble run garble_main.go
 ! stdout '^garble_main\.go 9$'
 stdout '\.go \d'
 
+# TODO: program arguments should reach the executable, not go list.
+! exec garble run garble_main.go hello
+stderr 'named files must be .go files: hello'
+! exec garble run . hello
+stderr 'package hello is not in std'
+
 [short] stop # no need to verify this with -short
 
 # also with a package
@@ -10,7 +16,7 @@ exec garble run .
 stdout '\.go \d'
 
 go run garble_main.go
-stdout 'garble_main\.go 9$'
+stdout 'garble_main\.go 10$'
 -- go.mod --
 module test/main
 
@@ -20,10 +26,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 )
 
 func main() {
 	_, file, line, _ := runtime.Caller(0)
 	fmt.Println(file, line)
+	fmt.Printf("args=%q\n", os.Args[1:])
 }
