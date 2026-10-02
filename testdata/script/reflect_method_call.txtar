@@ -1,0 +1,30 @@
+# Calling a method obtained via reflect.Value.Method should keep that method
+# reachable through the linker's deadcode pass. The compiler recognizes the
+# reflect.Value Method result by name, but reflect.Value is obfuscated, so the
+# method is dropped and the call dies with "unreachable method called".
+[short] skip 'runtime obfuscation is an integration test'
+
+exec garble build -o=main$exe .
+! exec ./main$exe
+stderr 'unreachable method called'
+
+-- go.mod --
+module test/reflectmethodcall
+
+go 1.27
+-- main.go --
+package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type T struct{}
+
+func (T) M() string { return "M called" }
+
+func main() {
+	var v any = T{}
+	fmt.Println(reflect.ValueOf(v).Method(0).Call(nil)[0])
+}
