@@ -501,8 +501,7 @@ func TestFilterForwardBuildFlags(t *testing.T) {
 		{
 			"UnknownTestBooleanThenBuildFlag",
 			[]string{"-custom", "-tags=special", "-count=1"},
-			// TODO: preserve the following build flag.
-			nil,
+			[]string{"-tags=special"},
 		},
 		{
 			"UnknownTestValueThenBuildFlag",
