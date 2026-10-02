@@ -26,6 +26,8 @@ stdout 'package bar_test, func name:'
 #
 # The combination of those used to result in "refusing to list non-dependency
 # package" errors, which we've currently worked around.
+! exec garble test ./... -test.v -tags testprefix
+stderr 'malformed import path "-test.v"'
 exec garble test -test.v -tags testprefix ./...
 stdout 'ok\s+test/bar\s'
 stdout 'PASS.*TestFoo'
