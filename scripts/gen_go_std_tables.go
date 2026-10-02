@@ -474,6 +474,7 @@ func generateBuiltinSymbols(goroots []versionedString) []tmplIntrinsic {
 			{"compile/internal/types/type.go", `== "nih"`, "internal/runtime/sys.nih"},
 			{"link/internal/ld/data.go", `"internal/fuzz._counters"`, "internal/fuzz._counters"},
 			{"link/internal/ld/data.go", `"internal/fuzz._ecounters"`, "internal/fuzz._ecounters"},
+			{"compile/internal/ir/abi.go", `== "reflectcall"`, "runtime.reflectcall"},
 			// internal/byteorder helpers the inliner marks as cheap by name.
 			{"compile/internal/inline/inl.go", `"LEUint16"`, "internal/byteorder.LEUint16"},
 			{"compile/internal/inline/inl.go", `"LEUint32"`, "internal/byteorder.LEUint32"},

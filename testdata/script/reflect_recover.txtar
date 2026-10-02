@@ -1,7 +1,7 @@
-# A recover() inside a deferred func created by reflect.MakeFunc should catch
-# the panic. The compiler sets the WRAPPER flag that enables this by comparing
-# the runtime.reflectcall and reflect.callReflect names, but those are obfuscated
-# and so the flag is lost: recover returns nil and the program reports FAIL.
+# A recover() inside a deferred func created by reflect.MakeFunc catches the
+# panic. The compiler only sets the WRAPPER flag that enables this by comparing
+# the obfuscated runtime.reflectcall and reflect.callReflect names, so this
+# exercises the obfuscated runtime end to end.
 [short] skip 'runtime obfuscation is an integration test'
 
 exec garble build -o=main$exe .
@@ -40,4 +40,4 @@ func main() {
 	}()
 }
 -- main.stdout --
-FAIL MakeFunc
+ok MakeFunc

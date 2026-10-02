@@ -679,6 +679,7 @@ var builtinSymbols = map[string][]string{
 		"rand",                                 // go1.27
 		"rand32",                               // go1.27
 		"read_tls_fallback",                    // go1.27
+		"reflectcall",                          // go1.27
 		"retpolineAX",                          // go1.27
 		"retpolineBP",                          // go1.27
 		"retpolineBX",                          // go1.27

@@ -617,6 +617,11 @@ var toolchainNameDependencies = map[string]map[string]bool{
 	"reflect": {
 		"makeFuncStub":    true,
 		"methodValueCall": true,
+
+		// ir.InitLSym marks these as WRAPPER by name, which recover
+		// relies on through a deferred reflect.MakeFunc func or method value.
+		"callMethod":  true,
+		"callReflect": true,
 	},
 	"runtime": {
 		"getg":               true,
