@@ -282,6 +282,13 @@ func alterTrimpath(flags []string) []string {
 // transformer holds all the information and state necessary to obfuscate a
 // single Go package.
 type transformer struct {
+	// coverageNames are generated variables named in the compiler's
+	// -coveragecfg file. Renaming them would break the compiler's fixup.
+	coverageNames struct {
+		MetaVar       string
+		PkgIdVar      string
+		CounterPrefix string
+	}
 	// curPkg holds basic information about the package being currently compiled or linked.
 	curPkg *listedPackage
 
@@ -810,6 +817,15 @@ func (tf *transformer) writeSourceFile(basename, obfuscated string, content []by
 
 func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	flags, paths := splitFlagsFromFiles(args, ".go")
+	if cfg := flagValue(flags, "-coveragecfg"); cfg != "" {
+		data, err := os.ReadFile(cfg)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(data, &tf.coverageNames); err != nil {
+			return nil, fmt.Errorf("parse coverage configuration: %w", err)
+		}
+	}
 	var debugArtifacts cachedDebugArtifacts
 	if flagDebugDir != "" {
 		debugArtifacts.SourceFiles = make(map[string][]byte)
@@ -1381,6 +1397,13 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 		return "", false // universe scope
 	}
 	name := obj.Name()
+	if pkg.Path() == tf.curPkg.ImportPath && obj.Parent() == pkg.Scope() {
+		cfg := tf.coverageNames
+		if name == cfg.MetaVar || name == cfg.PkgIdVar ||
+			cfg.CounterPrefix != "" && strings.HasPrefix(name, cfg.CounterPrefix) {
+			return "", false
+		}
+	}
 
 	// TODO: We match by object name here, which is actually imprecise.
 	// For example, in package embed we match the type FS, but we would also
