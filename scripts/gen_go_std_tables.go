@@ -470,6 +470,7 @@ func generateBuiltinSymbols(goroots []versionedString) []tmplIntrinsic {
 			{"compile/internal/types/size.go", `== "align64"`, "sync/atomic.align64"},
 			{"compile/internal/types/size.go", `"internal/runtime/atomic"`, "internal/runtime/atomic.align64"},
 			{"compile/internal/types/type.go", `== "nih"`, "internal/runtime/sys.nih"},
+			{"compile/internal/typecheck/builtin.go", `{"initHook", funcTag`, "runtime/coverage.initHook"},
 		}
 		for _, special := range specials {
 			contents := readFile(filepath.Join(cmdRoot, special.file))
