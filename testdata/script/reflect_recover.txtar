@@ -1,0 +1,43 @@
+# A recover() inside a deferred func created by reflect.MakeFunc should catch
+# the panic. The compiler sets the WRAPPER flag that enables this by comparing
+# the runtime.reflectcall and reflect.callReflect names, but those are obfuscated
+# and so the flag is lost: recover returns nil and the program reports FAIL.
+[short] skip 'runtime obfuscation is an integration test'
+
+exec garble build -o=main$exe .
+exec ./main$exe
+cmp stdout main.stdout
+
+-- go.mod --
+module test/reflectrecover
+
+go 1.27
+-- main.go --
+package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+func report(name string, r any) {
+	if r == nil {
+		fmt.Println("FAIL", name)
+	} else {
+		fmt.Println("ok", name)
+	}
+}
+
+func main() {
+	defer func() { recover() }()
+	func() {
+		f := reflect.MakeFunc(reflect.TypeOf((func())(nil)), func([]reflect.Value) []reflect.Value {
+			report("MakeFunc", recover())
+			return nil
+		}).Interface().(func())
+		defer f()
+		panic("boom")
+	}()
+}
+-- main.stdout --
+FAIL MakeFunc
