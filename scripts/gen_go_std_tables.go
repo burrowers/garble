@@ -472,6 +472,7 @@ func generateBuiltinSymbols(goroots []versionedString) []tmplIntrinsic {
 			{"compile/internal/types/type.go", `== "nih"`, "internal/runtime/sys.nih"},
 			{"link/internal/ld/data.go", `"internal/fuzz._counters"`, "internal/fuzz._counters"},
 			{"link/internal/ld/data.go", `"internal/fuzz._ecounters"`, "internal/fuzz._ecounters"},
+			{"compile/internal/typecheck/builtin.go", `{"initHook", funcTag`, "runtime/coverage.initHook"},
 		}
 		for _, special := range specials {
 			contents := readFile(filepath.Join(cmdRoot, special.file))

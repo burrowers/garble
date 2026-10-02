@@ -54,6 +54,16 @@ env GOGARBLE=test/mainfoo/dep
 stderr 'GOGARBLE=.*is no longer supported; all packages including the runtime are obfuscated now'
 env GOGARBLE=*
 
+# Instrumented builds preserve the compiler's coverage variables and hook.
+exec garble build -cover -o=covered$exe garble_main.go
+mkdir coverdir
+env GOCOVERDIR=$WORK/coverdir
+exec ./covered$exe
+cmp stderr main.stderr
+exec go tool covdata percent -i=$WORK/coverdir
+stdout 'coverage: 100.0% of statements'
+env GOCOVERDIR=
+
 # A leading -C changes directory before module discovery and relative outputs.
 cd ..
 exec garble build -C $WORK -o=chdir_binary$exe garble_main.go

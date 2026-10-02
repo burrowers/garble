@@ -734,6 +734,9 @@ var builtinSymbols = map[string][]string{
 		"zeroVal",                              // go1.27
 		"zerobase",                             // go1.27
 	},
+	"runtime/coverage": {
+		"initHook", // go1.27
+	},
 	"sync/atomic": {
 		"align64", // go1.27
 	},
