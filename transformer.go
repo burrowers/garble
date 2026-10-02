@@ -250,6 +250,10 @@ func isTestSignature(sign *types.Signature) bool {
 func splitFlagsFromArgs(all []string) (flags, args []string) {
 	for i := 0; i < len(all); i++ {
 		arg := all[i]
+		if arg == "--" {
+			// Keep the separator for cmd/go, but do not consume its package.
+			return all[: i+1 : i+1], all[i+1:]
+		}
 		if !strings.HasPrefix(arg, "-") {
 			return all[:i:i], all[i:]
 		}
