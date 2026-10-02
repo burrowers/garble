@@ -793,6 +793,12 @@ func filterForwardBuildFlags(flags []string) (filtered []string, firstUnknown st
 			// Either "-bool" or "-name=value".
 			continue
 		}
+		// Go test accepts unknown test-binary flags, whose arity we cannot
+		// know. A following flag-shaped token is parsed independently by Go,
+		// including when the unknown flag is boolean.
+		if !buildFlag && i+1 < len(flags) && strings.HasPrefix(flags[i+1], "-") {
+			continue
+		}
 		// "-name value", so the next arg is part of this flag.
 		if i++; buildFlag && i < len(flags) {
 			filtered = append(filtered, flags[i])
