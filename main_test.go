@@ -498,6 +498,17 @@ func TestFilterForwardBuildFlags(t *testing.T) {
 			[]string{"-o", "binary", "-tags", "foo"},
 			[]string{"-tags", "foo"},
 		},
+		{
+			"UnknownTestBooleanThenBuildFlag",
+			[]string{"-custom", "-tags=special", "-count=1"},
+			// TODO: preserve the following build flag.
+			nil,
+		},
+		{
+			"UnknownTestValueThenBuildFlag",
+			[]string{"-custom", "value", "-tags", "special"},
+			[]string{"-tags", "special"},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
