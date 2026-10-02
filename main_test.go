@@ -592,6 +592,15 @@ func TestRuntimeGeneratedLinkerSymbols(t *testing.T) {
 	}
 }
 
+func TestCoverageHookBuiltinSymbol(t *testing.T) {
+	if !slices.Contains(builtinSymbols["runtime/coverage"], "initHook") {
+		t.Fatal("runtime/coverage.initHook must be included in the compiler symbol map")
+	}
+	if isToolchainNameDependency("runtime/coverage", "initHook") {
+		t.Fatal("the compiler symbol map must translate the obfuscated hook")
+	}
+}
+
 func TestStructsHostLayoutToolchainDependency(t *testing.T) {
 	if !isToolchainNameDependency("structs", "HostLayout") {
 		t.Fatal("structs.HostLayout must keep its name for go:wasmimport validation")
