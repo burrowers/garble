@@ -431,6 +431,16 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 			[2][]string{{"-test.v"}, {"pkg"}},
 		},
 		{
+			"SeparatorAfterFlag",
+			[]string{"-trimpath", "--", "pkg"},
+			[2][]string{{"-trimpath", "--"}, {"pkg"}},
+		},
+		{
+			"SeparatorFirst",
+			[]string{"--", "pkg"},
+			[2][]string{{"--"}, {"pkg"}},
+		},
+		{
 			"LongBoolFlagsAndArgs",
 			[]string{"--trimpath", "pkg"},
 			[2][]string{{"--trimpath"}, {"pkg"}},

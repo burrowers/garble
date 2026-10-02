@@ -26,15 +26,11 @@ stdout 'unknown'
 ! binsubstr main$exe ${WORK} 'garble_main.go' 'globalVar' 'globalFunc' 'garble' $gofullversion
 
 # Both the main package and an imported package are obfuscated by default.
-exec garble build -o=app_binary$exe --trimpath ./importer
+exec garble build -o=app_binary$exe --trimpath -- ./importer
 ! binsubstr app_binary$exe 'test/mainfoo/dep' 'test/mainfoo/importer' 'dep.Message'
 exec ./app_binary$exe
 stderr 'unique sentinel from imported package for obfuscation'
 stderr 'unique sentinel from main package for obfuscation'
-
-# TODO: a bare -- should terminate flags without consuming ./importer.
-! exec garble build -o=app_binary$exe -- ./importer
-stderr 'TOOLEXEC_IMPORTPATH package not found in listed packages'
 
 # Explicit * and an empty value behave like an unset GOGARBLE.
 env GOGARBLE=*
