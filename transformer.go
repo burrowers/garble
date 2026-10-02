@@ -622,6 +622,10 @@ var toolchainNameDependencies = map[string]map[string]bool{
 		// relies on through a deferred reflect.MakeFunc func or method value.
 		"callMethod":  true,
 		"callReflect": true,
+
+		// The compiler recognizes reflect.Value's Method results by type name
+		// to keep methods reachable in the linker's deadcode pass.
+		"Value": true,
 	},
 	"runtime": {
 		"getg":               true,
