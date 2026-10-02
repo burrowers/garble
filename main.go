@@ -420,6 +420,16 @@ func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
 	// Split the flags from the package arguments, since we'll need
 	// to run 'go list' on the same set of packages.
 	flags, args := splitFlagsFromArgs(args)
+	var trailingFlags []string
+	if command == "test" {
+		// Go accepts test and build flags after the package list as well.
+		for i, arg := range args {
+			if strings.HasPrefix(arg, "-") {
+				trailingFlags = args[i:]
+				break
+			}
+		}
+	}
 	// Go handles a leading -C before loading module and toolchain settings.
 	// Consume it here so our injected flags do not precede it in nested calls.
 	if len(flags) > 0 {
@@ -467,7 +477,8 @@ This command wraps "go %s". Below is its help:
 
 	// Note that we also need to pass build flags to 'go list', such
 	// as -tags.
-	sharedCache.ForwardBuildFlags, _ = filterForwardBuildFlags(flags)
+	allFlags := append(append([]string(nil), flags...), trailingFlags...)
+	sharedCache.ForwardBuildFlags, _ = filterForwardBuildFlags(allFlags)
 	if command == "test" {
 		sharedCache.ForwardBuildFlags = append(sharedCache.ForwardBuildFlags, "-test")
 	}
@@ -530,6 +541,9 @@ This command wraps "go %s". Below is its help:
 	}
 
 	listArgs := args
+	if len(trailingFlags) > 0 {
+		listArgs = args[:len(args)-len(trailingFlags)]
+	}
 	if command == "run" && len(args) > 0 {
 		// go run accepts either one package or a sequence of .go files.
 		// Everything after the target is passed to the program itself.
