@@ -32,6 +32,10 @@ exec ./app_binary$exe
 stderr 'unique sentinel from imported package for obfuscation'
 stderr 'unique sentinel from main package for obfuscation'
 
+# TODO: a bare -- should terminate flags without consuming ./importer.
+! exec garble build -o=app_binary$exe -- ./importer
+stderr 'TOOLEXEC_IMPORTPATH package not found in listed packages'
+
 # Explicit * and an empty value behave like an unset GOGARBLE.
 env GOGARBLE=*
 exec garble build -o=app_binary$exe ./importer
