@@ -1,0 +1,179 @@
+From 0e7ce9cc410757287686a4a8ed97e2a5c803c06f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Daniel=20Mart=C3=AD?= <mvdan@cuelabs.dev>
+Date: Fri, 2 Oct 2026 21:53:18 +0100
+Subject: [PATCH] compile, internal/obj: translate remaining obfuscated
+ name checks
+
+Several compiler and assembler optimizations compare symbol names and
+package paths against raw runtime strings. With runtime obfuscation the
+tools see hashed names, so these checks silently fail: new(T) keeps its
+nil check and a heavier write barrier, small leaf functions lose nosplit,
+and internal/byteorder helpers stop being treated as cheap to inline.
+
+Translate each remaining check back to its original name via the objabi
+helpers, matching the precedent set for isSameCall and RuntimeSymName.
+---
+ cmd/compile/internal/inline/inl.go       |  6 ++++--
+ cmd/compile/internal/ssa/pair.go         |  3 ++-
+ cmd/compile/internal/ssa/rewrite.go      | 22 ++++++++++++----------
+ cmd/compile/internal/ssa/writebarrier.go |  2 +-
+ cmd/compile/internal/ssagen/ssa.go       |  4 +++-
+ cmd/internal/obj/plist.go                |  2 +-
+ cmd/internal/obj/x86/obj6.go             |  2 +-
+ 7 files changed, 24 insertions(+), 17 deletions(-)
+
+diff --git a/cmd/compile/internal/inline/inl.go b/cmd/compile/internal/inline/inl.go
+index 0900101..60f1d25 100644
+--- a/cmd/compile/internal/inline/inl.go
++++ b/cmd/compile/internal/inline/inl.go
+@@ -41,6 +41,7 @@ import (
+ 	"cmd/compile/internal/typecheck"
+ 	"cmd/compile/internal/types"
+ 	"cmd/internal/obj"
++	"cmd/internal/objabi"
+ 	"cmd/internal/pgo"
+ 	"cmd/internal/src"
+ )
+@@ -587,8 +588,9 @@ opSwitch:
+ 				// explicitly mark internal/byteorder methods as cheap,
+ 				// because in practice they are, even though our inlining
+ 				// budgeting system does not see that. See issue 42958.
+-				if base.Ctxt.Arch.CanMergeLoads && name.Sym().Pkg.Path == "internal/byteorder" {
+-					switch name.Sym().Name {
++				pkgPath, fn := objabi.OriginalPackageSymbol(name.Sym().Pkg.Path, name.Sym().Name)
++				if base.Ctxt.Arch.CanMergeLoads && pkgPath == "internal/byteorder" {
++					switch fn {
+ 					case "LEUint64", "LEUint32", "LEUint16",
+ 						"BEUint64", "BEUint32", "BEUint16",
+ 						"LEPutUint64", "LEPutUint32", "LEPutUint16",
+diff --git a/cmd/compile/internal/ssa/pair.go b/cmd/compile/internal/ssa/pair.go
+index be524dc..b7f3f7d 100644
+--- a/cmd/compile/internal/ssa/pair.go
++++ b/cmd/compile/internal/ssa/pair.go
+@@ -8,6 +8,7 @@ import (
+ 	"cmd/compile/internal/ir"
+ 	"cmd/compile/internal/types"
+ 	"cmd/internal/obj"
++	"cmd/internal/objabi"
+ 	"slices"
+ )
+ 
+@@ -315,7 +316,7 @@ func memoryBarrierTest(b *Block) bool {
+ 		return false
+ 	}
+ 	if globl, ok := c.Aux.(*obj.LSym); ok {
+-		return globl.Name == "runtime.writeBarrier"
++		return objabi.OriginalFuncName(globl.Name) == "runtime.writeBarrier"
+ 	}
+ 	return false
+ }
+diff --git a/cmd/compile/internal/ssa/rewrite.go b/cmd/compile/internal/ssa/rewrite.go
+index ee5cd00..202922d 100644
+--- a/cmd/compile/internal/ssa/rewrite.go
++++ b/cmd/compile/internal/ssa/rewrite.go
+@@ -459,11 +459,18 @@ func canMergeLoad(target, load *Value) bool {
+ 
+ // isSameCall reports whether aux is the same as the given named symbol.
+ func isSameCall(aux Aux, name string) bool {
++	return callName(aux) == name
++}
++
++// callName returns the original fully qualified name of a static call's
++// target, so that name checks keep working when the runtime's package path
++// and symbols are obfuscated.
++func callName(aux Aux) string {
+ 	fn := aux.(*AuxCall).Fn
+ 	if fn == nil {
+-		return false
++		return ""
+ 	}
+-	return objabi.OriginalSymbol(fn.String()) == name
++	return objabi.OriginalFuncName(fn.String())
+ }
+ 
+ func isMalloc(aux Aux) bool {
+@@ -471,16 +478,11 @@ func isMalloc(aux Aux) bool {
+ }
+ 
+ func isNewObject(aux Aux) bool {
+-	fn := aux.(*AuxCall).Fn
+-	return fn != nil && fn.String() == "runtime.newobject"
++	return callName(aux) == "runtime.newobject"
+ }
+ 
+ func isSpecializedMalloc(aux Aux) bool {
+-	fn := aux.(*AuxCall).Fn
+-	if fn == nil {
+-		return false
+-	}
+-	name := fn.String()
++	name := callName(aux)
+ 	return strings.HasPrefix(name, "runtime.mallocgcSmallNoScanSC") ||
+ 		strings.HasPrefix(name, "runtime.mallocgcSmallScanNoHeaderSC") ||
+ 		strings.HasPrefix(name, "runtime.mallocgcTinySC")
+@@ -2044,7 +2046,7 @@ func needRaceCleanup(sym *AuxCall, v *Value) bool {
+ 			case OpStaticCall, OpStaticLECall:
+ 				// Check for racefuncenter will encounter racefuncexit and vice versa.
+ 				// Allow calls to panic*
+-				s := v.Aux.(*AuxCall).Fn.String()
++				s := callName(v.Aux)
+ 				switch s {
+ 				case "runtime.racefuncenter", "runtime.racefuncexit",
+ 					"runtime.panicdivide", "runtime.panicwrap",
+diff --git a/cmd/compile/internal/ssa/writebarrier.go b/cmd/compile/internal/ssa/writebarrier.go
+index ec5a0fe..6a04571 100644
+--- a/cmd/compile/internal/ssa/writebarrier.go
++++ b/cmd/compile/internal/ssa/writebarrier.go
+@@ -614,7 +614,7 @@ func (f *Func) computeZeroMap(select1 []*Value) map[ID]ZeroRegion {
+ 				// calls to newobject, which will have result type
+ 				// unsafe.Pointer instead. We can't easily infer how large the
+ 				// allocated memory is, so just skip it.
+-				if types.LocalPkg.Path == "runtime" && v.Type.IsUnsafePtr() {
++				if objabi.OriginalPackagePath(types.LocalPkg.Path) == "runtime" && v.Type.IsUnsafePtr() {
+ 					continue
+ 				}
+ 
+diff --git a/cmd/compile/internal/ssagen/ssa.go b/cmd/compile/internal/ssagen/ssa.go
+index 7d523e5..0d2aa43 100644
+--- a/cmd/compile/internal/ssagen/ssa.go
++++ b/cmd/compile/internal/ssagen/ssa.go
+@@ -1692,7 +1692,9 @@ func (s *state) stmt(n ir.Node) {
+ 		n := n.(*ir.CallExpr)
+ 		s.callResult(n, callNormal)
+ 		if n.Op() == ir.OCALLFUNC && n.Fun.Op() == ir.ONAME && n.Fun.(*ir.Name).Class == ir.PFUNC {
+-			if fn := n.Fun.Sym().Name; base.Flag.CompilingRuntime && fn == "throw" ||
++			sym := n.Fun.Sym()
++			_, origName := objabi.OriginalPackageSymbol(sym.Pkg.Path, sym.Name)
++			if fn := sym.Name; base.Flag.CompilingRuntime && origName == "throw" ||
+ 				n.Fun.Sym().Pkg == ir.Pkgs.Runtime &&
+ 					(fn == "throwinit" || fn == "gopanic" || fn == "panicwrap" || fn == "block" ||
+ 						fn == "panicmakeslicelen" || fn == "panicmakeslicecap" || fn == "panicunsafeslicelen" ||
+diff --git a/cmd/internal/obj/plist.go b/cmd/internal/obj/plist.go
+index f0fe68e..f0a0913 100644
+--- a/cmd/internal/obj/plist.go
++++ b/cmd/internal/obj/plist.go
+@@ -119,7 +119,7 @@ func Flushplist(ctxt *Link, plist *Plist, newprog ProgAlloc) {
+ 			//
+ 			// TODO(cherryyz): Fix cmd/link's handling of plugins (see
+ 			// discussion on CL 523355).
+-			if s.Name == "runtime.addmoduledata" {
++			if objabi.OriginalFuncName(s.Name) == "runtime.addmoduledata" {
+ 				continue
+ 			}
+ 			foundArgMap, foundArgInfo := false, false
+diff --git a/cmd/internal/obj/x86/obj6.go b/cmd/internal/obj/x86/obj6.go
+index 8125acf..abf2fc3 100644
+--- a/cmd/internal/obj/x86/obj6.go
++++ b/cmd/internal/obj/x86/obj6.go
+@@ -860,7 +860,7 @@ func isZeroArgRuntimeCall(s *obj.LSym) bool {
+ 	if s == nil {
+ 		return false
+ 	}
+-	switch s.Name {
++	switch objabi.OriginalFuncName(s.Name) {
+ 	case "runtime.panicdivide", "runtime.panicwrap", "runtime.panicshift", "runtime.panicBounds", "runtime.panicExtend":
+ 		return true
+ 	}
+-- 
+2.55.0
+

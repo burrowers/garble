@@ -603,6 +603,10 @@ var toolchainNameDependencies = map[string]map[string]bool{
 		"EscapeNonString":   true,
 		"FuncPCABI0":        true,
 		"FuncPCABIInternal": true,
+		// NoEscape is matched by name in the inliner's cheap-call list; the
+		// compiler keeps internal/abi's path, so preserving the name keeps
+		// that check working under obfuscation.
+		"NoEscape": true,
 	},
 	"sync/atomic": {
 		"align64": true,

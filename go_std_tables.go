@@ -274,6 +274,26 @@ var compilerIntrinsics = map[string]map[string]bool{
 // builtinSymbols lists generated compiler, assembler, and linker symbol-name
 // contracts which must survive runtime obfuscation.
 var builtinSymbols = map[string][]string{
+	"internal/byteorder": {
+		"BEAppendUint16", // go1.27
+		"BEAppendUint32", // go1.27
+		"BEAppendUint64", // go1.27
+		"BEPutUint16",    // go1.27
+		"BEPutUint32",    // go1.27
+		"BEPutUint64",    // go1.27
+		"BEUint16",       // go1.27
+		"BEUint32",       // go1.27
+		"BEUint64",       // go1.27
+		"LEAppendUint16", // go1.27
+		"LEAppendUint32", // go1.27
+		"LEAppendUint64", // go1.27
+		"LEPutUint16",    // go1.27
+		"LEPutUint32",    // go1.27
+		"LEPutUint64",    // go1.27
+		"LEUint16",       // go1.27
+		"LEUint32",       // go1.27
+		"LEUint64",       // go1.27
+	},
 	"internal/fuzz": {
 		"_counters",  // go1.27
 		"_ecounters", // go1.27
@@ -649,6 +669,7 @@ var builtinSymbols = map[string][]string{
 		"printuint",                            // go1.27
 		"printuintptr",                         // go1.27
 		"printunlock",                          // go1.27
+		"quoted",                               // go1.27
 		"racefuncenter",                        // go1.27
 		"racefuncexit",                         // go1.27
 		"raceread",                             // go1.27
@@ -703,6 +724,7 @@ var builtinSymbols = map[string][]string{
 		"systemstack_switch",                   // go1.27
 		"text",                                 // go1.27
 		"textsectionmap",                       // go1.27
+		"throw",                                // go1.27
 		"throwinit",                            // go1.27
 		"tls_g",                                // go1.27
 		"tlsg",                                 // go1.27
