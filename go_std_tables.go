@@ -274,6 +274,10 @@ var compilerIntrinsics = map[string]map[string]bool{
 // builtinSymbols lists generated compiler, assembler, and linker symbol-name
 // contracts which must survive runtime obfuscation.
 var builtinSymbols = map[string][]string{
+	"internal/fuzz": {
+		"_counters",  // go1.27
+		"_ecounters", // go1.27
+	},
 	"internal/runtime/atomic": {
 		"align64", // go1.27
 	},

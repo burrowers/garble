@@ -470,6 +470,8 @@ func generateBuiltinSymbols(goroots []versionedString) []tmplIntrinsic {
 			{"compile/internal/types/size.go", `== "align64"`, "sync/atomic.align64"},
 			{"compile/internal/types/size.go", `"internal/runtime/atomic"`, "internal/runtime/atomic.align64"},
 			{"compile/internal/types/type.go", `== "nih"`, "internal/runtime/sys.nih"},
+			{"link/internal/ld/data.go", `"internal/fuzz._counters"`, "internal/fuzz._counters"},
+			{"link/internal/ld/data.go", `"internal/fuzz._ecounters"`, "internal/fuzz._ecounters"},
 		}
 		for _, special := range specials {
 			contents := readFile(filepath.Join(cmdRoot, special.file))
