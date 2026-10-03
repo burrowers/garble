@@ -195,9 +195,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		if err != nil {
 			return "", nil, nil, fmt.Errorf("controlflow directive on %s: %w", ssaFunc, err)
 		}
-		if passes == 0 {
-			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
-		}
+
 		flattenHardening := params.StringSlice("flatten_hardening")
 
 		trashBlockCount, err := params.GetInt("trash_blocks", defaultTrashBlocks, maxTrashBlocks)
@@ -208,7 +206,15 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			trashGen = newTrashGenerator(ssaPkg.Prog, funcConfig.ImportNameResolver, obfRand)
 		}
 
+		duplicates, err := params.GetInt("block_duplicates", 0, 4)
+		if err != nil || duplicates < 0 {
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: block_duplicates must be between 0 and 4", ssaFunc)
+		}
+		if passes == 0 && duplicates == 0 {
+			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
+		}
 		applyObfuscation := func(ssaFunc *ssa.Function) []dispatcherInfo {
+			duplicateReturnBlocks(ssaFunc, duplicates, obfRand)
 			if trashBlockCount > 0 {
 				addTrashBlockMarkers(ssaFunc, trashBlockCount, obfRand)
 			}

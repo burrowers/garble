@@ -41,6 +41,14 @@ import (
 	"unsafe"
 )
 
+var duplicateVisits int
+
+//garble:controlflow flatten_passes=0 block_duplicates=1
+func duplicateReturn(x uint32, b bool) uint32 {
+	if b { duplicateVisits++ } else { duplicateVisits += 2 }
+	return (x+1)*2
+}
+
 //garble:controlflow flatten_passes=0 junk_jumps=max block_splits=max
 func func1() {}
 
@@ -98,6 +106,7 @@ func ModifyValue() {
 
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
+	if duplicateReturn(5, true) != 12 || duplicateReturn(5, false) != 12 || duplicateVisits != 3 { panic("block duplication") }
 	// Reference to the unexported interface triggers creation of a new interface
 	// with a list of all functions of the private interface
 	endian := binary.LittleEndian
