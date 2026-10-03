@@ -13,6 +13,7 @@ import (
 	"go/types"
 	"io/fs"
 	"log"
+	"maps"
 	mathrand "math/rand"
 	"os"
 	"path/filepath"
@@ -624,15 +625,7 @@ var toolchainNameDependencies = map[string]map[string]bool{
 }
 
 func isToolchainNameDependency(path, name string) bool {
-	if compilerIntrinsics[path][name] || toolchainNameDependencies[path][name] {
-		return true
-	}
-	if path == "runtime" {
-		return strings.HasPrefix(name, "mallocgcSmallNoScanSC") ||
-			strings.HasPrefix(name, "mallocgcSmallScanNoHeaderSC") ||
-			strings.HasPrefix(name, "mallocgcTinySC")
-	}
-	return false
+	return toolchainNameDependencies[path][name]
 }
 
 // obfuscatedPackageObjectName is the shared package-level naming rule used by
@@ -644,8 +637,15 @@ func obfuscatedPackageObjectName(lpkg *listedPackage, name string) string {
 	return hashWithPackage(lpkg, name)
 }
 
-func (tf *transformer) validateBuiltinSymbolNames() {
+func (tf *transformer) validateMappedSymbolNames() {
+	symbols := maps.Clone(compilerIntrinsics[tf.curPkg.ImportPath])
+	if symbols == nil {
+		symbols = make(map[string]bool)
+	}
 	for _, name := range builtinSymbols[tf.curPkg.ImportPath] {
+		symbols[name] = true
+	}
+	for name := range symbols {
 		obj := tf.pkg.Scope().Lookup(name)
 		if obj == nil {
 			continue // assembly- or linker-generated symbol
@@ -655,7 +655,7 @@ func (tf *transformer) validateBuiltinSymbolNames() {
 			got = name
 		}
 		if want := obfuscatedPackageObjectName(tf.curPkg, name); got != want {
-			panic(fmt.Sprintf("builtin symbol naming drift for %s.%s: transformer=%q symbol-map=%q", tf.curPkg.ImportPath, name, got, want))
+			panic(fmt.Sprintf("mapped symbol naming drift for %s.%s: transformer=%q symbol-map=%q", tf.curPkg.ImportPath, name, got, want))
 		}
 	}
 }
@@ -896,7 +896,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
 	// Compute fieldToStruct first so runtime patches can use it.
 	tf.fieldToStruct = computeFieldToStruct(tf.info)
-	tf.validateBuiltinSymbolNames()
+	tf.validateMappedSymbolNames()
 
 	if flagLiterals {
 		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg); err != nil {
