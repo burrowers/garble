@@ -20,9 +20,7 @@ cmp stderr main.stderr
 binsubstr main$exe 'Lorem Ipsum' 'dolor sit amet' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret'
 
 # Generate and write random literals into a separate file.
-# Some of them will be huge; assuming that we don't try to obfuscate them, the
-# test should generally run in under a second. If this test hangs for over ten
-# seconds, it means we're trying to obfuscate them.
+# Huge literals must use the bounded-AST decoder instead of per-byte expressions.
 generate-literals extra_literals.go
 
 # ensure we find the extra literals in an unobfuscated build
@@ -117,8 +115,7 @@ func main() {
 	reassign = "second assign"
 
 	add := "totally long" + "unnecessarily added string"
-	// The concatenation is above MaxSize so it is left alone, but its typed
-	// operand below MaxSize must still be obfuscated.
+	// The folded concatenation uses the large-value decoder as a whole.
 	oversize := string("oversize concat secret") + padding2048
 
 	println(cnst, boolean)

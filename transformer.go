@@ -282,6 +282,7 @@ func alterTrimpath(flags []string) []string {
 // transformer holds all the information and state necessary to obfuscate a
 // single Go package.
 type transformer struct {
+	embeddedValues map[ast.Expr]literals.EmbeddedValue
 	// curPkg holds basic information about the package being currently compiled or linked.
 	curPkg *listedPackage
 
@@ -856,6 +857,23 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, withSSAInfo); err != nil {
 		return nil, err
 	}
+	if flagLiterals && tf.curPkg.ImportPath == "embed" {
+		var patched bool
+		for i, file := range files {
+			if filepath.Base(paths[i]) == "embed.go" {
+				if err := patchEmbedPackage(file); err != nil {
+					return nil, err
+				}
+				patched = true
+			}
+		}
+		if !patched {
+			return nil, fmt.Errorf("could not patch embed package: embed.go not found")
+		}
+		if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, withSSAInfo); err != nil {
+			return nil, err
+		}
+	}
 
 	var (
 		ssaPkg       *ssa.Package
@@ -891,6 +909,15 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 
 	if tf.curPkgCache, err = loadPkgCache(tf.curPkg, tf.pkg, files, tf.info, ssaPkg); err != nil {
 		return nil, err
+	}
+	if flagLiterals && tf.curPkg.toObfuscate() {
+		if err := tf.obfuscateEmbeds(files, flags); err != nil {
+			return nil, err
+		}
+		flags, err = tf.obfuscateEmbedFiles(flags)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// These maps are not kept in pkgCache, since they are only needed to obfuscate curPkg.
@@ -1495,7 +1522,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.ImportPath) {
-		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings, randomName)
+		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, randomName)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
 		tf.useAllImports(file)
