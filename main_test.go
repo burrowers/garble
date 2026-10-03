@@ -604,6 +604,14 @@ func TestRuntimeBuiltinSymbolsExcludeNonSymbolLiterals(t *testing.T) {
 	}
 }
 
+func TestFuzzCoverageBoundarySymbols(t *testing.T) {
+	for _, name := range []string{"_counters", "_ecounters"} {
+		if !slices.Contains(builtinSymbols["internal/fuzz"], name) {
+			t.Errorf("internal/fuzz.%s must be included in the linker symbol map", name)
+		}
+	}
+}
+
 func TestRuntimeGeneratedLinkerSymbols(t *testing.T) {
 	for _, name := range []string{"buildVersion", "modinfo", "unreachableMethod"} {
 		if !slices.Contains(builtinSymbols["runtime"], name) {
