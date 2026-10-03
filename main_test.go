@@ -397,6 +397,23 @@ func setupGo(ts *testscript.TestScript, neg bool, args []string) {
 	ts.Setenv("GOROOT", "")
 }
 
+func TestSplitFlagsFromFiles(t *testing.T) {
+	t.Parallel()
+	backing, err := filepath.Abs("backing.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ext := range []string{".go", ".s"} {
+		for _, path := range []string{"./backing.txt", backing} {
+			flags := []string{"-p", "package.go", "-trimpath", backing + "=>original" + ext + ";unused=>", "-pack"}
+			args := append(slices.Clone(flags), "normal"+ext, path)
+			gotFlags, gotPaths := splitFlagsFromFiles(args, ext)
+			qt.Assert(t, qt.DeepEquals(gotFlags, flags))
+			qt.Assert(t, qt.DeepEquals(gotPaths, []string{"normal" + ext, path}))
+		}
+	}
+}
+
 func TestSplitFlagsFromArgs(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
