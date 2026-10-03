@@ -46,6 +46,14 @@ exec garble test . -withflag -tags testprefix -v
 stdout 'PASS.*TestWithFlag'
 stdout 'PASS.*TestTaggedFlag'
 
+# fuzzing currently loses edge coverage guidance under obfuscation
+exec garble test -fuzz=FuzzGuided -fuzztime=1x -run='^$' .
+stdout 'not built with coverage instrumentation'
+! stdout 'gathering baseline coverage:'
+
+go test -fuzz=FuzzGuided -fuzztime=1x -run='^$' .
+stdout 'gathering baseline coverage:'
+
 # verify with regular cmd/go; OriginalFuncName should appear
 go test -v
 stdout 'PASS.*TestFoo'
@@ -97,6 +105,15 @@ func TestFoo(t *testing.T) {
 		t.FailNow()
 	}
 	t.Logf("package bar, func name: %s", OriginalFuncName())
+}
+
+func FuzzGuided(f *testing.F) {
+	f.Add("seed")
+	f.Fuzz(func(t *testing.T, input string) {
+		if input == "seed" {
+			t.Log("seed-ok")
+		}
+	})
 }
 
 -- tagged_test.go --
