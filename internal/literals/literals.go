@@ -70,6 +70,31 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 			}
 
 		case ast.Expr:
+			// A constant string converted to a byte slice has an exact
+			// capacity. Decoding the string first makes the conversion
+			// allocate at run time, where the allocator may round it up.
+			if call, ok := node.(*ast.CallExpr); ok && len(call.Args) == 1 {
+				if slice, ok := info.TypeOf(call.Fun).Underlying().(*types.Slice); ok && slice.Elem() == types.Universe.Lookup("byte").Type() {
+					if value := info.Types[call.Args[0]].Value; value != nil && value.Kind() == constant.String {
+						text := constant.StringVal(value)
+						if len(text) >= MinSize && len(text) <= MaxSize {
+							name := or.nameFunc(or.rnd, "literalSlice")
+							result := ast.NewIdent(name)
+							converted := ah.CallExpr(call.Fun, obfuscateString(or, text))
+							body := ah.BlockStmt(
+								ah.AssignDefineStmt(result, converted),
+								ah.ReturnStmt(&ast.SliceExpr{
+									X:    ast.NewIdent(name),
+									High: ah.IntLit(len(text)),
+									Max:  ah.IntLit(len(text)),
+								}),
+							)
+							cursor.Replace(withPos(ah.LambdaCall(nil, call.Fun, body, nil), node.Pos()))
+							return false
+						}
+					}
+				}
+			}
 			// Rewrite &[]byte{...} as a whole on the way down. Rewriting the
 			// composite literal on its own would leave behind &(decoder()),
 			// which is not addressable, and parentheses in the input would

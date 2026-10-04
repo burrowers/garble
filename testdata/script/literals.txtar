@@ -110,9 +110,8 @@ const padding512 = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
 const padding2048 = padding512 + padding512 + padding512 + padding512
 
 func main() {
-	// TODO: conversion of a decoded string currently rounds the capacity up.
-	if len(namedPayload) == cap(namedPayload) || namedPayload[0] != 'a' || namedPayload[len(namedPayload)-1] != 0xff {
-		panic("named byte slice literal baseline changed")
+	if len(namedPayload) != cap(namedPayload) || namedPayload[0] != 'a' || namedPayload[len(namedPayload)-1] != 0xff {
+		panic("named byte slice literal changed")
 	}
 	empty := ""
 	tooSmall := "sz<min"
