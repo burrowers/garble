@@ -31,7 +31,9 @@ exec garble -debugdir=debug1 build
 exists 'debug1/source/test/main/main.go' 'debug1/garbled/test/main/main.go'
 
 exec garble -tiny -debugdir=debug1 build
-! grep '(/\*|//)line ' $WORK/debug1/garbled/test/main/main.go
+# Tiny keeps opaque source-site directives for reversible panic origins.
+grep '/\*line p_[[:word:]]+\.go:1\*/' $WORK/debug1/garbled/test/main/main.go
+! grep '(/\*|//)line .*main\.go' $WORK/debug1/garbled/test/main/main.go
 
 -- notdebug/important_data.txt --
 This file should not be deleted by -debugdir.
