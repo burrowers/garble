@@ -44,7 +44,7 @@ func tinyPanicRuntimeSource(path, basename string) (string, error) {
 	if p.garbleOrigin == "" {
 		println("panic: hidden")
 	} else {
-		print("panic: ", p.garbleOrigin, ":1\n")
+		print("panic: p_", p.garbleOrigin, ".go:1\n")
 	}
 }` + src[end:]
 	src += `

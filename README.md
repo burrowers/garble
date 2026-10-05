@@ -99,7 +99,9 @@ Fatal runtime errors remain silent. Panics can still be handled internally with
 Note that this flag can make debugging crashes harder, as a panic will simply
 exit the entire program without printing a stack trace, and many names are removed.
 Keeping reversible panic-site tokens costs some binary space compared with
-removing all position metadata.
+removing all position metadata. The linker uses a dense global token table,
+omits PC-to-file tables without source tokens, and stores each hash without
+the repeated `p_` prefix or `.go` suffix.
 
 ### Control flow obfuscation
 

@@ -1,5 +1,6 @@
 # Tiny mode
 exec garble -tiny build
+tinyfiletab main$exe
 ! binsubstr main$exe 'garble_main.go' 'fmt/print.go'
 ! binsubstr main$exe 'fatal: morestack on g0'
 ! binsubstr main$exe 'all goroutines are asleep - deadlock!' 'no goroutines (main called runtime.Goexit) - deadlock!'
