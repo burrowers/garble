@@ -12,6 +12,7 @@ import (
 	"go/types"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -63,9 +64,6 @@ One can reverse a captured panic stack trace as follows:
 			replaces = append(replaces, hashWithPackage(lpkg, str), str)
 		}
 
-		// Package paths are obfuscated, too.
-		addHashedWithPackage(lpkg.ImportPath)
-
 		// Assembly filenames are obfuscated in a simple way.
 		// Mirroring [transformer.transformAsm]; note the lack of a test
 		// as so far this has only mattered for build errors with positions.
@@ -82,10 +80,24 @@ One can reverse a captured panic stack trace as follows:
 			goFile := lpkg.CompiledGoFiles[i]
 			addPosition := func(nodePos token.Pos) {
 				pos := fset.Position(nodePos)
+				originalFile := goFile
+				physicalFile := fset.PositionFor(nodePos, false).Filename
+				if pos.Filename != physicalFile {
+					if relative, err := filepath.Rel(filepath.Dir(physicalFile), pos.Filename); err == nil && filepath.IsLocal(relative) {
+						originalFile = filepath.ToSlash(relative)
+					} else {
+						originalFile = pos.Filename
+					}
+				}
 				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
 				newFilename := hashWithPackage(lpkg, origPos) + ".go"
-				original := fmt.Sprintf("%s:%d", goFile, pos.Line)
+				original := fmt.Sprintf("%s:%d", originalFile, pos.Line)
 				positions[newFilename] = original
+				if filepath.IsAbs(originalFile) {
+					obfuscatedPath := hashWithPackage(lpkg, lpkg.ImportPath) + "/" + newFilename
+					positions[obfuscatedPath] = original
+					replaces = append(replaces, obfuscatedPath, originalFile)
+				}
 
 				// A relative filename in a "//line" directive is recorded
 				// relative to the package's import path, so positions read
@@ -93,7 +105,7 @@ One can reverse a captured panic stack trace as follows:
 				// filename, as the import path before it is replaced above.
 				replaces = append(replaces,
 					newFilename+":1", original,
-					newFilename, goFile,
+					newFilename, originalFile,
 				)
 			}
 			for node := range ast.Preorder(file) {
@@ -133,6 +145,9 @@ One can reverse a captured panic stack trace as follows:
 				}
 			}
 		}
+		// Add the package path after any full-path replacements for logical
+		// absolute filenames, so the latter take precedence.
+		addHashedWithPackage(lpkg.ImportPath)
 	}
 	repl := strings.NewReplacer(replaces...)
 
@@ -167,7 +182,7 @@ One can reverse a captured panic stack trace as follows:
 	return nil
 }
 
-var obfuscatedPosition = regexp.MustCompile(`[A-Za-z0-9_]+\.go:[1-9][0-9]*`)
+var obfuscatedPosition = regexp.MustCompile(`[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)?\.go:[1-9][0-9]*`)
 
 func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer, positions map[string]string) (bool, error) {
 	// Read line by line.
@@ -191,6 +206,11 @@ func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer, positions 
 				name, _, _ := strings.Cut(pos, ":")
 				if original, ok := positions[name]; ok {
 					return original
+				}
+				if slash := strings.LastIndexByte(name, '/'); slash >= 0 {
+					if original, ok := positions[name[slash+1:]]; ok {
+						return name[:slash+1] + original
+					}
 				}
 				return pos
 			})
