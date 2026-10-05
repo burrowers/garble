@@ -48,6 +48,16 @@ stdin main-literals.stderr
 ! exec garble reverse .
 cmp stdout main-literals.stderr
 
+# A source //line directive supplies a logical filename and line, not just a line.
+go build -trimpath -o line-plain$exe ./case/line
+exec ./line-plain$exe
+cp stdout line.expected
+exec garble -literals build -o line-obfuscated$exe ./case/line
+exec ./line-obfuscated$exe
+stdin stdout
+exec garble -literals reverse ./case/line
+cmp stdout line.expected
+
 # https://github.com/burrowers/garble/pull/967
 # Ensure that we can reverse a package with build tag required.
 exec garble build -o tag.bin -tags sometag ./case/tag
@@ -144,6 +154,26 @@ func printStackTrace(w io.Writer) error {
 	stackLines = append(stackLines[:1], stackLines[3:]...)
 	_, err := w.Write(bytes.Join(stackLines, []byte("\n")))
 	return err
+}
+
+-- case/line/main.go --
+package main
+
+import (
+	"fmt"
+	"runtime"
+)
+
+func main() {
+//line virtual/rewritten.go:317
+	_, file, line, _ := runtime.Caller(0)
+	fmt.Printf("logical=%s:%d\n", file, line)
+	fmt.Printf("logical-file=%s\n", file)
+	fmt.Println("distinct-literal-message-in-logical-frame")
+//line /virtual/absolute.go:410
+	_, file, line, _ = runtime.Caller(0)
+	fmt.Printf("absolute=%s:%d\n", file, line)
+	fmt.Printf("absolute-file=%s\n", file)
 }
 
 -- case/tag/main.go --
