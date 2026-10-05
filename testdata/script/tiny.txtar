@@ -17,7 +17,8 @@ stderr '^funcline.local: \? 0$'
 stderr '^funcline.stdlib: \? 0$'
 stderr '^callersframes.removed true$'
 stderr '^recovered: ya like jazz?'
-! stderr 'panic: oh noes' # panics are hidden
+! stderr 'panic: oh noes' # panic values are hidden
+stderr '^panic: hidden$'
 stderr 'funcExported false funcUnexported true'
 stderr 'funcStructExported false funcStructUnexported true'
 # The runtime consumes a handful of function names as data even in -tiny:
@@ -33,6 +34,20 @@ stderr '^runtime.sentinels.goexit true gopanic true$'
 # GOTRACEBACK controls more than traceback output, which tiny mode hides:
 # "crash" must still crash the process rather than exit with status 2.
 stderr '^single aborts: false crash aborts: true$'
+
+# Nil panics, runtime panics, and custom panic values have the same diagnostic.
+! exec ./main$exe nil
+cmp stderr hidden.txt
+! exec ./main$exe single
+cmp stderr hidden.txt
+! exec ./main$exe custom
+cmp stderr hidden.txt
+exec ./main$exe recover-nil
+cmp stderr recovered-nil.txt
+env GODEBUG=panicnil=1
+! exec ./main$exe nil
+cmp stderr hidden.txt
+env GODEBUG=
 
 [short] stop # no need to verify this with -short
 
@@ -57,6 +72,17 @@ stderr '^methodvalue.name reflect\.methodValueCall value 213$'
 stderr '^wrapper.name .* recovered true$'
 stderr '^runtime.sentinels.goexit true gopanic true$'
 stderr '^single aborts: false crash aborts: true$'
+! exec ./main$exe nil
+stderr 'panic: runtime error: panic called with nil argument'
+! exec ./main$exe custom
+stderr '^panic formatter called$'
+stderr 'panic: custom panic value'
+exec ./main$exe recover-nil
+cmp stderr recovered-nil.txt
+-- hidden.txt --
+panic: hidden
+-- recovered-nil.txt --
+recovered nil panic: true
 -- go.mod --
 module test/main
 
@@ -89,6 +115,13 @@ import (
 )
 
 var nilPtr *int
+
+type panicValue struct{}
+
+func (panicValue) Error() string {
+	println("panic formatter called")
+	return "custom panic value"
+}
 
 type testStruct struct{}
 
@@ -228,6 +261,18 @@ func printPositionInfo() {
 
 func main() {
 	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "nil":
+			panic(nil)
+		case "custom":
+			panic(panicValue{})
+		case "recover-nil":
+			defer func() {
+				_, ok := recover().(*runtime.PanicNilError)
+				println("recovered nil panic:", ok)
+			}()
+			panic(nil)
+		}
 		debug.SetTraceback(os.Args[1])
 		println(*nilPtr)
 	}

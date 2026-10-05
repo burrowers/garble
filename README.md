@@ -83,12 +83,13 @@ see [#984](https://github.com/burrowers/garble/issues/984).
 
 With the `-tiny` flag, even more information is stripped from the Go binary.
 Position information is removed entirely, rather than being obfuscated.
-Runtime code which prints panics, fatal errors, and trace/debug info is removed.
+Runtime code which prints panic values, fatal errors, and trace/debug info is removed.
 Many symbol names are also omitted from binary sections at link time.
 All in all, this can make binaries about 15% smaller.
 
-With this flag, no panics or fatal runtime errors will ever be printed, but they
-can still be handled internally with `recover` as normal.
+With this flag, unrecovered panics print only `panic: hidden`, without the panic
+value or a stack trace. Fatal runtime errors remain silent. Panics can still be
+handled internally with `recover` as normal, including `panic(nil)`.
 
 Note that this flag can make debugging crashes harder, as a panic will simply
 exit the entire program without printing a stack trace, and source code

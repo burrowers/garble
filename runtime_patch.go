@@ -242,6 +242,7 @@ func stripFatalMessages(importPath string, file *ast.File) {
 // general success/failure flag: it is set only when setVMAName was emptied.
 func stripRuntime(basename string, file *ast.File) (strippedFunctions map[string]bool, strippedVMAName bool) {
 	strippedFunctions = make(map[string]bool)
+	var panicPrinter *ast.FuncDecl
 	emptyBody := func(funcDecl *ast.FuncDecl) {
 		funcDecl.Body.List = nil
 		strippedFunctions[funcDecl.Name.Name] = true
@@ -308,6 +309,9 @@ func stripRuntime(basename string, file *ast.File) (strippedFunctions map[string
 			switch funcDecl.Name.Name {
 			case "preprintpanics", "printpanics":
 				funcDecl.Body.List = nil
+				if funcDecl.Name.Name == "printpanics" {
+					panicPrinter = funcDecl
+				}
 			}
 		case "print.go":
 			// only used in tracebacks
@@ -368,6 +372,12 @@ func stripRuntime(basename string, file *ast.File) (strippedFunctions map[string
 	// the runtime with an empty func, which will be
 	// optimized out by the compiler
 	ast.Inspect(file, stripPrints)
+	if panicPrinter != nil {
+		// Add this after stripping prints so an unrecovered panic remains visible
+		// without exposing its value or calling user-defined formatting methods.
+		panicPrinter.Body = ah.BlockStmt(ah.ExprStmt(ah.CallExpr(
+			ast.NewIdent("println"), ah.StringLit("panic: hidden"))))
+	}
 	return strippedFunctions, strippedVMAName
 }
 
