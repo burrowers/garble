@@ -739,6 +739,13 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 				goPkgPath = strings.ReplaceAll(goPkgPath, string(asmSlash), string(goSlash))
 				var err error
 				lpkg, err = listPackage(tf.curPkg, goPkgPath)
+				if errors.Is(err, ErrNotFound) {
+					// Assembly qualifiers need not name Go packages, as with
+					// Arrow's clib·_memcpy. Preserve these custom symbols.
+					buf.Write(remaining[pkgStart : pkgEnd+asmPeriodLen])
+					remaining = remaining[pkgEnd+asmPeriodLen:]
+					continue
+				}
 				if err != nil {
 					panic(err) // shouldn't happen
 				}

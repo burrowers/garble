@@ -94,7 +94,7 @@ DATA bar+0(SB)/8, $0 // Inline: many·special∕asm·runes.
 
 // Reference an imported package by its package path.
 TEXT ·addJmpPkgPath(SB),$0-16
-	JMP test∕with·many·dots∕main∕imported·AddImpl(SB)
+	JMP clib·add(SB)
 
 // Reference the current package by its package name.
 TEXT ·addJmpPkgName(SB),$0-16
@@ -124,6 +124,11 @@ TEXT ·argsSize(SB), $0-8
 	MOVQ $Args__size, AX
 	MOVQ AX, ret+0(FP)
 	RET
+
+-- clib_amd64.s --
+// Assembly symbols can use a qualifier which is not a Go package.
+TEXT clib·add(SB),$0-16
+	JMP test∕with·many·dots∕main∕imported·AddImpl(SB)
 
 -- garble_define_amd64.h --
 #define addGoDataTo(arg) \
