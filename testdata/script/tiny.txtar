@@ -11,14 +11,14 @@ exec garble -tiny build
 [linux] ! binsubstr main$exe 'impossible cgroup version' 'runtime: cgroup buffer length'
 ! exec ./main$exe
 stderr '^\(0x[[:xdigit:]]+,0x[[:xdigit:]]+\)' # interfaces/pointers print correctly
-# Tiny binaries have no Go source-file or source-line mappings.
+# Public source-location APIs stay stripped, despite the opaque panic tokens.
 stderr '^caller: \? 0$'
 stderr '^funcline.local: \? 0$'
 stderr '^funcline.stdlib: \? 0$'
 stderr '^callersframes.removed true$'
 stderr '^recovered: ya like jazz?'
 ! stderr 'panic: oh noes' # panic values are hidden
-stderr '^panic: hidden$'
+stderr '^panic: p_[[:word:]]+\.go:1$'
 stderr 'funcExported false funcUnexported true'
 stderr 'funcStructExported false funcStructUnexported true'
 # The runtime consumes a handful of function names as data even in -tiny:
@@ -34,22 +34,61 @@ stderr '^runtime.sentinels.goexit true gopanic true$'
 # GOTRACEBACK controls more than traceback output, which tiny mode hides:
 # "crash" must still crash the process rather than exit with status 2.
 stderr '^single aborts: false crash aborts: true$'
+cp stderr panic.stderr
+exec garble -tiny reverse . panic.stderr
+stdout '^panic: panic-sites.go:104$'
+! stdout 'goroutine [0-9]'
 
-# Nil panics, runtime panics, and custom panic values have the same diagnostic.
+# Only the source site is exposed. Values and formatter calls stay hidden.
 ! exec ./main$exe nil
-cmp stderr hidden.txt
+cp stderr panic.stderr
+exec garble -tiny reverse . panic.stderr
+cmp stdout nil.txt
 ! exec ./main$exe single
-cmp stderr hidden.txt
+cp stderr panic.stderr
+exec garble -tiny reverse . panic.stderr
+cmp stdout runtime.txt
 ! exec ./main$exe custom
-cmp stderr hidden.txt
+cp stderr panic.stderr
+exec garble -tiny reverse . panic.stderr
+cmp stdout custom.txt
+! exec ./main$exe bounds
+cp stderr panic.stderr
+exec garble -tiny reverse . panic.stderr
+cmp stdout bounds.txt
+! exec ./main$exe inline
+cp stderr panic.stderr
+exec garble -tiny reverse . panic.stderr
+cmp stdout inline.txt
+! exec ./main$exe deferred
+cp stderr panic.stderr
+exec garble -tiny reverse . panic.stderr
+cmp stdout deferred.txt
+exec ./main$exe recover-custom
+cmp stderr recovered-custom.txt
 exec ./main$exe recover-nil
 cmp stderr recovered-nil.txt
 env GODEBUG=panicnil=1
 ! exec ./main$exe nil
-cmp stderr hidden.txt
+cp stderr panic.stderr
+exec garble -tiny reverse . panic.stderr
+cmp stdout nil.txt
+exec ./main$exe recover-nil
+cmp stderr recovered-nil-old.txt
 env GODEBUG=
 
 [short] stop # no need to verify this with -short
+
+# Tokens remain reversible when strings are obfuscated.
+exec garble -tiny -literals build
+! exec ./main$exe custom
+cp stderr panic.stderr
+exec garble -tiny -literals reverse . panic.stderr
+cmp stdout custom.txt
+! exec ./main$exe single
+cp stderr panic.stderr
+exec garble -tiny -literals reverse . panic.stderr
+cmp stdout runtime.txt
 
 # Default mode
 exec garble build
@@ -79,8 +118,22 @@ stderr '^panic formatter called$'
 stderr 'panic: custom panic value'
 exec ./main$exe recover-nil
 cmp stderr recovered-nil.txt
--- hidden.txt --
-panic: hidden
+-- nil.txt --
+panic: panic-sites.go:101
+-- custom.txt --
+panic: panic-sites.go:102
+-- runtime.txt --
+panic: panic-sites.go:103
+-- bounds.txt --
+panic: panic-sites.go:105
+-- inline.txt --
+panic: panic-sites.go:106
+-- deferred.txt --
+panic: panic-sites.go:107
+-- recovered-custom.txt --
+recovered custom panic: true
+-- recovered-nil-old.txt --
+recovered nil panic: false
 -- recovered-nil.txt --
 recovered nil panic: true
 -- go.mod --
@@ -259,12 +312,34 @@ func printPositionInfo() {
 	println("callersframes.removed", allRemoved)
 }
 
+func inlinePanic() {
+//line panic-sites.go:106
+	panic("inline panic value")
+}
+
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "nil":
+//line panic-sites.go:101
 			panic(nil)
 		case "custom":
+//line panic-sites.go:102
+			panic(panicValue{})
+		case "bounds":
+//line panic-sites.go:105
+			println(os.Args[len(os.Args)])
+		case "inline":
+			inlinePanic()
+		case "deferred":
+//line panic-sites.go:107
+			defer panic("deferred panic value")
+			return
+		case "recover-custom":
+			defer func() {
+				_, ok := recover().(panicValue)
+				println("recovered custom panic:", ok)
+			}()
 			panic(panicValue{})
 		case "recover-nil":
 			defer func() {
@@ -274,6 +349,7 @@ func main() {
 			panic(nil)
 		}
 		debug.SetTraceback(os.Args[1])
+//line panic-sites.go:103
 		println(*nilPtr)
 	}
 	println("single aborts:", childAborts("single"), "crash aborts:", childAborts("crash"))
@@ -306,6 +382,7 @@ func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			println("recovered:", r.(string))
+//line panic-sites.go:104
 			panic("oh noes")
 		}
 	}()

@@ -82,19 +82,24 @@ see [#984](https://github.com/burrowers/garble/issues/984).
 ### Tiny mode
 
 With the `-tiny` flag, even more information is stripped from the Go binary.
-Position information is removed entirely, rather than being obfuscated.
+Source line tables are removed. Opaque source-site tokens are retained only
+to identify the origin of an unrecovered panic; public runtime source-location
+APIs still return no positions.
 Runtime code which prints panic values, fatal errors, and trace/debug info is removed.
 Many symbol names are also omitted from binary sections at link time.
-All in all, this can make binaries about 15% smaller.
 
-With this flag, unrecovered panics print only `panic: hidden`, without the panic
-value or a stack trace. Fatal runtime errors remain silent. Panics can still be
-handled internally with `recover` as normal, including `panic(nil)`.
+With this flag, unrecovered panics print one line such as `panic: p_abc123.go:1`,
+without the panic value or a stack trace. Use `garble -tiny reverse` with the
+same source, build flags, and seed to recover the original filename and line.
+The token identifies a source site, not the panic message or its dynamic values.
+If no source site is available, the diagnostic is `panic: hidden`.
+Fatal runtime errors remain silent. Panics can still be handled internally with
+`recover` as normal, including `panic(nil)`.
 
 Note that this flag can make debugging crashes harder, as a panic will simply
-exit the entire program without printing a stack trace, and source code
-positions and many names are removed.
-Similarly, `garble reverse` is generally not useful in this mode.
+exit the entire program without printing a stack trace, and many names are removed.
+Keeping reversible panic-site tokens costs some binary space compared with
+removing all position metadata.
 
 ### Control flow obfuscation
 

@@ -51,10 +51,9 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		// We still need to print the files, but without obfuscating positions.
 		return src, nil
 	}
-	// Tiny mode strips source positions in the linker, so directives are unnecessary.
 	// Don't obfuscate positions in runtime - the //line directives confuse
 	// the compiler's linkname verification
-	if flagTiny || lpkg.ImportPath == "runtime" {
+	if lpkg.ImportPath == "runtime" {
 		return src, nil
 	}
 
@@ -84,6 +83,15 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		case *ast.Ident:
 			origCallOffsets = append(origCallOffsets, nextOffset)
 			nextOffset = -1
+		case *ast.IndexExpr, *ast.IndexListExpr, *ast.SliceExpr, *ast.StarExpr, *ast.TypeAssertExpr, *ast.SelectorExpr, *ast.SendStmt:
+			if flagTiny {
+				// Implicit panics can originate in expressions, not just calls.
+				nextOffset = fsetFile.Position(node.Pos()).Offset
+			}
+		case *ast.BinaryExpr:
+			if flagTiny && (node.Op == token.QUO || node.Op == token.REM || node.Op == token.SHL || node.Op == token.SHR || node.Op == token.EQL || node.Op == token.NEQ) {
+				nextOffset = fsetFile.Position(node.Pos()).Offset
+			}
 		}
 	}
 
@@ -137,11 +145,10 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			if origOffset == -1 {
 				continue // identifiers which don't start func calls are left untouched
 			}
-			newName := ""
-			if !flagTiny {
-				origPos := fmt.Sprintf("%s:%d", filename, origOffset)
-				newName = hashWithPackage(lpkg, origPos) + ".go"
-				// log.Printf("%q hashed with %x to %q", origPos, curPkg.GarbleActionID, newName)
+			origPos := fmt.Sprintf("%s:%d", filename, origOffset)
+			newName := hashWithPackage(lpkg, origPos) + ".go"
+			if flagTiny {
+				newName = "p_" + newName
 			}
 
 			offset := fsetFile.Position(pos).Offset

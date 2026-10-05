@@ -1,0 +1,92 @@
+From 0079bb85d9c802b0317a684859fee5312f4f1a32 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Mon, 5 Oct 2026 09:11:47 +0000
+Subject: [PATCH] link: retain opaque tiny panic origin tokens
+
+A reversible tiny panic diagnostic needs the originating instruction to
+identify its source, including implicit runtime panics. Retain PC-to-file
+mappings and CU lookup tables, but replace every physical filename with a
+placeholder and retain only opaque p_ tokens.
+
+Continue stripping line tables and function start lines so public runtime
+source-location APIs return no positions.
+
+Refs burrowers/garble#604.
+---
+ cmd/link/internal/ld/pcln.go | 30 ++++++++++++++----------------
+ 1 file changed, 14 insertions(+), 16 deletions(-)
+
+diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
+index b91b042..80f8cff 100644
+--- a/cmd/link/internal/ld/pcln.go
++++ b/cmd/link/internal/ld/pcln.go
+@@ -519,17 +519,16 @@ func walkFilenames(ctxt *Link, funcs []loader.Sym, f func(*sym.CompilationUnit,
+ //  2. Find filename offset:   fileOffset := runtime.cutab[M+K]
+ //  3. Get the filename:       getcstring(runtime.filetab[fileOffset])
+ func (state *pclntab) generateFilenameTabs(ctxt *Link, compUnits []*sym.CompilationUnit, funcs []loader.Sym) []uint32 {
++	expandFilename := expandFile
+ 	if os.Getenv("GARBLE_LINK_TINY") == "true" {
+-		// Keep non-empty placeholder symbols so pcHeader offsets and moduledata
+-		// layout remain valid, but do not copy any source filenames or CU tables.
+-		state.cutab = state.addGeneratedSym(ctxt, "runtime.cutab", 4, 4, func(ctxt *Link, s loader.Sym) {
+-			ctxt.loader.MakeSymbolUpdater(s).SetUint32(ctxt.Arch, 0, ^uint32(0))
+-		})
+-		state.filetab = state.addGeneratedSym(ctxt, "runtime.filetab", 2, 1, func(ctxt *Link, s loader.Sym) {
+-			ctxt.loader.MakeSymbolUpdater(s).AddCStringAt(0, "?")
+-		})
+-		state.nfiles = 0
+-		return make([]uint32, len(compUnits))
++		// Keep only opaque panic-site tokens, never physical source paths.
++		expandFilename = func(name string) string {
++			base := name[strings.LastIndexByte(name, '/')+1:]
++			if strings.HasPrefix(base, "p_") {
++				return base
++			}
++			return "?"
++		}
+ 	}
+ 
+ 	// On a per-CU basis, keep track of all the filenames we need.
+@@ -557,7 +556,7 @@ func (state *pclntab) generateFilenameTabs(ctxt *Link, compUnits []*sym.Compilat
+ 		filename := cu.FileTable[i]
+ 		if _, ok := fileOffsets[filename]; !ok {
+ 			fileOffsets[filename] = uint32(fileSize)
+-			fileSize += int64(len(expandFile(filename)) + 1) // NULL terminate
++			fileSize += int64(len(expandFilename(filename)) + 1) // NULL terminate
+ 		}
+ 
+ 		// Find the maximum file index we've seen.
+@@ -605,7 +604,7 @@ func (state *pclntab) generateFilenameTabs(ctxt *Link, compUnits []*sym.Compilat
+ 
+ 		// Write the strings.
+ 		for filename, loc := range fileOffsets {
+-			sb.AddStringAt(int64(loc), expandFile(filename))
++			sb.AddStringAt(int64(loc), expandFilename(filename))
+ 		}
+ 	}
+ 	state.nfiles = uint32(len(fileOffsets))
+@@ -650,9 +649,9 @@ func (state *pclntab) generatePctab(ctxt *Link, funcs []loader.Sym) {
+ 		fi.Preload()
+ 		pcsp, pcfile, pcline, pcinline, pcdata = ldr.PcdataAuxs(s, pcdata)
+ 
+-		pcSyms := []loader.Sym{pcsp}
++		pcSyms := []loader.Sym{pcsp, pcfile}
+ 		if !garbleTiny {
+-			pcSyms = append(pcSyms, pcfile, pcline)
++			pcSyms = append(pcSyms, pcline)
+ 		}
+ 		for _, pcSym := range pcSyms {
+ 			saveOffset(pcSym)
+@@ -1014,11 +1013,10 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
+ 		// pcdata
+ 		if fi.Valid() {
+ 			off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcsp)))
++			off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcfile)))
+ 			if garbleTiny {
+ 				off = sb.SetUint32(ctxt.Arch, off, 0)
+-				off = sb.SetUint32(ctxt.Arch, off, 0)
+ 			} else {
+-				off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcfile)))
+ 				off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcline)))
+ 			}
+ 		} else {
