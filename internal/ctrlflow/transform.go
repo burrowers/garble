@@ -13,6 +13,7 @@ import (
 
 type blockMapping struct {
 	Fake, Target *ssa.BasicBlock
+	Source       *ssa.BasicBlock
 }
 
 type cfgInfo struct {
@@ -24,7 +25,7 @@ type dispatcherInfo []cfgInfo
 
 // applyFlattening adds a dispatcher block and uses ssa.Phi to redirect all ssa.Jump and ssa.If to the dispatcher,
 // additionally shuffle all blocks
-func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) dispatcherInfo {
+func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand, transitions bool) dispatcherInfo {
 	if len(ssaFunc.Blocks) < 3 {
 		return nil
 	}
@@ -57,14 +58,14 @@ func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) dispatcherIn
 		case *ssa.Jump:
 			targetBlock := block.Succs[0]
 			fakeBlock := makeJumpBlock(block)
-			blocksMapping = append(blocksMapping, blockMapping{fakeBlock, targetBlock})
+			blocksMapping = append(blocksMapping, blockMapping{fakeBlock, targetBlock, block})
 			block.Succs[0] = fakeBlock
 		case *ssa.If:
 			tblock, fblock := block.Succs[0], block.Succs[1]
 			fakeTblock, fakeFblock := makeJumpBlock(tblock), makeJumpBlock(fblock)
 
-			blocksMapping = append(blocksMapping, blockMapping{fakeTblock, tblock})
-			blocksMapping = append(blocksMapping, blockMapping{fakeFblock, fblock})
+			blocksMapping = append(blocksMapping, blockMapping{fakeTblock, tblock, block})
+			blocksMapping = append(blocksMapping, blockMapping{fakeFblock, fblock, block})
 
 			block.Succs[0] = fakeTblock
 			block.Succs[1] = fakeFblock
@@ -81,13 +82,32 @@ func applyFlattening(ssaFunc *ssa.Function, obfRand *mathrand.Rand) dispatcherIn
 	}
 
 	var info dispatcherInfo
+	keys := make(map[*ssa.BasicBlock]int)
+	if transitions {
+		values := generateKeys(len(ssaFunc.Blocks)-1, nil, obfRand)
+		for i, block := range ssaFunc.Blocks[1:] {
+			keys[block] = values[i]
+		}
+	}
 
 	var entriesBlocks []*ssa.BasicBlock
 	obfuscatedBlocks := ssaFunc.Blocks
 	for i, m := range blocksMapping {
 		entryBlock.Preds = append(entryBlock.Preds, m.Fake)
 		val := phiIdxs[i]
+		if transitions {
+			val = keys[m.Target]
+		}
 		cfg := cfgInfo{StoreVar: makeSsaInt(val), CompareVar: makeSsaInt(val)}
+		if transitions {
+			next := &ssa.BinOp{Op: token.XOR, X: phiInstr, Y: makeSsaInt(keys[m.Source] ^ val)}
+			setType(next, types.Typ[types.Int])
+			setBlock(next, m.Fake)
+			m.Fake.Instrs = append([]ssa.Instruction{next}, m.Fake.Instrs...)
+			*phiInstr.Referrers() = append(*phiInstr.Referrers(), next)
+			*next.Referrers() = append(*next.Referrers(), phiInstr)
+			cfg.StoreVar = next
+		}
 		info = append(info, cfg)
 
 		phiInstr.Edges = append(phiInstr.Edges, cfg.StoreVar)
