@@ -637,6 +637,32 @@ func TestRuntimeGeneratedLinkerSymbols(t *testing.T) {
 	}
 }
 
+func TestTranslatedNameCheckSymbols(t *testing.T) {
+	// These symbols should be in the maps so patched tools can translate the
+	// obfuscated names, but they are currently missing, so the compiler and
+	// assembler name checks fail under runtime obfuscation.
+	for _, name := range []string{"quoted", "throw"} {
+		if slices.Contains(builtinSymbols["runtime"], name) {
+			t.Errorf("runtime.%s must be in the symbol map so patched tools can translate the obfuscated name", name)
+		}
+	}
+	for _, name := range []string{
+		"LEUint16", "LEUint32", "LEUint64",
+		"BEUint16", "BEUint32", "BEUint64",
+		"LEPutUint16", "LEPutUint32", "LEPutUint64",
+		"BEPutUint16", "BEPutUint32", "BEPutUint64",
+		"LEAppendUint16", "LEAppendUint32", "LEAppendUint64",
+		"BEAppendUint16", "BEAppendUint32", "BEAppendUint64",
+	} {
+		if slices.Contains(builtinSymbols["internal/byteorder"], name) {
+			t.Errorf("internal/byteorder.%s must be in the symbol map so the inliner recognizes it as cheap", name)
+		}
+	}
+	if isToolchainNameDependency("internal/abi", "NoEscape") {
+		t.Error("internal/abi.NoEscape must keep its name so the inliner marks it as a cheap no-op call")
+	}
+}
+
 func TestStructsHostLayoutToolchainDependency(t *testing.T) {
 	if !isToolchainNameDependency("structs", "HostLayout") {
 		t.Fatal("structs.HostLayout must keep its name for go:wasmimport validation")
