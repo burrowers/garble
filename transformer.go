@@ -1164,10 +1164,15 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		if receiver, ok = strings.CutPrefix(receiver, "(*"); ok {
 			// pkg/path.(*Receiver).method
 			receiver, _ = strings.CutSuffix(receiver, ")")
-			receiver = "(*" + hashWithPackage(lpkg, receiver) + ")"
+			if !isToolchainNameDependency(lpkg.ImportPath, receiver) {
+				receiver = hashWithPackage(lpkg, receiver)
+			}
+			receiver = "(*" + receiver + ")"
 		} else {
 			// pkg/path.Receiver.method
-			receiver = hashWithPackage(lpkg, receiver)
+			if !isToolchainNameDependency(lpkg.ImportPath, receiver) {
+				receiver = hashWithPackage(lpkg, receiver)
+			}
 		}
 		// Exported methods are never obfuscated.
 		//
