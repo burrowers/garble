@@ -9,6 +9,12 @@ stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
 stderr '^\*main\.SecondParam$'
 
+# A constant MethodByName must not retain unrelated exported methods.
+exec garble build -o methods-bin$exe ./methods
+exec ./methods-bin$exe
+stdout '^used$'
+! binsubstr methods-bin$exe 'unused-method-marker'
+
 [short] stop # no need to verify this with -short
 
 # Check that the program works as expected without garble.
@@ -783,6 +789,31 @@ type IndirectNamedWithoutReflect struct {
 	IndirectObfuscated string
 
 	DuplicateFieldName int
+}
+
+-- methods/main.go --
+package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type T struct{}
+
+func (T) Used() string   { return "used" }
+func (T) Unused() string { return "unused-method-marker" }
+
+func main() {
+	it := reflect.TypeOf((*interface{ Used() string })(nil)).Elem()
+	if m, ok := it.MethodByName("Used"); !ok || m.Name != "Used" {
+		panic("interface Used not found")
+	}
+	m, ok := reflect.TypeOf(T{}).MethodByName("Used")
+	if !ok {
+		panic("Used not found")
+	}
+	fmt.Println(m.Func.Call([]reflect.Value{reflect.ValueOf(T{})})[0].String())
 }
 
 -- main.stdout --

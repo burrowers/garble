@@ -620,6 +620,16 @@ var toolchainNameDependencies = map[string]map[string]bool{
 	"reflect": {
 		"makeFuncStub":    true,
 		"methodValueCall": true,
+
+		// The compiler recognizes reflect.Value's Method results by type name
+		// to keep methods reachable in the linker's deadcode pass.
+		"Value": true,
+
+		// usemethod exempts reflect's own Method implementations by symbol
+		// name, such as "(*rtype).MethodByName". Renaming these receivers
+		// makes the linker retain every exported method of reachable types.
+		"rtype":         true,
+		"interfaceType": true,
 	},
 	"runtime": {
 		"getg":               true,
@@ -1154,10 +1164,15 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		if receiver, ok = strings.CutPrefix(receiver, "(*"); ok {
 			// pkg/path.(*Receiver).method
 			receiver, _ = strings.CutSuffix(receiver, ")")
-			receiver = "(*" + hashWithPackage(lpkg, receiver) + ")"
+			if !isToolchainNameDependency(lpkg.ImportPath, receiver) {
+				receiver = hashWithPackage(lpkg, receiver)
+			}
+			receiver = "(*" + receiver + ")"
 		} else {
 			// pkg/path.Receiver.method
-			receiver = hashWithPackage(lpkg, receiver)
+			if !isToolchainNameDependency(lpkg.ImportPath, receiver) {
+				receiver = hashWithPackage(lpkg, receiver)
+			}
 		}
 		// Exported methods are never obfuscated.
 		//

@@ -72,6 +72,9 @@ func rtype_ptrTo(*rtype) *rtype
 //go:linkname rtype_NumMethod reflect.(*rtype).NumMethod
 func rtype_NumMethod(*rtype) int
 
+//go:linknamestd value_IsValid reflect.Value.IsValid
+func value_IsValid(reflect.Value) bool
+
 // A go:linknamestd to a std symbol; added in Go 1.27.
 // The local name is still obfuscated like a regular go:linkname.
 //
@@ -110,6 +113,9 @@ func main() {
 	rtyp := (*rtype)(((*emptyInterface)(unsafe.Pointer(&typ))).ptr)
 	println("rtype_ptrTo non-nil", rtype_ptrTo(rtyp) != nil)
 	println("rtype_NumMethod", rtype_NumMethod(rtyp))
+	if value_IsValid(reflect.Value{}) || !value_IsValid(reflect.ValueOf(1)) {
+		panic("linknamed Value.IsValid failed")
+	}
 
 	println("nanotimeLinked non-zero", nanotimeLinked() != 0)
 	println(renamedFunc())
