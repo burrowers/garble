@@ -15,7 +15,16 @@ exec ./methods-bin$exe
 stdout '^used$'
 ! binsubstr methods-bin$exe 'unused-method-marker'
 
+# recover must see through the wrappers for deferred reflected functions.
+exec garble build -o recover-bin$exe ./recover
+exec ./recover-bin$exe
+cmp stdout recover.stdout
+
 [short] stop # no need to verify this with -short
+
+go build -o recover-bin$exe ./recover
+exec ./recover-bin$exe
+cmp stdout recover.stdout
 
 # Check that the program works as expected without garble.
 go build
@@ -816,6 +825,44 @@ func main() {
 	fmt.Println(m.Func.Call([]reflect.Value{reflect.ValueOf(T{})})[0].String())
 }
 
+-- recover/main.go --
+package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+func report(name string, r any) {
+	if r != "boom" {
+		panic(fmt.Sprintf("%s recovered %v, want boom", name, r))
+	}
+	fmt.Println("ok", name)
+}
+
+type T struct{}
+
+func (T) M() { report("Method", recover()) }
+
+func main() {
+	func() {
+		f := reflect.MakeFunc(reflect.TypeOf((func())(nil)), func([]reflect.Value) []reflect.Value {
+			report("MakeFunc", recover())
+			return nil
+		}).Interface().(func())
+		defer f()
+		panic("boom")
+	}()
+	func() {
+		f := reflect.ValueOf(T{}).Method(0).Interface().(func())
+		defer f()
+		panic("boom")
+	}()
+}
+
+-- recover.stdout --
+ok MakeFunc
+ok Method
 -- main.stdout --
 9000
 {5 0 {}}

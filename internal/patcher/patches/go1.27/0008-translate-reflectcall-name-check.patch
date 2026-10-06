@@ -1,0 +1,49 @@
+From 2488beae011ce82518f2ac66a5a9d7fb83634047 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Daniel=20Mart=C3=AD?= <mvdan@cuelabs.dev>
+Date: Fri, 2 Oct 2026 00:00:00 +0000
+Subject: [PATCH] compile: translate reflectcall name check for deferred
+ recover
+
+ir.InitLSym sets the WRAPPER flag on the functions on the path of a
+deferred recover (runtime.reflectcall, reflect.callReflect, and
+reflect.callMethod) by comparing the package path and symbol name
+against raw strings. With runtime obfuscation runtime.reflectcall is
+renamed, so the WRAPPER flag is lost and recover returns nil inside a
+deferred MakeFunc func or method value.
+
+Translate the package path and name through the symbol map before the
+comparison. reflect keeps its path and callReflect/callMethod keep their
+names via toolchainNameDependencies, so only runtime.reflectcall needs
+the map lookup.
+---
+ cmd/compile/internal/ir/abi.go | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/cmd/compile/internal/ir/abi.go b/cmd/compile/internal/ir/abi.go
+index ebe0fbf..215684d 100644
+--- a/cmd/compile/internal/ir/abi.go
++++ b/cmd/compile/internal/ir/abi.go
+@@ -7,6 +7,7 @@ package ir
+ import (
+ 	"cmd/compile/internal/base"
+ 	"cmd/internal/obj"
++	"cmd/internal/objabi"
+ )
+ 
+ // InitLSym defines f's obj.LSym and initializes it based on the
+@@ -65,9 +66,10 @@ func setupTextLSym(f *Func, flag int) {
+ 	// WRAPPER functions (runtime.callNN). Its ABI wrapper needs WRAPPER
+ 	// flag as well.
+ 	fnname := f.Sym().Name
+-	if base.Ctxt.Pkgpath == "runtime" && fnname == "reflectcall" {
++	pkgpath, fnname := objabi.OriginalPackageSymbol(base.Ctxt.Pkgpath, fnname)
++	if pkgpath == "runtime" && fnname == "reflectcall" {
+ 		flag |= obj.WRAPPER
+-	} else if base.Ctxt.Pkgpath == "reflect" {
++	} else if pkgpath == "reflect" {
+ 		switch fnname {
+ 		case "callReflect", "callMethod":
+ 			flag |= obj.WRAPPER
+-- 
+2.55.0
+

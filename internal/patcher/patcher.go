@@ -49,6 +49,7 @@ var compilerOverlayFiles = []string{
 	"cmd/compile/internal/types/size.go",
 	"cmd/compile/internal/types/type.go",
 	"cmd/compile/internal/types2/sizes.go",
+	"cmd/compile/internal/ir/abi.go",
 	"cmd/compile/internal/ir/func.go",
 	"cmd/compile/internal/base/flag.go",
 	"cmd/compile/internal/base/garble.go",
