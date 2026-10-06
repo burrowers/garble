@@ -96,8 +96,12 @@ func ModifyValue() {
 	println("New value of a:", a)
 }
 
+//garble:controlflow flatten_passes=0 outline_ops=1 outline_noinline=1
+func outlineTest(n uint32) uint32 { a:=n+7; b:=a^0x13579; return (b*3)-n }
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
+	if outlineTest(7)!=237662 { panic("outline") }
 	// Reference to the unexported interface triggers creation of a new interface
 	// with a list of all functions of the private interface
 	endian := binary.LittleEndian

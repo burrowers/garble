@@ -182,6 +182,15 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 
 	for idx, ssaFunc := range ssaFuncs {
 		params := ssaParams[idx]
+		outlineOps, err := params.GetInt("outline_ops", 0, 1)
+		if err != nil || outlineOps < 0 {
+			return "", nil, nil, fmt.Errorf("outline_ops must be 0 or 1")
+		}
+		outlineNoinline, err := params.GetInt("outline_noinline", 0, 1)
+		if err != nil || outlineNoinline < 0 || outlineNoinline > outlineOps {
+			return "", nil, nil, fmt.Errorf("outline_noinline requires outline_ops=1")
+		}
+		canOutline := outlineOps == 1 && outlineEligible(ssaFunc)
 
 		split, err := params.GetInt("block_splits", defaultBlockSplits, maxBlockSplits)
 		if err != nil {
@@ -195,7 +204,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		if err != nil {
 			return "", nil, nil, fmt.Errorf("controlflow directive on %s: %w", ssaFunc, err)
 		}
-		if passes == 0 {
+		if passes == 0 && !canOutline {
 			fmt.Fprintf(os.Stderr, "control flow obfuscation for %q function has no effect on the resulting binary, to fix this flatten_passes must be greater than zero", ssaFunc)
 		}
 		flattenHardening := params.StringSlice("flatten_hardening")
@@ -208,6 +217,9 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 			trashGen = newTrashGenerator(ssaPkg.Prog, funcConfig.ImportNameResolver, obfRand)
 		}
 
+		if outlineOps == 1 && (passes != 0 || split != 0 || junkCount != 0 || trashBlockCount != 0 || len(flattenHardening) != 0) {
+			return "", nil, nil, fmt.Errorf("outline_ops requires flatten_passes=0 and no structural or hardening passes")
+		}
 		applyObfuscation := func(ssaFunc *ssa.Function) []dispatcherInfo {
 			if trashBlockCount > 0 {
 				addTrashBlockMarkers(ssaFunc, trashBlockCount, obfRand)
@@ -269,6 +281,19 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 		}
 		if len(prologues) > 0 {
 			astFunc.Body.List = append(prologues, astFunc.Body.List...)
+		}
+		if canOutline {
+			name := fmt.Sprintf("_garble_outline_%d", idx)
+			for ssaPkg.Members[name] != nil {
+				name += "_"
+			}
+			helper, err := outlineOperation(fset, astFunc, ssaFunc.Signature.Results().At(0).Type(), name, outlineNoinline == 1, obfRand)
+			if err != nil {
+				return "", nil, nil, err
+			}
+			if helper != nil {
+				newFile.Decls = append(newFile.Decls, helper)
+			}
 		}
 		newFile.Decls = append(newFile.Decls, astFunc)
 	}
