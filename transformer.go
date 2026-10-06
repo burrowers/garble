@@ -620,6 +620,16 @@ var toolchainNameDependencies = map[string]map[string]bool{
 	"reflect": {
 		"makeFuncStub":    true,
 		"methodValueCall": true,
+
+		// The compiler recognizes reflect.Value's Method results by type name
+		// to keep methods reachable in the linker's deadcode pass.
+		"Value": true,
+
+		// usemethod exempts reflect's own Method implementations by symbol
+		// name, such as "(*rtype).MethodByName". Renaming these receivers
+		// makes the linker retain every exported method of reachable types.
+		"rtype":         true,
+		"interfaceType": true,
 	},
 	"runtime": {
 		"getg":               true,
