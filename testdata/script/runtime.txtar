@@ -28,28 +28,26 @@ stderr '^main\.main\('
 # keep working once those names are obfuscated. The std build above is cached,
 # so these only recompile the probe packages.
 
-# A fresh new(T) is non-nil, so the nil check on the following field store
-# should be removed and the store into the zeroed object should skip its write
-# barrier. The obfuscated runtime.newobject is not recognized, so the nil check
-# is generated and both the fresh-object store and the Store store keep a write
-# barrier.
+# A fresh new(T) is non-nil, so the nil check on the following field store is
+# removed and the store into the zeroed object skips its write barrier. Only
+# the unavoidable store through Store keeps a write barrier. This relies on
+# recognizing the obfuscated runtime.newobject.
 exec garble build -gcflags=test/runtimeobfuscation/newobj=-d=nil,wb ./newobj
-stderr 'generated nil check'
-! stderr 'removed nil check'
-stderr -count=2 'write barrier'
+stderr 'removed nil check'
+! stderr 'generated nil check'
+stderr -count=1 'write barrier'
 
-# A small leaf whose only call is a bounds-check panic should stay nosplit. The
-# obfuscated runtime.panicBounds is not recognized as a zero-argument runtime
-# call, so the function gains a stack-growth prologue.
+# A small leaf whose only call is a bounds-check panic stays nosplit, because
+# the patched assembler recognizes the obfuscated runtime.panicBounds as a
+# zero-argument runtime call that needs no stack growth.
 [amd64] exec garble build -gcflags=test/runtimeobfuscation/boundscheck=-S ./boundscheck
-[amd64] ! stderr 'STEXT nosplit'
-[amd64] stderr 'morestack'
+[amd64] stderr 'STEXT nosplit'
+[amd64] ! stderr 'morestack'
 
-# The inliner should mark internal/byteorder helpers as cheap so all six
-# hash/fnv AppendBinary methods inline through them. The obfuscated helpers are
-# not recognized, so only four methods inline.
+# The inliner marks internal/byteorder helpers as cheap, so all six hash/fnv
+# AppendBinary methods inline through them.
 exec garble build -gcflags=hash/fnv=-m hash/fnv
-stderr -count=4 'can inline .*\.AppendBinary'
+stderr -count=6 'can inline .*\.AppendBinary'
 
 # Recognizing the obfuscated runtime.newobject without also translating the
 # package-path check in computeZeroMap crashes the compiler when building the
