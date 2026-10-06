@@ -81,6 +81,8 @@ func (optionData) IterateMergedOption() any {
 }
 
 func main() {
+	checkReflectedRecover()
+
 	// Fields still work fine when they are not obfuscated.
 	fmt.Println(importedpkg.ReflectInDefinedVar.ExportedField2)
 	fmt.Println(importedpkg.ReflectInDefined{ExportedField2: 5})
@@ -816,7 +818,44 @@ func main() {
 	fmt.Println(m.Func.Call([]reflect.Value{reflect.ValueOf(T{})})[0].String())
 }
 
+-- recover.go --
+package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+func report(name string, r any) {
+	if r != "boom" {
+		panic(fmt.Sprintf("%s recovered %v, want boom", name, r))
+	}
+	fmt.Println("ok", name)
+}
+
+type recoverReceiver struct{}
+
+func (recoverReceiver) M() { report("Method", recover()) }
+
+func checkReflectedRecover() {
+	func() {
+		f := reflect.MakeFunc(reflect.TypeOf((func())(nil)), func([]reflect.Value) []reflect.Value {
+			report("MakeFunc", recover())
+			return nil
+		}).Interface().(func())
+		defer f()
+		panic("boom")
+	}()
+	func() {
+		f := reflect.ValueOf(recoverReceiver{}).Method(0).Interface().(func())
+		defer f()
+		panic("boom")
+	}()
+}
+
 -- main.stdout --
+ok MakeFunc
+ok Method
 9000
 {5 0 {}}
 ReflectTypeOf
