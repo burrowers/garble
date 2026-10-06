@@ -80,7 +80,14 @@ func (optionData) IterateMergedOption() any {
 	return value
 }
 
+type methodCallReceiver struct{}
+
+func (methodCallReceiver) M() string { return "M called" }
+
 func main() {
+	var methodReceiver any = methodCallReceiver{}
+	fmt.Println(reflect.ValueOf(methodReceiver).Method(0).Call(nil)[0])
+
 	checkReflectedRecover()
 
 	// Fields still work fine when they are not obfuscated.
@@ -854,6 +861,7 @@ func checkReflectedRecover() {
 }
 
 -- main.stdout --
+M called
 ok MakeFunc
 ok Method
 9000
