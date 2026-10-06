@@ -467,12 +467,33 @@ func generateBuiltinSymbols(goroots []versionedString) []tmplIntrinsic {
 			file, sourceNeedle, fullName string
 		}{
 			{"compile/internal/walk/builtin.go", `== "hex"`, "runtime.hex"},
+			{"compile/internal/walk/builtin.go", `== "quoted"`, "runtime.quoted"},
+			{"compile/internal/ssagen/ssa.go", `== "throw"`, "runtime.throw"},
 			{"compile/internal/types/size.go", `== "align64"`, "sync/atomic.align64"},
 			{"compile/internal/types/size.go", `"internal/runtime/atomic"`, "internal/runtime/atomic.align64"},
 			{"compile/internal/types/type.go", `== "nih"`, "internal/runtime/sys.nih"},
 			{"link/internal/ld/data.go", `"internal/fuzz._counters"`, "internal/fuzz._counters"},
 			{"link/internal/ld/data.go", `"internal/fuzz._ecounters"`, "internal/fuzz._ecounters"},
 			{"compile/internal/typecheck/builtin.go", `{"initHook", funcTag`, "runtime/coverage.initHook"},
+			// internal/byteorder helpers the inliner marks as cheap by name.
+			{"compile/internal/inline/inl.go", `"LEUint16"`, "internal/byteorder.LEUint16"},
+			{"compile/internal/inline/inl.go", `"LEUint32"`, "internal/byteorder.LEUint32"},
+			{"compile/internal/inline/inl.go", `"LEUint64"`, "internal/byteorder.LEUint64"},
+			{"compile/internal/inline/inl.go", `"BEUint16"`, "internal/byteorder.BEUint16"},
+			{"compile/internal/inline/inl.go", `"BEUint32"`, "internal/byteorder.BEUint32"},
+			{"compile/internal/inline/inl.go", `"BEUint64"`, "internal/byteorder.BEUint64"},
+			{"compile/internal/inline/inl.go", `"LEPutUint16"`, "internal/byteorder.LEPutUint16"},
+			{"compile/internal/inline/inl.go", `"LEPutUint32"`, "internal/byteorder.LEPutUint32"},
+			{"compile/internal/inline/inl.go", `"LEPutUint64"`, "internal/byteorder.LEPutUint64"},
+			{"compile/internal/inline/inl.go", `"BEPutUint16"`, "internal/byteorder.BEPutUint16"},
+			{"compile/internal/inline/inl.go", `"BEPutUint32"`, "internal/byteorder.BEPutUint32"},
+			{"compile/internal/inline/inl.go", `"BEPutUint64"`, "internal/byteorder.BEPutUint64"},
+			{"compile/internal/inline/inl.go", `"LEAppendUint16"`, "internal/byteorder.LEAppendUint16"},
+			{"compile/internal/inline/inl.go", `"LEAppendUint32"`, "internal/byteorder.LEAppendUint32"},
+			{"compile/internal/inline/inl.go", `"LEAppendUint64"`, "internal/byteorder.LEAppendUint64"},
+			{"compile/internal/inline/inl.go", `"BEAppendUint16"`, "internal/byteorder.BEAppendUint16"},
+			{"compile/internal/inline/inl.go", `"BEAppendUint32"`, "internal/byteorder.BEAppendUint32"},
+			{"compile/internal/inline/inl.go", `"BEAppendUint64"`, "internal/byteorder.BEAppendUint64"},
 		}
 		for _, special := range specials {
 			contents := readFile(filepath.Join(cmdRoot, special.file))

@@ -638,11 +638,8 @@ func TestRuntimeGeneratedLinkerSymbols(t *testing.T) {
 }
 
 func TestTranslatedNameCheckSymbols(t *testing.T) {
-	// These symbols should be in the maps so patched tools can translate the
-	// obfuscated names, but they are currently missing, so the compiler and
-	// assembler name checks fail under runtime obfuscation.
 	for _, name := range []string{"quoted", "throw"} {
-		if slices.Contains(builtinSymbols["runtime"], name) {
+		if !slices.Contains(builtinSymbols["runtime"], name) {
 			t.Errorf("runtime.%s must be in the symbol map so patched tools can translate the obfuscated name", name)
 		}
 	}
@@ -654,11 +651,11 @@ func TestTranslatedNameCheckSymbols(t *testing.T) {
 		"LEAppendUint16", "LEAppendUint32", "LEAppendUint64",
 		"BEAppendUint16", "BEAppendUint32", "BEAppendUint64",
 	} {
-		if slices.Contains(builtinSymbols["internal/byteorder"], name) {
+		if !slices.Contains(builtinSymbols["internal/byteorder"], name) {
 			t.Errorf("internal/byteorder.%s must be in the symbol map so the inliner recognizes it as cheap", name)
 		}
 	}
-	if isToolchainNameDependency("internal/abi", "NoEscape") {
+	if !isToolchainNameDependency("internal/abi", "NoEscape") {
 		t.Error("internal/abi.NoEscape must keep its name so the inliner marks it as a cheap no-op call")
 	}
 }
