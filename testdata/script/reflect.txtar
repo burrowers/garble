@@ -15,16 +15,7 @@ exec ./methods-bin$exe
 stdout '^used$'
 ! binsubstr methods-bin$exe 'unused-method-marker'
 
-# recover must see through the wrappers for deferred reflected functions.
-exec garble build -o recover-bin$exe ./recover
-exec ./recover-bin$exe
-cmp stdout recover.stdout
-
 [short] stop # no need to verify this with -short
-
-go build -o recover-bin$exe ./recover
-exec ./recover-bin$exe
-cmp stdout recover.stdout
 
 # Check that the program works as expected without garble.
 go build
@@ -90,6 +81,8 @@ func (optionData) IterateMergedOption() any {
 }
 
 func main() {
+	checkReflectedRecover()
+
 	// Fields still work fine when they are not obfuscated.
 	fmt.Println(importedpkg.ReflectInDefinedVar.ExportedField2)
 	fmt.Println(importedpkg.ReflectInDefined{ExportedField2: 5})
@@ -825,7 +818,7 @@ func main() {
 	fmt.Println(m.Func.Call([]reflect.Value{reflect.ValueOf(T{})})[0].String())
 }
 
--- recover/main.go --
+-- recover.go --
 package main
 
 import (
@@ -840,11 +833,11 @@ func report(name string, r any) {
 	fmt.Println("ok", name)
 }
 
-type T struct{}
+type recoverReceiver struct{}
 
-func (T) M() { report("Method", recover()) }
+func (recoverReceiver) M() { report("Method", recover()) }
 
-func main() {
+func checkReflectedRecover() {
 	func() {
 		f := reflect.MakeFunc(reflect.TypeOf((func())(nil)), func([]reflect.Value) []reflect.Value {
 			report("MakeFunc", recover())
@@ -854,16 +847,15 @@ func main() {
 		panic("boom")
 	}()
 	func() {
-		f := reflect.ValueOf(T{}).Method(0).Interface().(func())
+		f := reflect.ValueOf(recoverReceiver{}).Method(0).Interface().(func())
 		defer f()
 		panic("boom")
 	}()
 }
 
--- recover.stdout --
+-- main.stdout --
 ok MakeFunc
 ok Method
--- main.stdout --
 9000
 {5 0 {}}
 ReflectTypeOf

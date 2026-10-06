@@ -1,5 +1,5 @@
 From 2488beae011ce82518f2ac66a5a9d7fb83634047 Mon Sep 17 00:00:00 2001
-From: =?UTF-8?q?Daniel=20Mart=C3=AD?= <mvdan@cuelabs.dev>
+From: Daniel Martí <mvdan@cuelabs.dev>
 Date: Fri, 2 Oct 2026 00:00:00 +0000
 Subject: [PATCH] compile: translate reflectcall name check for deferred
  recover
