@@ -11,6 +11,7 @@ import (
 	"go/types"
 	mathrand "math/rand"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/tools/go/ast/astutil"
 	ah "mvdan.cc/garble/internal/asthelper"
@@ -70,14 +71,18 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 			}
 
 		case ast.Expr:
-			// A constant string converted to a byte slice has an exact
-			// capacity. Decoding the string first makes the conversion
-			// allocate at run time, where the allocator may round it up.
+			// A constant string converted to a byte or rune slice has an
+			// exact capacity. Decoding first can make the allocation larger.
 			if call, ok := node.(*ast.CallExpr); ok && len(call.Args) == 1 {
-				if slice, ok := info.TypeOf(call.Fun).Underlying().(*types.Slice); ok && slice.Elem() == types.Universe.Lookup("byte").Type() {
+				if slice, ok := info.TypeOf(call.Fun).Underlying().(*types.Slice); ok && (slice.Elem() == types.Universe.Lookup("byte").Type() || slice.Elem() == types.Universe.Lookup("rune").Type()) {
+					elem := slice.Elem()
 					if value := info.Types[call.Args[0]].Value; value != nil && value.Kind() == constant.String {
 						text := constant.StringVal(value)
 						if len(text) >= MinSize && len(text) <= MaxSize {
+							size := len(text)
+							if elem == types.Universe.Lookup("rune").Type() {
+								size = utf8.RuneCountInString(text)
+							}
 							name := or.nameFunc(or.rnd, "literalSlice")
 							result := ast.NewIdent(name)
 							converted := ah.CallExpr(call.Fun, obfuscateString(or, text))
@@ -85,8 +90,8 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 								ah.AssignDefineStmt(result, converted),
 								ah.ReturnStmt(&ast.SliceExpr{
 									X:    ast.NewIdent(name),
-									High: ah.IntLit(len(text)),
-									Max:  ah.IntLit(len(text)),
+									High: ah.IntLit(size),
+									Max:  ah.IntLit(size),
 								}),
 							)
 							cursor.Replace(withPos(ah.LambdaCall(nil, call.Fun, body, nil), node.Pos()))
