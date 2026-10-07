@@ -115,8 +115,7 @@ func main() {
 	if len(namedPayload) != cap(namedPayload) || namedPayload[0] != 'a' || namedPayload[len(namedPayload)-1] != 0xff {
 		panic("named byte slice literal changed")
 	}
-	// TODO(#1161): the decoder currently rounds the rune-slice capacity up.
-	if len(namedRunes) >= cap(namedRunes) || namedRunes[0] != 'é' || namedRunes[len(namedRunes)-1] != '9' {
+	if len(namedRunes) != cap(namedRunes) || namedRunes[0] != 'é' || namedRunes[len(namedRunes)-1] != '9' {
 		panic("named rune slice literal changed")
 	}
 	empty := ""
