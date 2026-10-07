@@ -96,6 +96,34 @@ func ModifyValue() {
 	println("New value of a:", a)
 }
 
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func rangeFunction() {
+	seq := func(yield func(int) bool) {
+		for i := 1; i <= 5; i++ {
+			if !yield(i) {
+				println("stopped at", i)
+				return
+			}
+		}
+	}
+	for n := range seq {
+		println("yielded", n)
+		if n == 3 {
+			break
+		}
+	}
+	pairs := func(yield func(int, string) bool) {
+		for i := 0; i < 2; i++ {
+			if !yield(i, "pair") {
+				return
+			}
+		}
+	}
+	for n, label := range pairs {
+		println("pair", n, label)
+	}
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
 	// Reference to the unexported interface triggers creation of a new interface
@@ -125,6 +153,7 @@ func main() {
 	println(delegateHardeningTest(0))
 	println(multiHardeningTest(0))
 	ModifyValue()
+	rangeFunction()
 }
 
 -- main.stderr --
@@ -138,3 +167,9 @@ correct name
 1
 Value of a: 42
 New value of a: 100
+yielded 1
+yielded 2
+yielded 3
+stopped at 3
+pair 0 pair
+pair 1 pair
