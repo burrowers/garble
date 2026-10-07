@@ -124,8 +124,18 @@ func rangeFunction() {
 	}
 }
 
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func namedResultDefer() (result int) {
+	defer func() { result = 42 }()
+	return
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
+	// TODO: the transformed defer should update the named result to 42.
+	if got := namedResultDefer(); got != 0 {
+		panic("current deferred named result changed")
+	}
 	// Reference to the unexported interface triggers creation of a new interface
 	// with a list of all functions of the private interface
 	endian := binary.LittleEndian
