@@ -130,11 +130,38 @@ func namedResultDefer() (result int) {
 	return
 }
 
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func namedResultsBranches(early bool) (left, right int) {
+	defer func() { left += 7; right *= 2 }()
+	if early {
+		return 3, 5
+	}
+	left, right = 11, 13
+	return
+}
+
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func namedClosureResult() int {
+	f := func() (result int) {
+		defer func() { result += 10 }()
+		return 2
+	}
+	return f()
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
-	// TODO: the transformed defer should update the named result to 42.
-	if got := namedResultDefer(); got != 0 {
-		panic("current deferred named result changed")
+	if got := namedResultDefer(); got != 42 {
+		panic("deferred named result was lost")
+	}
+	if a, b := namedResultsBranches(true); a != 10 || b != 10 {
+		panic("deferred early-return results were lost")
+	}
+	if a, b := namedResultsBranches(false); a != 18 || b != 26 {
+		panic("deferred bare-return results were lost")
+	}
+	if got := namedClosureResult(); got != 12 {
+		panic("deferred closure result was lost")
 	}
 	// Reference to the unexported interface triggers creation of a new interface
 	// with a list of all functions of the private interface
