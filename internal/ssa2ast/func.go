@@ -1110,6 +1110,12 @@ func (fc *funcConverter) convertAnonFuncs(anonFuncs []*ssa.Function) ([]ast.Stmt
 		if err != nil {
 			return nil, err
 		}
+		for j, param := range anonFunc.Params {
+			field := anonLit.Type.Params.List[j]
+			if len(field.Names) == 0 {
+				field.Names = []*ast.Ident{ast.NewIdent(param.Name())}
+			}
+		}
 		anonStmts, err := fc.convertToStmts(anonFunc)
 		if err != nil {
 			return nil, err
