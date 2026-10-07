@@ -63,6 +63,7 @@ type funcConverter struct {
 	namePrefix          string
 	valueNameMap        map[ssa.Value]string
 	ssaValueRemap       map[ssa.Value]ast.Expr
+	namedResultAllocs   map[*ssa.Alloc]string
 	markerInstrCallback func(map[string]types.Type) []ast.Stmt
 }
 
@@ -518,7 +519,12 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(instr, ah.CallExprByName("new", varExpr))
+			if resultName, ok := fc.namedResultAllocs[instr]; ok {
+				// Deferred calls must update the named result before it reaches the caller.
+				stmt = defineVar(instr, &ast.UnaryExpr{Op: token.AND, X: ast.NewIdent(resultName)})
+			} else {
+				stmt = defineVar(instr, ah.CallExprByName("new", varExpr))
+			}
 		case *ssa.BinOp:
 			xExpr, err := fc.convertSsaValueNonExplicitNil(instr.X)
 			if err != nil {
@@ -1156,6 +1162,51 @@ func (fc *funcConverter) convertAnonFuncs(anonFuncs []*ssa.Function) ([]ast.Stmt
 }
 
 func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, error) {
+	previousResultAllocs := fc.namedResultAllocs
+	fc.namedResultAllocs = make(map[*ssa.Alloc]string)
+	defer func() { fc.namedResultAllocs = previousResultAllocs }()
+	results := ssaFunc.Signature.Results()
+	var hasDefer bool
+	for _, block := range ssaFunc.Blocks {
+		for _, instr := range block.Instrs {
+			if _, ok := instr.(*ssa.Defer); ok {
+				hasDefer = true
+				break
+			}
+		}
+	}
+	for i := 0; hasDefer && i < results.Len(); i++ {
+		name := results.At(i).Name()
+		if name == "" || name == "_" {
+			continue
+		}
+		var resultAlloc *ssa.Alloc
+		valid := true
+		for _, block := range ssaFunc.Blocks {
+			ret, ok := block.Instrs[len(block.Instrs)-1].(*ssa.Return)
+			if !ok {
+				continue
+			}
+			load, ok := ret.Results[i].(*ssa.UnOp)
+			if !ok || load.Op != token.MUL {
+				valid = false
+				break
+			}
+			alloc, ok := load.X.(*ssa.Alloc)
+			if !ok || alloc.Parent() != ssaFunc || !types.Identical(alloc.Type().(*types.Pointer).Elem(), results.At(i).Type()) {
+				valid = false
+				break
+			}
+			if resultAlloc != nil && resultAlloc != alloc {
+				valid = false
+				break
+			}
+			resultAlloc = alloc
+		}
+		if valid && resultAlloc != nil {
+			fc.namedResultAllocs[resultAlloc] = name
+		}
+	}
 	stmts, err := fc.convertAnonFuncs(ssaFunc.AnonFuncs)
 	if err != nil {
 		return nil, err
