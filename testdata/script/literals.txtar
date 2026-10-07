@@ -90,8 +90,10 @@ var array [arrayLen]byte
 type typeAlias [arrayLen]byte
 
 type namedByteSlice []byte
+type namedRuneSlice []rune
 
 var namedPayload = namedByteSlice("a named literal payload large enough to trigger decoding, including \x00 and \xff")
+var namedRunes = namedRuneSlice("é界ΩabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 // Strings which are only used inside constant expressions must be left alone;
 // rewriting them into decoder calls would stop the constants from compiling.
@@ -112,6 +114,10 @@ const padding2048 = padding512 + padding512 + padding512 + padding512
 func main() {
 	if len(namedPayload) != cap(namedPayload) || namedPayload[0] != 'a' || namedPayload[len(namedPayload)-1] != 0xff {
 		panic("named byte slice literal changed")
+	}
+	// TODO(#1161): the decoder currently rounds the rune-slice capacity up.
+	if len(namedRunes) >= cap(namedRunes) || namedRunes[0] != 'é' || namedRunes[len(namedRunes)-1] != '9' {
+		panic("named rune slice literal changed")
 	}
 	empty := ""
 	tooSmall := "sz<min"
