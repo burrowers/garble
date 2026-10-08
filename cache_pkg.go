@@ -46,15 +46,37 @@ type pkgCache struct {
 	// TODO: we're not including fmt.Printf, as it would have many false positives,
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
 	ReflectAPIs map[string]map[int]bool
+	// ReflectCallEdges retain parameter forwarding through named calls even when
+	// the callee's reflection use is only discovered in a downstream package.
+	ReflectCallEdges []reflectCallEdge
 
 	// ReflectObjectNames maps obfuscated names which are reflected to their original
 	// non-obfuscated names. The key is a [reflectInspector.obfuscatedObjectName].
 	ReflectObjectNames map[string]string
 }
 
+type reflectCallEdge struct {
+	Caller, Callee           string
+	CallerParam, CalleeParam int
+}
+
 func (c *pkgCache) CopyFrom(c2 pkgCache) {
-	maps.Copy(c.ReflectAPIs, c2.ReflectAPIs)
+	for name, params := range c2.ReflectAPIs {
+		mergeReflectParams(c.ReflectAPIs, name, params)
+	}
 	maps.Copy(c.ReflectObjectNames, c2.ReflectObjectNames)
+	if len(c2.ReflectCallEdges) > 0 {
+		seen := make(map[reflectCallEdge]bool, len(c.ReflectCallEdges)+len(c2.ReflectCallEdges))
+		for _, edge := range c.ReflectCallEdges {
+			seen[edge] = true
+		}
+		for _, edge := range c2.ReflectCallEdges {
+			if !seen[edge] {
+				seen[edge] = true
+				c.ReflectCallEdges = append(c.ReflectCallEdges, edge)
+			}
+		}
+	}
 }
 
 func ssaBuildPkg(pkg *types.Package, files []*ast.File, info *types.Info) *ssa.Package {
@@ -166,8 +188,10 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		},
 		ReflectObjectNames: map[string]string{},
 	}
-	// Stop early if we don't import reflect, e.g. much of std.
-	if !lpkg.hasDep("reflect") {
+	// Standard packages with no reflection dependency cannot contribute reflected
+	// names. Non-standard packages may still forward models to an interface whose
+	// implementation is found downstream, so retain their call edges.
+	if !lpkg.hasDep("reflect") && lpkg.Standard {
 		return computed, nil
 	}
 	for _, imp := range lpkg.Imports {
@@ -200,8 +224,9 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 				computed.CopyFrom(loaded)
 				return nil
 			}
-			// Avoid parsing and typechecking if the dependency doesn't import reflect.
-			if !lpkg.hasDep("reflect") {
+			// A non-standard dependency may forward a parameter through an
+			// interface even if it never imports reflect itself.
+			if !lpkg.hasDep("reflect") && lpkg.Standard {
 				return nil
 			}
 			// Missing or corrupted entry in the cache for a dependency.
@@ -227,6 +252,30 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		}
 	}
 
+	if lpkg.Name == "main" {
+		matchReflectedInterfaceMethods(pkg, &computed)
+	}
+	// Reflection discovered by a downstream implementation must flow back across
+	// interface calls in already compiled dependencies. Resolve those saved
+	// forwarding edges after merging the dependency caches.
+	for changed := true; changed; {
+		changed = false
+		for _, edge := range computed.ReflectCallEdges {
+			if !computed.ReflectAPIs[edge.Callee][edge.CalleeParam] {
+				continue
+			}
+			params := computed.ReflectAPIs[edge.Caller]
+			if params == nil {
+				params = make(map[int]bool)
+				computed.ReflectAPIs[edge.Caller] = params
+			}
+			if !params[edge.CallerParam] {
+				params[edge.CallerParam] = true
+				changed = true
+			}
+		}
+	}
+
 	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
 	inspector := reflectInspector{
 		lpkg:            lpkg,
@@ -238,6 +287,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		ssaPkg = ssaBuildPkg(pkg, files, info)
 	}
 	inspector.recordReflection(ssaPkg)
+	computed = inspector.result // the edge slice header can grow during analysis
 
 	data, err := computed.MarshalMsg(nil)
 	if err != nil {
