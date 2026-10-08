@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"go/types"
 	mathrand "math/rand"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -61,13 +62,26 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 				return false
 			}
 		case *ast.ValueSpec:
-			for _, name := range node.Names {
+			hadValues := len(node.Values) > 0
+			for i, name := range node.Names {
 				obj := info.Defs[name].(*types.Var)
-				if _, e := linkStrings[obj]; e {
-					// Skip this entire ValueSpec to not break -ldflags=-X.
-					// TODO: support obfuscating those injected strings, too.
-					return false
+				value, ok := linkStrings[obj]
+				if !ok || !types.Identical(obj.Type(), types.Typ[types.String]) {
+					continue
 				}
+				if len(node.Values) == 0 {
+					for range node.Names {
+						node.Values = append(node.Values, &ast.BasicLit{Kind: token.STRING, Value: `""`})
+					}
+				} else if hadValues && (len(node.Values) != len(node.Names) || info.Types[node.Values[i]].Value == nil) {
+					// Like cmd/link, leave non-constant initializers alone.
+					continue
+				}
+				expr := ast.Expr(&ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(value)})
+				if len(value) >= MinSize && len(value) <= MaxSize {
+					expr = obfuscateString(or, value)
+				}
+				node.Values[i] = withPos(expr, name.Pos()).(ast.Expr)
 			}
 
 		case ast.Expr:

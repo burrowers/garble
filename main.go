@@ -479,6 +479,13 @@ This command wraps "go %s". Below is its help:
 	// as -tags.
 	allFlags := append(append([]string(nil), flags...), trailingFlags...)
 	sharedCache.ForwardBuildFlags, _ = filterForwardBuildFlags(allFlags)
+	if flagLiterals {
+		for value := range flagValues(allFlags, "-ldflags") {
+			if value = strings.TrimSpace(value); value != "" && !strings.HasPrefix(value, "-") {
+				return nil, fmt.Errorf("package patterns in -ldflags are not supported with -literals; use unpatterned flags and build commands separately")
+			}
+		}
+	}
 	if command == "test" {
 		sharedCache.ForwardBuildFlags = append(sharedCache.ForwardBuildFlags, "-test")
 	}
