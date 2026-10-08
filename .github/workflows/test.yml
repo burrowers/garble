@@ -56,6 +56,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y qemu-user
         command -v qemu-riscv64
+    - if: matrix.os == 'namespace-profile-linux'
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - if: matrix.os == 'namespace-profile-linux'
+      run: python3 -m unittest discover -s scripts -p controlflow_evaluate_test.py -v
     - run: go test -timeout=15m ./...
     # macos and windows failures with bincmp can be hard to reproduce locally,
     # so upload the binaries as artifacts.
