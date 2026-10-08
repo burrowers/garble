@@ -32,6 +32,7 @@ order to:
 * Replace position information with short base64 hashed filenames
 * Remove all [build](https://go.dev/pkg/runtime/#Version), [module](https://go.dev/pkg/runtime/debug/#ReadBuildInfo), and debug information
 * [Obfuscate literals](#literal-obfuscation), if the `-literals` flag is given
+* Obfuscate embedded files as part of `-literals`
 * Remove [extra information](#tiny-mode), if the `-tiny` flag is given
 
 The tool obfuscates all supported packages being built, including the standard runtime.
@@ -78,6 +79,25 @@ declaration, for example.
 
 Note that this process can be reversed given enough effort;
 see [#984](https://github.com/burrowers/garble/issues/984).
+
+### Embedded file obfuscation
+
+With `-literals`, Garble replaces `//go:embed` variables of type `string` or
+`[]byte` with runtime-decoded values, including named string and byte-slice
+types. For `embed.FS`, Garble substitutes encoded file contents in the compiler's
+embed configuration and adapts the standard `embed` package to decode them when
+opened. Its paths, directory entries, file sizes, seeking, and `ReadAt` behavior
+remain available. The original files remain untouched.
+
+Embedded string and byte-slice variables use the literal obfuscators. Values
+larger than 2 KiB use a linear-time decoder with a bounded number of AST nodes,
+shared with `embed.FS`. Large source literals use this same decoder instead of
+remaining unobfuscated. Embedded variable contents are decoded during package
+initialization; filesystem contents are decoded on each open. `embed.FS` keeps
+its assets in the compiler's embed data, while embedded variables still require
+an encoded string in generated Go source. Embedded filenames remain visible.
+This is not encryption: the decoding key is present in the executable and a
+determined analyst can recover the contents.
 
 ### Tiny mode
 
