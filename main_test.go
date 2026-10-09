@@ -637,6 +637,21 @@ func TestRuntimeGeneratedLinkerSymbols(t *testing.T) {
 	}
 }
 
+func TestRuntimeAllocationHelpersCanBeRenamed(t *testing.T) {
+	for _, name := range []string{
+		"mallocgcSmallNoScanSC2", "mallocgcSmallNoScanSC7",
+		"mallocgcSmallScanNoHeaderSC1", "mallocgcSmallScanNoHeaderSC7",
+		"mallocgcTinySC2",
+	} {
+		if !slices.Contains(builtinSymbols["runtime"], name) {
+			t.Errorf("runtime.%s is missing from the symbol map", name)
+		}
+		if isToolchainNameDependency("runtime", name) {
+			t.Errorf("runtime.%s is unnecessarily exempted from renaming", name)
+		}
+	}
+}
+
 func TestStructsHostLayoutToolchainDependency(t *testing.T) {
 	if !isToolchainNameDependency("structs", "HostLayout") {
 		t.Fatal("structs.HostLayout must keep its name for go:wasmimport validation")

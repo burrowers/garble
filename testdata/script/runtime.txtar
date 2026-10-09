@@ -23,6 +23,10 @@ stderr '^main\.main\('
 # This ordinary Go implementation detail should be renamed. It is neither a
 # compiler intrinsic nor an assembly or linker ABI dependency.
 ! binsubstr main$exe 'internal/runtime/maps.(*Map).getWithKey'
+# Numbered allocation helpers must not keep their original declaration names.
+! binsubstr main$exe 'mallocgcSmallNoScanSC2'
+! binsubstr main$exe 'mallocgcSmallScanNoHeaderSC1'
+! binsubstr main$exe 'mallocgcTinySC2'
 
 # PPC64 PIE and shared-code linking give DUFF routines special TOC entry-point
 # metadata. Cross-building exercises those assembler and linker classifications.

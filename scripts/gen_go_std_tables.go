@@ -357,9 +357,24 @@ func runtimeSymbolsInToolFile(path string) []string {
 	return symbols
 }
 
+func allocationHelperName(name string) bool {
+	for _, prefix := range []string{"mallocgcSmallNoScanSC", "mallocgcSmallScanNoHeaderSC", "mallocgcTinySC"} {
+		if suffix, ok := strings.CutPrefix(name, prefix); ok && suffix != "" {
+			for _, digit := range suffix {
+				if digit < '0' || digit > '9' {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return false
+}
+
 func runtimeSourceContracts(goroot versionedString) []string {
 	root := filepath.Join(goroot.String, "src", "runtime")
 	var symbols []string
+	allocationHelpers := make(map[string]bool)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -374,9 +389,16 @@ func runtimeSourceContracts(goroot versionedString) []string {
 		for _, decl := range file.Decls {
 			switch decl := decl.(type) {
 			case *ast.FuncDecl:
-				if decl.Body == nil && (strings.HasPrefix(decl.Name.Name, "panicExtend") ||
-					strings.HasPrefix(decl.Name.Name, "gcWriteBarrier")) {
-					symbols = append(symbols, "runtime."+decl.Name.Name)
+				name := decl.Name.Name
+				if decl.Body == nil && (strings.HasPrefix(name, "panicExtend") ||
+					strings.HasPrefix(name, "gcWriteBarrier")) {
+					symbols = append(symbols, "runtime."+name)
+				}
+				// The compiler synthesizes numbered allocation helper lookups.
+				// Extract complete declarations rather than guessing a range.
+				if allocationHelperName(name) {
+					allocationHelpers[name] = true
+					symbols = append(symbols, "runtime."+name)
 				}
 			case *ast.GenDecl:
 				for _, spec := range decl.Specs {
@@ -392,6 +414,19 @@ func runtimeSourceContracts(goroot versionedString) []string {
 	if err != nil {
 		panic(err)
 	}
+	// The allocation tables are an independent consumer of the generated
+	// declarations. A missing declaration must not silently shrink the map.
+	tablesPath := filepath.Join(root, "malloc_tables_generated.go")
+	tables, err := parser.ParseFile(token.NewFileSet(), tablesPath, nil, 0)
+	if err != nil {
+		panic(err)
+	}
+	ast.Inspect(tables, func(node ast.Node) bool {
+		if ident, ok := node.(*ast.Ident); ok && allocationHelperName(ident.Name) && !allocationHelpers[ident.Name] {
+			panic(fmt.Sprintf("allocation table references missing runtime helper %s", ident.Name))
+		}
+		return true
+	})
 	for line := range strings.SplitSeq(readFile(filepath.Join(root, "linkname_shim.go")), "\n") {
 		if match := rxLocalLinkname.FindStringSubmatch(line); match != nil {
 			symbols = append(symbols, "runtime."+match[1])
