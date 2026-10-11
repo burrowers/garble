@@ -325,9 +325,9 @@ func mainErr(args []string) error {
 		switch tool {
 		case "compile":
 			certificates := make(map[string]string, len(tf.literalGlobalInits))
-			// A future plugin can reference globals not reachable in this build.
-			// With renamed package paths, the stock linker's plugin lookup is insufficient.
-			if !sharedCache.UsesPlugins {
+			// Libraries and future plugins can reference globals outside this live graph.
+			// Compiler -shared is only PIC, including ordinary Darwin arm64 executables.
+			if !sharedCache.strongLiteralInit() {
 				for _, init := range tf.literalGlobalInits {
 					// Aliases can coalesce with another package's BSS definition,
 					// losing the R_KEEP edge that retains the owner's initializer.
@@ -958,7 +958,7 @@ func flagSetValue(flags []string, name, value string) []string {
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
 		// Keep in sync with [sharedCacheType.GoEnv].
-		"GOOS", "GOARCH", "GOMOD", "GOVERSION", "GOROOT",
+		"GOOS", "GOARCH", "GOMOD", "GOVERSION", "GOROOT", "GOFLAGS",
 	).Output()
 	if err != nil {
 		// TODO: cover this in the tests.
@@ -973,6 +973,23 @@ To install Go, see: https://go.dev/doc/install
 	if err := json.Unmarshal(out, &sharedCache.GoEnv); err != nil {
 		return fmt.Errorf(`cannot unmarshal from "go env -json": %w`, err)
 	}
+	var envFlags struct{ GOFLAGS string }
+	if err := json.Unmarshal(out, &envFlags); err != nil {
+		return fmt.Errorf(`cannot unmarshal GOFLAGS: %w`, err)
+	}
+	flags, err := cmdgoQuotedSplit(envFlags.GOFLAGS)
+	if err != nil {
+		return fmt.Errorf("cannot parse GOFLAGS: %w", err)
+	}
+	// Persist effective safety flags for workers, with command-line flags last.
+	var safetyFlags []string
+	for _, flag := range flags {
+		flag = "-" + strings.TrimLeft(flag, "-")
+		if strings.HasPrefix(flag, "-buildmode=") || flag == "-linkshared" || strings.HasPrefix(flag, "-linkshared=") {
+			safetyFlags = append(safetyFlags, flag)
+		}
+	}
+	sharedCache.ForwardBuildFlags = append(safetyFlags, sharedCache.ForwardBuildFlags...)
 	// TODO: remove once https://github.com/golang/go/issues/75953 is fixed,
 	// such that `go env GOVERSION` can always be parsed by go/version.
 	sharedCache.GoEnv.GOVERSION, _, _ = strings.Cut(sharedCache.GoEnv.GOVERSION, " ")

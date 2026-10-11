@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,6 +71,26 @@ type sharedCacheType struct {
 		GOVERSION string
 		GOROOT    string
 	}
+}
+
+func (c *sharedCacheType) strongLiteralInit() bool {
+	if c.UsesPlugins {
+		return true
+	}
+	switch flagValue(c.ForwardBuildFlags, "-buildmode") {
+	case "c-archive", "c-shared", "shared", "plugin":
+		return true
+	}
+	linkshared := false
+	for _, flag := range c.ForwardBuildFlags {
+		if flag == "-linkshared" {
+			linkshared = true
+		} else if value, ok := strings.CutPrefix(flag, "-linkshared="); ok {
+			parsed, err := strconv.ParseBool(value)
+			linkshared = err != nil || parsed
+		}
+	}
+	return linkshared
 }
 
 var sharedCache *sharedCacheType

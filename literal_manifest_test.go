@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -46,6 +48,9 @@ func TestLiteralInitLargePackage(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(dir, "program")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 	debugdir := filepath.Join(dir, "debug")
 	cmd := exec.Command(self, "-literals", "-seed=AAAAAAAAAAA", "-debugdir="+debugdir, "build", "-ldflags=-dumpdep", "-o", binary, ".")
 	cmd.Dir = dir
@@ -152,9 +157,15 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 		t.Fatal("manifest does not exceed Linux single-string limit")
 	}
 	t.Logf("manifest bytes: %d", len(data))
+	// Match objabi.RelocType.IsDirectCall, never an indirect or weak call.
+	eagerFactoryCall := regexp.MustCompile(`(?m)\bt=(?:R_CALL(?:ARM|ARM64|LOONG64|MIPS|POWER)?|R_RISCV_(?:CALL|JAL|JAL_TRAMP)) p\.factory\+0$`)
 	for _, tc := range []struct{ name, data, diagnostic string }{
 		{"large", string(data), ""},
 		{"large-moved", string(data), ""},
+		{"darwin-arm64-pic", string(data), ""},
+		{"dynlink", string(data), ""},
+		{"linkshared", string(data), ""},
+		{"linkname-darwin-arm64", string(data), ""},
 		{"linkname", string(data), ""},
 		{"linkname-single", string(data), ""},
 		{"linknamestd", string(data), ""},
@@ -206,17 +217,23 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 				}
 			}
 			args := []string{"-S", "-p", "p", "-o", filepath.Join(dir, tc.name+".o")}
-			if strings.HasSuffix(tc.name, "-shared") {
+			if strings.HasSuffix(tc.name, "-shared") || tc.name == "darwin-arm64-pic" {
 				args = append(args, "-shared")
+			}
+			if tc.name == "dynlink" || tc.name == "linkshared" {
+				args = append(args, "-"+tc.name)
 			}
 			if strings.HasSuffix(tc.name, "-disabled") {
 				args = append(args, "-d=wrapglobalmapctl=1")
 			}
 			cmd := exec.Command(compiler, append(args, input)...)
 			for _, entry := range os.Environ() {
-				if !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS=") && !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS_FILE=") && !strings.HasPrefix(entry, "GARBLE_PKGPATH_MAP=") && !strings.HasPrefix(entry, "GARBLE_SYMBOL_MAP=") {
+				if !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS=") && !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS_FILE=") && !strings.HasPrefix(entry, "GARBLE_PKGPATH_MAP=") && !strings.HasPrefix(entry, "GARBLE_SYMBOL_MAP=") && !strings.HasPrefix(entry, "GOOS=") && !strings.HasPrefix(entry, "GOARCH=") {
 					cmd.Env = append(cmd.Env, entry)
 				}
+			}
+			if strings.Contains(tc.name, "darwin-arm64") {
+				cmd.Env = append(cmd.Env, "GOOS=darwin", "GOARCH=arm64")
 			}
 			cmd.Env = append(cmd.Env, "GARBLE_LITERAL_INITS_FILE="+path)
 			output, err := cmd.CombinedOutput()
@@ -224,8 +241,8 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 				if err == nil || !strings.Contains(string(output), tc.diagnostic) {
 					t.Fatalf("compiler did not fail closed: err=%v\n%s", err, output)
 				}
-			} else if linked {
-				if err != nil || strings.Contains(string(output), "R_KEEP") || strings.Contains(string(output), "map.init.0") || !strings.Contains(string(output), "R_CALL p.factory") {
+			} else if linked || tc.name == "dynlink" || tc.name == "linkshared" {
+				if err != nil || strings.Contains(string(output), "R_KEEP") || strings.Contains(string(output), "map.init.0") || !eagerFactoryCall.Match(output) {
 					t.Fatalf("linknamed initializer was not kept eager: err=%v\n%s", err, output)
 				}
 			} else if err != nil || !strings.Contains(string(output), "R_KEEP") || !strings.Contains(string(output), "map.init.0") {
