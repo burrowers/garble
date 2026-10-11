@@ -1027,9 +1027,12 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 	for _, group := range comments {
 		for _, comment := range group.List {
-			switch {
-			case strings.HasPrefix(comment.Text, "//go:linkname "),
-				strings.HasPrefix(comment.Text, "//go:linknamestd "):
+			dir, ok := ast.ParseDirective(token.NoPos, comment.Text)
+			if !ok || dir.Tool != "go" {
+				continue
+			}
+			switch dir.Name {
+			case "linkname", "linknamestd":
 				// We can have either just one argument:
 				//
 				//	//go:linkname localName
@@ -1044,6 +1047,9 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 				// it only differs in relaxing the linker's checklinkname
 				// restriction for references to standard library symbols.
 				fields := strings.Fields(comment.Text)
+				if len(fields) < 2 {
+					continue
+				}
 				localName := fields[1]
 				newName := ""
 				if len(fields) == 3 {
@@ -1071,8 +1077,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 					log.Printf("linkname %q changed to %q", comment.Text, strings.Join(fields, " "))
 				}
 				comment.Text = strings.Join(fields, " ")
-			case strings.HasPrefix(comment.Text, "//go:cgo_import_dynamic "),
-				strings.HasPrefix(comment.Text, "//go:cgo_import_static "):
+			case "cgo_import_dynamic", "cgo_import_static":
 				fields := strings.Fields(comment.Text)
 				if len(fields) < 2 {
 					continue

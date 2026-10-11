@@ -20,7 +20,6 @@ import (
 
 const (
 	mergedFileName = "GARBLE_controlflow.go"
-	directiveName  = "//garble:controlflow"
 	importPrefix   = "___garble_import"
 
 	defaultBlockSplits   = 0
@@ -72,15 +71,15 @@ func (m directiveParamMap) StringSlice(name string) []string {
 	return slice
 }
 
-// parseDirective parses a directive string and returns a map of directive parameters.
+// parseDirective parses a "//garble:controlflow" comment and returns a map of directive parameters.
 // Each parameter should be in the form "key=value" or "key"
-func parseDirective(directive string) (directiveParamMap, bool) {
-	fieldsStr, ok := strings.CutPrefix(directive, directiveName)
-	if !ok {
+func parseDirective(comment string) (directiveParamMap, bool) {
+	dir, ok := ast.ParseDirective(token.NoPos, comment)
+	if !ok || dir.Tool != "garble" || dir.Name != "controlflow" {
 		return nil, false
 	}
 
-	fields := strings.Fields(fieldsStr)
+	fields := strings.Fields(dir.Args)
 	if len(fields) == 0 {
 		return nil, true
 	}

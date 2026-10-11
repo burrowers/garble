@@ -10,7 +10,6 @@ import (
 	"go/token"
 	"go/types"
 	mathrand "math/rand"
-	"strings"
 	"unicode/utf8"
 
 	"golang.org/x/tools/go/ast/astutil"
@@ -50,7 +49,8 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 			// so obfuscating strings in these is less important in any case.
 			if node.Doc != nil {
 				for _, comment := range node.Doc.List {
-					if strings.HasPrefix(comment.Text, "//go:nosplit") {
+					dir, ok := ast.ParseDirective(token.NoPos, comment.Text)
+					if ok && dir.Tool == "go" && dir.Name == "nosplit" {
 						return false
 					}
 				}
