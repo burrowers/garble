@@ -27,7 +27,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		for _, group := range file.Comments {
 			var newGroup ast.CommentGroup
 			for _, comment := range group.List {
-				if strings.HasPrefix(comment.Text, "//go:") {
+				if isGoDirective(comment.Text) {
 					newGroup.List = append(newGroup.List, comment)
 				}
 			}
@@ -117,7 +117,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			// Before we removed the comments from file.Comments,
 			// but go/printer also grabs comments from some Doc ast.Node fields.
 			// TODO: is there an easy way to filter all comments at once?
-			if strings.HasPrefix(lit, "//go:") {
+			if isGoDirective(lit) {
 				continue // directives are kept
 			}
 			offset := fsetFile.Position(pos).Offset
@@ -157,4 +157,11 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			fmt.Fprintf(&printBuf2, " /*line %s%s:1*/ ", newPrefix, newName)
 		}
 	}
+}
+
+// isGoDirective reports whether a comment is a Go toolchain directive,
+// such as "//go:linkname" or "//go:build".
+func isGoDirective(comment string) bool {
+	dir, ok := ast.ParseDirective(token.NoPos, comment)
+	return ok && dir.Tool == "go"
 }
