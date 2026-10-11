@@ -39,6 +39,9 @@ import (
 type sharedCacheType struct {
 	ForwardBuildFlags []string // build flags fed to the original "garble ..." command
 
+	// UsesPlugins records the actual build graph, excluding packages listed only for linknames.
+	UsesPlugins bool
+
 	CacheDir string // absolute path to the GARBLE_CACHE directory being used
 
 	// ListedPackages contains data obtained via 'go list -json -export -deps'.
@@ -595,6 +598,9 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// Note that GarbleActionID is filled by toolexecCmd once the listing
 		// is done, as hashing it needs garble's own content ID.
 
+		if mainBuild && pkg.ImportPath == "plugin" {
+			sharedCache.UsesPlugins = true
+		}
 		sharedCache.ListedPackages.set(pkg.ImportPath, &pkg)
 	}
 

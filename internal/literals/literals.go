@@ -38,9 +38,22 @@ const (
 // NameProviderFunc defines a function type that generates a string based on a random source and a base name.
 type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
 
+// GlobalInit certifies a generated constant-string factory for one global.
+// The declaration name is retained by pointer so subsequent renaming is reflected.
+type GlobalInit struct {
+	Global  *ast.Ident
+	Factory string
+}
+
 // Obfuscate replaces literals with obfuscated anonymous functions.
 func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
+	file, _ = ObfuscateWithGlobalInits(rand, file, info, linkStrings, nameFunc)
+	return file
+}
+
+func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) (*ast.File, []GlobalInit) {
 	or := newObfRand(rand, file, nameFunc)
+	var globalInits []GlobalInit
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.FuncDecl:
@@ -67,6 +80,19 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 					// Skip this entire ValueSpec to not break -ldflags=-X.
 					// TODO: support obfuscating those injected strings, too.
 					return false
+				}
+			}
+			if len(node.Names) == 1 && len(node.Values) == 1 && node.Names[0].Name != "_" {
+				obj := info.Defs[node.Names[0]].(*types.Var)
+				value := info.Types[node.Values[0]].Value
+				if obj.Parent() == obj.Pkg().Scope() && obj.Type() == types.Typ[types.String] && value != nil && value.Kind() == constant.String {
+					text := constant.StringVal(value)
+					if len(text) >= MinSize && len(text) <= MaxSize {
+						factory := or.globalStringFactory(text)
+						globalInits = append(globalInits, GlobalInit{Global: node.Names[0], Factory: factory})
+						node.Values[0] = withPos(ah.CallExprByName(factory), node.Values[0].Pos()).(ast.Expr)
+						return false
+					}
 				}
 			}
 
@@ -158,7 +184,45 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
 	newFile.Decls = append(newFile.Decls, or.liftedFuncs...)
 	or.proxyDispatcher.AddToFile(newFile)
-	return newFile
+	return newFile, globalInits
+}
+
+// The proxy roots are local to the factory, so no unconditional package-level
+// initialization can retain a dead global's decoder or change init dependencies.
+func (r *obfRand) globalStringFactory(text string) string {
+	name := r.nextLiftedFuncName("literalGlobal")
+	shared := r.proxyDispatcher
+	r.proxyDispatcher = newProxyDispatcher(r.rnd, func(rand *mathrand.Rand, base string) string {
+		return r.nameFunc(rand, name+base)
+	})
+	call := obfuscateString(r, text)
+	// Unlike package declarations, local types cannot refer to later types.
+	for _, root := range r.proxyDispatcher.roots {
+		var ordered []*proxyStruct
+		var visit func(*proxyStruct)
+		visit = func(s *proxyStruct) {
+			for _, child := range s.children {
+				visit(child)
+			}
+			ordered = append(ordered, s)
+		}
+		visit(root.root)
+		root.flattenStructs = ordered
+	}
+	locals := &ast.File{}
+	r.proxyDispatcher.AddToFile(locals)
+	r.proxyDispatcher = shared
+	body := &ast.BlockStmt{}
+	for _, decl := range locals.Decls {
+		body.List = append(body.List, &ast.DeclStmt{Decl: decl})
+	}
+	body.List = append(body.List, ah.ReturnStmt(call))
+	r.liftedFuncs = append(r.liftedFuncs, &ast.FuncDecl{
+		Name: ast.NewIdent(name),
+		Type: &ast.FuncType{Params: &ast.FieldList{}, Results: &ast.FieldList{List: []*ast.Field{{Type: ast.NewIdent("string")}}}},
+		Body: body,
+	})
+	return name
 }
 
 // generatedNames assigns each decoder-local name before building its AST.

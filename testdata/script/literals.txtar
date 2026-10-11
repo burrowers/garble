@@ -1,4 +1,7 @@
-exec garble -literals build
+exec garble -literals build -ldflags=-dumpdep
+# Outgoing aliases keep eager initialization, even if otherwise unused.
+stderr 'deadLiteralGlobal1167'
+stderr 'deadLiteralImported1167'
 exec ./main$exe
 cmp stderr main.stderr
 
@@ -30,11 +33,115 @@ go build
 binsubstr main$exe 'garble_unique_string'
 
 # ensure we don't find the extra literals in an obfuscated build
-exec garble -literals build
+# A plugin can later refer to globals absent from the executable's live graph.
+exec garble -literals build -tags=literalplugin -ldflags=-dumpdep
+[linux] [cgo] stderr 'deadLiteralGlobal1167'
+[linux] [cgo] stderr 'deadLiteralImported1167'
 exec ./main$exe
 cmp stderr main.stderr
 ! binsubstr main$exe 'garble_unique_string'
 
+# Sibling aliases must keep the initialized owner's eager init alive.
+go build -o aliasprog$exe ./alias
+exec ./aliasprog$exe
+cmp stderr alias.stderr
+exec garble -literals build -o aliasprog$exe ./alias
+exec ./aliasprog$exe
+cmp stderr alias.stderr
+! binsubstr aliasprog$exe 'initialized owner of linked string'
+
+-- alias/main.go --
+package main
+
+import (
+	"test/main/a"
+	_ "test/main/b"
+)
+
+func main() { println(a.Value) }
+-- a/p.go --
+package a
+
+import _ "unsafe"
+
+//go:linkname Value sharedAliasReview
+var Value string
+-- b/p.go --
+package b
+
+import _ "unsafe"
+
+//go:linkname Value sharedAliasReview
+var Value = "initialized owner of linked string"
+-- alias.stderr --
+initialized owner of linked string
+-- plugin.go --
+//go:build literalplugin && linux && cgo
+
+package main
+
+import _ "plugin"
+-- global_init.go --
+package main
+
+import "test/main/global_ref"
+
+var initEvents int
+var addressed = "an addressable initialized literal"
+var addressBeforeUse = &addressed
+var scheduled = observeScheduled()
+var dependency = "initialized before its dependent"
+var userFactory = literalGlobalFactory()
+var unusedEffect = literalGlobalFactory()
+var mixedConstant, mixedEffect = "a mixed constant initializer", literalGlobalFactory()
+var _ = literalGlobalFactory()
+
+func observeScheduled() string {
+	if dependency != "initialized before its dependent" {
+		panic("literal dependency scheduling changed")
+	}
+	initEvents++
+	return dependency
+}
+
+func literalGlobalFactory() string {
+	initEvents++
+	return "side effects in a user literal factory"
+}
+
+func init() {
+	if initEvents != 5 || scheduled != dependency || mixedConstant != "a mixed constant initializer" || mixedEffect != userFactory {
+		panic("literal initializer side effects changed")
+	}
+	if addressBeforeUse != &addressed || *addressBeforeUse != "an addressable initialized literal" {
+		panic("literal global address or eager value changed")
+	}
+	*addressBeforeUse = "mutated after initialization"
+	if addressed != "mutated after initialization" {
+		panic("literal global mutation changed")
+	}
+	global_ref.Check()
+}
+-- global_ref/ref.go --
+package global_ref
+
+import (
+	_ "test/main/imp_var"
+	_ "unsafe"
+)
+
+//go:linkname linkedLiteral test/main/imp_var.LinknameGlobal
+var linkedLiteral string
+
+func Check() {
+	if linkedLiteral != "a global referenced only by linkname" {
+		panic("linknamed literal initializer removed")
+	}
+	linkedLiteral = "mutation through linkname"
+	if linkedLiteral != "mutation through linkname" {
+		panic("linknamed literal mutation changed")
+	}
+}
 -- go.mod --
 module test/main
 
@@ -44,6 +151,7 @@ package main
 
 import (
 	_ "runtime/debug"
+	_ "unsafe"
 
 	"test/main/imp"
 	. "test/main/imp_const"
@@ -52,6 +160,9 @@ import (
 	. "test/main/imp_type"
 	. "test/main/imp_var"
 )
+
+//go:linkname deadLiteralGlobal deadLiteralGlobal1167
+var deadLiteralGlobal = "a dead constant string global must not retain its decoder"
 
 type structTest struct {
 	field        string
@@ -316,7 +427,7 @@ func byteTest() {
 	// Parentheses used to leave the invalid &(decoder()) behind.
 	func(s *[]byte) {
 		print(string(*s))
-	}(&(([]byte{112, 97, 114, 101, 110, 115, '!', '!'})))
+	}(&([]byte{112, 97, 114, 101, 110, 115, '!', '!'}))
 	println()
 
 	// A composite literal which we leave alone must keep its parentheses,
@@ -372,7 +483,6 @@ func multipleTimeImportTest() {
 }
 
 func noop(...any) {}
-
 -- regular_and_unused_renamed.go --
 package main
 
@@ -385,7 +495,6 @@ func regularAndUnusedRenamed() {
 	imp_mult.MultDummy()
 	noop(imp_mult.MultImpStr, imp_mult2.MultImpStr)
 }
-
 -- regular_and_unused_dotimport.go --
 package main
 
@@ -398,7 +507,6 @@ func regularAndUnusedDotImport() {
 	imp_mult.MultDummy()
 	noop(imp_mult.MultImpStr, MultImpStr)
 }
-
 -- unused_regular_and_dotimport.go --
 package main
 
@@ -411,46 +519,44 @@ func unusedRegularAndDotImport() {
 	MultDummy()
 	noop(imp_mult.MultImpStr, MultImpStr)
 }
-
 -- imp/imported.go --
 package imported
 
 type ImportedType int
-
 -- imp_const/imported.go --
 package imp_const
 
 const DotImportedStr = "const str from dot imported var"
-
 -- imp_func/imported.go --
 package imp_func
 
 func DotImportedFunc() string {
 	return "str from dot imported func"
 }
-
 -- imp_var/imported.go --
 package imp_var
 
-var DotImportedVar = "str from dot imported var"
+import _ "unsafe"
 
+//go:linkname deadImported deadLiteralImported1167
+var deadImported = "a dead literal in a cached imported package"
+
+var DotImportedVar = "str from dot imported var"
+var LinknameGlobal = "a global referenced only by linkname"
 -- imp_type/imported.go --
 package imp_type
 
 type DotImportedType string
-
 -- imp_struct/imported.go --
 package imp_struct
 
 var DotImportedStruct = struct{ Str string }{Str: "string in dot imported struct"}
-
 -- imp_mult/imported.go --
 package imp_mult
 
 const MultImpStr = "str from package imported multiple time"
 
 func MultDummy() {}
-
 -- directives.go --
 // If we misplace any of the directives below,
 // cmd/compile will complain with "misplaced compiler directive".
@@ -500,7 +606,6 @@ func str8() { println("foo bar bar") }
 
 //go:noinline
 func str9() { println("foo bar bar") }
-
 -- main.stderr --
 Lorem Ipsum true
 First Line

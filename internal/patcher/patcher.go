@@ -27,8 +27,9 @@ import (
 )
 
 const (
-	PkgPathMapEnv = "GARBLE_PKGPATH_MAP"
-	SymbolMapEnv  = "GARBLE_SYMBOL_MAP"
+	PkgPathMapEnv   = "GARBLE_PKGPATH_MAP"
+	SymbolMapEnv    = "GARBLE_SYMBOL_MAP"
+	LiteralInitsEnv = "GARBLE_LITERAL_INITS_FILE"
 
 	MagicValueEnv  = "GARBLE_LINK_MAGIC"
 	TinyEnv        = "GARBLE_LINK_TINY"
@@ -43,6 +44,7 @@ const (
 // Files that we may need to overlay from the modified source while building
 // cmd/compile and cmd/asm.
 var compilerOverlayFiles = []string{
+	"cmd/compile/internal/staticinit/sched.go",
 	"cmd/compile/internal/ssagen/intrinsics.go",
 	"cmd/compile/internal/ssa/rewrite.go",
 	"cmd/compile/internal/types/pkg.go",

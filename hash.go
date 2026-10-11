@@ -113,6 +113,10 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 
 	// Include options which affect the build output in the hash.
 	appendFlags(hasher, true)
+	// Plugin builds must not reuse objects compiled with weak literal init calls.
+	if flagLiterals && sharedCache.UsesPlugins {
+		io.WriteString(hasher, " literal-inits=strong")
+	}
 	// addGarbleToHash returns the sum buffer, so we need a new copy.
 	// Otherwise the next use of the global sumBuffer would conflict.
 	var sumBuffer [sha256.Size]byte

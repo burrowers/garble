@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"go/token"
+	"go/types"
 	"go/version"
 	"io"
 	"io/fs"
@@ -287,6 +288,10 @@ func mainErr(args []string) error {
 		}
 		transform := transformMethods[tool]
 		transformed := args[1:]
+		var tf transformer
+		// Certificates must come from this transformation, never an ambient build.
+		os.Unsetenv("GARBLE_LITERAL_INITS") // Clear the retired inline transport too.
+		os.Unsetenv(patcher.LiteralInitsEnv)
 		if transform != nil {
 			startTime := time.Now()
 			log.Printf("transforming %s with args: %s", tool, strings.Join(transformed, " "))
@@ -300,7 +305,6 @@ func mainErr(args []string) error {
 			if len(args) == 2 && args[1] == "-V=full" {
 				return alterToolVersion(tool, args)
 			}
-			var tf transformer
 			toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
 			tf.curPkg, _ = sharedCache.ListedPackages.get(toolexecImportPath)
 			if tf.curPkg == nil {
@@ -320,8 +324,45 @@ func mainErr(args []string) error {
 		executablePath := args[0]
 		switch tool {
 		case "compile":
+			certificates := make(map[string]string, len(tf.literalGlobalInits))
+			// A future plugin can reference globals not reachable in this build.
+			// With renamed package paths, the stock linker's plugin lookup is insufficient.
+			if !sharedCache.UsesPlugins {
+				for _, init := range tf.literalGlobalInits {
+					// Aliases can coalesce with another package's BSS definition,
+					// losing the R_KEEP edge that retains the owner's initializer.
+					if tf.linknamedGlobals[tf.info.Defs[init.Global].(*types.Var)] {
+						continue
+					}
+					certificates[init.Global.Name] = init.Factory
+				}
+			}
+			if len(certificates) > 0 {
+				encoded, err := json.Marshal(certificates)
+				if err != nil {
+					return err
+				}
+				// A private per-invocation file survives until the compiler exits.
+				// The root build also removes sharedTempDir after all workers finish.
+				manifest, err := os.CreateTemp(sharedTempDir, "literal-inits-*.json")
+				if err != nil {
+					return fmt.Errorf("cannot create literal init certificate: %w", err)
+				}
+				defer os.Remove(manifest.Name())
+				_, writeErr := manifest.Write(encoded)
+				closeErr := manifest.Close()
+				if writeErr != nil {
+					return fmt.Errorf("cannot write literal init certificate: %w", writeErr)
+				}
+				if closeErr != nil {
+					return fmt.Errorf("cannot close literal init certificate: %w", closeErr)
+				}
+				if err := os.Setenv(patcher.LiteralInitsEnv, manifest.Name()); err != nil {
+					return err
+				}
+			}
 			pkgPathMap, symbolMap := buildRuntimePkgPathMap(), buildSymbolMap()
-			if pkgPathMap == "" && symbolMap == "" {
+			if pkgPathMap == "" && symbolMap == "" && len(certificates) == 0 {
 				break
 			}
 			modifiedPath, err := patcher.PatchCompiler(
