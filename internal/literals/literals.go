@@ -41,6 +41,11 @@ type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
 // Obfuscate replaces literals with obfuscated anonymous functions.
 func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
 	or := newObfRand(rand, file, nameFunc)
+	// Package initializers, including their function literals, keep a shared
+	// dispatcher. Each original function declaration gets a separate tree so
+	// a live function cannot retain another function's lifted decoders.
+	packageDispatcher := or.proxyDispatcher
+	dispatchers := []*proxyDispatcher{packageDispatcher}
 	pre := func(cursor *astutil.Cursor) bool {
 		switch node := cursor.Node().(type) {
 		case *ast.FuncDecl:
@@ -55,6 +60,11 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 					}
 				}
 			}
+			owner := len(dispatchers)
+			or.proxyDispatcher = newProxyDispatcher(rand, func(rand *mathrand.Rand, base string) string {
+				return nameFunc(rand, fmt.Sprintf("literalOwner%d_%s", owner, base))
+			})
+			dispatchers = append(dispatchers, or.proxyDispatcher)
 		case *ast.GenDecl:
 			// constants are obfuscated by replacing all references with the obfuscated value
 			if node.Tok == token.CONST {
@@ -144,6 +154,9 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	}
 
 	post := func(cursor *astutil.Cursor) bool {
+		if _, ok := cursor.Node().(*ast.FuncDecl); ok {
+			or.proxyDispatcher = packageDispatcher
+		}
 		// Here we handle the plain []byte{...} or [4]byte{...} value form.
 		// The pointer form was already replaced on the way down; a literal
 		// which we declined there is declined here just the same.
@@ -157,7 +170,9 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
 	newFile.Decls = append(newFile.Decls, or.liftedFuncs...)
-	or.proxyDispatcher.AddToFile(newFile)
+	for _, dispatcher := range dispatchers {
+		dispatcher.AddToFile(newFile)
+	}
 	return newFile
 }
 

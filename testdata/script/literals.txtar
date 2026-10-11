@@ -112,6 +112,7 @@ const padding512 = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
 const padding2048 = padding512 + padding512 + padding512 + padding512
 
 func main() {
+	checkLiteralOwners()
 	if len(namedPayload) != cap(namedPayload) || namedPayload[0] != 'a' || namedPayload[len(namedPayload)-1] != 0xff {
 		panic("named byte slice literal changed")
 	}
@@ -500,6 +501,63 @@ func str8() { println("foo bar bar") }
 
 //go:noinline
 func str9() { println("foo bar bar") }
+
+-- owners.go --
+package main
+
+var ownerEvents []string
+var ownerValue = ownerFunction()
+var ownerCallback = func() string { return "global callback owner" }
+var ownerCallbackValue = ownerCallback()
+var ownerMethodValue = ownerReceiver{}.message
+var ownerGenericValue = ownerGeneric(42)
+
+type ownerReceiver struct{}
+
+func (ownerReceiver) message() string { return "method literal owner" }
+
+func ownerFunction() string {
+	ownerEvents = append(ownerEvents, "function initialization")
+	return "function literal owner"
+}
+
+func ownerGeneric[T any](v T) string {
+	return func() string {
+		_ = v
+		return "generic literal owner"
+	}()
+}
+
+func ownerNested() func() string {
+	return func() string {
+		return func() string { return "nested literal owner" }()
+	}
+}
+
+func init() {
+	if ownerValue != "function literal owner" || ownerCallbackValue != "global callback owner" || ownerGenericValue != "generic literal owner" {
+		panic("literal owner initialization changed")
+	}
+	ownerEvents = append(ownerEvents, "first explicit init")
+}
+
+func init() {
+	ownerEvents = append(ownerEvents, "second explicit init")
+}
+
+// These declarations follow function declarations to exercise restoring the
+// package-initializer dispatcher after visiting a function body.
+var ownerTailValue = "tail global literal owner"
+var ownerTailCallback = func() string { return "tail callback literal owner" }
+
+func checkLiteralOwners() {
+	if len(ownerEvents) != 3 || ownerEvents[0] != "function initialization" || ownerEvents[1] != "first explicit init" || ownerEvents[2] != "second explicit init" {
+		panic("literal owner initialization order changed")
+	}
+	if ownerMethodValue() != "method literal owner" || ownerNested()() != "nested literal owner" || ownerTailValue != "tail global literal owner" || ownerTailCallback() != "tail callback literal owner" {
+		panic("literal owner result changed")
+	}
+}
 
 -- main.stderr --
 Lorem Ipsum true
