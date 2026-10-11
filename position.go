@@ -75,7 +75,32 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	// We want to use the original positions for the hashed positions.
 	// Since later we'll iterate on tokens rather than walking an AST,
 	// we use a list of offsets indexed by identifiers in source order.
+	// Positionless top-level functions are generated, not original source.
+	// Their printed line numbers carry no reversible source information.
+	generatedIdents := make(map[*ast.Ident]bool)
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || fn.Pos().IsValid() || fn.Name.Pos().IsValid() {
+			continue
+		}
+		positionless := true
+		for node := range ast.Preorder(fn) {
+			if node.Pos().IsValid() {
+				positionless = false
+				break
+			}
+		}
+		if !positionless {
+			continue
+		}
+		for node := range ast.Preorder(fn) {
+			if id, ok := node.(*ast.Ident); ok {
+				generatedIdents[id] = true
+			}
+		}
+	}
 	var origCallOffsets []int
+	var generatedIdent []bool
 	nextOffset := -1
 	for node := range ast.Preorder(file) {
 		switch node := node.(type) {
@@ -83,6 +108,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			nextOffset = fsetFile.Position(node.Pos()).Offset
 		case *ast.Ident:
 			origCallOffsets = append(origCallOffsets, nextOffset)
+			generatedIdent = append(generatedIdent, generatedIdents[node])
 			nextOffset = -1
 		}
 	}
@@ -105,8 +131,36 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	s.Init(fsetFile, src, nil, scanner.ScanComments)
 
 	identIndex := 0
+	braceDepth, parenDepth := 0, 0
+	generated := false
+	generatedLine := 0
 	for {
 		pos, tok, lit := s.Scan()
+		if tok == token.FUNC && braceDepth == 0 && identIndex < len(generatedIdent) {
+			generated = generatedIdent[identIndex]
+			generatedLine = 0
+		}
+		line := fsetFile.Position(pos).Line
+		if generated && line != generatedLine && tok != token.SEMICOLON && tok != token.COMMENT && tok != token.EOF {
+			generatedLine = line
+			offset := fsetFile.Position(pos).Offset
+			printBuf2.Write(src[copied:offset])
+			copied = offset
+			fmt.Fprintf(&printBuf2, " /*line %s:1*/ ", newPrefix)
+		}
+		switch tok {
+		case token.LPAREN:
+			parenDepth++
+		case token.RPAREN:
+			parenDepth--
+		case token.LBRACE:
+			braceDepth++
+		case token.RBRACE:
+			braceDepth--
+			if braceDepth == 0 && parenDepth == 0 {
+				generated = false
+			}
+		}
 		switch tok {
 		case token.EOF:
 			// Copy the rest and return.
@@ -134,6 +188,9 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			}
 			origOffset := origCallOffsets[identIndex]
 			identIndex++
+			if generatedIdent[identIndex-1] {
+				continue
+			}
 			if origOffset == -1 {
 				continue // identifiers which don't start func calls are left untouched
 			}
