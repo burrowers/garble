@@ -40,7 +40,9 @@ func (seed) obfuscate(obfRand *mathrand.Rand, names *generatedNames, data []byte
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{ah.CallExprByName("byte", byteLitWithExtKey(obfRand, originalSeed, extKeys, highProb))},
 		},
-		makeDataStmt(names, len(data)),
+		ah.AssignDefineStmt(names.ident("data"),
+			ah.CallExprByName("make", ah.ByteSliceType(), ah.IntLit(len(data)))),
+		ah.AssignDefineStmt(names.ident("i"), ah.IntLit(0)),
 		&ast.DeclStmt{
 			Decl: &ast.GenDecl{
 				Tok: token.TYPE,
@@ -86,12 +88,11 @@ func (seed) obfuscate(obfRand *mathrand.Rand, names *generatedNames, data []byte
 					},
 					Body: ah.BlockStmt(
 						&ast.AssignStmt{
-							Lhs: []ast.Expr{names.ident("data")},
+							Lhs: []ast.Expr{ah.IndexExpr(names.name("data"), names.ident("i"))},
 							Tok: token.ASSIGN,
-							Rhs: []ast.Expr{
-								ah.CallExpr(ast.NewIdent("append"), names.ident("data"), operatorToReversedBinaryExpr(op, names.ident("x"), names.ident("seed"))),
-							},
+							Rhs: []ast.Expr{operatorToReversedBinaryExpr(op, names.ident("x"), names.ident("seed"))},
 						},
+						&ast.IncDecStmt{X: names.ident("i"), Tok: token.INC},
 						&ast.AssignStmt{
 							Lhs: []ast.Expr{names.ident("seed")},
 							Tok: token.ADD_ASSIGN,
