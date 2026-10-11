@@ -41,6 +41,89 @@ func main() {
 }
 `[1:]
 
+func TestObfuscateDeadFunctionDecoders(t *testing.T) {
+	const source = `package main
+func main() { println("live literal secret") }
+func dead() string { return func() string { return "dead literal secret" }() }
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "owner.go", source, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead := file.Decls[1].(*ast.FuncDecl)
+	originalCount := len(file.Decls)
+	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
+	if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
+		t.Fatal(err)
+	}
+	literals.Obfuscate(mathrand.New(mathrand.NewSource(1)), file, info, nil, func(r *mathrand.Rand, base string) string {
+		return fmt.Sprintf("%s%d", base, r.Uint64())
+	})
+	generated := make(map[string]ast.Node)
+	for _, decl := range file.Decls[originalCount:] {
+		switch decl := decl.(type) {
+		case *ast.FuncDecl:
+			generated[decl.Name.Name] = decl
+		case *ast.GenDecl:
+			if decl.Tok == token.VAR {
+				for _, spec := range decl.Specs {
+					spec := spec.(*ast.ValueSpec)
+					generated[spec.Names[0].Name] = spec
+				}
+			}
+		}
+	}
+	seen := make(map[string]bool)
+	var decoders []string
+	var roots []string
+	var visit func(ast.Node)
+	visit = func(node ast.Node) {
+		ast.Inspect(node, func(node ast.Node) bool {
+			if id, ok := node.(*ast.Ident); ok && !seen[id.Name] {
+				if decl := generated[id.Name]; decl != nil {
+					seen[id.Name] = true
+					if _, ok := decl.(*ast.FuncDecl); ok {
+						decoders = append(decoders, id.Name)
+					} else {
+						roots = append(roots, id.Name)
+					}
+					visit(decl)
+				}
+			}
+			return true
+		})
+	}
+	visit(dead.Body)
+	if len(decoders) == 0 {
+		t.Fatal("dead function has no generated decoders")
+	}
+	var text strings.Builder
+	if err := printer.Fprint(&text, fset, file); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	srcPath, binPath := filepath.Join(dir, "main.go"), filepath.Join(dir, "main.exe")
+	if err := os.WriteFile(srcPath, []byte(text.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("go", "build", "-trimpath", "-o", binPath, srcPath).CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	if out, err := exec.Command(binPath).CombinedOutput(); err != nil || string(out) != "live literal secret\n" {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	out, err := exec.Command("go", "tool", "nm", binPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("nm: %v\n%s", err, out)
+	}
+	for _, name := range append(decoders, roots...) {
+		if strings.Contains(string(out), "main."+name) {
+			t.Errorf("dead owner's generated declaration %s retained in binary", name)
+		}
+	}
+}
+
 func FuzzObfuscate(f *testing.F) {
 	initialRandSeed := int64(123)
 	f.Add("", initialRandSeed)
