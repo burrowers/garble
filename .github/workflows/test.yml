@@ -73,12 +73,11 @@ jobs:
       run: diff <(echo -n) <(gofmt -d .)
     - if: matrix.os == 'namespace-profile-linux' && matrix.go-version == '1.27.x'
       run: go vet ./...
-    # TODO(mvdan): reenable once they fix Go 1.27.2 support in a release
-    # - if: matrix.os == 'namespace-profile-linux' && matrix.go-version == '1.27.x'
-    #   uses: dominikh/staticcheck-action@v1
-    #   with:
-    #     version: "2026.2.1"
-    #     install-go: false
+    - if: matrix.os == 'namespace-profile-linux' && matrix.go-version == '1.27.x'
+      uses: dominikh/staticcheck-action@v1
+      with:
+        version: "2026.2.2"
+        install-go: false
 
   # We don't care about GOARCH=386 particularly, hence -short,
   # but it helps ensure we support 32-bit hosts and targets well.
