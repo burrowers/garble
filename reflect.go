@@ -429,11 +429,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 	case *ssa.MakeInterface:
 		return ri.recordArgReflected(val.X, visited)
 	case *ssa.UnOp:
-		for _, ref := range *val.Referrers() {
-			if idx, ok := ref.(ssa.Value); ok {
-				ri.recordArgReflected(idx, visited)
-			}
-		}
+		ri.recordReferrersReflected(val, visited)
 		return ri.recordArgReflected(val.X, visited)
 	case *ssa.FieldAddr:
 		return ri.recordArgReflected(val.X, visited)
@@ -441,12 +437,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 	case *ssa.Alloc:
 		/* fmt.Printf("recording val %v \n", *val.Referrers()) */
 		ri.recursivelyRecordUsedForReflect(val.Type())
-
-		for _, ref := range *val.Referrers() {
-			if idx, ok := ref.(ssa.Value); ok {
-				ri.recordArgReflected(idx, visited)
-			}
-		}
+		ri.recordReferrersReflected(val, visited)
 
 		// relatedParam needs to revisit nodes so create an empty map
 		visited := make(map[ssa.Value]bool)
@@ -474,6 +465,19 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 	}
 
 	return nil
+}
+
+// recordReferrersReflected records the values derived from a reflected value,
+// such as its fields or elements. Other referrers, like calls taking the value
+// as an argument, produce values which are not part of the reflected one.
+func (ri *reflectInspector) recordReferrersReflected(val ssa.Value, visited map[ssa.Value]bool) {
+	for _, ref := range *val.Referrers() {
+		switch ref.(type) {
+		case *ssa.FieldAddr, *ssa.IndexAddr, *ssa.Slice, *ssa.UnOp,
+			*ssa.Phi, *ssa.ChangeType, *ssa.MakeInterface:
+			ri.recordArgReflected(ref.(ssa.Value), visited)
+		}
+	}
 }
 
 // relatedParam checks if a route to a function parameter can be constructed

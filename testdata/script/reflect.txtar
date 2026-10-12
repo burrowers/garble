@@ -2,15 +2,12 @@ exec garble build
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.','IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField' 'LocalObfuscated'
+! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.','IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField' 'LocalObfuscated' 'CallResultObfuscated'
 binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect' 'ForeignNamedType' 'DownstreamField' 'SiblingField'
 stderr '^\*main\.StoredEarly$'
 stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
 stderr '^\*main\.SecondParam$'
-
-# TODO: passing a reflected value to a function wrongly reflects its result.
-binsubstr main$exe 'CallResultObfuscated'
 
 # A constant MethodByName must not retain unrelated exported methods.
 exec garble build -o methods-bin$exe ./methods
