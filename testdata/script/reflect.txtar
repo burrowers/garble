@@ -9,6 +9,9 @@ stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
 stderr '^\*main\.SecondParam$'
 
+# TODO: passing a reflected value to a function wrongly reflects its result.
+binsubstr main$exe 'CallResultObfuscated'
+
 # A constant MethodByName must not retain unrelated exported methods.
 exec garble build -o methods-bin$exe ./methods
 exec ./methods-bin$exe
@@ -290,6 +293,18 @@ func main() {
 
 	callBothTypes()
 
+	// Passing a reflected value to a function does not reflect its result.
+	ptrConfig := &CallArgPtr{CallArgPtrField: "ptr"}
+	ptrResult := newCallResultPtr(ptrConfig)
+	enc, _ = json.Marshal(ptrConfig)
+	fmt.Println(string(enc))
+	valConfig := CallArgVal{CallArgValField: "val"}
+	valResult := newCallResultVal(valConfig)
+	enc, _ = json.Marshal(valConfig)
+	fmt.Println(string(enc))
+	// Keep the result types in the binary, so that binsubstr can see their names.
+	_ = fmt.Sprintf("%#v %#v", ptrResult, valResult)
+
 	// SSA gives range-over-func defers a synthetic $ssa.deferStack type.
 	for i := range rangeFuncSequence {
 		defer fmt.Println("range defer", i)
@@ -361,6 +376,22 @@ type VariadicReflection struct {
 
 type FmtType struct {
 	FmtTypeField int
+}
+
+type CallArgPtr struct{ CallArgPtrField string }
+
+type CallResultObfuscatedPtr struct{ CallResultObfuscatedPtrField *CallArgPtr }
+
+func newCallResultPtr(arg *CallArgPtr) *CallResultObfuscatedPtr {
+	return &CallResultObfuscatedPtr{arg}
+}
+
+type CallArgVal struct{ CallArgValField string }
+
+type CallResultObfuscatedVal struct{ CallResultObfuscatedValField CallArgVal }
+
+func newCallResultVal(arg CallArgVal) CallResultObfuscatedVal {
+	return CallResultObfuscatedVal{arg}
 }
 
 // copied from github.com/davecgh/go-spew, which reaches into reflect's internals
@@ -893,6 +924,8 @@ TypeOfParent's own name: TypeOfParent
 TypeOfParent named: TypeOfNamedField NamedReflectionField
 TypeOfParent embedded: TypeOfEmbeddedField EmbeddedReflectionField
 main.Connection
+{"CallArgPtrField":"ptr"}
+{"CallArgValField":"val"}
 range defer 2
 range defer 1
 range defer 0
