@@ -207,6 +207,7 @@ func (d *proxyDispatcher) AddToFile(file *ast.File) {
 		return
 	}
 
+	var typeDecls []ast.Decl
 	for _, root := range d.roots {
 		for _, strct := range root.flattenStructs {
 			dummyCount := d.rand.Intn(maxJunkValueCount-minJunkValueCount+1) + minJunkValueCount
@@ -244,6 +245,7 @@ func (d *proxyDispatcher) AddToFile(file *ast.File) {
 					Type: structType,
 				}},
 			})
+			typeDecls = append(typeDecls, file.Decls[len(file.Decls)-1])
 		}
 
 		file.Decls = append(file.Decls, &ast.GenDecl{
@@ -254,6 +256,7 @@ func (d *proxyDispatcher) AddToFile(file *ast.File) {
 			}},
 		})
 	}
+	compactProxyLayouts(typeDecls)
 }
 
 func newProxyDispatcher(rand *mathrand.Rand, nameFunc NameProviderFunc) *proxyDispatcher {
