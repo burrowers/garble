@@ -57,7 +57,7 @@ func dead() string { return func() string { return "dead literal secret" }() }
 	if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
 		t.Fatal(err)
 	}
-	literals.Obfuscate(mathrand.New(mathrand.NewSource(1)), file, info, nil, func(r *mathrand.Rand, base string) string {
+	literals.Obfuscate(mathrand.New(mathrand.NewSource(1)), file, info, nil, nil, func(r *mathrand.Rand, base string) string {
 		return fmt.Sprintf("%s%d", base, r.Uint64())
 	})
 	generated := make(map[string]ast.Node)
@@ -132,6 +132,7 @@ func FuzzObfuscate(f *testing.F) {
 	f.Add("binary_\x00\x01\x02", initialRandSeed)
 	f.Add("whitespace    \n\t\t", initialRandSeed)
 	f.Add(strings.Repeat("x", (2<<10)+1), initialRandSeed) // past MaxSize
+	f.Add(strings.Repeat("large_\x00\xff_SECRET_194", 4096), initialRandSeed)
 
 	tdir := f.TempDir()
 	var tdirCounter atomic.Int64
@@ -143,7 +144,7 @@ func FuzzObfuscate(f *testing.F) {
 
 		// Create the source, parse it, and typecheck it.
 		srcText := fmt.Sprintf(fuzzTemplate, in, []byte(in))
-		t.Log(srcText) // shown on failures
+		t.Logf("input length %d, random seed %d", len(in), randSeed)
 		fset := token.NewFileSet()
 		srcSyntax, err := parser.ParseFile(fset, "", srcText, parser.SkipObjectResolution)
 		qt.Assert(t, qt.IsNil(err))
@@ -158,7 +159,7 @@ func FuzzObfuscate(f *testing.F) {
 
 		// Obfuscate the literals and print the source back.
 		rand := mathrand.New(mathrand.NewSource(randSeed))
-		srcSyntax = literals.Obfuscate(rand, srcSyntax, &info, nil, func(rand *mathrand.Rand, baseName string) string {
+		srcSyntax = literals.Obfuscate(rand, srcSyntax, &info, nil, nil, func(rand *mathrand.Rand, baseName string) string {
 			return fmt.Sprintf("%s%d", baseName, rand.Uint64())
 		})
 		count := tdirCounter.Add(1)

@@ -21,7 +21,7 @@ import (
 // moderate, this also decreases the likelihood for performance slowdowns.
 const MinSize = 8
 
-// MaxSize is the upper limit of the size of string-like literals we will obfuscate.
+// MaxSize is the upper limit for the per-byte AST obfuscators.
 const MaxSize = 2 << 10 // 2 KiB
 
 // MaxSizeExpensive is the upper limit for using expensive obfuscators (split, seed).
@@ -38,8 +38,14 @@ const (
 // NameProviderFunc defines a function type that generates a string based on a random source and a base name.
 type NameProviderFunc func(rand *mathrand.Rand, baseName string) string
 
+// EmbeddedValue bypasses the minimum size threshold for resolved //go:embed data.
+type EmbeddedValue struct {
+	Data   []byte
+	String bool
+}
+
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, nameFunc NameProviderFunc) *ast.File {
+func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, embeds map[ast.Expr]EmbeddedValue, nameFunc NameProviderFunc) *ast.File {
 	or := newObfRand(rand, file, nameFunc)
 	// Package initializers, including their function literals, keep a shared
 	// dispatcher. Each original function declaration gets a separate tree so
@@ -81,6 +87,16 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 			}
 
 		case ast.Expr:
+			if value, ok := embeds[node]; ok {
+				var replacement ast.Node
+				if value.String {
+					replacement = obfuscateString(or, string(value.Data))
+				} else {
+					replacement = obfuscateByteSlice(or, false, value.Data)
+				}
+				cursor.Replace(withPos(replacement, node.Pos()))
+				return false
+			}
 			// A constant string converted to a byte or rune slice has an
 			// exact capacity. Decoding first can make the allocation larger.
 			if call, ok := node.(*ast.CallExpr); ok && len(call.Args) == 1 {
@@ -88,7 +104,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 					elem := slice.Elem()
 					if value := info.Types[call.Args[0]].Value; value != nil && value.Kind() == constant.String {
 						text := constant.StringVal(value)
-						if len(text) >= MinSize && len(text) <= MaxSize {
+						if len(text) >= MinSize {
 							size := len(text)
 							if elem == types.Universe.Lookup("rune").Type() {
 								size = utf8.RuneCountInString(text)
@@ -141,13 +157,13 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 			}
 			if typeAndValue.Type == types.Typ[types.String] {
 				value := constant.StringVal(typeAndValue.Value)
-				if len(value) >= MinSize && len(value) <= MaxSize {
+				if len(value) >= MinSize {
 					cursor.Replace(withPos(obfuscateString(or, value), node.Pos()))
 					return false
 				}
 			}
 			// Keep descending: a string constant we left alone, such as one
-			// above MaxSize or one of a named type, may still have operands
+			// below MinSize or one of a named type, may still have operands
 			// which we can rewrite.
 		}
 		return true
@@ -292,7 +308,7 @@ func (r *obfRand) nextLiftedFuncName(base string) string {
 //
 // If the input node cannot be obfuscated nil is returned.
 func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
-	if len(node.Elts) < MinSize || len(node.Elts) > MaxSize {
+	if len(node.Elts) < MinSize {
 		return nil
 	}
 
@@ -518,7 +534,7 @@ func obfuscateByteArray(or *obfRand, isPointer bool, data []byte, length int64) 
 
 func (or *obfRand) pickObfuscator(size int) obfuscator {
 	if size < MinSize || size > MaxSize {
-		panic(fmt.Sprintf("nextObfuscator called with size %d outside [%d, %d]", size, MinSize, MaxSize))
+		return blob{}
 	}
 	if or.testObfuscator != nil {
 		return or.testObfuscator
