@@ -184,47 +184,13 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		if lpkg.BuildID == "" {
 			continue // nothing to load
 		}
-		if err := func() error { // function literal for the deferred close
-			if filename, _, err := fsCache.GetFile(lpkg.GarbleActionID); err == nil {
-				// Cache hit; merge its entries into computed. We decode into a
-				// fresh value rather than onto computed, as msgp replaces maps
-				// rather than merging into them.
-				data, err := os.ReadFile(filename)
-				if err != nil {
-					return err
-				}
-				var loaded pkgCache
-				if _, err := loaded.UnmarshalMsg(data); err != nil {
-					return err
-				}
-				computed.CopyFrom(loaded)
-				return nil
-			}
-			// Avoid parsing and typechecking if the dependency doesn't import reflect.
-			if !lpkg.hasDep("reflect") {
-				return nil
-			}
-			// Missing or corrupted entry in the cache for a dependency.
-			// Could happen if GARBLE_CACHE was emptied but GOCACHE was not.
-			// Compute it, which can recurse if many entries are missing.
-			files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles, true)
-			if err != nil {
-				return err
-			}
-			origImporter := importerForPkg(lpkg)
-			pkg, info, err := typecheck(lpkg.ImportPath, files, origImporter, true)
-			if err != nil {
-				return err
-			}
-			computedImp, err := computePkgCache(fsCache, lpkg, pkg, files, info, nil)
-			if err != nil {
-				return err
-			}
-			computed.CopyFrom(computedImp)
-			return nil
-		}(); err != nil {
+		loaded, err := loadListedPkgCache(fsCache, lpkg)
+		if err != nil {
 			return pkgCache{}, fmt.Errorf("pkgCache load for %s: %w", imp, err)
 		}
+		// Merge rather than decode onto computed,
+		// as msgp replaces maps rather than merging into them.
+		computed.CopyFrom(loaded)
 	}
 
 	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
@@ -247,6 +213,39 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		return pkgCache{}, err
 	}
 	return computed, nil
+}
+
+// loadListedPkgCache loads the cache entry of a package which the current
+// process is not compiling, such as a dependency, computing it if missing.
+func loadListedPkgCache(fsCache *cache.Cache, lpkg *listedPackage) (pkgCache, error) {
+	if filename, _, err := fsCache.GetFile(lpkg.GarbleActionID); err == nil {
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			return pkgCache{}, err
+		}
+		var loaded pkgCache
+		if _, err := loaded.UnmarshalMsg(data); err != nil {
+			return pkgCache{}, err
+		}
+		return loaded, nil
+	}
+	// Avoid parsing and typechecking if the package doesn't import reflect.
+	if !lpkg.hasDep("reflect") {
+		return pkgCache{}, nil
+	}
+	// Missing or corrupted entry in the cache.
+	// Could happen if GARBLE_CACHE was emptied but GOCACHE was not.
+	// Compute it, which can recurse if many entries are missing.
+	files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles, true)
+	if err != nil {
+		return pkgCache{}, err
+	}
+	origImporter := importerForPkg(lpkg)
+	pkg, info, err := typecheck(lpkg.ImportPath, files, origImporter, true)
+	if err != nil {
+		return pkgCache{}, err
+	}
+	return computePkgCache(fsCache, lpkg, pkg, files, info, nil)
 }
 
 type importerWithMap struct {

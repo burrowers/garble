@@ -13,6 +13,7 @@ import (
 	"go/types"
 	"io/fs"
 	"log"
+	"maps"
 	mathrand "math/rand"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 	"mvdan.cc/garble/internal/ctrlflow"
 	"mvdan.cc/garble/internal/literals"
+	"mvdan.cc/garble/internal/patcher"
 )
 
 // cmd/bundle will include a go:generate directive in its output by default.
@@ -1706,5 +1708,47 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 	flags = append(flags, "-w", "-s")
 
 	flags = flagSetValue(flags, "-importcfg", newImportCfg)
+
+	if err := tf.writeReflectNames(); err != nil {
+		return nil, err
+	}
 	return append(flags, args...), nil
+}
+
+// writeReflectNames passes the linker the name pairs that reflectMainPostPatch
+// gives the runtime. The runtime shows reflect the original names, and reflect
+// binary-searches the typelinks by those strings, so the linker must sort the
+// typelinks by them too.
+func (tf *transformer) writeReflectNames() error {
+	// computePkgCache records no names, and stores no entry, without reflect.
+	if !tf.curPkg.hasDep("reflect") {
+		return nil
+	}
+	fsCache, err := openCache()
+	if err != nil {
+		return err
+	}
+	// Go can link again with a main package compiled before GARBLE_CACHE lost
+	// its entry, so compute the names again if they are missing.
+	pkg, err := loadListedPkgCache(fsCache, tf.curPkg)
+	if err != nil {
+		return fmt.Errorf("pkgCache load for %s: %w", tf.curPkg.ImportPath, err)
+	}
+	var pairs []string
+	for _, obf := range slices.Sorted(maps.Keys(pkg.ReflectObjectNames)) {
+		pairs = append(pairs, obf, pkg.ReflectObjectNames[obf])
+	}
+	// One build can link many binaries at once, such as with "garble test ./...".
+	f, err := os.CreateTemp(sharedTempDir, "reflect-names-")
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(strings.Join(pairs, "\n")); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Setenv(patcher.ReflectNamesEnv, f.Name())
 }
