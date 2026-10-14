@@ -78,7 +78,7 @@ func init() { global += "init literal secret" }
 			}
 			liftedNames := make(map[string]bool)
 			originalCount := len(file.Decls)
-			Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, func(r *rand.Rand, base string) string {
+			Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, func(r *rand.Rand, base string) string {
 				if strings.HasPrefix(base, "literalDecoder") || strings.HasPrefix(base, "literalHelper") {
 					if liftedNames[base] {
 						t.Errorf("lifted function base name reused across owners: %s", base)

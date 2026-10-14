@@ -1,12 +1,22 @@
 exec garble build
-
-exec ./main
+exec ./main$exe
 cmp stdout main.stdout
 
-[short] stop # no need to verify this with -short
+cd obfuscate
+exec garble -literals build -o app$exe
+exec ./app$exe
+cmp stdout want.stdout
+! binsubstr app$exe 'GARBLE_EMBED_STRING_SECRET_194' 'GARBLE_EMBED_BYTES_SECRET_194' 'GARBLE_FS_SECRET_194'
 
+[short] stop
+
+go build -o app$exe
+exec ./app$exe
+cmp stdout want.stdout
+binsubstr app$exe 'GARBLE_EMBED_STRING_SECRET_194' 'GARBLE_EMBED_BYTES_SECRET_194' 'GARBLE_FS_SECRET_194'
+cd ..
 go build
-exec ./main
+exec ./main$exe
 cmp stdout main.stdout
 -- go.mod --
 module test/main
@@ -29,7 +39,6 @@ var embedDir embed.FS
 
 func main() {
 	fmt.Printf("%q\n", embedStr)
-
 	fs.WalkDir(embedDir, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			fmt.Printf("%s: %v\n", path, err)
@@ -46,7 +55,6 @@ func main() {
 		return nil
 	})
 }
-
 -- embed-string.txt --
 string content
 -- embed-dir/file1.txt --
@@ -57,3 +65,126 @@ file2 content
 "string content\n"
 embed-dir/file1.txt: "file1 content\n"
 embed-dir/file2.txt: "file2 content\n"
+-- obfuscate/main.go --
+package main
+
+import (
+	"embed"
+	"fmt"
+	"io"
+	"io/fs"
+	"test/main/plain"
+)
+
+//go:embed string.txt
+var text string
+
+//go:embed bytes.txt
+var bytes []byte
+
+//go:embed empty.txt
+var empty string
+
+//go:embed tiny.txt
+var tiny []byte
+
+type namedString string
+type namedBytes []byte
+type aliasString = namedString
+
+//go:embed string.txt
+var namedText namedString
+
+//go:embed string.txt
+var aliasedText aliasString
+
+//go:embed bytes.txt
+var namedData namedBytes
+
+var initialized = text + "!\n"
+
+//go:embed static
+var assets embed.FS
+
+type aliasFS = embed.FS
+
+//go:embed static
+var aliased aliasFS
+
+func main() {
+	if empty != "" || string(tiny) != "x\n" {
+		panic("short embed differs")
+	}
+	data, _ := assets.ReadFile("static/a.txt")
+	aliasData, _ := aliased.ReadFile("static/a.txt")
+	if string(data) != string(aliasData) {
+		panic("alias differs")
+	}
+	nested, _ := assets.ReadFile("static/sub/nested.txt")
+	fmt.Printf("nested: %s", nested)
+	fmt.Printf("read: %s", data)
+	plainData, _ := plain.Data.ReadFile("ordinary.txt")
+	fmt.Printf("plain: %s", plainData)
+	f, _ := assets.Open("static/a.txt")
+	info, _ := f.Stat()
+	fmt.Printf("size: %d\n", info.Size())
+	at := f.(io.ReaderAt)
+	buf := make([]byte, 6)
+	at.ReadAt(buf, 0)
+	fmt.Printf("at: %s\n", buf)
+	seek := f.(io.Seeker)
+	seek.Seek(7, io.SeekStart)
+	rest, _ := io.ReadAll(f)
+	fmt.Printf("rest: %s", rest)
+	dir, _ := assets.ReadDir("static")
+	info, _ = dir[0].Info()
+	fmt.Printf("dir: %s %d\n", dir[0].Name(), info.Size())
+	fs.WalkDir(assets, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("walk: %s\n", path)
+		return nil
+	})
+	fmt.Printf("variables: %s|%s|%s|%s|%s|%s", text, bytes, namedText, aliasedText, namedData, initialized)
+}
+-- obfuscate/string.txt --
+GARBLE_EMBED_STRING_SECRET_194
+-- obfuscate/empty.txt --
+-- obfuscate/tiny.txt --
+x
+-- obfuscate/bytes.txt --
+GARBLE_EMBED_BYTES_SECRET_194
+-- obfuscate/static/a.txt --
+GARBLE_FS_SECRET_194
+-- obfuscate/static/sub/nested.txt --
+nested
+-- plain/plain.go --
+package plain
+
+import "embed"
+
+//go:embed ordinary.txt
+var Data embed.FS
+-- plain/ordinary.txt --
+ordinary
+-- obfuscate/want.stdout --
+nested: nested
+read: GARBLE_FS_SECRET_194
+plain: ordinary
+size: 21
+at: GARBLE
+rest: FS_SECRET_194
+dir: a.txt 21
+walk: .
+walk: static
+walk: static/a.txt
+walk: static/sub
+walk: static/sub/nested.txt
+variables: GARBLE_EMBED_STRING_SECRET_194
+|GARBLE_EMBED_BYTES_SECRET_194
+|GARBLE_EMBED_STRING_SECRET_194
+|GARBLE_EMBED_STRING_SECRET_194
+|GARBLE_EMBED_BYTES_SECRET_194
+|GARBLE_EMBED_STRING_SECRET_194
+!
