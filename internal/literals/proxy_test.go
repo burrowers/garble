@@ -3,6 +3,7 @@ package literals
 import (
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"go/printer"
 	"go/token"
 	"go/types"
@@ -79,6 +80,39 @@ func TestProxyHiddenValueIdentity(t *testing.T) {
 	}
 	if _, err := new(types.Config).Check("p", token.NewFileSet(), []*ast.File{file}, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProxyPrintedDirective(t *testing.T) {
+	const source = `package p
+
+var value = 42
+
+//go:noinline
+func next() {}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "input.go", source, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := occupancyDispatcher(7)
+	spec := file.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec)
+	spec.Values[0] = withPos(d.HideValue(spec.Values[0], ast.NewIdent("int")), spec.Values[0].Pos()).(ast.Expr)
+	d.AddToFile(file)
+	var printed strings.Builder
+	config := printer.Config{Mode: printer.RawFormat}
+	if err := config.Fprint(&printed, fset, file); err != nil {
+		t.Fatal(err)
+	}
+	reparsed, err := parser.ParseFile(token.NewFileSet(), "output.go", printed.String(), parser.ParseComments)
+	if err != nil {
+		t.Fatalf("invalid printed source: %v\n%s", err, &printed)
+	}
+	next := reparsed.Decls[1].(*ast.FuncDecl)
+	// TODO: keep the compiler directive attached when the delayed path is built.
+	if next.Doc != nil {
+		t.Fatalf("expected the current misplaced compiler directive:\n%s", &printed)
 	}
 }
 
