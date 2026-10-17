@@ -33,7 +33,7 @@ func TestDecodersObfuscateGeneratedNames(t *testing.T) {
 					ast.Inspect(decl, func(node ast.Node) bool {
 						if id, ok := node.(*ast.Ident); ok {
 							switch id.Name {
-							case "data", "key", "fullData", "idxKey", "positions", "localKey", "seed", "decFunc", "fnc", "x", "b", "decryptKey", "counter", "i", "y", "newdata", "garbleStringCaster":
+							case "data", "key", "fullData", "idxKey", "positions", "localKey", "seed", "decFunc", "fnc", "x", "b", "decryptKey", "counter", "i", "y", "newdata", "garbleStringCaster", "operations", "mask", "handlers", "dst", "value":
 								t.Errorf("generated identifier %q was not obfuscated", id.Name)
 							}
 							if strings.HasPrefix(id.Name, "garbleExternalKey") {
