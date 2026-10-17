@@ -1,0 +1,64 @@
+From d000424cf050238202a6438e52d6403472e334de Mon Sep 17 00:00:00 2001
+From: Gabriele Turelli <cappy95@gmail.com>
+Date: Wed, 14 Oct 2026 15:31:11 +0200
+Subject: [PATCH] sort typelinks by the names reflect sees
+
+Garble makes abi.Name.Name return the original spelling of the obfuscated
+names that reflect sees. reflect binary-searches the typelinks by the type
+strings the runtime returns, but the linker sorted them by the obfuscated
+strings. reflect.SliceOf and the other constructors then missed types that
+exist in the binary and built new ones, which differ from the static types.
+Sort by the strings the runtime returns, with the pairs Garble passes in
+GARBLE_LINK_REFLECT_NAMES.
+
+---
+ cmd/link/internal/ld/data.go | 26 ++++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/cmd/link/internal/ld/data.go b/cmd/link/internal/ld/data.go
+index 54b69c9..d6a6d53 100644
+--- a/cmd/link/internal/ld/data.go
++++ b/cmd/link/internal/ld/data.go
+@@ -1317,6 +1317,29 @@ func addinitarrdata(ctxt *Link, ldr *loader.Loader, s loader.Sym) {
+ 	sp.AddAddr(ctxt.Arch, s)
+ }
+ 
++// garbleReflectNames undoes the obfuscation of the names that reflect sees
++// with their original spelling. The runtime applies the same pairs in
++// abi.Name.Name, and reflect binary-searches the typelinks by those strings,
++// so they must be sorted by them too.
++var garbleReflectNames = sync.OnceValue(func() *strings.Replacer {
++	path := os.Getenv("GARBLE_LINK_REFLECT_NAMES")
++	if path == "" {
++		return nil
++	}
++	data, err := os.ReadFile(path)
++	if err != nil {
++		panic(fmt.Errorf("[garble] cannot read reflect names: %v", err))
++	}
++	pairs := strings.Split(string(data), "\n")
++	if len(pairs) == 1 && pairs[0] == "" {
++		return nil
++	}
++	if len(pairs)%2 != 0 {
++		panic(fmt.Errorf("[garble] odd number of reflect names in %s", path))
++	}
++	return strings.NewReplacer(pairs...)
++})
++
+ // symalign returns the required alignment for the given symbol s.
+ func symalign(ldr *loader.Loader, s loader.Sym) int32 {
+ 	min := int32(thearch.Minalign)
+@@ -2461,6 +2484,9 @@ func (state *dodataState) dodataSect(ctxt *Link, symn sym.SymKind, syms []loader
+ 				sl[k].isTypelink = ldr.IsTypelink(s)
+ 				if sl[k].isTypelink {
+ 					sl[k].typeStr = decodetypeStr(ldr, ctxt.Arch, s)
++					if r := garbleReflectNames(); r != nil {
++						sl[k].typeStr = r.Replace(sl[k].typeStr)
++					}
+ 				}
+ 			}
+ 		}
+-- 
+2.56.0
+

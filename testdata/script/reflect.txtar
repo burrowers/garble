@@ -1,4 +1,5 @@
-exec garble build
+env GARBLE_CACHE=${WORK}/garble-cache
+exec garble -seed=c2VlZDAwMDE= build
 exec ./main
 cmp stdout main.stdout
 
@@ -15,12 +16,21 @@ exec ./methods-bin$exe
 stdout '^used$'
 ! binsubstr methods-bin$exe 'unused-method-marker'
 
+# Go can reuse the compiled main package after its garble cache entry is gone,
+# and only link again. Keep GOCACHE and the seed from the initial build above;
+# the linker must reconstruct the reflected names even without recompilation.
+rm garble-cache
+exec garble -seed=c2VlZDAwMDE= build -ldflags=-X=main.unused=changed
+exec ./main
+cmp stdout main.stdout
+
 [short] stop # no need to verify this with -short
 
 # Check that the program works as expected without garble.
 go build
 exec ./main
 cmp stdout main.stdout
+
 -- go.mod --
 module test/main
 
@@ -85,6 +95,8 @@ type methodCallReceiver struct{}
 func (methodCallReceiver) M() string { return "M called" }
 
 func main() {
+	checkTypelinks()
+
 	var methodReceiver any = methodCallReceiver{}
 	fmt.Println(reflect.ValueOf(methodReceiver).Method(0).Call(nil)[0])
 
@@ -853,6 +865,75 @@ func main() {
 	fmt.Println(m.Func.Call([]reflect.Value{reflect.ValueOf(T{})})[0].String())
 }
 
+-- typelinks.go --
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"unsafe"
+)
+
+//go:linkname typelinks reflect.typelinks
+func typelinks() ([]unsafe.Pointer, [][]int32)
+
+// typeAt makes a reflect.Type from a type descriptor of the binary.
+func typeAt(p unsafe.Pointer) reflect.Type {
+	var i any
+	(*[2]unsafe.Pointer)(unsafe.Pointer(&i))[0] = p
+	return reflect.TypeOf(i)
+}
+
+type ReflectedPath string
+
+type Reflected struct {
+	Name  string
+	Paths []ReflectedPath
+}
+
+func checkTypelinks() {
+	var r Reflected
+	json.Unmarshal([]byte(`{"Name":"x","Paths":["a"]}`), &r)
+
+	// reflect finds the types it can construct, such as []T for SliceOf,
+	// by a binary search over the typelinks.
+	sections, offsets := typelinks()
+	missing := 0
+	for m, offs := range offsets {
+		types := make([]reflect.Type, len(offs))
+		for k, off := range offs {
+			types[k] = typeAt(unsafe.Add(sections[m], off))
+		}
+		for _, t := range types {
+			s := t.String()
+			i, j := 0, len(types)
+			for i < j {
+				h := int(uint(i+j) >> 1)
+				if types[h].String() < s {
+					i = h + 1
+				} else {
+					j = h
+				}
+			}
+			found := false
+			for ; i < len(types) && types[i].String() == s; i++ {
+				found = found || types[i] == t
+			}
+			if !found {
+				missing++
+			}
+		}
+	}
+	if missing > 0 {
+		panic(fmt.Sprintf("typelinks not found by reflect: %d", missing))
+	}
+
+	slice := reflect.MakeSlice(reflect.SliceOf(reflect.TypeOf(ReflectedPath(""))), 0, 0).Interface()
+	if _, ok := slice.([]ReflectedPath); !ok {
+		panic("SliceOf does not give the static type")
+	}
+}
 -- recover.go --
 package main
 
