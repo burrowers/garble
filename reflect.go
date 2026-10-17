@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"go/types"
+	"iter"
 	"log"
 	"maps"
 	"os"
@@ -88,6 +89,9 @@ type reflectInspector struct {
 	pkg  *types.Package
 
 	propagatedInstr map[ssa.Instruction]bool
+	seenEdges       map[reflectCallEdge]bool
+	// Function literals have no types.Func name to put in the package cache.
+	localReflectAPIs map[*ssa.Function]map[int]bool
 
 	result pkgCache
 }
@@ -117,6 +121,9 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 func (ri *reflectInspector) recordedCount() int {
 	n := len(ri.result.ReflectObjectNames)
 	for _, params := range ri.result.ReflectAPIs {
+		n += 1 + len(params)
+	}
+	for _, params := range ri.localReflectAPIs {
 		n += 1 + len(params)
 	}
 	return n
@@ -235,6 +242,9 @@ func (ri *reflectInspector) checkInterfaceMethod(m *types.Func) {
 
 // Checks all callsites in a function declaration for use of reflection.
 func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
+	for _, anon := range fun.AnonFuncs {
+		ri.checkFunction(anon)
+	}
 	// if fun != nil && fun.Synthetic != "loaded from gc object file" {
 	// 	// fun.WriteTo crashes otherwise
 	// 	fun.WriteTo(os.Stdout)
@@ -242,9 +252,8 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 	f, _ := ssaFuncOrigin(fun).Object().(*types.Func)
 	var funcName string
-	genericFunc := false
 	if f != nil {
-		funcName, genericFunc = stripTypeArgs(f.FullName())
+		funcName, _ = stripTypeArgs(f.FullName())
 	}
 
 	reflectParams := make(map[int]bool)
@@ -263,6 +272,8 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 		if f.Exported() {
 			ri.checkMethodSignature(reflectParams, fun.Signature)
 		}
+	} else {
+		maps.Copy(reflectParams, ri.localReflectAPIs[fun])
 	}
 
 	// fmt.Printf("f: %v\n", f)
@@ -319,8 +330,20 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 				/* fmt.Printf("callName: %v\n", callName) */
 
+				if funcName != "" && ((inst.Call.StaticCallee() != nil && inst.Call.StaticCallee().Object() != nil) || inst.Call.Method != nil) {
+					ri.recordForwardedCall(fun, funcName, callName, inst.Call.Args, inst.Call.Signature())
+				}
 				// record each call argument passed to a function parameter which is used in reflection
 				knownParams := ri.result.ReflectAPIs[callName]
+				for _, callee := range localCallees(inst.Call.Value) {
+					if params := ri.localReflectAPIs[callee]; len(params) > 0 {
+						knownParams = maps.Clone(knownParams)
+						if knownParams == nil {
+							knownParams = make(map[int]bool)
+						}
+						maps.Copy(knownParams, params)
+					}
+				}
 				// Iterate in a stable order too, like the member loop above.
 				for _, knownParam := range slices.Sorted(maps.Keys(knownParams)) {
 					sig := inst.Call.Signature()
@@ -351,25 +374,15 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 					}
 
 					pos := slices.Index(fun.Params, reflectedParam)
-					if genericFunc {
-						// Generic functions may include synthetic parameters.
-						extra := len(fun.Params) - fun.Signature.Params().Len()
-						if extra > 0 {
-							pos -= extra
-						}
-					}
+					// SSA methods include the receiver and generic functions may
+					// include synthetic leading parameters. Both ReflectAPIs and
+					// saved edges use declared, receiver-excluded parameter indexes.
+					pos -= len(fun.Params) - fun.Signature.Params().Len()
 					if pos < 0 {
 						continue
 					}
 
-					/* fmt.Printf("recorded param: %v func: %v\n", pos, fun) */
-
 					reflectParams[pos] = true
-					if fun.Signature.Recv() != nil && pos > 0 {
-						// Methods may be called with or without the receiver in
-						// Call.Args depending on SSA form. Record both indexes.
-						reflectParams[pos-1] = true
-					}
 					if flagDebug {
 						log.Printf("reflect: %s marks param %d reflected via %s argument %T", fun, pos, callName, arg)
 					}
@@ -380,14 +393,217 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 	if len(reflectParams) > 0 {
 		if funcName == "" {
+			if ri.localReflectAPIs == nil {
+				ri.localReflectAPIs = make(map[*ssa.Function]map[int]bool)
+			}
+			ri.localReflectAPIs[fun] = reflectParams
 			return
 		}
 		ri.result.ReflectAPIs[funcName] = reflectParams
+		if f != nil && fun.Signature.Recv() != nil {
+			ri.recordImplementedInterfaceMethods(f, reflectParams)
+		}
 		if flagDebug {
 			log.Printf("reflect: function %s has reflected params %v", funcName, reflectParams)
 		}
 
 		/* fmt.Printf("curPkgCache.ReflectAPIs: %v\n", curPkgCache.ReflectAPIs) */
+	}
+}
+
+func mergeReflectParams(apis map[string]map[int]bool, name string, params map[int]bool) {
+	if apis[name] == nil {
+		apis[name] = make(map[int]bool)
+	}
+	maps.Copy(apis[name], params)
+}
+
+func packageTypes(pkg *types.Package) iter.Seq[types.Type] {
+	return func(yield func(types.Type) bool) {
+		for _, name := range pkg.Scope().Names() {
+			if obj, ok := pkg.Scope().Lookup(name).(*types.TypeName); ok && !yield(obj.Type()) {
+				return
+			}
+		}
+	}
+}
+
+func interfaceMethods(pkg *types.Package) iter.Seq2[*types.Interface, *types.Func] {
+	return func(yield func(*types.Interface, *types.Func) bool) {
+		for typ := range packageTypes(pkg) {
+			if iface, ok := typ.Underlying().(*types.Interface); ok {
+				for method := range iface.Methods() {
+					if !yield(iface, method) {
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
+// Imported interfaces can dispatch to a reflective method in this package.
+func (ri *reflectInspector) recordImplementedInterfaceMethods(method *types.Func, params map[int]bool) {
+	for _, pkg := range append([]*types.Package{ri.pkg}, ri.pkg.Imports()...) {
+		for iface, im := range interfaceMethods(pkg) {
+			if im.Name() == method.Name() && types.Implements(method.Signature().Recv().Type(), iface) {
+				mergeReflectParams(ri.result.ReflectAPIs, im.FullName(), params)
+			}
+		}
+	}
+}
+
+// A concrete type need not import the interface it implements; only the final
+// build sees both packages and can match their merged reflection summaries.
+func matchReflectedInterfaceMethods(pkg *types.Package, result *pkgCache) {
+	targets := make(map[string]bool)
+	for _, edge := range result.ReflectCallEdges {
+		targets[edge.Callee] = true
+	}
+	if len(targets) == 0 {
+		return
+	}
+	var packages []*types.Package
+	seen := make(map[*types.Package]bool)
+	var visit func(*types.Package)
+	visit = func(p *types.Package) {
+		if seen[p] {
+			return
+		}
+		seen[p] = true
+		packages = append(packages, p)
+		for _, imp := range p.Imports() {
+			visit(imp)
+		}
+	}
+	visit(pkg)
+
+	type interfaceMethod struct {
+		iface  *types.Interface
+		method *types.Func
+	}
+	interfaces := make(map[string][]interfaceMethod)
+	for _, p := range packages {
+		for iface, method := range interfaceMethods(p) {
+			if targets[method.FullName()] {
+				interfaces[method.Name()] = append(interfaces[method.Name()], interfaceMethod{iface, method})
+			}
+		}
+	}
+	if len(interfaces) == 0 {
+		return
+	}
+	for _, p := range packages {
+		for typ := range packageTypes(p) {
+			if _, ok := typ.Underlying().(*types.Interface); ok {
+				continue
+			}
+			receiver := types.NewPointer(typ)
+			for selection := range types.NewMethodSet(receiver).Methods() {
+				method := selection.Obj().(*types.Func)
+				params := result.ReflectAPIs[method.FullName()]
+				if len(params) == 0 {
+					continue
+				}
+				for _, target := range interfaces[method.Name()] {
+					if types.Implements(receiver, target.iface) {
+						mergeReflectParams(result.ReflectAPIs, target.method.FullName(), params)
+					}
+				}
+			}
+		}
+	}
+}
+
+// localCallees resolves direct closures and closures assigned to a local
+// function variable. A recursive closure must be stored in an allocation so
+// it can refer to itself; StaticCallee does not resolve calls through that
+// variable. Collect every possible assignment conservatively.
+func localCallees(value ssa.Value) []*ssa.Function {
+	seen := make(map[ssa.Value]bool)
+	functions := make(map[*ssa.Function]bool)
+	var visit func(ssa.Value)
+	visit = func(v ssa.Value) {
+		if v == nil || seen[v] {
+			return
+		}
+		seen[v] = true
+		switch v := v.(type) {
+		case *ssa.Function:
+			functions[v] = true
+		case *ssa.MakeClosure:
+			visit(v.Fn)
+		case *ssa.UnOp:
+			visit(v.X)
+		case *ssa.Alloc:
+			if refs := v.Referrers(); refs != nil {
+				for _, ref := range *refs {
+					if store, ok := ref.(*ssa.Store); ok && store.Addr == v {
+						visit(store.Val)
+					}
+				}
+			}
+		case *ssa.Phi:
+			for _, edge := range v.Edges {
+				visit(edge)
+			}
+		case *ssa.ChangeType:
+			visit(v.X)
+		}
+	}
+	visit(value)
+	result := slices.Collect(maps.Keys(functions))
+	slices.SortFunc(result, func(a, b *ssa.Function) int { return strings.Compare(a.String(), b.String()) })
+	return result
+}
+
+// forwardedParameter follows simple SSA wrappers without marking any type as
+// reflected. This preserves forwarding through packages whose callees only
+// become known to use reflection later in the build.
+func forwardedParameter(v ssa.Value) *ssa.Parameter {
+	switch v := v.(type) {
+	case *ssa.Parameter:
+		return v
+	case *ssa.Slice:
+		return forwardedParameter(v.X)
+	case *ssa.MakeInterface:
+		return forwardedParameter(v.X)
+	case *ssa.ChangeType:
+		return forwardedParameter(v.X)
+	case *ssa.UnOp:
+		return forwardedParameter(v.X)
+	}
+	return nil
+}
+
+func (ri *reflectInspector) recordForwardedCall(fun *ssa.Function, caller, callee string, args []ssa.Value, sig *types.Signature) {
+	if sig == nil || len(args) < sig.Params().Len() {
+		return
+	}
+	first := len(args) - sig.Params().Len()
+	for i := range sig.Params().Len() {
+		param := forwardedParameter(args[first+i])
+		if param == nil {
+			continue
+		}
+		pos := slices.Index(fun.Params, param)
+		// Methods have a receiver in SSA; generic functions may also have
+		// synthetic leading parameters. Edges use declared parameter indexes.
+		pos -= len(fun.Params) - fun.Signature.Params().Len()
+		if pos < 0 {
+			continue
+		}
+		edge := reflectCallEdge{Caller: caller, CallerParam: pos, Callee: callee, CalleeParam: i}
+		if ri.seenEdges == nil {
+			ri.seenEdges = make(map[reflectCallEdge]bool)
+			for _, existing := range ri.result.ReflectCallEdges {
+				ri.seenEdges[existing] = true
+			}
+		}
+		if !ri.seenEdges[edge] {
+			ri.seenEdges[edge] = true
+			ri.result.ReflectCallEdges = append(ri.result.ReflectCallEdges, edge)
+		}
 	}
 }
 
@@ -426,6 +642,18 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		return ri.recordArgReflected(val.X, visited)
 	case *ssa.Slice:
 		return ri.recordArgReflected(val.X, visited)
+	case *ssa.Call:
+		// A returned slice can contain the input models after reordering.
+		// Only follow same-typed arguments rather than tainting every input.
+		if _, ok := val.Type().(*types.Slice); ok {
+			for _, arg := range val.Call.Args {
+				if types.Identical(arg.Type(), val.Type()) {
+					if param := ri.recordArgReflected(arg, visited); param != nil {
+						return param
+					}
+				}
+			}
+		}
 	case *ssa.MakeInterface:
 		return ri.recordArgReflected(val.X, visited)
 	case *ssa.UnOp:
