@@ -35,6 +35,7 @@ type proxyValue struct {
 	name     string
 	typ, val ast.Expr
 	path     *ast.SelectorExpr
+	clones   []*ast.SelectorExpr
 }
 
 type proxyStruct struct {
@@ -58,7 +59,8 @@ type proxyDispatcher struct {
 	rand     *mathrand.Rand
 	nameFunc NameProviderFunc
 
-	roots []*proxyRoot
+	roots        []*proxyRoot
+	pendingPaths map[*ast.SelectorExpr]*proxyValue
 
 	// Keep the conversion helper within the same retention boundary as its decoders.
 	stringAdapter     ast.Expr
@@ -111,6 +113,10 @@ func (d *proxyDispatcher) initialize(proxyRoot *proxyRoot, index int) {
 		// Preserve that site throughout the path so comments stay in place.
 		withPos(path.X, value.path.Sel.Pos())
 		value.path.X = path.X
+		for _, clone := range value.clones {
+			clone.X = cloneProxyPath(path.X)
+			withPos(clone.X, clone.Sel.Pos())
+		}
 	}
 	proxyRoot.pending = nil
 }
@@ -164,14 +170,32 @@ func (d *proxyDispatcher) HideValue(val, typ ast.Expr) ast.Expr {
 	// Callers embed this selector before occupancy is known. Keep its identity
 	// and field position when the final randomized path is attached.
 	path := &ast.SelectorExpr{X: ast.NewIdent("pendingProxy"), Sel: ast.NewIdent(valueName)}
-	root.pending = append(root.pending, &proxyValue{
+	value := &proxyValue{
 		name: valueName,
 		typ:  typ,
 		val:  val,
 		path: path,
-	})
+	}
+	root.pending = append(root.pending, value)
+	if d.pendingPaths == nil {
+		d.pendingPaths = make(map[*ast.SelectorExpr]*proxyValue)
+	}
+	d.pendingPaths[path] = value
 	root.hiddenCount++
 	return path
+}
+
+// Cloned placeholders must receive the final path at their own source site.
+func (d *proxyDispatcher) clonePath(expr ast.Expr) ast.Expr {
+	clone := cloneProxyPath(expr)
+	if selector, ok := expr.(*ast.SelectorExpr); ok {
+		if value := d.pendingPaths[selector]; value != nil {
+			path := clone.(*ast.SelectorExpr)
+			value.clones = append(value.clones, path)
+			d.pendingPaths[path] = value
+		}
+	}
+	return clone
 }
 
 func (d *proxyDispatcher) generateStructLiteral(s *proxyStruct) ast.Expr {

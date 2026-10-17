@@ -43,8 +43,8 @@ func main() {
 
 func TestObfuscateDeadFunctionDecoders(t *testing.T) {
 	const source = `package main
-func main() { println("live literal secret") }
-func dead() string { return func() string { return "dead literal secret" }() }
+func main() { println("live literal secret"); _ = "live literal secret" }
+func dead() string { return func() string { return "live literal secret" }() }
 `
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "owner.go", source, parser.SkipObjectResolution)
