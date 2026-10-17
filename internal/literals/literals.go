@@ -432,51 +432,41 @@ func obfuscateString(or *obfRand, data string) *ast.CallExpr {
 	block := obf.obfuscate(or.rnd, names, plainDataWithJunkBytes, extKeys)
 	params, args := extKeysToParams(or, extKeys)
 
-	// Generate unique cast bytes to string function and hide it using proxyDispatcher:
-	//
-	// func(x []byte) string {
-	//		return string(x[<splitIdx>:<splitIdx+len(plainData)>])
-	//	}
-	funcTyp := &ast.FuncType{
-		Params: &ast.FieldList{List: []*ast.Field{{
-			Type: ah.ByteSliceType(),
-		}}},
-		Results: &ast.FieldList{List: []*ast.Field{{
-			Type: ast.NewIdent("string"),
-		}}},
-	}
-	funcVal := &ast.FuncLit{
-		Type: &ast.FuncType{
-			Params: &ast.FieldList{List: []*ast.Field{{
-				Names: []*ast.Ident{names.ident("x")},
-				Type:  ah.ByteSliceType(),
-			}}},
-			Results: &ast.FieldList{List: []*ast.Field{{
-				Type: ast.NewIdent("string"),
-			}}},
-		},
-		Body: ah.BlockStmt(
-			ah.ReturnStmt(
-				ah.CallExprByName("string",
-					&ast.SliceExpr{
-						X:    names.ident("x"),
-						Low:  ah.IntLit(splitIdx),
-						High: ah.IntLit(splitIdx + len(plainData)),
-					},
-				),
-			),
-		),
-	}
-	castFunc := or.liftFuncValue(funcVal)
-	hiddenCastFunc := or.proxyDispatcher.HideValue(castFunc, funcTyp)
+	hiddenCastFunc, funcTyp := or.stringConversionAdapter()
 	castParamName := names.name("garbleStringCaster")
 	params.List = append(params.List, &ast.Field{
 		Names: []*ast.Ident{ast.NewIdent(castParamName)},
 		Type:  cloneGeneratedType(funcTyp),
 	})
 	args = append(args, hiddenCastFunc)
-	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent(castParamName), names.ident("data"))))
+	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent(castParamName), names.ident("data"), ah.IntLit(splitIdx), ah.IntLit(splitIdx+len(plainData)))))
 	return or.liftCall(params, ast.NewIdent("string"), block, args)
+}
+
+// stringConversionAdapter shares only within the current owner's dispatcher.
+// Bounds stay in each decoder, so junk and different literal lengths do not
+// require separate conversion functions.
+func (r *obfRand) stringConversionAdapter() (ast.Expr, *ast.FuncType) {
+	d := r.proxyDispatcher
+	if d.stringAdapter == nil {
+		names := newGeneratedNames(r)
+		funcVal := &ast.FuncLit{
+			Type: &ast.FuncType{
+				Params: &ast.FieldList{List: []*ast.Field{
+					ah.Field(ah.ByteSliceType(), names.ident("x")),
+					ah.Field(ast.NewIdent("int"), names.ident("low")),
+					ah.Field(ast.NewIdent("int"), names.ident("high")),
+				}},
+				Results: &ast.FieldList{List: []*ast.Field{{Type: ast.NewIdent("string")}}},
+			},
+			Body: ah.BlockStmt(ah.ReturnStmt(ah.CallExprByName("string", &ast.SliceExpr{
+				X: names.ident("x"), Low: names.ident("low"), High: names.ident("high"),
+			}))),
+		}
+		d.stringAdapterType = cloneGeneratedType(funcVal.Type).(*ast.FuncType)
+		d.stringAdapter = d.HideValue(r.liftFuncValue(funcVal), d.stringAdapterType)
+	}
+	return cloneProxyPath(d.stringAdapter), d.stringAdapterType
 }
 
 func obfuscateByteSlice(or *obfRand, isPointer bool, data []byte) *ast.CallExpr {
