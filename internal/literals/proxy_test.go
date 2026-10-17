@@ -88,6 +88,47 @@ func TestProxyHiddenValueIdentity(t *testing.T) {
 	}
 }
 
+func TestProxyClonedPlaceholderPaths(t *testing.T) {
+	d := occupancyDispatcher(7)
+	original := d.HideValue(&ast.BasicLit{Kind: token.INT, Value: "42"}, ast.NewIdent("int"))
+	first := d.clonePath(original)
+	second := d.clonePath(first)
+	paths := []ast.Expr{original, first, second}
+	file := &ast.File{Name: ast.NewIdent("p")}
+	for i, path := range paths {
+		withPos(path, token.Pos(10+i))
+		file.Decls = append(file.Decls, &ast.GenDecl{Tok: token.VAR, Specs: []ast.Spec{&ast.ValueSpec{
+			Names: []*ast.Ident{ast.NewIdent(fmt.Sprintf("result%d", i))}, Values: []ast.Expr{path},
+		}}})
+	}
+	d.AddToFile(file)
+	seen := make(map[ast.Node]bool)
+	var expected string
+	for i, path := range paths {
+		var printed strings.Builder
+		if err := printer.Fprint(&printed, token.NewFileSet(), path); err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			expected = printed.String()
+		} else if printed.String() != expected {
+			t.Fatalf("clone path %s differs from %s", &printed, expected)
+		}
+		for node := range ast.Preorder(path) {
+			if seen[node] {
+				t.Fatal("clones share mutable AST nodes")
+			}
+			seen[node] = true
+			if ident, ok := node.(*ast.Ident); ok && ident.Pos() != token.Pos(10+i) {
+				t.Fatalf("path identifier %s lost its clone's position", ident.Name)
+			}
+		}
+	}
+	if _, err := new(types.Config).Check("p", token.NewFileSet(), []*ast.File{file}, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProxyPrintedDirective(t *testing.T) {
 	const source = `package p
 
