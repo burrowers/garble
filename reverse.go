@@ -22,7 +22,7 @@ func commandReverse(args []string) error {
 	flags, args := splitFlagsFromArgs(args)
 	if hasHelpFlag(flags) || len(args) == 0 {
 		fmt.Fprint(os.Stderr, `
-usage: garble [garble flags] reverse [build flags] package [files]
+usage: garble [garble flags] reverse [build flags] [-test] package [files]
 
 For example, after building an obfuscated program as follows:
 
@@ -31,6 +31,10 @@ For example, after building an obfuscated program as follows:
 One can reverse a captured panic stack trace as follows:
 
 	garble -literals reverse -tags=mytag ./cmd/mycmd panic-output.txt
+
+Use -test to reverse frames from a binary built with "garble test":
+
+	garble reverse -test ./pkg test-output.txt
 `[1:])
 		return errJustExit(2)
 	}
@@ -88,6 +92,10 @@ One can reverse a captured panic stack trace as follows:
 					} else {
 						originalFile = pos.Filename
 					}
+				}
+				if base, _, variant := strings.Cut(lpkg.ImportPath, " ["); variant && strings.HasPrefix(originalFile, lpkg.ImportPath+"/") {
+					// Test variants prefix compiled filenames with " [pkg.test]".
+					originalFile = base + strings.TrimPrefix(originalFile, lpkg.ImportPath)
 				}
 				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
 				newFilename := hashWithPackage(lpkg, origPos) + ".go"
@@ -147,7 +155,16 @@ One can reverse a captured panic stack trace as follows:
 		}
 		// Add the package path after any full-path replacements for logical
 		// absolute filenames, so the latter take precedence.
-		addHashedWithPackage(lpkg.ImportPath)
+		if base, _, variant := strings.Cut(lpkg.ImportPath, " ["); variant {
+			// Only an external test package has a synthetic "_test" path;
+			// an ordinary package may itself end in "_test".
+			if base == lpkg.ForTest+"_test" {
+				base = lpkg.ForTest
+			}
+			replaces = append(replaces, hashWithPackage(lpkg, lpkg.ImportPath), base)
+		} else {
+			addHashedWithPackage(lpkg.ImportPath)
+		}
 	}
 	repl := strings.NewReplacer(replaces...)
 

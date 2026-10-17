@@ -71,6 +71,7 @@ var forwardBuildFlags = map[string]bool{
 	"-pkgdir":        true,
 	"-race":          true,
 	"-tags":          true,
+	"-test":          true, // go list -test loads test variants for reverse.
 	"-work":          true,
 	"-workfile":      true,
 }
@@ -101,6 +102,7 @@ var booleanFlags = map[string]bool{
 	"-fullpath":  true,
 	"-json":      true,
 	"-short":     true,
+	"-test":      true,
 
 	"-test.artifacts": true,
 	"-test.benchmem":  true,
