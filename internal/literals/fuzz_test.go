@@ -186,8 +186,15 @@ func FuzzObfuscate(f *testing.F) {
 		}
 		t.Cleanup(func() { os.Remove(binPath) })
 
-		// Run the binary, expecting the output to match.
-		out, err := exec.Command(binPath).CombinedOutput()
+		// Runtime println does not retry short writes to pipes after signals.
+		outFile, err := os.CreateTemp(t.TempDir(), "output")
+		qt.Assert(t, qt.IsNil(err))
+		t.Cleanup(func() { outFile.Close() })
+		cmd := exec.Command(binPath)
+		cmd.Stdout, cmd.Stderr = outFile, outFile
+		qt.Assert(t, qt.IsNil(cmd.Run()))
+		qt.Assert(t, qt.IsNil(outFile.Close()))
+		out, err := os.ReadFile(outFile.Name())
 		qt.Assert(t, qt.IsNil(err))
 		want := fmt.Sprintf("%[1]s\nx%[1]sy\n--\n%[1]s\n%[1]s\n%[2]d %[2]d\n%[2]d %[2]d\n", in, len(in))
 		qt.Assert(t, qt.Equals(string(out), want))
