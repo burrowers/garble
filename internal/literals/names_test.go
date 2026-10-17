@@ -56,8 +56,8 @@ var global = "global literal secret"
 var callback = func() string { return "global callback secret" }
 var initialized = first()
 type receiver struct{}
-func first() string { return "first literal secret" }
-func second() string { return func() string { return "nested literal secret" }() }
+func first() string { return "first literal secret" + string([]byte("another first secret")) }
+func second() string { return "second literal secret" + func() string { return "nested literal secret" }() }
 func (receiver) method() string { return "method literal secret" }
 func generic[T any](v T) string { return "generic literal secret" }
 func init() { global += "init literal secret" }
@@ -136,6 +136,15 @@ func init() { global += "init literal secret" }
 					})
 				}
 				visit(fn.Body)
+				helpers := 0
+				for name := range seen {
+					if strings.HasPrefix(name, "literalHelper") {
+						helpers++
+					}
+				}
+				if helpers != 1 {
+					t.Errorf("owner %s reaches %d string adapters, want 1", owner, helpers)
+				}
 				if len(seen) == 0 {
 					t.Errorf("owner %s has no hidden decoder", owner)
 				}

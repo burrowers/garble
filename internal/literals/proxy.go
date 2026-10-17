@@ -59,6 +59,10 @@ type proxyDispatcher struct {
 	nameFunc NameProviderFunc
 
 	roots []*proxyRoot
+
+	// Keep the conversion helper within the same retention boundary as its decoders.
+	stringAdapter     ast.Expr
+	stringAdapterType *ast.FuncType
 }
 
 func (d *proxyDispatcher) initialize(proxyRoot *proxyRoot, index int) {
@@ -131,6 +135,18 @@ func buildPath(strct *proxyStruct, valueName string) ast.Expr {
 	return &ast.SelectorExpr{
 		X:   expr,
 		Sel: ast.NewIdent(valueName),
+	}
+}
+
+// cloneProxyPath keeps cached paths independent when callers assign positions.
+func cloneProxyPath(expr ast.Expr) ast.Expr {
+	switch expr := expr.(type) {
+	case *ast.Ident:
+		return ast.NewIdent(expr.Name)
+	case *ast.SelectorExpr:
+		return &ast.SelectorExpr{X: cloneProxyPath(expr.X), Sel: ast.NewIdent(expr.Sel.Name)}
+	default:
+		panic("unexpected proxy path")
 	}
 }
 
