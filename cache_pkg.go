@@ -236,7 +236,11 @@ func loadListedPkgCache(fsCache *cache.Cache, lpkg *listedPackage) (pkgCache, er
 	// Missing or corrupted entry in the cache.
 	// Could happen if GARBLE_CACHE was emptied but GOCACHE was not.
 	// Compute it, which can recurse if many entries are missing.
-	files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles, true)
+	paths := lpkg.CompiledGoFiles
+	if len(paths) == 0 && lpkg.Name == "main" && lpkg.ForTest == "" && strings.HasSuffix(lpkg.ImportPath, ".test") {
+		paths = lpkg.GoFiles
+	}
+	files, err := parseFiles(lpkg, lpkg.Dir, paths, true)
 	if err != nil {
 		return pkgCache{}, err
 	}

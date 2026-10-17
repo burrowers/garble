@@ -268,6 +268,7 @@ type listedPackage struct {
 	Standard   bool
 
 	Dir             string
+	GoFiles         []string // includes generated test mains omitted from CompiledGoFiles
 	CompiledGoFiles []string // all .go files to build
 	SFiles          []string // all .s (asm) files to build
 	Imports         []string
