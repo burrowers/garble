@@ -27,6 +27,16 @@ cmp stdout reverse.stdout
 # Note that we rely on the unix-like TMPDIR env var name.
 [!windows] ! grepfiles ${TMPDIR} 'garble|importcfg|cache\.gob|\.go'
 
+# Test-only sources are compiled into test variants, not the ordinary package.
+go test -c -trimpath -o plain-test$exe .
+exec ./plain-test$exe -test.run=TestReverse -test.v
+cp stdout test.expected
+exec garble test -c -o obfuscated-test$exe .
+exec ./obfuscated-test$exe -test.run=TestReverse -test.v
+stdin stdout
+exec garble reverse -test .
+cmp stdout test.expected
+
 [short] stop # no need to verify this with -short
 
 # Ensure that the reversed output matches the non-garbled output.
@@ -72,6 +82,32 @@ stdout main\.CallerFuncName
 module test/main
 
 go 1.23
+-- reverse_test.go --
+package main
+
+import (
+	"fmt"
+	"runtime"
+	"testing"
+)
+
+func TestReverseTestFile(t *testing.T) {
+	_, file, line, ok := runtime.Caller(0)
+	fmt.Printf("test frame: %s:%d:%t\n", file, line, ok)
+}
+-- reverse_external_test.go --
+package main_test
+
+import (
+	"fmt"
+	"runtime"
+	"testing"
+)
+
+func TestReverseExternalFile(t *testing.T) {
+	_, file, line, ok := runtime.Caller(0)
+	fmt.Printf("external test frame: %s:%d:%t\n", file, line, ok)
+}
 -- long_main.go --
 package main
 

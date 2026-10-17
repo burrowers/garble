@@ -47,12 +47,12 @@ stderr 'usage: go install'
 ! stdout .
 
 ! exec garble reverse -h
-stderr 'garble \[garble flags\] reverse \[build flags\] package \[files\]'
+stderr 'garble \[garble flags\] reverse \[build flags\] \[-test\] package \[files\]'
 ! stderr 'usage: go '
 ! stdout .
 
 ! exec garble help reverse
-stderr 'garble \[garble flags\] reverse \[build flags\] package \[files\]'
+stderr 'garble \[garble flags\] reverse \[build flags\] \[-test\] package \[files\]'
 ! stderr 'usage: go '
 ! stdout .
 
