@@ -110,6 +110,7 @@ const padding512 = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
 const padding2048 = padding512 + padding512 + padding512 + padding512
 
 func main() {
+	checkRepeatedLiterals()
 	checkLiteralOwners()
 	if len(namedPayload) != cap(namedPayload) || namedPayload[0] != 'a' || namedPayload[len(namedPayload)-1] != 0xff {
 		panic("named byte slice literal changed")
@@ -176,6 +177,28 @@ type stringType string
 type stringTypeStruct struct {
 	str     string
 	strType stringType
+}
+
+func checkRepeatedLiterals() {
+	const text = "é界Ω repeated secret\x00\xff"
+	s := text
+	if func() string { return text }() != s || s[0] != 0xc3 || s[len(s)-1] != 0xff {
+		panic("repeated string changed")
+	}
+	a := []byte(text)
+	b := namedByteSlice(text)
+	c := []byte(text)
+	a[0] = 0
+	b[1] = 0
+	if c[0] != 0xc3 || c[1] != 0xa9 || c[len(c)-1] != 0xff || len(a) != cap(a) || len(b) != cap(b) || len(c) != cap(c) {
+		panic("repeated byte conversion changed or aliased")
+	}
+	r := []rune(text)
+	n := namedRuneSlice(text)
+	r[0] = 0
+	if n[0] != 'é' || n[len(n)-1] != '\ufffd' || len(r) != cap(r) || len(n) != cap(n) {
+		panic("repeated rune conversion changed or aliased")
+	}
 }
 
 // typedTest types defined from string broke previously
