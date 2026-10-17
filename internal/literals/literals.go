@@ -67,6 +67,9 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 					}
 				}
 			}
+			// Cache decoder recipes only within an original function, including
+			// its nested closures, never across package initializer scopes.
+			or.stringCalls = make(map[string]*ast.CallExpr)
 			owner := len(dispatchers)
 			or.proxyDispatcher = newProxyDispatcher(rand, func(rand *mathrand.Rand, base string) string {
 				return nameFunc(rand, fmt.Sprintf("literalOwner%d_%s", owner, base))
@@ -186,6 +189,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	post := func(cursor *astutil.Cursor) bool {
 		if _, ok := cursor.Node().(*ast.FuncDecl); ok {
 			or.proxyDispatcher = packageDispatcher
+			or.stringCalls = nil
 		}
 		// Here we handle the plain []byte{...} or [4]byte{...} value form.
 		// The pointer form was already replaced on the way down; a literal
@@ -415,6 +419,9 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 }
 
 func obfuscateString(or *obfRand, data string) *ast.CallExpr {
+	if call := or.stringCalls[data]; call != nil {
+		return cloneStringCall(call).(*ast.CallExpr)
+	}
 	obf := or.pickObfuscator(len(data))
 
 	// Generate junk bytes to to prepend and append to the data.
@@ -476,7 +483,33 @@ func obfuscateString(or *obfRand, data string) *ast.CallExpr {
 	})
 	args = append(args, hiddenCastFunc)
 	block.List = append(block.List, ah.ReturnStmt(ah.CallExpr(ast.NewIdent(castParamName), names.ident("data"))))
-	return or.liftCall(params, ast.NewIdent("string"), block, args)
+	call := or.liftCall(params, ast.NewIdent("string"), block, args)
+	if or.stringCalls != nil {
+		or.stringCalls[data] = call
+		return cloneStringCall(call).(*ast.CallExpr)
+	}
+	return call
+}
+
+// Each use needs independent positions; only the hidden values and decoder are
+// shared, not mutable AST nodes or the result of running the decoder.
+func cloneStringCall(expr ast.Expr) ast.Expr {
+	switch expr := expr.(type) {
+	case *ast.CallExpr:
+		args := make([]ast.Expr, len(expr.Args))
+		for i, arg := range expr.Args {
+			args[i] = cloneStringCall(arg)
+		}
+		return &ast.CallExpr{Fun: cloneStringCall(expr.Fun), Args: args}
+	case *ast.SelectorExpr:
+		return &ast.SelectorExpr{X: cloneStringCall(expr.X), Sel: ast.NewIdent(expr.Sel.Name)}
+	case *ast.Ident:
+		return ast.NewIdent(expr.Name)
+	case *ast.BasicLit:
+		return &ast.BasicLit{Kind: expr.Kind, Value: expr.Value}
+	default:
+		panic(fmt.Sprintf("unsupported string decoder expression %T", expr))
+	}
 }
 
 func obfuscateByteSlice(or *obfRand, isPointer bool, data []byte) *ast.CallExpr {
