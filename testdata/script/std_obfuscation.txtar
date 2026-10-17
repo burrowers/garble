@@ -1,7 +1,10 @@
 # Link a binary importing std packages, including vendored copies.
-exec garble build -o=main$exe ./std_importer
+# This seed renames runtime.GC to runtime.NowI8m, which contains time.Now.
+exec garble -seed=FX4AAAAAAAA build -o=main$exe ./std_importer
 ! stderr . # no warnings
-! binsubstr main$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
+grep '\x00runtime\.NowI8m\x00' main$exe
+# Function names are NUL-delimited; do not match part of a runtime hash.
+! grep '\x00(http\.ListenAndServe|debug\.WriteHeapDump|time\.Now|syscall\.Listen)\x00' main$exe
 
 [short] stop # rebuilding std is slow
 
@@ -23,7 +26,10 @@ cmp stdout std_importer.stdout
 
 # The same low-level std packages appear in plain sight in regular builds.
 go build -o=main_regular$exe ./std_importer
-binsubstr main_regular$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
+grep '\x00http\.ListenAndServe\x00' main_regular$exe
+grep '\x00debug\.WriteHeapDump\x00' main_regular$exe
+grep '\x00time\.Now\x00' main_regular$exe
+grep '\x00syscall\.Listen\x00' main_regular$exe
 
 # Also check that a full rebuild is reproducible, via a new GOCACHE.
 # This is slow, but necessary to uncover bugs hidden by the build cache.
@@ -64,6 +70,7 @@ func main() {
 	if len(os.Args) > 5 {
 		http.ListenAndServe("", nil)
 		debug.WriteHeapDump(1)
+		runtime.GC()
 		time.Now()
 		syscall.Listen(0, 1)
 		testing.MainStart(nil, nil, nil, nil, nil)
