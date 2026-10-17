@@ -505,6 +505,19 @@ var builtinSymbols = map[string][]string{
 		"makeslice64",                          // go1.27
 		"makeslicecopy",                        // go1.27
 		"mallocgc",                             // go1.27
+		"mallocgcSmallNoScanSC2",               // go1.27
+		"mallocgcSmallNoScanSC3",               // go1.27
+		"mallocgcSmallNoScanSC4",               // go1.27
+		"mallocgcSmallNoScanSC5",               // go1.27
+		"mallocgcSmallNoScanSC6",               // go1.27
+		"mallocgcSmallNoScanSC7",               // go1.27
+		"mallocgcSmallScanNoHeaderSC1",         // go1.27
+		"mallocgcSmallScanNoHeaderSC2",         // go1.27
+		"mallocgcSmallScanNoHeaderSC3",         // go1.27
+		"mallocgcSmallScanNoHeaderSC4",         // go1.27
+		"mallocgcSmallScanNoHeaderSC5",         // go1.27
+		"mallocgcSmallScanNoHeaderSC6",         // go1.27
+		"mallocgcSmallScanNoHeaderSC7",         // go1.27
 		"mallocgcTinySC2",                      // go1.27
 		"mapIterNext",                          // go1.27
 		"mapIterStart",                         // go1.27

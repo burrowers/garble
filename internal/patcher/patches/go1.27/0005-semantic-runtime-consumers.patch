@@ -1,0 +1,104 @@
+diff --git a/cmd/compile/internal/ir/abi.go b/cmd/compile/internal/ir/abi.go
+index ebe0fbfb2a..c8c6363960 100644
+--- a/cmd/compile/internal/ir/abi.go
++++ b/cmd/compile/internal/ir/abi.go
+@@ -7,6 +7,7 @@ package ir
+ import (
+ 	"cmd/compile/internal/base"
+ 	"cmd/internal/obj"
++	"cmd/internal/objabi"
+ )
+ 
+ // InitLSym defines f's obj.LSym and initializes it based on the
+@@ -64,15 +65,17 @@ func setupTextLSym(f *Func, flag int) {
+ 	// runtime.reflectcall is an assembly function which tailcalls
+ 	// WRAPPER functions (runtime.callNN). Its ABI wrapper needs WRAPPER
+ 	// flag as well.
+-	fnname := f.Sym().Name
+-	if base.Ctxt.Pkgpath == "runtime" && fnname == "reflectcall" {
++	if isReflectCallWrapper(base.Ctxt.Pkgpath, f.Sym().Name) {
+ 		flag |= obj.WRAPPER
+-	} else if base.Ctxt.Pkgpath == "reflect" {
+-		switch fnname {
+-		case "callReflect", "callMethod":
+-			flag |= obj.WRAPPER
+-		}
+ 	}
+ 
+ 	base.Ctxt.InitTextSym(f.LSym, flag, f.Pos())
+ }
++
++func isReflectCallWrapper(pkgPath, fnname string) bool {
++	switch objabi.OriginalFuncName(pkgPath + "." + fnname) {
++	case "runtime.reflectcall", "reflect.callReflect", "reflect.callMethod":
++		return true
++	}
++	return false
++}
+diff --git a/cmd/compile/internal/ssa/pair.go b/cmd/compile/internal/ssa/pair.go
+index be524dc0a6..b7f3f7dab0 100644
+--- a/cmd/compile/internal/ssa/pair.go
++++ b/cmd/compile/internal/ssa/pair.go
+@@ -8,6 +8,7 @@ import (
+ 	"cmd/compile/internal/ir"
+ 	"cmd/compile/internal/types"
+ 	"cmd/internal/obj"
++	"cmd/internal/objabi"
+ 	"slices"
+ )
+ 
+@@ -315,7 +316,7 @@ func memoryBarrierTest(b *Block) bool {
+ 		return false
+ 	}
+ 	if globl, ok := c.Aux.(*obj.LSym); ok {
+-		return globl.Name == "runtime.writeBarrier"
++		return objabi.OriginalFuncName(globl.Name) == "runtime.writeBarrier"
+ 	}
+ 	return false
+ }
+diff --git a/cmd/compile/internal/ssa/rewrite.go b/cmd/compile/internal/ssa/rewrite.go
+index ee5cd00876..5016390e31 100644
+--- a/cmd/compile/internal/ssa/rewrite.go
++++ b/cmd/compile/internal/ssa/rewrite.go
+@@ -472,7 +472,7 @@ func isMalloc(aux Aux) bool {
+ 
+ func isNewObject(aux Aux) bool {
+ 	fn := aux.(*AuxCall).Fn
+-	return fn != nil && fn.String() == "runtime.newobject"
++	return fn != nil && objabi.OriginalFuncName(fn.String()) == "runtime.newobject"
+ }
+ 
+ func isSpecializedMalloc(aux Aux) bool {
+@@ -480,7 +480,7 @@ func isSpecializedMalloc(aux Aux) bool {
+ 	if fn == nil {
+ 		return false
+ 	}
+-	name := fn.String()
++	name := objabi.OriginalFuncName(fn.String())
+ 	return strings.HasPrefix(name, "runtime.mallocgcSmallNoScanSC") ||
+ 		strings.HasPrefix(name, "runtime.mallocgcSmallScanNoHeaderSC") ||
+ 		strings.HasPrefix(name, "runtime.mallocgcTinySC")
+diff --git a/cmd/internal/obj/plist.go b/cmd/internal/obj/plist.go
+index f0fe68eb43..2610c91eca 100644
+--- a/cmd/internal/obj/plist.go
++++ b/cmd/internal/obj/plist.go
+@@ -17,6 +17,10 @@ type Plist struct {
+ 	Curfn   Func
+ }
+ 
++func isAddModuleData(s *LSym) bool {
++	return objabi.OriginalFuncName(s.Name) == "runtime.addmoduledata"
++}
++
+ // ProgAlloc is a function that allocates Progs.
+ // It is used to provide access to cached/bulk-allocated Progs to the assemblers.
+ type ProgAlloc func() *Prog
+@@ -119,7 +123,7 @@ func Flushplist(ctxt *Link, plist *Plist, newprog ProgAlloc) {
+ 			//
+ 			// TODO(cherryyz): Fix cmd/link's handling of plugins (see
+ 			// discussion on CL 523355).
+-			if s.Name == "runtime.addmoduledata" {
++			if isAddModuleData(s) {
+ 				continue
+ 			}
+ 			foundArgMap, foundArgInfo := false, false

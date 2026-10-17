@@ -438,37 +438,34 @@ func buildRuntimePkgPathMap() string {
 // compiler and linker so they can recognize obfuscated symbols.
 // Format: "obfuscatedPkg.obfuscatedFunc=originalPkg.originalFunc,..."
 func buildSymbolMap() string {
-	var mappings []string
-	pkgPaths := slices.Sorted(maps.Keys(compilerIntrinsics))
-	for _, pkgPath := range pkgPaths {
-		lpkg, _ := sharedCache.ListedPackages.get(pkgPath)
-		if lpkg == nil || !lpkg.toObfuscate() {
-			continue
+	// Intrinsics and builtin symbols can overlap. Use one naming rule and
+	// one entry per original symbol so neither producer can disagree.
+	pkgSymbols := make(map[string]map[string]bool)
+	for pkgPath, symbols := range compilerIntrinsics {
+		pkgSymbols[pkgPath] = maps.Clone(symbols)
+	}
+	for pkgPath, symbols := range builtinSymbols {
+		if pkgSymbols[pkgPath] == nil {
+			pkgSymbols[pkgPath] = make(map[string]bool)
 		}
-		obfuscatedPath := lpkg.obfuscatedImportPath()
-		symbols := slices.Sorted(maps.Keys(compilerIntrinsics[pkgPath]))
 		for _, symbol := range symbols {
-			if obfuscatedPath != pkgPath {
-				mappings = append(mappings, obfuscatedPath+"."+symbol+"="+pkgPath+"."+symbol)
-			}
+			pkgSymbols[pkgPath][symbol] = true
 		}
 	}
-
-	pkgPaths = slices.Sorted(maps.Keys(builtinSymbols))
-	for _, pkgPath := range pkgPaths {
+	var mappings []string
+	for _, pkgPath := range slices.Sorted(maps.Keys(pkgSymbols)) {
 		lpkg, _ := sharedCache.ListedPackages.get(pkgPath)
 		if lpkg == nil || !lpkg.toObfuscate() {
 			continue
 		}
 		obfuscatedPath := lpkg.obfuscatedImportPath()
-		for _, symbol := range builtinSymbols[pkgPath] {
+		for _, symbol := range slices.Sorted(maps.Keys(pkgSymbols[pkgPath])) {
 			obfuscatedSymbol := obfuscatedPackageObjectName(lpkg, symbol)
 			if obfuscatedPath != pkgPath || obfuscatedSymbol != symbol {
 				mappings = append(mappings, obfuscatedPath+"."+obfuscatedSymbol+"="+pkgPath+"."+symbol)
 			}
 		}
 	}
-	slices.Sort(mappings)
 	return strings.Join(mappings, ",")
 }
 

@@ -45,6 +45,9 @@ const (
 var compilerOverlayFiles = []string{
 	"cmd/compile/internal/ssagen/intrinsics.go",
 	"cmd/compile/internal/ssa/rewrite.go",
+	"cmd/compile/internal/ssa/pair.go",
+	"cmd/compile/internal/ir/abi.go",
+	"cmd/internal/obj/plist.go",
 	"cmd/compile/internal/types/pkg.go",
 	"cmd/compile/internal/types/size.go",
 	"cmd/compile/internal/types/type.go",
@@ -90,6 +93,7 @@ var linkerOverlayFiles = []string{
 	"cmd/link/internal/riscv64/asm.go",
 	"cmd/link/internal/wasm/asm.go",
 	"cmd/internal/goobj/builtin.go",
+	"cmd/internal/obj/plist.go",
 	"cmd/internal/objabi/garble.go",
 	"cmd/internal/objabi/funcid.go",
 	"cmd/internal/objabi/pkgspecial.go",
