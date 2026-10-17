@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -147,6 +148,7 @@ func TestScript(t *testing.T) {
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
 			"sleep":             sleep,
 			"binsubstr":         binsubstr,
+			"tinyfiletab":       tinyfiletab,
 			"bincmp":            bincmp,
 			"generate-literals": generateLiterals,
 			"setenvfile":        setenvfile,
@@ -183,6 +185,46 @@ func sleep(ts *testscript.TestScript, neg bool, args []string) {
 		ts.Fatalf("%v", err)
 	}
 	time.Sleep(d)
+}
+
+func tinyfiletab(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 1 {
+		ts.Fatalf("usage: tinyfiletab file")
+	}
+	data := []byte(ts.ReadFile(args[0]))
+	for _, order := range []binary.ByteOrder{binary.LittleEndian, binary.BigEndian} {
+		// Garble randomizes the magic, so identify the header by its layout.
+		for start := 0; start+72 <= len(data); start++ {
+			p := data[start:]
+			if p[4] != 0 || p[5] != 0 || (p[6] != 1 && p[6] != 2 && p[6] != 4) || (p[7] != 4 && p[7] != 8) {
+				continue
+			}
+			ptrSize := int(p[7])
+			if len(p) < 8+8*ptrSize {
+				continue
+			}
+			word := func(index int) uint64 {
+				b := p[8+index*ptrSize:]
+				if ptrSize == 4 {
+					return uint64(order.Uint32(b))
+				}
+				return order.Uint64(b)
+			}
+			nfiles, cutab, filetab := word(1), word(4), word(5)
+			if word(0) == 0 || word(2) != 0 || word(3) != uint64(8+8*ptrSize) || cutab < word(3) || filetab < cutab || word(6) < filetab || word(7) < word(6) || word(7) > uint64(len(p)) {
+				continue
+			}
+			if size := filetab - cutab; size > nfiles*4+8 {
+				ts.Fatalf("tiny CU table has %d bytes for %d files, want a dense global table", size, nfiles)
+			}
+			filenames := string(p[filetab:word(6)])
+			if strings.Contains(filenames, ".go") {
+				ts.Fatalf("tiny file table retains repeated token suffixes")
+			}
+			return
+		}
+	}
+	ts.Fatalf("Go PC header not found")
 }
 
 func binsubstr(ts *testscript.TestScript, neg bool, args []string) {

@@ -1,0 +1,249 @@
+From 5f96b4aa024d8950a7addd03d5e45b253fe69412 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Mon, 5 Oct 2026 12:19:35 +0000
+Subject: [PATCH] link: compact tiny panic origin tables
+
+Reversible tiny panic sites need PC-to-file mappings, but retaining the
+original CU tables also retains holes for dead code and copies the same
+physical filename placeholder many times. Use one dense global file table
+and rewrite file PC data to its indices without changing shared symbols.
+
+Omit file PC data with no opaque sites, merge adjacent hidden ranges, and
+deduplicate rewritten tables. Store only each token hash; the tiny panic
+printer restores the common prefix and suffix. Default-mode tables and
+execution metadata remain unchanged.
+
+On the existing tiny fixture with Go 1.27.0 and seed AAAAAAAAAAA, this
+reduces the binary from 2,683,004 to 2,494,588 bytes. The generic-diagnostic
+baseline is 2,211,964 bytes. Panic-origin reversal and stripped public
+source-location APIs pass in the focused non-short fixture.
+
+Refs burrowers/garble#604.
+---
+ cmd/link/internal/ld/pcln.go | 133 +++++++++++++++++++++++++++++++----
+ 1 file changed, 118 insertions(+), 15 deletions(-)
+
+diff --git a/cmd/link/internal/ld/pcln.go b/cmd/link/internal/ld/pcln.go
+index 80f8cff..dbe77a6 100644
+--- a/cmd/link/internal/ld/pcln.go
++++ b/cmd/link/internal/ld/pcln.go
+@@ -6,11 +6,13 @@ package ld
+ 
+ import (
+ 	"cmd/internal/goobj"
++	"cmd/internal/obj"
+ 	"cmd/internal/objabi"
+ 	"cmd/internal/sys"
+ 	"cmd/link/internal/loader"
+ 	"cmd/link/internal/sym"
+ 	"cmp"
++	"encoding/binary"
+ 	"fmt"
+ 	"internal/abi"
+ 	"internal/buildcfg"
+@@ -54,6 +56,9 @@ type pclntab struct {
+ 
+ 	// The number of filenames in runtime.filetab.
+ 	nfiles uint32
++
++	tinyFileIndices map[string]int32
++	tinyPCFile      map[loader.Sym]uint32
+ }
+ 
+ // addGeneratedSym adds a generator symbol to pclntab, returning the new Sym.
+@@ -519,17 +524,10 @@ func walkFilenames(ctxt *Link, funcs []loader.Sym, f func(*sym.CompilationUnit,
+ //  2. Find filename offset:   fileOffset := runtime.cutab[M+K]
+ //  3. Get the filename:       getcstring(runtime.filetab[fileOffset])
+ func (state *pclntab) generateFilenameTabs(ctxt *Link, compUnits []*sym.CompilationUnit, funcs []loader.Sym) []uint32 {
+-	expandFilename := expandFile
+ 	if os.Getenv("GARBLE_LINK_TINY") == "true" {
+-		// Keep only opaque panic-site tokens, never physical source paths.
+-		expandFilename = func(name string) string {
+-			base := name[strings.LastIndexByte(name, '/')+1:]
+-			if strings.HasPrefix(base, "p_") {
+-				return base
+-			}
+-			return "?"
+-		}
++		return state.generateTinyFilenameTabs(ctxt, compUnits, funcs)
+ 	}
++	expandFilename := expandFile
+ 
+ 	// On a per-CU basis, keep track of all the filenames we need.
+ 	//
+@@ -613,6 +611,87 @@ func (state *pclntab) generateFilenameTabs(ctxt *Link, compUnits []*sym.Compilat
+ 	return cuOffsets
+ }
+ 
++// tinyFilename discards physical filenames before assigning global file indices.
++func tinyFilename(name string) string {
++	base := name[strings.LastIndexByte(name, '/')+1:]
++	if strings.HasPrefix(base, "p_") && strings.HasSuffix(base, ".go") {
++		return base[2 : len(base)-3]
++	}
++	return "?"
++}
++
++func (state *pclntab) generateTinyFilenameTabs(ctxt *Link, compUnits []*sym.CompilationUnit, funcs []loader.Sym) []uint32 {
++	state.tinyFileIndices = make(map[string]int32)
++	var files []string
++	var offsets []uint32
++	var size int64
++	walkFilenames(ctxt, funcs, func(cu *sym.CompilationUnit, i goobj.CUFileIndex) {
++		name := tinyFilename(cu.FileTable[i])
++		if _, ok := state.tinyFileIndices[name]; !ok {
++			state.tinyFileIndices[name] = int32(len(files))
++			files = append(files, name)
++			offsets = append(offsets, uint32(size))
++			size += int64(len(name) + 1)
++		}
++	})
++	state.cutab = state.addGeneratedSym(ctxt, "runtime.cutab", int64(len(files)*4), 4, func(ctxt *Link, s loader.Sym) {
++		sb := ctxt.loader.MakeSymbolUpdater(s)
++		for i, offset := range offsets {
++			sb.SetUint32(ctxt.Arch, int64(i*4), offset)
++		}
++	})
++	state.filetab = state.addGeneratedSym(ctxt, "runtime.filetab", size, 1, func(ctxt *Link, s loader.Sym) {
++		sb := ctxt.loader.MakeSymbolUpdater(s)
++		for i, name := range files {
++			sb.AddCStringAt(int64(offsets[i]), name)
++		}
++	})
++	state.nfiles = uint32(len(files))
++	// All functions use the same dense table, with no dead per-CU holes.
++	return make([]uint32, len(compUnits))
++}
++
++// rewriteTinyPCFile rewrites CU-local indices without mutating shared pcdata symbols.
++// Tables with no opaque sites are omitted, and adjacent hidden ranges coalesce.
++func (state *pclntab) rewriteTinyPCFile(ctxt *Link, s, pcfile loader.Sym) []byte {
++	ldr := ctxt.loader
++	cu := ldr.SymUnit(s)
++	if cu == nil || len(ldr.Data(pcfile)) == 0 {
++		return nil
++	}
++	var out []byte
++	previous, value := int32(-1), int32(-1)
++	var start, end uint32
++	hasSite := false
++	flush := func() {
++		out = binary.AppendVarint(out, int64(value)-int64(previous))
++		out = binary.AppendUvarint(out, uint64(end-start))
++		previous = value
++		start = end
++	}
++	it := obj.NewPCIter(1)
++	for it.Init(ldr.Data(pcfile)); !it.Done; it.Next() {
++		next := int32(-1)
++		if it.Value >= 0 {
++			name := tinyFilename(cu.FileTable[it.Value])
++			if name != "?" {
++				next = state.tinyFileIndices[name]
++				hasSite = true
++			}
++		}
++		if it.PC != 0 && next != value {
++			flush()
++		}
++		value = next
++		end = it.NextPC
++	}
++	if !hasSite {
++		return nil
++	}
++	flush()
++	return append(out, 0)
++}
++
+ // generatePctab creates the runtime.pctab variable, holding all the
+ // deduplicated pcdata.
+ func (state *pclntab) generatePctab(ctxt *Link, funcs []loader.Sym) {
+@@ -623,6 +702,11 @@ func (state *pclntab) generatePctab(ctxt *Link, funcs []loader.Sym) {
+ 	// that by just padding a single byte at the beginning of runtime.pctab,
+ 	// that way no real offsets can be zero.
+ 	size := int64(1)
++	var tinyData []byte
++	tinyOffsets := make(map[string]uint32)
++	if garbleTiny {
++		state.tinyPCFile = make(map[loader.Sym]uint32)
++	}
+ 
+ 	// Walk the functions, finding offset to store each pcdata.
+ 	seen := make(map[loader.Sym]struct{})
+@@ -649,9 +733,20 @@ func (state *pclntab) generatePctab(ctxt *Link, funcs []loader.Sym) {
+ 		fi.Preload()
+ 		pcsp, pcfile, pcline, pcinline, pcdata = ldr.PcdataAuxs(s, pcdata)
+ 
+-		pcSyms := []loader.Sym{pcsp, pcfile}
+-		if !garbleTiny {
+-			pcSyms = append(pcSyms, pcline)
++		pcSyms := []loader.Sym{pcsp}
++		if garbleTiny {
++			if data := state.rewriteTinyPCFile(ctxt, s, pcfile); len(data) != 0 {
++				key := string(data)
++				offset, ok := tinyOffsets[key]
++				if !ok {
++					offset = uint32(len(tinyData)) + 1
++					tinyOffsets[key] = offset
++					tinyData = append(tinyData, data...)
++				}
++				state.tinyPCFile[s] = offset
++			}
++		} else {
++			pcSyms = append(pcSyms, pcfile, pcline)
+ 		}
+ 		for _, pcSym := range pcSyms {
+ 			saveOffset(pcSym)
+@@ -664,6 +759,12 @@ func (state *pclntab) generatePctab(ctxt *Link, funcs []loader.Sym) {
+ 		}
+ 	}
+ 
++	tinyStart := size
++	for s, offset := range state.tinyPCFile {
++		state.tinyPCFile[s] = uint32(tinyStart) + offset - 1
++	}
++	size += int64(len(tinyData))
++
+ 	// TODO: There is no reason we need a generator for this variable, and it
+ 	// could be moved to a carrier symbol. However, carrier symbols containing
+ 	// carrier symbols don't work yet (as of Aug 2020). Once this is fixed,
+@@ -674,6 +775,7 @@ func (state *pclntab) generatePctab(ctxt *Link, funcs []loader.Sym) {
+ 		for sym := range seen {
+ 			sb.SetBytesAt(ldr.SymValue(sym), ldr.Data(sym))
+ 		}
++		sb.SetBytesAt(tinyStart, tinyData)
+ 	}
+ 
+ 	state.pctab = state.addGeneratedSym(ctxt, "runtime.pctab", size, 1, writePctab)
+@@ -859,7 +961,7 @@ func (state *pclntab) generateFunctab(ctxt *Link, funcs []loader.Sym, inlSyms ma
+ 		sb := ldr.MakeSymbolUpdater(s)
+ 		// Write the data.
+ 		writePCToFunc(ctxt, sb, funcs, startLocations)
+-		writeFuncs(ctxt, sb, funcs, inlSyms, startLocations, cuOffsets, nameOffsets)
++		writeFuncs(ctxt, sb, funcs, inlSyms, startLocations, cuOffsets, nameOffsets, state.tinyPCFile)
+ 	}
+ 	state.pclntab = state.addGeneratedSym(ctxt, "runtime.functab", size, 4, writePcln)
+ }
+@@ -965,7 +1067,7 @@ func writePCToFunc(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, sta
+ }
+ 
+ // writeFuncs writes the func structures and pcdata to runtime.functab.
+-func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSyms map[loader.Sym]loader.Sym, startLocations, cuOffsets []uint32, nameOffsets map[loader.Sym]uint32) {
++func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSyms map[loader.Sym]loader.Sym, startLocations, cuOffsets []uint32, nameOffsets, tinyPCFile map[loader.Sym]uint32) {
+ 	ldr := ctxt.loader
+ 	garbleTiny := os.Getenv("GARBLE_LINK_TINY") == "true"
+ 	deferReturnSym := ldr.Lookup("runtime.deferreturn", abiInternalVer)
+@@ -1013,10 +1115,11 @@ func writeFuncs(ctxt *Link, sb *loader.SymbolBuilder, funcs []loader.Sym, inlSym
+ 		// pcdata
+ 		if fi.Valid() {
+ 			off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcsp)))
+-			off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcfile)))
+ 			if garbleTiny {
++				off = sb.SetUint32(ctxt.Arch, off, tinyPCFile[s])
+ 				off = sb.SetUint32(ctxt.Arch, off, 0)
+ 			} else {
++				off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcfile)))
+ 				off = sb.SetUint32(ctxt.Arch, off, uint32(ldr.SymValue(pcline)))
+ 			}
+ 		} else {

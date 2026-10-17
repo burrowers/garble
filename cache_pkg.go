@@ -100,7 +100,12 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool)
 		var src any
 
 		base := filepath.Base(path)
-		if lpkg.ImportPath == "internal/abi" && base == "type.go" {
+		if flagTiny && lpkg.ImportPath == "runtime" && (base == "panic.go" || base == "runtime2.go") {
+			src, err = tinyPanicRuntimeSource(path, base)
+			if err != nil {
+				return nil, err
+			}
+		} else if lpkg.ImportPath == "internal/abi" && base == "type.go" {
 			src, err = abiNamePatch(path)
 			if err != nil {
 				return nil, err
