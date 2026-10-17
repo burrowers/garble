@@ -103,6 +103,9 @@ func (d *proxyDispatcher) initialize(proxyRoot *proxyRoot, index int) {
 		strct := proxyRoot.flattenStructs[d.rand.Intn(len(proxyRoot.flattenStructs))]
 		strct.values = append(strct.values, value)
 		path := buildPath(strct, value.name).(*ast.SelectorExpr)
+		// The caller positioned the placeholder before this subtree existed.
+		// Preserve that site throughout the path so comments stay in place.
+		withPos(path.X, value.path.Sel.Pos())
 		value.path.X = path.X
 	}
 	proxyRoot.pending = nil

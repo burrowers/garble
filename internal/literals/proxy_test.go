@@ -39,6 +39,11 @@ func TestProxyHiddenValueIdentity(t *testing.T) {
 		if path.Sel != fields[i] || path.Sel.Pos() != 10 {
 			t.Fatal("selector field identity or position changed")
 		}
+		for node := range ast.Preorder(path) {
+			if ident, ok := node.(*ast.Ident); ok && ident.Pos() != fields[i].Pos() {
+				t.Fatalf("path identifier %s lost its source position", ident.Name)
+			}
+		}
 		root := d.roots[i/maxProxyValuesPerRoot]
 		var selectors []string
 		var expr ast.Expr = path
@@ -110,9 +115,8 @@ func next() {}
 		t.Fatalf("invalid printed source: %v\n%s", err, &printed)
 	}
 	next := reparsed.Decls[1].(*ast.FuncDecl)
-	// TODO: keep the compiler directive attached when the delayed path is built.
-	if next.Doc != nil {
-		t.Fatalf("expected the current misplaced compiler directive:\n%s", &printed)
+	if next.Doc == nil || len(next.Doc.List) != 1 || next.Doc.List[0].Text != "//go:noinline" {
+		t.Fatalf("compiler directive detached from next function:\n%s", &printed)
 	}
 }
 
