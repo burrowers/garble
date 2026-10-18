@@ -67,6 +67,8 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 					}
 				}
 			}
+			or.payloads = make(map[string]*sharedPayload)
+			or.stringPadding = make(map[string]paddedString)
 			owner := len(dispatchers)
 			or.proxyDispatcher = newProxyDispatcher(rand, func(rand *mathrand.Rand, base string) string {
 				return nameFunc(rand, fmt.Sprintf("literalOwner%d_%s", owner, base))
@@ -186,6 +188,8 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	post := func(cursor *astutil.Cursor) bool {
 		if _, ok := cursor.Node().(*ast.FuncDecl); ok {
 			or.proxyDispatcher = packageDispatcher
+			or.payloads = nil
+			or.stringPadding = nil
 		}
 		// Here we handle the plain []byte{...} or [4]byte{...} value form.
 		// The pointer form was already replaced on the way down; a literal
@@ -200,6 +204,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
 	newFile.Decls = append(newFile.Decls, or.liftedFuncs...)
+	newFile.Decls = append(newFile.Decls, or.payloadDecls...)
 	for _, dispatcher := range dispatchers {
 		dispatcher.AddToFile(newFile)
 	}
@@ -428,8 +433,15 @@ func obfuscateString(or *obfRand, data string) *ast.CallExpr {
 
 	plainData := []byte(data)
 	plainDataWithJunkBytes := append(append(junkBytes[:splitIdx], plainData...), junkBytes[splitIdx:]...)
+	if _, ok := obf.(blob); ok && or.payloads != nil {
+		if padded, ok := or.stringPadding[data]; ok {
+			plainDataWithJunkBytes, splitIdx = padded.data, padded.start
+		} else {
+			or.stringPadding[data] = paddedString{plainDataWithJunkBytes, splitIdx}
+		}
+	}
 
-	block := obf.obfuscate(or.rnd, names, plainDataWithJunkBytes, extKeys)
+	block := or.obfuscatePayload(obf, names, plainDataWithJunkBytes, extKeys)
 	params, args := extKeysToParams(or, extKeys)
 
 	// Generate unique cast bytes to string function and hide it using proxyDispatcher:
@@ -484,7 +496,7 @@ func obfuscateByteSlice(or *obfRand, isPointer bool, data []byte) *ast.CallExpr 
 
 	names := newGeneratedNames(or)
 	extKeys := randExtKeys(or.rnd, names)
-	block := obf.obfuscate(or.rnd, names, data, extKeys)
+	block := or.obfuscatePayload(obf, names, data, extKeys)
 	params, args := extKeysToParams(or, extKeys)
 
 	if isPointer {
@@ -503,7 +515,7 @@ func obfuscateByteArray(or *obfRand, isPointer bool, data []byte, length int64) 
 
 	names := newGeneratedNames(or)
 	extKeys := randExtKeys(or.rnd, names)
-	block := obf.obfuscate(or.rnd, names, data, extKeys)
+	block := or.obfuscatePayload(obf, names, data, extKeys)
 	params, args := extKeysToParams(or, extKeys)
 
 	arrayType := ah.ByteArrayType(length)
