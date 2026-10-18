@@ -1,7 +1,11 @@
 # Link a binary importing std packages, including vendored copies.
-exec garble build -o=main$exe ./std_importer
+# This seed renames runtime.GC to runtime.NowI8m, which contains time.Now.
+exec garble -seed=FX4AAAAAAAA build -o=main$exe ./std_importer
 ! stderr . # no warnings
-! binsubstr main$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
+grep '\x00runtime\.NowI8m\x00' main$exe
+# TODO: exclude substring collisions with obfuscated runtime names.
+binsubstr main$exe 'time.Now'
+! binsubstr main$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'syscall.Listen'
 
 [short] stop # rebuilding std is slow
 
@@ -64,6 +68,7 @@ func main() {
 	if len(os.Args) > 5 {
 		http.ListenAndServe("", nil)
 		debug.WriteHeapDump(1)
+		runtime.GC()
 		time.Now()
 		syscall.Listen(0, 1)
 		testing.MainStart(nil, nil, nil, nil, nil)
