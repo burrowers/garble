@@ -10,10 +10,9 @@ import (
 )
 
 const (
-	// minStructCount is the minimum number of proxyStructs initialized in the dispatcher.
-	minStructCount = 4
-	// maxStructCount is the maximum number of proxyStructs initialized in the dispatcher.
-	maxStructCount = 8
+	// proxyValuesPerStruct sets the scaffold budget from actual occupancy;
+	// one or two randomized extra structs keep small trees from being uniform.
+	proxyValuesPerStruct = 64
 	//minChildCount defines the minimum number of child elements that can be assigned to proxy structs.
 	minChildCount = 1
 	// maxChildCount defines the maximum number of child elements that can be assigned to proxy structs.
@@ -35,6 +34,7 @@ const (
 type proxyValue struct {
 	name     string
 	typ, val ast.Expr
+	path     *ast.SelectorExpr
 }
 
 type proxyStruct struct {
@@ -51,6 +51,7 @@ type proxyRoot struct {
 	root           *proxyStruct
 	flattenStructs []*proxyStruct
 	hiddenCount    int
+	pending        []*proxyValue
 }
 
 type proxyDispatcher struct {
@@ -60,9 +61,10 @@ type proxyDispatcher struct {
 	roots []*proxyRoot
 }
 
-func (d *proxyDispatcher) initialize() *proxyRoot {
-	rootIndex := strconv.Itoa(len(d.roots))
-	flattenStructs := make([]*proxyStruct, d.rand.Intn(maxStructCount-minStructCount)+minStructCount)
+func (d *proxyDispatcher) initialize(proxyRoot *proxyRoot, index int) {
+	rootIndex := strconv.Itoa(index)
+	base := (proxyRoot.hiddenCount + proxyValuesPerStruct - 1) / proxyValuesPerStruct
+	flattenStructs := make([]*proxyStruct, base+d.rand.Intn(min(base, 2)+1))
 	for i := range flattenStructs {
 		flattenStructs[i] = &proxyStruct{
 			typeName:  d.nameFunc(d.rand, "proxyRoot"+rootIndex+"StructName"+strconv.Itoa(i)),
@@ -95,12 +97,18 @@ func (d *proxyDispatcher) initialize() *proxyRoot {
 		}
 	}
 
-	proxyRoot := &proxyRoot{
-		root:           root,
-		flattenStructs: append(flattenStructs, root),
+	proxyRoot.root = root
+	proxyRoot.flattenStructs = append(flattenStructs, root)
+	for _, value := range proxyRoot.pending {
+		strct := proxyRoot.flattenStructs[d.rand.Intn(len(proxyRoot.flattenStructs))]
+		strct.values = append(strct.values, value)
+		path := buildPath(strct, value.name).(*ast.SelectorExpr)
+		// The caller positioned the placeholder before this subtree existed.
+		// Preserve that site throughout the path so comments stay in place.
+		withPos(path.X, value.path.Sel.Pos())
+		value.path.X = path.X
 	}
-	d.roots = append(d.roots, proxyRoot)
-	return proxyRoot
+	proxyRoot.pending = nil
 }
 
 // buildPath creates an AST expression that represents a field access path
@@ -132,18 +140,22 @@ func (d *proxyDispatcher) HideValue(val, typ ast.Expr) ast.Expr {
 		root = d.roots[len(d.roots)-1]
 	}
 	if root == nil || root.hiddenCount >= maxProxyValuesPerRoot {
-		root = d.initialize()
+		root = &proxyRoot{}
+		d.roots = append(d.roots, root)
 	}
 
-	strct := root.flattenStructs[d.rand.Intn(len(root.flattenStructs))]
-	valueName := d.nameFunc(d.rand, strct.name+"_"+strct.typeName+"_"+strconv.Itoa(len(strct.values)))
-	strct.values = append(strct.values, &proxyValue{
+	valueName := d.nameFunc(d.rand, "proxyRoot"+strconv.Itoa(len(d.roots)-1)+"Value"+strconv.Itoa(root.hiddenCount))
+	// Callers embed this selector before occupancy is known. Keep its identity
+	// and field position when the final randomized path is attached.
+	path := &ast.SelectorExpr{X: ast.NewIdent("pendingProxy"), Sel: ast.NewIdent(valueName)}
+	root.pending = append(root.pending, &proxyValue{
 		name: valueName,
 		typ:  typ,
 		val:  val,
+		path: path,
 	})
 	root.hiddenCount++
-	return buildPath(strct, valueName)
+	return path
 }
 
 func (d *proxyDispatcher) generateStructLiteral(s *proxyStruct) ast.Expr {
@@ -207,7 +219,8 @@ func (d *proxyDispatcher) AddToFile(file *ast.File) {
 		return
 	}
 
-	for _, root := range d.roots {
+	for index, root := range d.roots {
+		d.initialize(root, index)
 		for _, strct := range root.flattenStructs {
 			dummyCount := d.rand.Intn(maxJunkValueCount-minJunkValueCount+1) + minJunkValueCount
 			for range dummyCount {
