@@ -3,9 +3,8 @@
 exec garble -seed=FX4AAAAAAAA build -o=main$exe ./std_importer
 ! stderr . # no warnings
 grep '\x00runtime\.NowI8m\x00' main$exe
-# TODO: exclude substring collisions with obfuscated runtime names.
-binsubstr main$exe 'time.Now'
-! binsubstr main$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'syscall.Listen'
+# Function names are NUL-delimited; do not match part of a runtime hash.
+! grep '\x00(net/http\.ListenAndServe|runtime/debug\.WriteHeapDump|time\.Now|syscall\.Listen)\x00' main$exe
 
 [short] stop # rebuilding std is slow
 
@@ -27,7 +26,10 @@ cmp stdout std_importer.stdout
 
 # The same low-level std packages appear in plain sight in regular builds.
 go build -o=main_regular$exe ./std_importer
-binsubstr main_regular$exe 'http.ListenAndServe' 'debug.WriteHeapDump' 'time.Now' 'syscall.Listen'
+grep '\x00net/http\.ListenAndServe\x00' main_regular$exe
+grep '\x00runtime/debug\.WriteHeapDump\x00' main_regular$exe
+grep '\x00time\.Now\x00' main_regular$exe
+grep '\x00syscall\.Listen\x00' main_regular$exe
 
 # Also check that a full rebuild is reproducible, via a new GOCACHE.
 # This is slow, but necessary to uncover bugs hidden by the build cache.
