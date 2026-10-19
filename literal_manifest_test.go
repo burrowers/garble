@@ -150,10 +150,14 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Run("inactive-stock-parity", func(t *testing.T) {
+		toolDir, err := exec.Command("go", "env", "GOTOOLDIR").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
 		object := filepath.Join(dir, "inactive.o")
 		args := []string{"-p", "p", "-o", object, source}
 		var stock []byte
-		for _, tool := range []string{filepath.Join(strings.TrimSpace(string(goroot)), "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH, "compile"), compiler} {
+		for _, tool := range []string{filepath.Join(strings.TrimSpace(string(toolDir)), "compile"), compiler} {
 			if runtime.GOOS == "windows" && !strings.HasSuffix(tool, ".exe") {
 				tool += ".exe"
 			}
