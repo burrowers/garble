@@ -255,12 +255,29 @@ func (d *proxyDispatcher) junkValue() *proxyValue {
 }
 
 func (d *proxyDispatcher) AddToFile(file *ast.File) {
+	d.addToFile(file, false)
+}
+
+func (d *proxyDispatcher) addToFile(file *ast.File, local bool) {
 	if len(d.roots) == 0 {
 		return
 	}
 
 	for index, root := range d.roots {
 		d.initialize(root, index)
+		if local {
+			// Local type declarations cannot refer to later declarations.
+			var ordered []*proxyStruct
+			var visit func(*proxyStruct)
+			visit = func(s *proxyStruct) {
+				for _, child := range s.children {
+					visit(child)
+				}
+				ordered = append(ordered, s)
+			}
+			visit(root.root)
+			root.flattenStructs = ordered
+		}
 		for _, strct := range root.flattenStructs {
 			dummyCount := d.rand.Intn(maxJunkValueCount-minJunkValueCount+1) + minJunkValueCount
 			for range dummyCount {

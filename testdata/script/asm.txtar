@@ -63,6 +63,7 @@ type Args struct {
 
 // addArgs computes a12 + a1 + a123 using go_asm.h constants
 func addArgs(args *Args) int64
+
 // argsSize returns the size of Args struct using go_asm.h constant
 func argsSize() int64
 

@@ -1,4 +1,4 @@
-# TODO: assert that unreachable non-linknamed globals lose their initializers.
+# Dead-global reachability is covered by TestLiteralInitLargePackage.
 exec garble -literals build -ldflags=-dumpdep
 # Outgoing aliases keep eager initialization, even if otherwise unused.
 stderr 'deadLiteralGlobal1167'

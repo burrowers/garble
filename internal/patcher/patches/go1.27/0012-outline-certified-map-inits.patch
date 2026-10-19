@@ -1,0 +1,28 @@
+From a23743d6d5e15948d4b3bb05de50a387bc863cc0 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Mon, 19 Oct 2026 19:57:13 +0000
+Subject: [PATCH] compile: admit certified constant map initializers
+
+Constant-only maps lose ordinary outlining eligibility when Garble inserts decoder calls. Extend the explicit generated-factory certificate to maps while retaining exact type and direct-call validation and all existing safety exclusions.
+
+Refs burrowers/garble#1167
+---
+ cmd/compile/internal/staticinit/sched.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmd/compile/internal/staticinit/sched.go b/cmd/compile/internal/staticinit/sched.go
+index 2a9f01b..94a6efb 100644
+--- a/cmd/compile/internal/staticinit/sched.go
++++ b/cmd/compile/internal/staticinit/sched.go
+@@ -1135,7 +1135,7 @@ func certifiedLiteralInit(as *ir.AssignStmt, nm *ir.Name) bool {
+ 		return false
+ 	}
+ 	call, ok := as.Y.(*ir.CallExpr)
+-	if !ok || call.Op() != ir.OCALLFUNC || len(call.Args) != 0 || len(call.Init()) != 0 || len(as.Init()) != 0 || nm.Class != ir.PEXTERN || nm.Sym().Pkg != types.LocalPkg || !(nm.Type().IsString() || nm.Type().IsArray() || nm.Type().IsStruct()) {
++	if !ok || call.Op() != ir.OCALLFUNC || len(call.Args) != 0 || len(call.Init()) != 0 || len(as.Init()) != 0 || nm.Class != ir.PEXTERN || nm.Sym().Pkg != types.LocalPkg || !(nm.Type().IsString() || nm.Type().IsArray() || nm.Type().IsStruct() || nm.Type().IsMap()) {
+ 		base.Fatalf("invalid certified literal initializer for %v", nm)
+ 	}
+ 	callee, ok := call.Fun.(*ir.Name)
+-- 
+2.47.3
+

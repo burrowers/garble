@@ -45,9 +45,22 @@ type EmbeddedValue struct {
 	String bool
 }
 
+// GlobalInit certifies a generated constant-only factory for one global.
+// The declaration name is retained by pointer so subsequent renaming is reflected.
+type GlobalInit struct {
+	Global  *ast.Ident
+	Factory string
+}
+
 // Obfuscate replaces literals with obfuscated anonymous functions.
 func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, embeds map[ast.Expr]EmbeddedValue, nameFunc NameProviderFunc) *ast.File {
+	file, _ = ObfuscateWithGlobalInits(rand, file, info, linkStrings, embeds, nameFunc)
+	return file
+}
+
+func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, embeds map[ast.Expr]EmbeddedValue, nameFunc NameProviderFunc) (*ast.File, []GlobalInit) {
 	or := newObfRand(rand, file, nameFunc)
+	var globalInits []GlobalInit
 	// Package initializers, including their function literals, keep a shared
 	// dispatcher. Each original function declaration gets a separate tree so
 	// a live function cannot retain another function's lifted decoders.
@@ -101,6 +114,49 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 					expr = obfuscateString(or, value)
 				}
 				node.Values[i] = withPos(expr, name.Pos()).(ast.Expr)
+			}
+			if len(node.Names) == 1 && len(node.Values) == 1 && node.Names[0].Name != "_" {
+				obj := info.Defs[node.Names[0]].(*types.Var)
+				value := info.Types[node.Values[0]].Value
+				if obj.Parent() == obj.Pkg().Scope() && obj.Type() == types.Typ[types.String] && value != nil && value.Kind() == constant.String {
+					text := constant.StringVal(value)
+					if len(text) >= MinSize && len(text) <= MaxSize {
+						factory := or.globalLiteralFactory(ast.NewIdent("string"), func() ast.Expr { return obfuscateString(or, text) })
+						globalInits = append(globalInits, GlobalInit{Global: node.Names[0], Factory: factory})
+						node.Values[0] = withPos(ah.CallExprByName(factory), node.Values[0].Pos()).(ast.Expr)
+						return false
+					}
+				}
+				if obj.Parent() == obj.Pkg().Scope() && types.Identical(obj.Type(), info.TypeOf(node.Values[0])) {
+					if lit, ok := ast.Unparen(node.Values[0]).(*ast.CompositeLit); ok && pureStringAggregate(lit, info) {
+						resultType := lit.Type
+						if array, ok := resultType.(*ast.ArrayType); ok {
+							if _, ok := array.Len.(*ast.Ellipsis); ok {
+								resultType = &ast.ArrayType{Len: ah.IntLit(int(obj.Type().Underlying().(*types.Array).Len())), Elt: array.Elt}
+							}
+						}
+						factory := or.globalLiteralFactory(resultType, func() ast.Expr {
+							return astutil.Apply(lit, func(c *astutil.Cursor) bool {
+								if expr, ok := c.Node().(ast.Expr); ok {
+									if value := info.Types[expr]; value.Value != nil {
+										if value.Type == types.Typ[types.String] && value.Value.Kind() == constant.String {
+											text := constant.StringVal(value.Value)
+											if len(text) >= MinSize && len(text) <= MaxSize {
+												c.Replace(withPos(obfuscateString(or, text), expr.Pos()))
+												return false
+											}
+										}
+										return value.Value.Kind() == constant.String
+									}
+								}
+								return true
+							}, nil).(ast.Expr)
+						})
+						globalInits = append(globalInits, GlobalInit{Global: node.Names[0], Factory: factory})
+						node.Values[0] = withPos(ah.CallExprByName(factory), node.Values[0].Pos()).(ast.Expr)
+						return false
+					}
+				}
 			}
 
 		case ast.Expr:
@@ -207,7 +263,91 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	for _, dispatcher := range dispatchers {
 		dispatcher.AddToFile(newFile)
 	}
-	return newFile
+	return newFile, globalInits
+}
+
+// pureStringAggregate admits arrays, structs and maps with constant leaves.
+// Even unevaluated references to variables must retain their init dependencies.
+func pureStringAggregate(lit *ast.CompositeLit, info *types.Info) bool {
+	found := false
+	var pure func(ast.Expr) bool
+	pure = func(expr ast.Expr) bool {
+		if value := info.Types[expr]; value.Value != nil {
+			// Named string conversions can contain independently obfuscated operands.
+			if value.Value.Kind() == constant.String && value.Type != types.Typ[types.String] {
+				return false
+			}
+			if value.Type == types.Typ[types.String] && value.Value.Kind() == constant.String {
+				size := len(constant.StringVal(value.Value))
+				found = found || size >= MinSize && size <= MaxSize
+			}
+			return true
+		}
+		nested, ok := ast.Unparen(expr).(*ast.CompositeLit)
+		if !ok {
+			return false
+		}
+		switch info.TypeOf(nested).Underlying().(type) {
+		case *types.Array, *types.Struct, *types.Map:
+		default:
+			return false
+		}
+		for _, elem := range nested.Elts {
+			if keyed, ok := elem.(*ast.KeyValueExpr); ok {
+				if _, isMap := info.TypeOf(nested).Underlying().(*types.Map); isMap && !pure(keyed.Key) {
+					return false
+				}
+				elem = keyed.Value
+			}
+			if !pure(elem) {
+				return false
+			}
+		}
+		return true
+	}
+	noVars := true
+	ast.Inspect(lit, func(node ast.Node) bool {
+		if call, ok := node.(*ast.CallExpr); ok && !info.Types[call.Fun].IsType() {
+			if ident, ok := call.Fun.(*ast.Ident); !ok {
+				noVars = false
+			} else if _, ok := info.Uses[ident].(*types.Builtin); !ok {
+				noVars = false
+			}
+		}
+		if ident, ok := node.(*ast.Ident); ok {
+			if obj, ok := info.Uses[ident].(*types.Var); ok {
+				// Field keys are variables too, but are not evaluated references.
+				noVars = noVars && obj.IsField()
+			}
+		}
+		return true
+	})
+	return noVars && pure(lit) && found
+}
+
+// The proxy roots are local to the factory, so no unconditional package-level
+// initialization can retain a dead global's decoder or change init dependencies.
+func (r *obfRand) globalLiteralFactory(resultType ast.Expr, value func() ast.Expr) string {
+	name := r.nextLiftedFuncName("literalGlobal")
+	shared := r.proxyDispatcher
+	r.proxyDispatcher = newProxyDispatcher(r.rnd, func(rand *mathrand.Rand, base string) string {
+		return r.nameFunc(rand, name+base)
+	})
+	call := value()
+	locals := &ast.File{}
+	r.proxyDispatcher.addToFile(locals, true)
+	r.proxyDispatcher = shared
+	body := &ast.BlockStmt{}
+	for _, decl := range locals.Decls {
+		body.List = append(body.List, &ast.DeclStmt{Decl: decl})
+	}
+	body.List = append(body.List, ah.ReturnStmt(call))
+	r.liftedFuncs = append(r.liftedFuncs, &ast.FuncDecl{
+		Name: ast.NewIdent(name),
+		Type: &ast.FuncType{Params: &ast.FieldList{}, Results: &ast.FieldList{List: []*ast.Field{{Type: resultType}}}},
+		Body: body,
+	})
+	return name
 }
 
 // generatedNames assigns each decoder-local name before building its AST.

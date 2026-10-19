@@ -1,0 +1,31 @@
+From c4b5789627cb2b8fbe8726a455f30b06d83ff09d Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Sun, 11 Oct 2026 16:54:47 +0000
+Subject: [PATCH] compile: allow certified literal inits with PIC
+
+Ordinary Darwin arm64 executables request compiler -shared for PIC, so
+that flag alone does not identify a library build. Permit certified
+initializers in PIC objects while retaining dynlink and linkshared
+exclusions. Garble withholds certificates for actual library and plugin
+build modes and separates their cache identities from executable mode.
+
+Refs burrowers/garble#1167
+---
+ cmd/compile/internal/staticinit/sched.go | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/cmd/compile/internal/staticinit/sched.go b/cmd/compile/internal/staticinit/sched.go
+index 5c49cd82..3a494d7f 100644
+--- a/cmd/compile/internal/staticinit/sched.go
++++ b/cmd/compile/internal/staticinit/sched.go
+@@ -1120,7 +1120,9 @@ func init() {
+ // constant string initializer. User names and pragmas alone cannot authorize
+ // removing a call. Keep this separate from the general side-effect analysis.
+ func certifiedLiteralInit(as *ir.AssignStmt, nm *ir.Name) bool {
+-	if *base.Flag.Shared || *base.Flag.Dynlink || *base.Flag.LinkShared {
++	// -shared requests PIC, also used by ordinary Darwin arm64 executables.
++	// Garble withholds certificates for actual library and plugin build modes.
++	if *base.Flag.Dynlink || *base.Flag.LinkShared {
+ 		return false
+ 	}
+ 	// A coalesced linkname alias may lose this definition's R_KEEP edge.
