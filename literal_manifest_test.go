@@ -7,9 +7,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,64 +62,10 @@ func TestLiteralInitLargePackage(t *testing.T) {
 	if output, err := exec.Command(binary).CombinedOutput(); err != nil || string(output) != "large package constant value 000000\nlive imported string global\n" {
 		t.Fatalf("large package execution: %v\n%s", err, output)
 	}
-	// Garble strips symbol tables, so use the linker's actual reachability graph.
-	symbols := make(map[string]bool)
-	for line := range strings.SplitSeq(string(output), "\n") {
-		if _, target, ok := strings.Cut(line, " -> "); ok {
-			if fields := strings.Fields(target); len(fields) > 0 {
-				symbols[fields[0]] = true
-			}
-		}
-	}
-	for _, tc := range []struct {
-		file    string
-		globals int
-	}{
-		{"main.go", 6004},
-		{"imported/imported.go", 6},
-	} {
-		t.Run(tc.file, func(t *testing.T) {
-			file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(debugdir, "garbled", "example.com/large", tc.file), nil, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var globals []*ast.ValueSpec
-			for _, decl := range file.Decls {
-				if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == token.VAR {
-					for _, spec := range decl.Specs {
-						globals = append(globals, spec.(*ast.ValueSpec))
-					}
-				}
-			}
-			if len(globals) < tc.globals {
-				t.Fatalf("transformed globals: got %d, want at least %d", len(globals), tc.globals)
-			}
-			// Both the scalar and aggregate pairs declare the live global first.
-			for _, i := range []int{0, 1, tc.globals - 4, tc.globals - 3, tc.globals - 2, tc.globals - 1} {
-				global := globals[i]
-				if len(global.Names) != 1 || len(global.Values) != 1 {
-					t.Fatalf("unexpected global shape: %v", global)
-				}
-				call, ok := global.Values[0].(*ast.CallExpr)
-				if !ok {
-					t.Fatalf("global initializer is not a factory call: %T", global.Values[0])
-				}
-				factory, ok := call.Fun.(*ast.Ident)
-				if !ok {
-					t.Fatalf("global factory is not a direct call: %T", call.Fun)
-				}
-				for _, name := range []string{global.Names[0].Name, factory.Name} {
-					found := false
-					for symbol := range symbols {
-						if strings.HasSuffix(symbol, "."+name) {
-							found = true
-						}
-					}
-					if want := i%2 == 0; found != want {
-						t.Errorf("symbol %s retained = %v, want %v", name, found, want)
-					}
-				}
-			}
+	for name, n := range map[string]int{"main.go": 6004, "imported/imported.go": 6} {
+		t.Run(name, func(t *testing.T) {
+			checkLiteralInitReachability(t, filepath.Join(debugdir, "garbled", "example.com/large", name), output,
+				[]int{0, 1, n - 4, n - 3, n - 2, n - 1}, func(i int) bool { return i%2 == 0 })
 		})
 	}
 }

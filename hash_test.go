@@ -12,24 +12,25 @@ func TestLiteralInitBuildModeCacheIdentity(t *testing.T) {
 	flagLiterals = true
 	weak := addGarbleToHash([]byte("compiler"))
 	for _, tc := range []struct {
-		flags  []string
-		strong bool
+		flags           []string
+		plugins, strong bool
 	}{
-		{nil, false},
-		{[]string{"-buildmode=default"}, false},
-		{[]string{"-buildmode=exe"}, false},
-		{[]string{"-buildmode=pie"}, false},
-		{[]string{"-buildmode=archive"}, false},
-		{[]string{"-buildmode=c-archive"}, true},
-		{[]string{"-buildmode", "c-shared"}, true},
-		{[]string{"-buildmode=shared"}, true},
-		{[]string{"-buildmode=plugin"}, true},
-		{[]string{"-linkshared"}, true},
-		{[]string{"-linkshared=false"}, false},
-		{[]string{"-buildmode=c-shared", "-buildmode=pie"}, false},
+		{nil, false, false},
+		{nil, true, true},
+		{[]string{"-buildmode=default"}, false, false},
+		{[]string{"-buildmode=exe"}, false, false},
+		{[]string{"-buildmode=pie"}, false, false},
+		{[]string{"-buildmode=archive"}, false, false},
+		{[]string{"-buildmode=c-archive"}, false, true},
+		{[]string{"-buildmode", "c-shared"}, false, true},
+		{[]string{"-buildmode=shared"}, false, true},
+		{[]string{"-buildmode=plugin"}, false, true},
+		{[]string{"-linkshared"}, false, true},
+		{[]string{"-linkshared=false"}, false, false},
+		{[]string{"-buildmode=c-shared", "-buildmode=pie"}, false, false},
 	} {
-		t.Run(fmt.Sprint(tc.flags), func(t *testing.T) {
-			sharedCache.ForwardBuildFlags = tc.flags
+		t.Run(fmt.Sprintf("%v/plugins=%v", tc.flags, tc.plugins), func(t *testing.T) {
+			sharedCache.ForwardBuildFlags, sharedCache.UsesPlugins = tc.flags, tc.plugins
 			data, err := sharedCache.MarshalMsg(nil)
 			if err != nil {
 				t.Fatal(err)
@@ -44,38 +45,11 @@ func TestLiteralInitBuildModeCacheIdentity(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestLiteralInitPluginCacheIdentity(t *testing.T) {
-	oldCache, oldLiterals := sharedCache, flagLiterals
-	defer func() { sharedCache, flagLiterals = oldCache, oldLiterals }()
-	sharedCache = &sharedCacheType{BinaryContentID: []byte("test")}
-	flagLiterals = true
-	without := addGarbleToHash([]byte("compiler"))
-	sharedCache.UsesPlugins = true
-	with := addGarbleToHash([]byte("compiler"))
-	if without == with {
-		t.Fatal("plugin builds can reuse weak literal initializer objects")
-	}
 	flagLiterals = false
-	with = addGarbleToHash([]byte("compiler"))
+	sharedCache.UsesPlugins = true
+	withPlugin := addGarbleToHash([]byte("compiler"))
 	sharedCache.UsesPlugins = false
-	if with != addGarbleToHash([]byte("compiler")) {
+	if withPlugin != addGarbleToHash([]byte("compiler")) {
 		t.Fatal("plugin marker affects builds without literal obfuscation")
-	}
-}
-
-func TestLiteralInitPluginCacheRoundTrip(t *testing.T) {
-	original := sharedCacheType{UsesPlugins: true, ListedPackages: newListedPackages()}
-	data, err := original.MarshalMsg(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded sharedCacheType
-	if _, err := decoded.UnmarshalMsg(data); err != nil {
-		t.Fatal(err)
-	}
-	if !decoded.UsesPlugins {
-		t.Fatal("plugin safeguard is lost in compiler subprocesses")
 	}
 }

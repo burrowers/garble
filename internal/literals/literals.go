@@ -117,45 +117,37 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 			}
 			if len(node.Names) == 1 && len(node.Values) == 1 && node.Names[0].Name != "_" {
 				obj := info.Defs[node.Names[0]].(*types.Var)
-				value := info.Types[node.Values[0]].Value
-				if obj.Parent() == obj.Pkg().Scope() && obj.Type() == types.Typ[types.String] && value != nil && value.Kind() == constant.String {
-					text := constant.StringVal(value)
-					if len(text) >= MinSize && len(text) <= MaxSize {
-						factory := or.globalLiteralFactory(ast.NewIdent("string"), func() ast.Expr { return obfuscateString(or, text) })
-						globalInits = append(globalInits, GlobalInit{Global: node.Names[0], Factory: factory})
-						node.Values[0] = withPos(ah.CallExprByName(factory), node.Values[0].Pos()).(ast.Expr)
-						return false
-					}
-				}
-				if obj.Parent() == obj.Pkg().Scope() && types.Identical(obj.Type(), info.TypeOf(node.Values[0])) {
-					if lit, ok := ast.Unparen(node.Values[0]).(*ast.CompositeLit); ok && pureStringAggregate(lit, info) {
-						resultType := lit.Type
+				value := node.Values[0]
+				if obj.Parent() == obj.Pkg().Scope() && types.Identical(obj.Type(), info.TypeOf(value)) && pureStringInit(value, info) {
+					resultType := ast.Expr(ast.NewIdent("string"))
+					if lit, ok := ast.Unparen(value).(*ast.CompositeLit); ok {
+						resultType = lit.Type
 						if array, ok := resultType.(*ast.ArrayType); ok {
 							if _, ok := array.Len.(*ast.Ellipsis); ok {
 								resultType = &ast.ArrayType{Len: ah.IntLit(int(obj.Type().Underlying().(*types.Array).Len())), Elt: array.Elt}
 							}
 						}
-						factory := or.globalLiteralFactory(resultType, func() ast.Expr {
-							return astutil.Apply(lit, func(c *astutil.Cursor) bool {
-								if expr, ok := c.Node().(ast.Expr); ok {
-									if value := info.Types[expr]; value.Value != nil {
-										if value.Type == types.Typ[types.String] && value.Value.Kind() == constant.String {
-											text := constant.StringVal(value.Value)
-											if len(text) >= MinSize && len(text) <= MaxSize {
-												c.Replace(withPos(obfuscateString(or, text), expr.Pos()))
-												return false
-											}
-										}
-										return value.Value.Kind() == constant.String
-									}
-								}
-								return true
-							}, nil).(ast.Expr)
-						})
-						globalInits = append(globalInits, GlobalInit{Global: node.Names[0], Factory: factory})
-						node.Values[0] = withPos(ah.CallExprByName(factory), node.Values[0].Pos()).(ast.Expr)
-						return false
 					}
+					factory := or.globalLiteralFactory(resultType, func() ast.Expr {
+						return astutil.Apply(value, func(c *astutil.Cursor) bool {
+							expr, ok := c.Node().(ast.Expr)
+							if !ok || info.Types[expr].Value == nil {
+								return true
+							}
+							v := info.Types[expr]
+							if v.Type == types.Typ[types.String] && v.Value.Kind() == constant.String {
+								text := constant.StringVal(v.Value)
+								if len(text) >= MinSize && len(text) <= MaxSize {
+									c.Replace(withPos(obfuscateString(or, text), expr.Pos()))
+									return false
+								}
+							}
+							return v.Value.Kind() == constant.String
+						}, nil).(ast.Expr)
+					})
+					globalInits = append(globalInits, GlobalInit{Global: node.Names[0], Factory: factory})
+					node.Values[0] = withPos(ah.CallExprByName(factory), value.Pos()).(ast.Expr)
+					return false
 				}
 			}
 
@@ -266,9 +258,9 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 	return newFile, globalInits
 }
 
-// pureStringAggregate admits arrays, structs and maps with constant leaves.
+// pureStringInit admits strings and aggregates with constant leaves.
 // Even unevaluated references to variables must retain their init dependencies.
-func pureStringAggregate(lit *ast.CompositeLit, info *types.Info) bool {
+func pureStringInit(expr ast.Expr, info *types.Info) bool {
 	found := false
 	var pure func(ast.Expr) bool
 	pure = func(expr ast.Expr) bool {
@@ -306,7 +298,7 @@ func pureStringAggregate(lit *ast.CompositeLit, info *types.Info) bool {
 		return true
 	}
 	noVars := true
-	ast.Inspect(lit, func(node ast.Node) bool {
+	ast.Inspect(expr, func(node ast.Node) bool {
 		if call, ok := node.(*ast.CallExpr); ok && !info.Types[call.Fun].IsType() {
 			if ident, ok := call.Fun.(*ast.Ident); !ok {
 				noVars = false
@@ -322,7 +314,7 @@ func pureStringAggregate(lit *ast.CompositeLit, info *types.Info) bool {
 		}
 		return true
 	})
-	return noVars && pure(lit) && found
+	return noVars && pure(expr) && found
 }
 
 // The proxy roots are local to the factory, so no unconditional package-level

@@ -14,6 +14,56 @@ import (
 	"testing"
 )
 
+// Check both the global and its factory against the linker's reachability graph.
+// Garble strips symbol tables, so normal binaries cannot be inspected with nm.
+func checkLiteralInitReachability(t *testing.T, source string, output []byte, indices []int, retained func(int) bool) {
+	t.Helper()
+	symbols := make(map[string]bool)
+	for line := range strings.SplitSeq(string(output), "\n") {
+		if _, target, ok := strings.Cut(line, " -> "); ok {
+			if fields := strings.Fields(target); len(fields) > 0 {
+				// Package paths can contain dots; only the final component is a name.
+				name := fields[0][strings.LastIndexByte(fields[0], '.')+1:]
+				symbols[name] = true
+			}
+		}
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), source, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var globals []*ast.ValueSpec
+	for _, decl := range file.Decls {
+		if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == token.VAR {
+			for _, spec := range decl.Specs {
+				globals = append(globals, spec.(*ast.ValueSpec))
+			}
+		}
+	}
+	for _, i := range indices {
+		if i >= len(globals) {
+			t.Fatalf("missing global %d in %s", i, source)
+		}
+		global := globals[i]
+		if len(global.Names) != 1 || len(global.Values) != 1 {
+			t.Fatalf("unexpected global shape: %v", global)
+		}
+		call, ok := global.Values[0].(*ast.CallExpr)
+		if !ok {
+			t.Fatalf("global initializer is not a factory call: %T", global.Values[0])
+		}
+		factory, ok := call.Fun.(*ast.Ident)
+		if !ok {
+			t.Fatalf("factory is not a direct call: %T", call.Fun)
+		}
+		for _, name := range []string{global.Names[0].Name, factory.Name} {
+			if want := retained(i); symbols[name] != want {
+				t.Errorf("%s: symbol %s retained = %v, want %v", source, name, symbols[name], want)
+			}
+		}
+	}
+}
+
 func TestLiteralInitDarwinBuildModes(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "dep"), 0700); err != nil {
@@ -49,64 +99,15 @@ func TestLiteralInitDarwinBuildModes(t *testing.T) {
 			}
 			cmd := exec.Command(self, append(args, ".")...)
 			cmd.Dir = dir
-			for _, entry := range os.Environ() {
-				if !strings.HasPrefix(entry, "GOOS=") && !strings.HasPrefix(entry, "GOARCH=") && !strings.HasPrefix(entry, "CGO_ENABLED=") && !strings.HasPrefix(entry, "GARBLE_GO_SRC=") && !strings.HasPrefix(entry, "GOFLAGS=") {
-					cmd.Env = append(cmd.Env, entry)
-				}
-			}
-			cmd.Env = append(cmd.Env, "RUN_GARBLE_MAIN=true", "GOOS=darwin", "GOARCH=arm64", "CGO_ENABLED=0", "GARBLE_GO_SRC=", "GOFLAGS="+goflags)
+			cmd.Env = append(os.Environ(), "RUN_GARBLE_MAIN=true", "GOOS=darwin", "GOARCH=arm64", "CGO_ENABLED=0", "GARBLE_GO_SRC=", "GOFLAGS="+goflags)
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("Darwin arm64 %s build: %v\n%s", mode, err, output)
 			}
-			symbols := make(map[string]bool)
-			for line := range strings.SplitSeq(string(output), "\n") {
-				if _, target, ok := strings.Cut(line, " -> "); ok {
-					if fields := strings.Fields(target); len(fields) > 0 {
-						symbols[fields[0]] = true
-					}
-				}
-			}
 			for _, name := range []string{"main.go", "dep/dep.go"} {
-				file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(debugdir, "garbled", "example.com/pic", name), nil, 0)
-				if err != nil {
-					t.Fatal(err)
-				}
-				var globals []*ast.ValueSpec
-				for _, decl := range file.Decls {
-					if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == token.VAR {
-						for _, spec := range decl.Specs {
-							globals = append(globals, spec.(*ast.ValueSpec))
-						}
-					}
-				}
-				if len(globals) < 2 {
-					t.Fatalf("%s: missing original globals", name)
-				}
-				for i, global := range globals[:2] {
-					if len(global.Names) != 1 || len(global.Values) != 1 {
-						t.Fatalf("unexpected global shape: %v", global)
-					}
-					call, ok := global.Values[0].(*ast.CallExpr)
-					if !ok {
-						t.Fatalf("global initializer is not a factory call: %T", global.Values[0])
-					}
-					factory, ok := call.Fun.(*ast.Ident)
-					if !ok {
-						t.Fatalf("factory is not a direct call: %T", call.Fun)
-					}
-					for _, symbolName := range []string{global.Names[0].Name, factory.Name} {
-						found := false
-						for symbol := range symbols {
-							if strings.HasSuffix(symbol, "."+symbolName) {
-								found = true
-							}
-						}
-						if want := i == 0 || mode == "c-archive" || mode == "c-archive-goflags"; found != want {
-							t.Errorf("%s: symbol %s retained = %v, want %v", name, symbolName, found, want)
-						}
-					}
-				}
+				checkLiteralInitReachability(t, filepath.Join(debugdir, "garbled", "example.com/pic", name), output, []int{0, 1}, func(i int) bool {
+					return i == 0 || mode == "c-archive" || mode == "c-archive-goflags"
+				})
 			}
 		})
 	}

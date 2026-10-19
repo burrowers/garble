@@ -42,50 +42,6 @@ func TestGlobalLiteralProxyOwnership(t *testing.T) {
 	for _, obf := range Obfuscators {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
 			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, "global.go", `package globals
-var dead = "an independently removable string global"
-var live = "another independently initialized string"
-`, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
-			if _, err := new(types.Config).Check("globals", fset, []*ast.File{file}, info); err != nil {
-				t.Fatal(err)
-			}
-			old := testPkgToObfuscatorMap
-			testPkgToObfuscatorMap = map[string]obfuscator{"globals": obf}
-			defer func() { testPkgToObfuscatorMap = old }()
-			file, inits := ObfuscateWithGlobalInits(rand.New(rand.NewSource(1)), file, info, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%x", base, r.Uint64()) })
-			if len(inits) != 2 || inits[0].Factory == inits[1].Factory {
-				t.Fatalf("globals lack exclusive factory certificates: %v", inits)
-			}
-			if _, err := new(types.Config).Check("globals", fset, []*ast.File{file}, nil); err != nil {
-				t.Fatal(err)
-			}
-			vars := 0
-			for _, decl := range file.Decls {
-				if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == token.VAR {
-					vars += len(decl.Specs)
-				}
-			}
-			if vars != 2 {
-				t.Fatalf("global initializers retain %d package variables; want only the two original globals", vars)
-			}
-			for _, decl := range file.Decls[:2] {
-				init := decl.(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Values[0].(*ast.CallExpr)
-				if _, ok := init.Fun.(*ast.Ident); !ok {
-					t.Fatalf("global initializer is not an isolated direct factory call: %T", init.Fun)
-				}
-			}
-		})
-	}
-}
-
-func TestGlobalAggregateLiteralProxyOwnership(t *testing.T) {
-	for _, obf := range Obfuscators {
-		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
-			fset := token.NewFileSet()
 			long := ""
 			for range 100 {
 				long += "an oversized concatenation operand "
@@ -93,6 +49,8 @@ func TestGlobalAggregateLiteralProxyOwnership(t *testing.T) {
 			long = long[:MaxSize]
 			file, err := parser.ParseFile(fset, "global.go", fmt.Sprintf(`package globals
 type record struct { Text string; Count int; Nested [2]string }
+var scalarDead = "an independently removable string global"
+var scalarLive = "another independently initialized string"
 var dead = [...]record{{Text: "an independently removable aggregate", Count: 3, Nested: [2]string{1: "a nested string constant"}}}
 var live = record{"another eagerly initialized aggregate", 4, [2]string{"nested live string constant", "short"}}
 var side = record{Text: effect()}
@@ -123,8 +81,26 @@ func effect() string { return "a user call is not pure" }
 			testPkgToObfuscatorMap = map[string]obfuscator{"globals": obf}
 			defer func() { testPkgToObfuscatorMap = old }()
 			file, inits := ObfuscateWithGlobalInits(rand.New(rand.NewSource(1)), file, info, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%x", base, r.Uint64()) })
-			if len(inits) != 5 || inits[0].Global.Name != "dead" || inits[1].Global.Name != "live" || inits[2].Global.Name != "oversized" || inits[3].Global.Name != "deadMap" || inits[4].Global.Name != "liveMap" || inits[0].Factory == inits[1].Factory {
-				t.Fatalf("aggregates lack exclusive certificates: %v", inits)
+			want := []string{"scalarDead", "scalarLive", "dead", "live", "oversized", "deadMap", "liveMap"}
+			if len(inits) != len(want) {
+				t.Fatalf("unexpected certificates: %v", inits)
+			}
+			factories := make(map[string]bool)
+			for i, init := range inits {
+				if init.Global.Name != want[i] || factories[init.Factory] {
+					t.Fatalf("globals lack exclusive certificates: %v", inits)
+				}
+				factories[init.Factory] = true
+			}
+			vars := 0
+			for _, decl := range file.Decls {
+				if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == token.VAR {
+					vars += len(decl.Specs)
+				}
+			}
+			// Only the uncertified initializers retain package-level proxy roots.
+			if vars != 20 {
+				t.Fatalf("got %d package variables; want 18 globals and two shared roots", vars)
 			}
 			if _, err := new(types.Config).Check("globals", fset, []*ast.File{file}, nil); err != nil {
 				t.Fatal(err)
