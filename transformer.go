@@ -1118,6 +1118,12 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 	if newName == "" {
 		return localName, ""
 	}
+	// Frozen FIPS snapshots have versioned import paths, but their runtime
+	// linknames remain unversioned. FIPS is never obfuscated, so preserve these
+	// targets without requiring the unversioned package to be listed.
+	if strings.HasPrefix(newName, "crypto/internal/fips140.") || strings.HasPrefix(newName, "crypto/internal/fips140/") {
+		return localName, newName
+	}
 	// If the new name is of the form "pkgpath.Name", and we've obfuscated
 	// "Name" in that package, rewrite the directive to use the obfuscated name.
 	dotCnt := strings.Count(newName, ".")
