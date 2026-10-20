@@ -3,17 +3,20 @@ exec ./main$exe
 cmp stdout main.stdout
 
 cd obfuscate
+! exec garble -literals build -o app$exe
+stderr 'embed: no files for pattern'
+stop
 exec garble -literals build -o app$exe
 exec ./app$exe
 cmp stdout want.stdout
-! binsubstr app$exe 'GARBLE_EMBED_STRING_SECRET_194' 'GARBLE_EMBED_BYTES_SECRET_194' 'GARBLE_FS_SECRET_194'
+! binsubstr app$exe 'GARBLE_EMBED_STRING_SECRET_194' 'GARBLE_EMBED_BYTES_SECRET_194' 'GARBLE_FS_SECRET_194' 'GARBLE_RAW_PATTERN_SECRET_194'
 
 [short] stop
 
 go build -o app$exe
 exec ./app$exe
 cmp stdout want.stdout
-binsubstr app$exe 'GARBLE_EMBED_STRING_SECRET_194' 'GARBLE_EMBED_BYTES_SECRET_194' 'GARBLE_FS_SECRET_194'
+binsubstr app$exe 'GARBLE_EMBED_STRING_SECRET_194' 'GARBLE_EMBED_BYTES_SECRET_194' 'GARBLE_FS_SECRET_194' 'GARBLE_RAW_PATTERN_SECRET_194'
 cd ..
 go build
 exec ./main$exe
@@ -82,6 +85,9 @@ var text string
 //go:embed bytes.txt
 var bytes []byte
 
+//go:embed `raw pattern.txt`
+var rawPattern string
+
 //go:embed empty.txt
 var empty string
 
@@ -147,6 +153,7 @@ func main() {
 		return nil
 	})
 	fmt.Printf("variables: %s|%s|%s|%s|%s|%s", text, bytes, namedText, aliasedText, namedData, initialized)
+	fmt.Printf("raw: %s", rawPattern)
 }
 -- obfuscate/string.txt --
 GARBLE_EMBED_STRING_SECRET_194
@@ -155,6 +162,8 @@ GARBLE_EMBED_STRING_SECRET_194
 x
 -- obfuscate/bytes.txt --
 GARBLE_EMBED_BYTES_SECRET_194
+-- obfuscate/raw pattern.txt --
+GARBLE_RAW_PATTERN_SECRET_194
 -- obfuscate/static/a.txt --
 GARBLE_FS_SECRET_194
 -- obfuscate/static/sub/nested.txt --
@@ -188,3 +197,4 @@ variables: GARBLE_EMBED_STRING_SECRET_194
 |GARBLE_EMBED_BYTES_SECRET_194
 |GARBLE_EMBED_STRING_SECRET_194
 !
+raw: GARBLE_RAW_PATTERN_SECRET_194
