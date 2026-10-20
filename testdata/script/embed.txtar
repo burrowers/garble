@@ -3,9 +3,6 @@ exec ./main$exe
 cmp stdout main.stdout
 
 cd obfuscate
-! exec garble -literals build -o app$exe
-stderr 'embed: no files for pattern'
-stop
 exec garble -literals build -o app$exe
 exec ./app$exe
 cmp stdout want.stdout

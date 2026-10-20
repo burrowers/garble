@@ -65,14 +65,20 @@ func (tf *transformer) obfuscateEmbeds(files []*ast.File, flags []string) error 
 					if !strings.HasPrefix(comment.Text, "//go:embed ") {
 						continue
 					}
-					words, err := cmdgoQuotedSplit(strings.TrimPrefix(comment.Text, "//go:embed "))
+					directive, ok := ast.ParseDirective(comment.Slash, comment.Text)
+					if !ok {
+						return fmt.Errorf("invalid //go:embed directive")
+					}
+					args, err := directive.ParseArgs()
 					if err != nil {
 						return fmt.Errorf("invalid //go:embed: %w", err)
 					}
-					if len(words) == 0 {
+					if len(args) == 0 {
 						return fmt.Errorf("empty //go:embed directive")
 					}
-					patterns = append(patterns, words...)
+					for _, arg := range args {
+						patterns = append(patterns, arg.Arg)
+					}
 				}
 				if len(patterns) == 0 {
 					continue
