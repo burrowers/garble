@@ -8,6 +8,14 @@ binsubstr main$exe 'UnobfuscatedMethod'
 
 [short] stop # no need to verify this with -short
 
+# Frozen FIPS packages have versioned import paths, but keep unversioned
+# runtime linknames. Those targets must remain untouched, like FIPS itself.
+env GOFIPS140=v1.0.0
+exec garble build
+exec ./main
+cmp stderr main.stderr
+env GOFIPS140=off
+
 go build
 exec ./main
 cmp stderr main.stderr
@@ -33,6 +41,8 @@ func linknameCalledInPkg() {
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	_ "os/exec"
 	"reflect"
 	_ "strings"
@@ -98,6 +108,9 @@ func tagline() string
 func changeThing(c unsafe.Pointer, to string)
 
 func main() {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte("hello"))); got != "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" {
+		panic(got)
+	}
 	println(obfuscatedFunc())
 
 	r := imported.Receiver{Field: "field value"}
