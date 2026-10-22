@@ -99,6 +99,9 @@ Use -test to reverse frames from a binary built with "garble test":
 				}
 				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
 				newFilename := hashWithPackage(lpkg, origPos) + ".go"
+				if flagTiny {
+					newFilename = "p_" + newFilename
+				}
 				original := fmt.Sprintf("%s:%d", originalFile, pos.Line)
 				positions[newFilename] = original
 				if filepath.IsAbs(originalFile) {
@@ -142,7 +145,15 @@ Use -test to reverse frames from a binary built with "garble test":
 				case *ast.CallExpr:
 					// Reverse position information of call sites.
 					addPosition(node.Pos())
+				case *ast.SendStmt:
+					if flagTiny {
+						addPosition(node.Pos())
+					}
 				case ast.Expr:
+					if flagTiny {
+						addPosition(node.Pos())
+						continue
+					}
 					// Literal obfuscation turns a string constant expression into
 					// a decoder call at the expression's position. That call can
 					// set the position of a following call on the same line.
