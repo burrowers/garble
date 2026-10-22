@@ -172,7 +172,20 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 				// as array lengths or keyed indexes, from compiling.
 				return false
 			}
-			if typeAndValue.Type == types.Typ[types.String] {
+			byteStringArg := false
+			if typeAndValue.Type == types.Typ[types.UntypedString] {
+				if call, ok := cursor.Parent().(*ast.CallExpr); ok && len(call.Args) == 2 && call.Args[1] == node {
+					if ident, ok := call.Fun.(*ast.Ident); ok {
+						if builtin, ok := info.Uses[ident].(*types.Builtin); ok &&
+							(builtin.Name() == "copy" || builtin.Name() == "append" && call.Ellipsis.IsValid()) {
+							if slice, ok := info.TypeOf(call.Args[0]).Underlying().(*types.Slice); ok && slice.Elem() == types.Universe.Lookup("byte").Type() {
+								byteStringArg = true
+							}
+						}
+					}
+				}
+			}
+			if typeAndValue.Type == types.Typ[types.String] || byteStringArg {
 				value := constant.StringVal(typeAndValue.Value)
 				if len(value) >= MinSize {
 					cursor.Replace(withPos(obfuscateString(or, value), node.Pos()))
