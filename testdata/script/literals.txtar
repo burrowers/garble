@@ -4,6 +4,7 @@ cmp stderr main.stderr
 
 binsubstr main$exe 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const' 'sz<min'
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret' 'parens!!'
+binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -111,6 +112,8 @@ const padding2048 = padding512 + padding512 + padding512 + padding512
 
 func main() {
 	checkRepeatedLiterals()
+	checkAppendString()
+	checkCopyString()
 	checkLiteralOwners()
 	if len(namedPayload) != cap(namedPayload) || namedPayload[0] != 'a' || namedPayload[len(namedPayload)-1] != 0xff {
 		panic("named byte slice literal changed")
@@ -173,6 +176,25 @@ func main() {
 }
 
 type stringType string
+
+func checkAppendString() {
+	first := append([]byte(nil), "append variadic secret payload abcdefghijklmnopqrstuvwxyz"...)
+	second := append([]byte(nil), "append variadic secret payload abcdefghijklmnopqrstuvwxyz"...)
+	first[0] = '!'
+	if string(first) != "!ppend variadic secret payload abcdefghijklmnopqrstuvwxyz" ||
+		string(second) != "append variadic secret payload abcdefghijklmnopqrstuvwxyz" ||
+		len(first) != len(second) || cap(first) != cap(second) {
+		panic("append string literal changed or aliased")
+	}
+}
+
+func checkCopyString() {
+	dst := make([]byte, 64)
+	n := copy(dst, "copy untyped secret abcdefghijklmnopqrstuvwxyz")
+	if string(dst[:n]) != "copy untyped secret abcdefghijklmnopqrstuvwxyz" {
+		panic("copy string literal changed")
+	}
+}
 
 type stringTypeStruct struct {
 	str     string
