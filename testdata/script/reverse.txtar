@@ -28,11 +28,12 @@ cmp stdout reverse.stdout
 [!windows] ! grepfiles ${TMPDIR} 'garble|importcfg|cache\.gob|\.go'
 
 # Test-only sources are compiled into test variants, not the ordinary package.
+# Compare frame output without verbose per-test elapsed times.
 go test -c -trimpath -o plain-test$exe .
-exec ./plain-test$exe -test.run=TestReverse -test.v
+exec ./plain-test$exe -test.run=TestReverse
 cp stdout test.expected
 exec garble test -c -o obfuscated-test$exe .
-exec ./obfuscated-test$exe -test.run=TestReverse -test.v
+exec ./obfuscated-test$exe -test.run=TestReverse
 stdin stdout
 exec garble reverse -test .
 cmp stdout test.expected
