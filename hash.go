@@ -117,6 +117,10 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 		// -X now changes compiled initializers, not just the final link.
 		fmt.Fprintf(hasher, " ldflags=%q", flagValue(sharedCache.ForwardBuildFlags, "-ldflags"))
 	}
+	// Libraries and plugins must not reuse objects with weak literal init calls.
+	if flagLiterals && sharedCache.strongLiteralInit() {
+		io.WriteString(hasher, " literal-inits=strong")
+	}
 	// addGarbleToHash returns the sum buffer, so we need a new copy.
 	// Otherwise the next use of the global sumBuffer would conflict.
 	var sumBuffer [sha256.Size]byte

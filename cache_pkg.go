@@ -16,6 +16,7 @@ import (
 	"github.com/rogpeppe/go-internal/cache"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
+	"mvdan.cc/garble/internal/literals"
 )
 
 // "maps binkeys" lets pkgCache.ReflectAPIs use its int-keyed inner map.
@@ -50,9 +51,13 @@ type pkgCache struct {
 	// ReflectObjectNames maps obfuscated names which are reflected to their original
 	// non-obfuscated names. The key is a [reflectInspector.obfuscatedObjectName].
 	ReflectObjectNames map[string]string
+
+	// PureConstructors records body-proven value constructors by Func.FullName.
+	PureConstructors map[string]bool
 }
 
 func (c *pkgCache) CopyFrom(c2 pkgCache) {
+	maps.Copy(c.PureConstructors, c2.PureConstructors)
 	maps.Copy(c.ReflectAPIs, c2.ReflectAPIs)
 	maps.Copy(c.ReflectObjectNames, c2.ReflectObjectNames)
 }
@@ -165,9 +170,10 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			"reflect.ValueOf": {0: true},
 		},
 		ReflectObjectNames: map[string]string{},
+		PureConstructors:   map[string]bool{},
 	}
-	// Stop early if we don't import reflect, e.g. much of std.
-	if !lpkg.hasDep("reflect") {
+	constructors := flagLiterals && !isRuntimePkgPath(lpkg.ImportPath)
+	if !lpkg.hasDep("reflect") && !constructors {
 		return computed, nil
 	}
 	for _, imp := range lpkg.Imports {
@@ -200,8 +206,8 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 				computed.CopyFrom(loaded)
 				return nil
 			}
-			// Avoid parsing and typechecking if the dependency doesn't import reflect.
-			if !lpkg.hasDep("reflect") {
+			// Skip dependencies which need neither reflection nor constructor summaries.
+			if !lpkg.hasDep("reflect") && (!flagLiterals || isRuntimePkgPath(lpkg.ImportPath)) {
 				return nil
 			}
 			// Missing or corrupted entry in the cache for a dependency.
@@ -227,17 +233,22 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		}
 	}
 
-	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
-	inspector := reflectInspector{
-		lpkg:            lpkg,
-		pkg:             pkg,
-		propagatedInstr: map[ssa.Instruction]bool{},
-		result:          computed, // append the results
+	if constructors {
+		maps.Copy(computed.PureConstructors, literals.ConstructorSummaries(files, info, computed.PureConstructors))
 	}
-	if ssaPkg == nil {
-		ssaPkg = ssaBuildPkg(pkg, files, info)
+	if lpkg.hasDep("reflect") {
+		// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
+		inspector := reflectInspector{
+			lpkg:            lpkg,
+			pkg:             pkg,
+			propagatedInstr: map[ssa.Instruction]bool{},
+			result:          computed, // append the results
+		}
+		if ssaPkg == nil {
+			ssaPkg = ssaBuildPkg(pkg, files, info)
+		}
+		inspector.recordReflection(ssaPkg)
 	}
-	inspector.recordReflection(ssaPkg)
 
 	data, err := computed.MarshalMsg(nil)
 	if err != nil {

@@ -288,6 +288,9 @@ type transformer struct {
 	// Used when obfuscating literals, so that we obfuscate the injected value.
 	linkerVariableStrings map[*types.Var]string
 
+	literalGlobalInits []literals.GlobalInit
+	linknamedGlobals   map[*types.Var]bool
+
 	// fieldToStruct helps locate struct types from any of their field
 	// objects. Useful when obfuscating field names. See [computeFieldToStruct].
 	fieldToStruct map[*types.Var]*types.Struct
@@ -878,7 +881,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	// to miss on a package and for our cache to hit.
 	// The go/ssa builder needs Selections and Instances; we build SSA for control
 	// flow obfuscation, and in computePkgCache for reflect-importing packages.
-	withSSAInfo := flagControlFlow || tf.curPkg.hasDep("reflect")
+	withSSAInfo := flagControlFlow || flagLiterals || tf.curPkg.hasDep("reflect")
 	if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, withSSAInfo); err != nil {
 		return nil, err
 	}
@@ -918,7 +921,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			for _, file := range affectedFiles {
 				tf.useAllImports(file)
 			}
-			if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, false); err != nil {
+			if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, flagLiterals); err != nil {
 				return nil, err
 			}
 
@@ -1065,6 +1068,12 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 					continue
 				}
 				localName := fields[1]
+				if obj, ok := tf.pkg.Scope().Lookup(localName).(*types.Var); ok {
+					if tf.linknamedGlobals == nil {
+						tf.linknamedGlobals = make(map[*types.Var]bool)
+					}
+					tf.linknamedGlobals[obj] = true
+				}
 				newName := ""
 				if len(fields) == 3 {
 					newName = fields[2]
@@ -1582,7 +1591,9 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.ImportPath) {
-		file = literals.Obfuscate(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, randomName)
+		var inits []literals.GlobalInit
+		file, inits = literals.ObfuscateWithGlobalInits(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, randomName, tf.curPkgCache.PureConstructors)
+		tf.literalGlobalInits = append(tf.literalGlobalInits, inits...)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
 		tf.useAllImports(file)

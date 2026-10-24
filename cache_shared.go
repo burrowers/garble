@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,9 @@ import (
 // in each of the garble toolexec sub-processes.
 type sharedCacheType struct {
 	ForwardBuildFlags []string // build flags fed to the original "garble ..." command
+
+	// UsesPlugins records the actual build graph, excluding packages listed only for linknames.
+	UsesPlugins bool
 
 	CacheDir string // absolute path to the GARBLE_CACHE directory being used
 
@@ -67,6 +71,26 @@ type sharedCacheType struct {
 		GOVERSION string
 		GOROOT    string
 	}
+}
+
+func (c *sharedCacheType) strongLiteralInit() bool {
+	if c.UsesPlugins {
+		return true
+	}
+	switch flagValue(c.ForwardBuildFlags, "-buildmode") {
+	case "c-archive", "c-shared", "shared", "plugin":
+		return true
+	}
+	linkshared := false
+	for _, flag := range c.ForwardBuildFlags {
+		if flag == "-linkshared" {
+			linkshared = true
+		} else if value, ok := strings.CutPrefix(flag, "-linkshared="); ok {
+			parsed, err := strconv.ParseBool(value)
+			linkshared = err != nil || parsed
+		}
+	}
+	return linkshared
 }
 
 var sharedCache *sharedCacheType
@@ -595,6 +619,9 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// Note that GarbleActionID is filled by toolexecCmd once the listing
 		// is done, as hashing it needs garble's own content ID.
 
+		if mainBuild && pkg.ImportPath == "plugin" {
+			sharedCache.UsesPlugins = true
+		}
 		sharedCache.ListedPackages.set(pkg.ImportPath, &pkg)
 	}
 

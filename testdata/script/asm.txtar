@@ -3,7 +3,7 @@
 # TODO: support arm64, at least
 [!amd64] skip 'the assembly is only written for amd64'
 
-exec garble build
+exec garble -literals build
 exec ./main
 cmp stderr main.stderr
 ! binsubstr main$exe 'test/main' 'addJmp' 'AddImpl' 'garble_'
@@ -63,10 +63,18 @@ type Args struct {
 
 // addArgs computes a12 + a1 + a123 using go_asm.h constants
 func addArgs(args *Args) int64
+
 // argsSize returns the size of Args struct using go_asm.h constant
 func argsSize() int64
 
+var asmLiteral = "an assembly-only string global"
+
+func asmLiteralValue() string
+
 func main() {
+	if asmLiteralValue() != "an assembly-only string global" {
+		panic("assembly-only literal initializer removed")
+	}
 	println(addJmpPkgPath(1, 2))
 	println(addJmpPkgName(1, 2))
 
@@ -117,6 +125,13 @@ TEXT ·addArgs(SB), $0-16
 	ADDQ BX, AX
 	MOVQ Args_a123(R11), BX
 	ADDQ BX, AX
+	MOVQ AX, ret+8(FP)
+	RET
+
+TEXT ·asmLiteralValue(SB), $0-16
+	MOVQ ·asmLiteral+0(SB), AX
+	MOVQ AX, ret+0(FP)
+	MOVQ ·asmLiteral+8(SB), AX
 	MOVQ AX, ret+8(FP)
 	RET
 
