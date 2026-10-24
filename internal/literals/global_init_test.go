@@ -10,31 +10,55 @@ import (
 	"testing"
 )
 
-func TestGlobalLiteralUnevaluatedInitDependency(t *testing.T) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "global.go", `package globals
-var early = len([1]string{late})
-var late = "initialized through an unevaluated operand"
-`, 0)
+func TestConstructorSummarySafety(t *testing.T) {
+	fs := token.NewFileSet()
+	file, err := parser.ParseFile(fs, "safety.go", `package safety
+ type Key string
+ type Pair struct { Text string }
+ var global = "observable global value"
+ var array [1]string
+ var callback = Good
+ func Good(v string) Pair { return Pair{v} }
+ func Nested(v string) Pair { return Good(v) }
+ func Convert(v Key) Pair { return Pair{string(v)} }
+ func Read(v string) Pair { return Pair{global} }
+ func Write(v string) Pair { global = v; return Pair{v} }
+ func Panic(v string) Pair { panic(v) }
+ func Index(v string) Pair { return Pair{v[:1]} }
+ func Indirect(v string) Pair { return callback(v) }
+ func Rec(v string) Pair { return Rec(v) }
+ func RecA(v string) Pair { return RecB(v) }
+ func RecB(v string) Pair { return RecA(v) }
+ func Loop(v string) Pair { for {} }
+ func Dependency(v string) Pair { return Pair{string(len(array))} }
+ func Pointer(v *Key) Pair { return v.String("constant argument") }
+ func (k Key) String(v string) Pair { return Good(v) }
+ func (k *Key) Other(v string) Pair { return Good(v) }
+ type Embedded struct { *Key }
+ func Promoted(v Embedded) Pair { return v.String("constant argument") }
+ func MethodExpr(v Key) Pair { return Key.String(v, "constant argument") }
+ func Slice(v string) []string { return []string{v} }
+ func Divide(v int) int { return 1/v }
+ func Assert(v any) string { return v.(string) }
+ //go:linkname Linked
+ func Linked(v string) Pair { return Pair{v} }
+ `, parser.ParseComments)
 	if err != nil {
 		t.Fatal(err)
 	}
-	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
-	if _, err := new(types.Config).Check("globals", fset, []*ast.File{file}, info); err != nil {
+	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
+	if _, err := new(types.Config).Check("safety", fs, []*ast.File{file}, info); err != nil {
 		t.Fatal(err)
 	}
-	file, inits := ObfuscateWithGlobalInits(rand.New(rand.NewSource(1)), file, info, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%x", base, r.Uint64()) })
-	if len(inits) != 1 || inits[0].Global.Name != "late" {
-		t.Fatalf("unexpected global certificates: %v", inits)
-	}
-	// len does not evaluate its operand, but Go still orders late before early.
-	// Do not fold away that reference while obfuscating the string initializer.
-	transformed := &types.Info{}
-	if _, err := new(types.Config).Check("globals", fset, []*ast.File{file}, transformed); err != nil {
-		t.Fatal(err)
-	}
-	if len(transformed.InitOrder) != 2 || transformed.InitOrder[0].Lhs[0].Name() != "late" || transformed.InitOrder[1].Lhs[0].Name() != "early" {
-		t.Fatalf("unevaluated operand lost its init dependency: %v", transformed.InitOrder)
+	summaries := ConstructorSummaries([]*ast.File{file}, info, nil)
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			obj := info.Defs[fn.Name].(*types.Func)
+			want := fn.Name.Name == "Good" || fn.Name.Name == "Nested" || fn.Name.Name == "Convert" || fn.Name.Name == "String"
+			if got := summaries[obj.FullName()]; got != want {
+				t.Errorf("%s: pure = %v, want %v", obj.FullName(), got, want)
+			}
+		}
 	}
 }
 
@@ -48,6 +72,8 @@ func TestGlobalLiteralProxyOwnership(t *testing.T) {
 			}
 			long = long[:MaxSize]
 			file, err := parser.ParseFile(fset, "global.go", fmt.Sprintf(`package globals
+var early = len([1]string{late})
+var late = "initialized through an unevaluated operand"
 type record struct { Text string; Count int; Nested [2]string }
 var scalarDead = "an independently removable string global"
 var scalarLive = "another independently initialized string"
@@ -68,12 +94,27 @@ var sideMap = map[string]string{"a map with a user call": effect()}
 var refMap = map[string]string{"a map with a variable": live.Text}
 var keyRefMap = map[string]string{live.Text: "a constant value with a variable key"}
 var keyCallMap = map[string]string{effect(): "a constant value with a user call key"}
+type Key string
+type Value struct { Text string }
+type Pair struct { Key Key; Value Value }
+const K1 Key = "enum key number 1"
+func StringValue(v string) Value { return Value{v} }
+func (k Key) String(v string) Pair { return Pair{k, StringValue(v)} }
+var constructor = K1.String("enum value number 1")
+var mutableKey Key
+var receiver = mutableKey.String("must retain a variable receiver")
+func sideEffect(v string) Pair { println(v); return Pair{} }
+var constructorEffect = sideEffect("must retain constructor side effects")
+func read(v string) Pair { return Pair{mutableKey, StringValue(v)} }
+var constructorRead = read("must retain a global-reading constructor")
+var indirect = K1.String
+var unknown = indirect("must retain an indirect constructor")
 func effect() string { return "a user call is not pure" }
 `, long, long), 0)
 			if err != nil {
 				t.Fatal(err)
 			}
-			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
+			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
 			if _, err := new(types.Config).Check("globals", fset, []*ast.File{file}, info); err != nil {
 				t.Fatal(err)
 			}
@@ -81,7 +122,7 @@ func effect() string { return "a user call is not pure" }
 			testPkgToObfuscatorMap = map[string]obfuscator{"globals": obf}
 			defer func() { testPkgToObfuscatorMap = old }()
 			file, inits := ObfuscateWithGlobalInits(rand.New(rand.NewSource(1)), file, info, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%x", base, r.Uint64()) })
-			want := []string{"scalarDead", "scalarLive", "dead", "live", "oversized", "deadMap", "liveMap"}
+			want := []string{"late", "scalarDead", "scalarLive", "dead", "live", "oversized", "deadMap", "liveMap", "constructor"}
 			if len(inits) != len(want) {
 				t.Fatalf("unexpected certificates: %v", inits)
 			}
@@ -99,11 +140,16 @@ func effect() string { return "a user call is not pure" }
 				}
 			}
 			// Only the uncertified initializers retain package-level proxy roots.
-			if vars != 20 {
-				t.Fatalf("got %d package variables; want 18 globals and two shared roots", vars)
+			if vars != 29 {
+				t.Fatalf("got %d package variables; want 27 globals and two shared roots", vars)
 			}
-			if _, err := new(types.Config).Check("globals", fset, []*ast.File{file}, nil); err != nil {
+			transformed := &types.Info{}
+			if _, err := new(types.Config).Check("globals", fset, []*ast.File{file}, transformed); err != nil {
 				t.Fatal(err)
+			}
+			// len does not evaluate its operand, but late must still precede early.
+			if len(transformed.InitOrder) < 2 || transformed.InitOrder[0].Lhs[0].Name() != "late" || transformed.InitOrder[1].Lhs[0].Name() != "early" {
+				t.Fatalf("unevaluated operand lost its init dependency: %v", transformed.InitOrder)
 			}
 			ast.Inspect(file, func(node ast.Node) bool {
 				if lit, ok := node.(*ast.BasicLit); ok && lit.Kind == token.STRING && lit.Value == fmt.Sprintf("%q", long) {

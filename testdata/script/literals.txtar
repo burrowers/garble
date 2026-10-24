@@ -49,6 +49,47 @@ exec ./aliasprog$exe
 cmp stderr alias.stderr
 ! binsubstr aliasprog$exe 'initialized owner of linked string'
 
+# Darwin arm64 uses compiler -shared for normal PIC executables, not just libraries.
+cd pic
+env GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr weak
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr weak
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -buildmode=exe -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr weak
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr weak
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -buildmode=pie -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr weak
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr weak
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -buildmode=c-archive -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr strong
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr strong
+# Reuse the same dependency and cache after switching back from a library build.
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -buildmode=pie -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr weak
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr weak
+env GOFLAGS=-buildmode=c-archive
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr strong
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr strong
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -buildmode=pie -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr weak
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr weak
+
+-- pic/main.go --
+package main
+
+import "test/main/pic/dep"
+
+var Live = "live main global string"
+var Dead = "dead main global string"
+
+func main() { println(Live, dep.Live) }
+-- pic/dep/dep.go --
+package dep
+
+var Live = "live imported global string"
+var Dead = "dead imported global string"
 -- alias/main.go --
 package main
 

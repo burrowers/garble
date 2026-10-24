@@ -7,6 +7,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,8 +19,105 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-quicktest/qt"
+
 	"mvdan.cc/garble/internal/patcher"
 )
+
+// Check both the global and its factory; normal Garble binaries have no nm symbols.
+func checkLiteralInitReachability(t interface{ Fatalf(string, ...any) }, source string, output []byte, indices []int, retained func(int) bool) {
+	symbols := make(map[string]bool)
+	for line := range strings.SplitSeq(string(output), "\n") {
+		if _, target, ok := strings.Cut(line, " -> "); ok {
+			if fields := strings.Fields(target); len(fields) > 0 {
+				// Package paths can contain dots; only the final component is a name.
+				name := fields[0][strings.LastIndexByte(fields[0], '.')+1:]
+				symbols[name] = true
+			}
+		}
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), source, nil, 0)
+	if err != nil {
+		t.Fatalf("parse transformed source: %v", err)
+	}
+	var globals []*ast.ValueSpec
+	for _, decl := range file.Decls {
+		if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == token.VAR {
+			for _, spec := range decl.Specs {
+				globals = append(globals, spec.(*ast.ValueSpec))
+			}
+		}
+	}
+	for _, i := range indices {
+		if i >= len(globals) {
+			t.Fatalf("missing global %d in %s", i, source)
+		}
+		global := globals[i]
+		if len(global.Names) != 1 || len(global.Values) != 1 {
+			t.Fatalf("unexpected global shape: %v", global)
+		}
+		call, ok := global.Values[0].(*ast.CallExpr)
+		if !ok {
+			t.Fatalf("global initializer is not a factory call: %T", global.Values[0])
+		}
+		factory, ok := call.Fun.(*ast.Ident)
+		if !ok {
+			t.Fatalf("factory is not a direct call: %T", call.Fun)
+		}
+		for _, name := range []string{global.Names[0].Name, factory.Name} {
+			if want := retained(i); symbols[name] != want {
+				t.Fatalf("%s: symbol %s retained = %v, want %v", source, name, symbols[name], want)
+			}
+		}
+	}
+}
+
+func TestLiteralInitBuildModeCacheIdentity(t *testing.T) {
+	oldCache, oldLiterals := sharedCache, flagLiterals
+	defer func() { sharedCache, flagLiterals = oldCache, oldLiterals }()
+	sharedCache = &sharedCacheType{BinaryContentID: []byte("test"), ListedPackages: newListedPackages()}
+	flagLiterals = true
+	weak := addGarbleToHash([]byte("compiler"))
+	for _, tc := range []struct {
+		flags           []string
+		plugins, strong bool
+	}{
+		{nil, false, false},
+		{nil, true, true},
+		{[]string{"-buildmode=default"}, false, false},
+		{[]string{"-buildmode=exe"}, false, false},
+		{[]string{"-buildmode=pie"}, false, false},
+		{[]string{"-buildmode=archive"}, false, false},
+		{[]string{"-buildmode=c-archive"}, false, true},
+		{[]string{"-buildmode", "c-shared"}, false, true},
+		{[]string{"-buildmode=shared"}, false, true},
+		{[]string{"-buildmode=plugin"}, false, true},
+		{[]string{"-linkshared"}, false, true},
+		{[]string{"-linkshared=false"}, false, false},
+		{[]string{"-buildmode=c-shared", "-buildmode=pie"}, false, false},
+	} {
+		t.Run(fmt.Sprintf("%v/plugins=%v", tc.flags, tc.plugins), func(t *testing.T) {
+			sharedCache.ForwardBuildFlags, sharedCache.UsesPlugins = tc.flags, tc.plugins
+			data, err := sharedCache.MarshalMsg(nil)
+			qt.Assert(t, qt.IsNil(err))
+			var decoded sharedCacheType
+			if _, err := decoded.UnmarshalMsg(data); err != nil {
+				t.Fatal(err)
+			}
+			sharedCache = &decoded
+			if strong := addGarbleToHash([]byte("compiler")) != weak; strong != tc.strong {
+				t.Fatalf("strong initializer cache identity = %v, want %v", strong, tc.strong)
+			}
+		})
+	}
+	flagLiterals = false
+	sharedCache.UsesPlugins = true
+	withPlugin := addGarbleToHash([]byte("compiler"))
+	sharedCache.UsesPlugins = false
+	if withPlugin != addGarbleToHash([]byte("compiler")) {
+		t.Fatal("plugin marker affects builds without literal obfuscation")
+	}
+}
 
 func TestLiteralInitConstructorCache(t *testing.T) {
 	original := pkgCache{
@@ -26,9 +126,7 @@ func TestLiteralInitConstructorCache(t *testing.T) {
 		ReflectObjectNames: map[string]string{"hidden": "original"},
 	}
 	data, err := original.MarshalMsg(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	var loaded pkgCache
 	rest, err := loaded.UnmarshalMsg(data)
 	if err != nil || len(rest) != 0 {
@@ -76,9 +174,7 @@ func TestLiteralInitLargePackage(t *testing.T) {
 		}
 	}
 	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	binary := filepath.Join(dir, "program")
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
@@ -105,30 +201,20 @@ func TestLiteralInitLargePackage(t *testing.T) {
 func TestLiteralInitManifestCompiler(t *testing.T) {
 	dir := t.TempDir()
 	goroot, err := exec.Command("go", "env", "GOROOT").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	version, err := exec.Command("go", "env", "GOVERSION").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	cache, err := os.UserCacheDir()
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	compiler, err := patcher.PatchCompiler("", strings.TrimSpace(string(goroot)), strings.TrimSpace(string(version)), filepath.Join(cache, "garble"), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	source := filepath.Join(dir, "case.go")
 	if err := os.WriteFile(source, []byte("package p\nvar value = factory()\n//go:noinline\nfunc factory() string { return \"value\" }\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Run("inactive-stock-parity", func(t *testing.T) {
 		toolDir, err := exec.Command("go", "env", "GOTOOLDIR").Output()
-		if err != nil {
-			t.Fatal(err)
-		}
+		qt.Assert(t, qt.IsNil(err))
 		object := filepath.Join(dir, "inactive.o")
 		args := []string{"-p", "p", "-o", object, source}
 		var stock []byte
@@ -146,9 +232,7 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 				t.Fatalf("inactive compilation: %v\n%s", err, output)
 			}
 			data, err := os.ReadFile(object)
-			if err != nil {
-				t.Fatal(err)
-			}
+			qt.Assert(t, qt.IsNil(err))
 			if stock == nil {
 				stock = data
 			} else if !bytes.Equal(stock, data) {
@@ -161,9 +245,7 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 		certificates[fmt.Sprintf("unused%06d", i)] = fmt.Sprintf("factory%06d", i)
 	}
 	data, err := json.Marshal(certificates)
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	if len(data) <= 131072 {
 		t.Fatal("manifest does not exceed Linux single-string limit")
 	}
@@ -202,18 +284,14 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			input := source
+			text := "package p\nvar value = factory()\n//go:noinline\nfunc factory() string { return \"value\" }\n"
 			if strings.HasPrefix(tc.name, "aggregate-") {
 				result := map[string]string{"aggregate-map": "map[string]rune", "aggregate-array": "[2]string", "aggregate-struct": "struct{ Text string }", "aggregate-interface": "any", "aggregate-slice": "[]string"}[tc.name]
 				body := result + "{}"
 				if result == "any" {
 					body = `"value"`
 				}
-				input = filepath.Join(dir, tc.name+".go")
-				text := "package p\nvar value = factory()\n//go:noinline\nfunc factory() " + result + " { return " + body + " }\n"
-				if err := os.WriteFile(input, []byte(text), 0600); err != nil {
-					t.Fatal(err)
-				}
+				text = "package p\nvar value = factory()\n//go:noinline\nfunc factory() " + result + " { return " + body + " }\n"
 			}
 			linked := strings.HasPrefix(tc.name, "linkname")
 			if linked {
@@ -225,24 +303,16 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 				} else if tc.name == "linknamestd-single" {
 					directive = "//go:linknamestd value"
 				}
-				input = filepath.Join(dir, tc.name+".go")
-				text := "package p\nimport _ \"unsafe\"\n" + directive + "\nvar value = factory()\n//go:noinline\nfunc factory() string { return \"value\" }\n"
-				if err := os.WriteFile(input, []byte(text), 0600); err != nil {
-					t.Fatal(err)
-				}
+				text = "package p\nimport _ \"unsafe\"\n" + directive + "\nvar value = factory()\n//go:noinline\nfunc factory() string { return \"value\" }\n"
 			}
 			if tc.name == "invalid-assignment" {
-				input = filepath.Join(dir, tc.name+".go")
-				text := "package p\nvar value = factory(1)\n//go:noinline\nfunc factory(n int) string { return \"value\" }\n"
-				if err := os.WriteFile(input, []byte(text), 0600); err != nil {
-					t.Fatal(err)
-				}
+				text = "package p\nvar value = factory(1)\n//go:noinline\nfunc factory(n int) string { return \"value\" }\n"
 			}
 			if strings.HasSuffix(tc.name, "-noinit") {
-				input = filepath.Join(dir, "noinit.go")
-				if err := os.WriteFile(input, []byte("package p\n"), 0600); err != nil {
-					t.Fatal(err)
-				}
+				text = "package p\n"
+			}
+			if err := os.WriteFile(source, []byte(text), 0600); err != nil {
+				t.Fatal(err)
 			}
 			args := []string{"-S", "-p", "p", "-o", filepath.Join(dir, tc.name+".o")}
 			if strings.HasSuffix(tc.name, "-shared") || tc.name == "darwin-arm64-pic" {
@@ -254,7 +324,7 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 			if strings.HasSuffix(tc.name, "-disabled") {
 				args = append(args, "-d=wrapglobalmapctl=1")
 			}
-			cmd := exec.Command(compiler, append(args, input)...)
+			cmd := exec.Command(compiler, append(args, source)...)
 			for _, entry := range os.Environ() {
 				if !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS=") && !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS_FILE=") && !strings.HasPrefix(entry, "GARBLE_PKGPATH_MAP=") && !strings.HasPrefix(entry, "GARBLE_SYMBOL_MAP=") && !strings.HasPrefix(entry, "GOOS=") && !strings.HasPrefix(entry, "GOARCH=") {
 					cmd.Env = append(cmd.Env, entry)
