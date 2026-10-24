@@ -192,6 +192,17 @@ func (fc *funcConverter) getAnonFunctionName(val *ssa.Function) (*ast.Ident, err
 	return ast.NewIdent(fc.getAnonFuncName(anonFuncIdx)), nil
 }
 
+func functionPackage(val *ssa.Function) *types.Package {
+	if val.Pkg != nil {
+		return val.Pkg.Pkg
+	}
+	// Instantiated imported functions can have no SSA package.
+	if obj := val.Object(); obj != nil {
+		return obj.Pkg()
+	}
+	return nil
+}
+
 func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, error) {
 	callExpr := &ast.CallExpr{}
 	argsOffset := 0
@@ -227,13 +238,14 @@ func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, 
 				}
 				callExpr.Fun = ah.SelectExpr(recvExpr, methodName)
 			} else {
-				if val.Pkg != nil {
-					if pkgIdent := fc.importNameResolver(val.Pkg.Pkg); pkgIdent != nil {
+				if pkg := functionPackage(val); pkg != nil {
+					if pkgIdent := fc.importNameResolver(pkg); pkgIdent != nil {
 						callExpr.Fun = ah.SelectExpr(pkgIdent, methodName)
-						break
 					}
 				}
-				callExpr.Fun = methodName
+				if callExpr.Fun == nil {
+					callExpr.Fun = methodName
+				}
 			}
 			if typeArgs := val.TypeArgs(); len(typeArgs) > 0 {
 				// Generic methods are called in a monomorphic view (e.g. "someMethod[int string]"),
@@ -362,12 +374,25 @@ func (fc *funcConverter) ssaValue(ssaValue ssa.Value, explicitNil bool) (expr as
 		}
 
 		name := ast.NewIdent(val.Name())
-		if val.Signature.Recv() == nil && val.Pkg != nil {
-			if pkgIdent := fc.importNameResolver(val.Pkg.Pkg); pkgIdent != nil {
-				return ah.SelectExpr(pkgIdent, name), nil
+		var funcExpr ast.Expr = name
+		if pkg := functionPackage(val); pkg != nil && val.Signature.Recv() == nil {
+			if pkgIdent := fc.importNameResolver(pkg); pkgIdent != nil {
+				funcExpr = ah.SelectExpr(pkgIdent, name)
 			}
 		}
-		return name, nil
+		if typeArgs := val.TypeArgs(); len(typeArgs) > 0 {
+			name.Name, _, _ = strings.Cut(name.Name, "[")
+			indexed := &ast.IndexListExpr{X: funcExpr}
+			for _, typArg := range typeArgs {
+				typeExpr, err := fc.tc.Convert(typArg)
+				if err != nil {
+					return nil, err
+				}
+				indexed.Indices = append(indexed.Indices, typeExpr)
+			}
+			funcExpr = indexed
+		}
+		return funcExpr, nil
 	case *ssa.Const:
 		var constExpr ast.Expr
 		if val.Value == nil {

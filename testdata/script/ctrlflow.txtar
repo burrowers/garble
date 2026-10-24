@@ -38,6 +38,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"hash/crc32"
+	"slices"
 	"unsafe"
 )
 
@@ -149,8 +150,38 @@ func namedClosureResult() int {
 	return f()
 }
 
+func applyReverse(f func([]int), values []int) { f(values) }
+
+func keepShadow() {
+	slices := struct{ Field int }{7}
+	if slices.Field != 7 {
+		panic("shadowed package name changed")
+	}
+}
+
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func reverseDuringRange(values []int) []int {
+	seen := make([]int, 0, len(values))
+	for i, value := range values {
+		if i == 0 {
+			slices.Reverse(values)
+			undo := slices.Reverse[[]int]
+			undo(values)
+			applyReverse(slices.Reverse[[]int], values)
+			applyReverse(slices.Reverse[[]int], values)
+			slices.Reverse(values)
+		}
+		seen = append(seen, value)
+	}
+	return seen
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
+	keepShadow()
+	if got := reverseDuringRange([]int{11, 22, 33, 44, 55}); !slices.Equal(got, []int{11, 44, 33, 22, 11}) {
+		panic("reversed slice range values changed")
+	}
 	if got := namedResultDefer(); got != 42 {
 		panic("deferred named result was lost")
 	}

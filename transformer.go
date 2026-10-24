@@ -1384,8 +1384,26 @@ func (tf *transformer) useAllImports(file *ast.File) {
 			}
 		}
 		if nameObj == nil {
-			// A very unlikely situation where there is no suitable declaration for a reference variable
-			// and almost certainly means that there is another import reference in code.
+			// A package exporting only generic declarations cannot provide a
+			// stand-alone reference here. Keep its initialization without
+			// leaving an unused named import after the function moves.
+			// The original type information identifies surviving uses after
+			// control-flow conversion removed the annotated function body.
+			used := false
+			ast.Inspect(file, func(n ast.Node) bool {
+				id, ok := n.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				obj := tf.info.Uses[id]
+				if obj == pkgName || (imp.Name != nil && imp.Name.Name == "." && obj != nil && obj.Pkg() == pkgName.Imported()) {
+					used = true
+				}
+				return true
+			})
+			if !used {
+				imp.Name = ast.NewIdent("_")
+			}
 			continue
 		}
 		spec := &ast.ValueSpec{Names: []*ast.Ident{ast.NewIdent("_")}}
