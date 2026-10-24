@@ -193,9 +193,9 @@ func (z goAsmNames) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *pkgCache) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 2
+	// map header, size 3
 	// string "ReflectAPIs"
-	o = append(o, 0x82, 0xab, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x41, 0x50, 0x49, 0x73)
+	o = append(o, 0x83, 0xab, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x41, 0x50, 0x49, 0x73)
 	o = msgp.AppendMapHeader(o, uint32(len(z.ReflectAPIs)))
 	for za0001, za0002 := range z.ReflectAPIs {
 		o = msgp.AppendString(o, za0001)
@@ -211,6 +211,13 @@ func (z *pkgCache) MarshalMsg(b []byte) (o []byte, err error) {
 	for za0005, za0006 := range z.ReflectObjectNames {
 		o = msgp.AppendString(o, za0005)
 		o = msgp.AppendString(o, za0006)
+	}
+	// string "PureConstructors"
+	o = append(o, 0xb0, 0x50, 0x75, 0x72, 0x65, 0x43, 0x6f, 0x6e, 0x73, 0x74, 0x72, 0x75, 0x63, 0x74, 0x6f, 0x72, 0x73)
+	o = msgp.AppendMapHeader(o, uint32(len(z.PureConstructors)))
+	for za0007, za0008 := range z.PureConstructors {
+		o = msgp.AppendString(o, za0007)
+		o = msgp.AppendBool(o, za0008)
 	}
 	return
 }
@@ -311,6 +318,34 @@ func (z *pkgCache) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				}
 				z.ReflectObjectNames[za0005] = za0006
 			}
+		case "PureConstructors":
+			var zb0005 uint32
+			zb0005, bts, err = msgp.ReadMapHeaderBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "PureConstructors")
+				return
+			}
+			if z.PureConstructors == nil {
+				z.PureConstructors = make(map[string]bool, zb0005)
+			} else if len(z.PureConstructors) > 0 {
+				clear(z.PureConstructors)
+			}
+			for zb0005 > 0 {
+				var za0008 bool
+				zb0005--
+				var za0007 string
+				za0007, bts, err = msgp.ReadStringBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "PureConstructors")
+					return
+				}
+				za0008, bts, err = msgp.ReadBoolBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "PureConstructors", za0007)
+					return
+				}
+				z.PureConstructors[za0007] = za0008
+			}
 		default:
 			bts, err = msgp.Skip(bts)
 			if err != nil {
@@ -344,6 +379,13 @@ func (z *pkgCache) Msgsize() (s int) {
 		for za0005, za0006 := range z.ReflectObjectNames {
 			_ = za0006
 			s += msgp.StringPrefixSize + len(za0005) + msgp.StringPrefixSize + len(za0006)
+		}
+	}
+	s += 17 + msgp.MapHeaderSize
+	if z.PureConstructors != nil {
+		for za0007, za0008 := range z.PureConstructors {
+			_ = za0008
+			s += msgp.StringPrefixSize + len(za0007) + msgp.BoolSize
 		}
 	}
 	return

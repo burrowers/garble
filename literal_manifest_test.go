@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
@@ -18,27 +19,58 @@ import (
 	"mvdan.cc/garble/internal/patcher"
 )
 
+func TestLiteralInitConstructorCache(t *testing.T) {
+	original := pkgCache{
+		PureConstructors:   map[string]bool{"(example.com/attribute.Key).String": true, "example.com/attribute.StringValue": true},
+		ReflectAPIs:        map[string]map[int]bool{"reflect.TypeOf": {0: true}},
+		ReflectObjectNames: map[string]string{"hidden": "original"},
+	}
+	data, err := original.MarshalMsg(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded pkgCache
+	rest, err := loaded.UnmarshalMsg(data)
+	if err != nil || len(rest) != 0 {
+		t.Fatalf("cache decode: %v, remainder %d", err, len(rest))
+	}
+	merged := pkgCache{PureConstructors: map[string]bool{}, ReflectAPIs: map[string]map[int]bool{}, ReflectObjectNames: map[string]string{}}
+	merged.CopyFrom(loaded)
+	if !reflect.DeepEqual(original, merged) {
+		t.Fatalf("cache lost summaries: %#v", merged)
+	}
+}
+
 func TestLiteralInitLargePackage(t *testing.T) {
 	if testing.Short() {
 		t.Skip("large package compiler integration")
 	}
 	dir := t.TempDir()
 	var source strings.Builder
-	source.WriteString("package main\nimport \"example.com/large/imported\"\n")
+	source.WriteString("package main\nimport (\"example.com/large/imported\"; \"example.com/large/attribute\")\n")
 	for i := range 6000 {
 		fmt.Fprintf(&source, "var Global%06d = %q\n", i, fmt.Sprintf("large package constant value %06d", i))
 	}
 	source.WriteString("var AggregateLive = [2]string{\"live main aggregate string\"}\nvar AggregateDead = [2]string{\"dead main aggregate string\"}\n")
 	source.WriteString("var MapLive = map[string]rune{\"live main map key\": 'x'}\nvar MapDead = map[string]rune{\"dead main map key\": 'y'}\n")
-	source.WriteString("func main() { if AggregateLive[0] != \"live main aggregate string\" || imported.AggregateLive.Text != \"live imported aggregate string\" || MapLive[\"live main map key\"] != 'x' || imported.MapLive[\"live imported map key\"] != 'y' { panic(\"aggregate init removed\") }; println(Global000000); println(imported.Live) }\n")
+	source.WriteString("const K1 attribute.Key = \"enum key number 1\"\nvar ConstructorLive = K1.String(\"enum value number 1\")\nvar ConstructorDead = K1.String(\"unused enum value number 1\")\n")
+	source.WriteString("func main() { if ConstructorLive.Value.Text != \"enum value number 1\" || imported.ConstructorLive.Value.Text != \"enum value number 1\" || AggregateLive[0] != \"live main aggregate string\" || imported.AggregateLive.Text != \"live imported aggregate string\" || MapLive[\"live main map key\"] != 'x' || imported.MapLive[\"live imported map key\"] != 'y' { panic(\"aggregate init removed\") }; println(Global000000); println(imported.Live) }\n")
 	if err := os.Mkdir(filepath.Join(dir, "imported"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "attribute"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	for name, data := range map[string]string{
 		"go.mod":               "module example.com/large\n\ngo 1.27\n",
 		"main.go":              source.String(),
+		"attribute/key.go":     "package attribute\ntype Key string\ntype Pair struct { Key Key; Value Value }\nfunc (k Key) String(v string) Pair { return Pair{k, StringValue(v)} }\n",
+		"attribute/value.go":   "package attribute\ntype Value struct { Text string }\nfunc StringValue(v string) Value { return Value{v} }\n",
 		"imported/imported.go": "package imported\nvar Live = \"live imported string global\"\nvar Dead = \"dead imported string global\"\ntype record struct { Text string }\nvar AggregateLive = record{\"live imported aggregate string\"}\nvar AggregateDead = record{\"dead imported aggregate string\"}\nvar MapLive = map[string]rune{\"live imported map key\": 'y'}\nvar MapDead = map[string]rune{\"dead imported map key\": 'z'}\n",
 	} {
+		if name == "imported/imported.go" {
+			data = strings.Replace(data, "package imported\n", "package imported\nimport \"example.com/large/attribute\"\n", 1) + "const K1 attribute.Key = \"enum key number 1\"\nvar ConstructorLive = K1.String(\"enum value number 1\")\nvar ConstructorDead = K1.String(\"unused enum value number 1\")\n"
+		}
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -62,10 +94,10 @@ func TestLiteralInitLargePackage(t *testing.T) {
 	if output, err := exec.Command(binary).CombinedOutput(); err != nil || string(output) != "large package constant value 000000\nlive imported string global\n" {
 		t.Fatalf("large package execution: %v\n%s", err, output)
 	}
-	for name, n := range map[string]int{"main.go": 6004, "imported/imported.go": 6} {
+	for name, n := range map[string]int{"main.go": 6006, "imported/imported.go": 8} {
 		t.Run(name, func(t *testing.T) {
 			checkLiteralInitReachability(t, filepath.Join(debugdir, "garbled", "example.com/large", name), output,
-				[]int{0, 1, n - 4, n - 3, n - 2, n - 1}, func(i int) bool { return i%2 == 0 })
+				[]int{0, 1, n - 6, n - 5, n - 4, n - 3, n - 2, n - 1}, func(i int) bool { return i%2 == 0 })
 		})
 	}
 }

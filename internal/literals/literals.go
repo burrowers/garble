@@ -45,7 +45,7 @@ type EmbeddedValue struct {
 	String bool
 }
 
-// GlobalInit certifies a generated constant-only factory for one global.
+// GlobalInit certifies a generated side-effect-free factory for one global.
 // The declaration name is retained by pointer so subsequent renaming is reflected.
 type GlobalInit struct {
 	Global  *ast.Ident
@@ -58,7 +58,13 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 	return file
 }
 
-func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, embeds map[ast.Expr]EmbeddedValue, nameFunc NameProviderFunc) (*ast.File, []GlobalInit) {
+func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, embeds map[ast.Expr]EmbeddedValue, nameFunc NameProviderFunc, summaries ...map[string]bool) (*ast.File, []GlobalInit) {
+	var constructors map[string]bool
+	if len(summaries) != 0 {
+		constructors = summaries[0]
+	} else {
+		constructors = ConstructorSummaries([]*ast.File{file}, info, nil)
+	}
 	or := newObfRand(rand, file, nameFunc)
 	var globalInits []GlobalInit
 	// Package initializers, including their function literals, keep a shared
@@ -118,8 +124,28 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 			if len(node.Names) == 1 && len(node.Values) == 1 && node.Names[0].Name != "_" {
 				obj := info.Defs[node.Names[0]].(*types.Var)
 				value := node.Values[0]
-				if obj.Parent() == obj.Pkg().Scope() && types.Identical(obj.Type(), info.TypeOf(value)) && pureStringInit(value, info) {
+				var constructorType ast.Expr
+				if _, ok := ast.Unparen(value).(*ast.CallExpr); ok && obj.Parent() == obj.Pkg().Scope() && constructorVariables(value, info, nil) && constructorExpr(value, info, nil, func(fn *types.Func) bool { return constructors[fn.FullName()] }) {
+					found := false
+					ast.Inspect(value, func(n ast.Node) bool {
+						if e, ok := n.(ast.Expr); ok {
+							v := info.Types[e]
+							if v.Type == types.Typ[types.String] && v.Value != nil && v.Value.Kind() == constant.String {
+								size := len(constant.StringVal(v.Value))
+								found = found || size >= MinSize && size <= MaxSize
+							}
+						}
+						return true
+					})
+					if found {
+						constructorType = constructorResult(file, info, obj.Type())
+					}
+				}
+				if obj.Parent() == obj.Pkg().Scope() && types.Identical(obj.Type(), info.TypeOf(value)) && (pureStringInit(value, info) || constructorType != nil) {
 					resultType := ast.Expr(ast.NewIdent("string"))
+					if constructorType != nil {
+						resultType = constructorType
+					}
 					if lit, ok := ast.Unparen(value).(*ast.CompositeLit); ok {
 						resultType = lit.Type
 						if array, ok := resultType.(*ast.ArrayType); ok {

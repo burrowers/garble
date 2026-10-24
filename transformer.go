@@ -881,7 +881,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	// to miss on a package and for our cache to hit.
 	// The go/ssa builder needs Selections and Instances; we build SSA for control
 	// flow obfuscation, and in computePkgCache for reflect-importing packages.
-	withSSAInfo := flagControlFlow || tf.curPkg.hasDep("reflect")
+	withSSAInfo := flagControlFlow || flagLiterals || tf.curPkg.hasDep("reflect")
 	if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, withSSAInfo); err != nil {
 		return nil, err
 	}
@@ -921,7 +921,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			for _, file := range affectedFiles {
 				tf.useAllImports(file)
 			}
-			if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, false); err != nil {
+			if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, flagLiterals); err != nil {
 				return nil, err
 			}
 
@@ -1574,7 +1574,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.ImportPath) {
 		var inits []literals.GlobalInit
-		file, inits = literals.ObfuscateWithGlobalInits(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, randomName)
+		file, inits = literals.ObfuscateWithGlobalInits(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, randomName, tf.curPkgCache.PureConstructors)
 		tf.literalGlobalInits = append(tf.literalGlobalInits, inits...)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
