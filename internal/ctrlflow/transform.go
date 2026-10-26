@@ -182,11 +182,23 @@ func applySplitting(ssaFunc *ssa.Function, obfRand *mathrand.Rand) bool {
 	}
 
 	const minInstrCount = 1 + 1 // 1 exit instruction + 1 any instruction
-	if targetBlock == nil || len(targetBlock.Instrs) <= minInstrCount {
+	// Phis must stay in the block they start in: their edges are indexed by the
+	// predecessor list of that block, so moving some of them into the new block
+	// would leave edges for predecessors the new block does not have.
+	phiCount := 0
+	if targetBlock != nil {
+		for _, instr := range targetBlock.Instrs {
+			if _, ok := instr.(*ssa.Phi); !ok {
+				break
+			}
+			phiCount++
+		}
+	}
+	if targetBlock == nil || len(targetBlock.Instrs)-phiCount <= minInstrCount {
 		return false
 	}
 
-	splitIdx := 1 + obfRand.Intn(len(targetBlock.Instrs)-2)
+	splitIdx := phiCount + 1 + obfRand.Intn(len(targetBlock.Instrs)-phiCount-2)
 
 	firstPart := make([]ssa.Instruction, splitIdx+1)
 	copy(firstPart, targetBlock.Instrs)
