@@ -59,12 +59,14 @@ func TestSeedRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSeedFixedOutputBuffer(t *testing.T) {
+func TestSeedPayloadLoop(t *testing.T) {
 	r := newObfRand(rand.New(rand.NewSource(123)), &ast.File{Name: ast.NewIdent("main")}, func(_ *rand.Rand, name string) string { return "hidden_" + name })
 	names := newGeneratedNames(r)
 	keys := randExtKeys(r.rnd, names)
-	block := (seed{}).obfuscate(r.rnd, names, []byte("long_enough_string"), keys)
-	var appendCalls, indexedWrites, indirectCalls int
+	data := []byte("long_enough_string")
+	block := (seed{}).obfuscate(r.rnd, names, data, keys)
+
+	var appendCalls, indexedWrites, loops, payloadStrings int
 	ast.Inspect(block, func(node ast.Node) bool {
 		switch node := node.(type) {
 		case *ast.CallExpr:
@@ -72,24 +74,45 @@ func TestSeedFixedOutputBuffer(t *testing.T) {
 				appendCalls++
 			}
 			if _, ok := node.Fun.(*ast.CallExpr); ok {
-				indirectCalls++
+				t.Fatal("decoder still builds a nested function-value chain")
 			}
+		case *ast.ForStmt:
+			loops++
 		case *ast.AssignStmt:
 			for _, lhs := range node.Lhs {
-				if idx, ok := lhs.(*ast.IndexExpr); ok {
-					if id, ok := idx.X.(*ast.Ident); ok && id.Name == names.name("data") {
-						indexedWrites++
+				idx, ok := lhs.(*ast.IndexExpr)
+				if !ok {
+					continue
+				}
+				id, ok := idx.X.(*ast.Ident)
+				if !ok || id.Name != names.name("data") {
+					continue
+				}
+				indexedWrites++
+				// The payload is the only static copy of the encrypted bytes.
+				p, ok := idx.Index.(*ast.Ident)
+				if !ok || p.Name != names.name("i") {
+					t.Fatalf("decoded byte is not written at the loop index: %T", idx.Index)
+				}
+			}
+			for i, lhs := range node.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok && id.Name == names.name("payload") {
+					lit, ok := node.Rhs[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						t.Fatalf("payload must be a string literal, got %T", node.Rhs[i])
 					}
+					payloadStrings++
 				}
 			}
 		}
 		return true
 	})
-	if appendCalls != 0 || indexedWrites != 1 {
-		t.Fatalf("decoder must fill its fixed buffer: append calls=%d, indexed writes=%d", appendCalls, indexedWrites)
+	if appendCalls != 0 || indexedWrites != 1 || loops != 1 {
+		t.Fatalf("decoder must fill its buffer in one loop: append calls=%d, indexed writes=%d, loops=%d",
+			appendCalls, indexedWrites, loops)
 	}
-	if indirectCalls != len("long_enough_string")-1 {
-		t.Fatalf("recursive function-value chain lost: got %d nested calls", indirectCalls)
+	if payloadStrings != 1 {
+		t.Fatalf("decoder must keep exactly one static payload literal, got %d", payloadStrings)
 	}
 	var refs int
 	for _, key := range keys {

@@ -46,26 +46,11 @@ func splitIntoOneByteChunks(data []byte) [][]byte {
 	return chunks
 }
 
-// Shuffles the passed array and returns it back.
-// Applies for inline declaration of randomly shuffled statement arrays
-func shuffleStmts(obfRand *mathrand.Rand, stmts ...ast.Stmt) []ast.Stmt {
-	obfRand.Shuffle(len(stmts), func(i, j int) {
-		stmts[i], stmts[j] = stmts[j], stmts[i]
-	})
-	return stmts
-}
-
-// Encrypt chunks based on key and position
-func encryptChunks(chunks [][]byte, op token.Token, key byte) {
-	byteOffset := 0
-	for _, chunk := range chunks {
-		for i, b := range chunk {
-			chunk[i] = evalOperator(op, b, key^byte(byteOffset))
-			byteOffset++
-		}
-	}
-}
-
+// The chunks stay intact, including their shuffled execution order and their
+// per-chunk operators, but they are described by records interpreted by one
+// loop. Emitting one append of a byte-slice literal per chunk made the decoder
+// code grow by roughly a hundred bytes per literal byte, which dominated the
+// binary size of -literals builds.
 func (split) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	var chunks [][]byte
 	// Short arrays should be divided into single-byte fragments
@@ -75,92 +60,97 @@ func (split) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, 
 		chunks = splitIntoRandomChunks(rand, data)
 	}
 
-	// Generate indexes for cases chunk count + 1 decrypt case + 1 exit case
-	indexes := rand.Perm(len(chunks) + 2)
+	key := byte(rand.Uint32())
+	operators := []token.Token{token.XOR, token.ADD, token.SUB}
+	opcodes := rand.Perm(len(operators))
 
-	decryptKeyInitial := byte(rand.Uint32())
-	decryptKey := decryptKeyInitial
-	// Calculate decrypt key based on indexes and position. Ignore exit index
-	for i, index := range indexes[:len(indexes)-1] {
-		decryptKey ^= byte(index * i)
+	// Destination offsets follow the original data order; the payload and the
+	// record order are shuffled independently.
+	offsets := make([]uint16, len(chunks))
+	chunkOps := make([]int, len(chunks))
+	var offset uint16
+	for i, chunk := range chunks {
+		offsets[i] = offset
+		offset += uint16(len(chunk))
+		chunkOps[i] = rand.Intn(len(operators))
 	}
 
-	op := randOperator(rand)
-	encryptChunks(chunks, op, decryptKey)
+	for i, chunk := range chunks {
+		start := int(offsets[i])
+		for j, b := range chunk {
+			chunk[j] = evalOperator(operators[chunkOps[i]], b, key^byte(start+j))
+		}
+	}
 
-	decryptIndex := indexes[len(indexes)-2]
-	exitIndex := indexes[len(indexes)-1]
-	switchCases := []ast.Stmt{&ast.CaseClause{
-		List: []ast.Expr{ah.IntLit(decryptIndex)},
-		Body: shuffleStmts(rand,
-			ah.AssignStmt(names.ident("i"), ah.IntLit(exitIndex)),
-			&ast.RangeStmt{
-				Key: names.ident("y"),
-				Tok: token.DEFINE,
-				X:   names.ident("data"),
-				Body: ah.BlockStmt(ah.AssignStmt(
-					ah.IndexExpr(names.name("data"), names.ident("y")),
-					operatorToReversedBinaryExpr(
-						op,
-						ah.IndexExpr(names.name("data"), names.ident("y")),
-						ah.CallExpr(ast.NewIdent("byte"), ah.BinaryExpr(names.ident("decryptKey"), token.XOR, names.ident("y"))),
-					),
-				)),
+	order := rand.Perm(len(chunks))
+	payload := make([]byte, 0, len(data))
+	for _, i := range order {
+		payload = append(payload, chunks[i]...)
+	}
+
+	recordOffsets := &ast.CompositeLit{Type: ah.ArrayType(nil, ast.NewIdent("uint16")), Elts: make([]ast.Expr, 0, len(order))}
+	recordLens := &ast.CompositeLit{Type: ah.ArrayType(nil, ast.NewIdent("uint8")), Elts: make([]ast.Expr, 0, len(order))}
+	recordOps := &ast.CompositeLit{Type: ah.ArrayType(nil, ast.NewIdent("uint8")), Elts: make([]ast.Expr, 0, len(order))}
+	for _, i := range order {
+		recordOffsets.Elts = append(recordOffsets.Elts, ah.IntLit(int(offsets[i])))
+		recordLens.Elts = append(recordLens.Elts, ah.IntLit(len(chunks[i])))
+		recordOps.Elts = append(recordOps.Elts, ah.IntLit(opcodes[chunkOps[i]]))
+	}
+
+	handlers := &ast.CompositeLit{Type: ah.ArrayType(nil, &ast.FuncType{
+		Params:  &ast.FieldList{List: []*ast.Field{ah.Field(ast.NewIdent("byte")), ah.Field(ast.NewIdent("byte"))}},
+		Results: &ast.FieldList{List: []*ast.Field{ah.Field(ast.NewIdent("byte"))}},
+	}), Elts: make([]ast.Expr, len(operators))}
+	for i, op := range operators {
+		handlers.Elts[opcodes[i]] = &ast.FuncLit{
+			Type: &ast.FuncType{
+				Params:  &ast.FieldList{List: []*ast.Field{ah.Field(ast.NewIdent("byte"), names.ident("x")), ah.Field(ast.NewIdent("byte"), names.ident("y"))}},
+				Results: &ast.FieldList{List: []*ast.Field{ah.Field(ast.NewIdent("byte"))}},
 			},
-		),
-	}}
-	for i := range chunks {
-		index := indexes[i]
-		nextIndex := indexes[i+1]
-		chunk := chunks[i]
-
-		appendCallExpr := &ast.CallExpr{
-			Fun:  ast.NewIdent("append"),
-			Args: []ast.Expr{names.ident("data")},
+			Body: ah.BlockStmt(ah.ReturnStmt(operatorToReversedBinaryExpr(op, names.ident("x"), names.ident("y")))),
 		}
-
-		if len(chunk) != 1 {
-			appendCallExpr.Args = append(appendCallExpr.Args, dataToByteSliceWithExtKeys(rand, names, chunk, extKeys))
-			appendCallExpr.Ellipsis = 1
-		} else {
-			appendCallExpr.Args = append(appendCallExpr.Args, byteLitWithExtKey(rand, chunk[0], extKeys, lowProb))
-		}
-
-		switchCases = append(switchCases, &ast.CaseClause{
-			List: []ast.Expr{ah.IntLit(index)},
-			Body: shuffleStmts(rand,
-				ah.AssignStmt(names.ident("i"), ah.IntLit(nextIndex)),
-				ah.AssignStmt(names.ident("data"), appendCallExpr),
-			),
-		})
 	}
 
 	return ah.BlockStmt(
-		makeDataStmt(names, len(data)),
-		ah.AssignDefineStmt(names.ident("i"), ah.IntLit(indexes[0])),
-		ah.AssignDefineStmt(
-			names.ident("decryptKey"),
-			ah.CallExprByName("int", byteLitWithExtKey(rand, decryptKeyInitial, extKeys, normalProb)),
-		),
+		ah.AssignDefineStmt(names.ident("payload"), ah.StringLit(string(payload))),
+		ah.AssignDefineStmt(names.ident("offsets"), recordOffsets),
+		ah.AssignDefineStmt(names.ident("lens"), recordLens),
+		ah.AssignDefineStmt(names.ident("ops"), recordOps),
+		ah.AssignDefineStmt(names.ident("handlers"), handlers),
+		ah.AssignDefineStmt(names.ident("key"), ah.CallExprByName("byte", byteLitWithExtKey(rand, key, extKeys, normalProb))),
+		ah.AssignDefineStmt(names.ident("data"),
+			ah.CallExprByName("make", ah.ByteSliceType(), ah.IntLit(len(data)))),
+		ah.AssignDefineStmt(names.ident("src"), ah.IntLit(0)),
 		&ast.ForStmt{
-			Init: ah.AssignDefineStmt(names.ident("counter"), ah.IntLit(0)),
-			Cond: ah.BinaryExpr(names.ident("i"), token.NEQ, ah.IntLit(indexes[len(indexes)-1])),
-			Post: &ast.IncDecStmt{
-				X:   names.ident("counter"),
-				Tok: token.INC,
-			},
+			Init: ah.AssignDefineStmt(names.ident("r"), ah.IntLit(0)),
+			Cond: ah.BinaryExpr(names.ident("r"), token.LSS, ah.CallExprByName("len", names.ident("offsets"))),
+			Post: &ast.IncDecStmt{X: names.ident("r"), Tok: token.INC},
 			Body: ah.BlockStmt(
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{names.ident("decryptKey")},
-					Tok: token.XOR_ASSIGN,
-					Rhs: []ast.Expr{
-						ah.BinaryExpr(names.ident("i"), token.MUL, names.ident("counter")),
-					},
+				ah.AssignDefineStmt(names.ident("dst"), ah.CallExprByName("int", ah.IndexExpr(names.name("offsets"), names.ident("r")))),
+				ah.AssignDefineStmt(names.ident("n"), ah.CallExprByName("int", ah.IndexExpr(names.name("lens"), names.ident("r")))),
+				ah.AssignDefineStmt(names.ident("op"), ah.IndexExpr(names.name("handlers"), ah.IndexExpr(names.name("ops"), names.ident("r")))),
+				&ast.ForStmt{
+					Init: ah.AssignDefineStmt(names.ident("j"), ah.IntLit(0)),
+					Cond: ah.BinaryExpr(names.ident("j"), token.LSS, names.ident("n")),
+					Post: &ast.IncDecStmt{X: names.ident("j"), Tok: token.INC},
+					Body: ah.BlockStmt(
+						ah.AssignStmt(
+							ah.IndexExpr(names.name("data"), ah.BinaryExpr(names.ident("dst"), token.ADD, names.ident("j"))),
+							ah.CallExpr(
+								names.ident("op"),
+								ah.IndexExpr(names.name("payload"), ah.BinaryExpr(names.ident("src"), token.ADD, names.ident("j"))),
+								ah.BinaryExpr(names.ident("key"), token.XOR,
+									ah.CallExprByName("byte", ah.BinaryExpr(names.ident("dst"), token.ADD, names.ident("j")))),
+							),
+						),
+					),
 				},
-				&ast.SwitchStmt{
-					Tag:  names.ident("i"),
-					Body: ah.BlockStmt(shuffleStmts(rand, switchCases...)...),
-				}),
+				&ast.AssignStmt{
+					Lhs: []ast.Expr{names.ident("src")},
+					Tok: token.ADD_ASSIGN,
+					Rhs: []ast.Expr{names.ident("n")},
+				},
+			),
 		},
 	)
 }
