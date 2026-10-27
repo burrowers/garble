@@ -149,6 +149,11 @@ Use -test to reverse frames from a binary built with "garble test":
 					// Calls use their opening parenthesis; keep old callee positions reversible.
 					addPosition(node.Lparen)
 					addPosition(node.Pos())
+				case *ast.GoStmt:
+					// The runtime records a goroutine's creation site at the go
+					// statement, which printFile marks separately from the call
+					// it starts.
+					addPosition(node.Pos())
 				case ast.Expr:
 					// Literal obfuscation turns a string constant expression into
 					// a decoder call at the expression's position. That call can
