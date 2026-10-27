@@ -49,6 +49,27 @@ stderr 'cannot set with -X: not a var of type string'
 ! exec garble -literals build -ldflags=-X=invalid=value
 stderr '-X flag requires argument of the form importpath.name=value'
 
+# cmd/go applies -X values from GOFLAGS as well. Compilation must inject those,
+# and the build hash must follow them like command-line values.
+env GOFLAGS=-ldflags=-X=main.unexportedVersion=goflags_first
+exec garble -literals -seed=0002deadbeef build
+exec ./main
+stdout 'version: "goflags_first"'
+! binsubstr main$exe 'goflags_first'
+
+env GOFLAGS=-ldflags=-X=main.unexportedVersion=goflags_second
+exec garble -literals -seed=0002deadbeef build
+exec ./main
+stdout 'version: "goflags_second"'
+! binsubstr main$exe 'goflags_second'
+
+# cmd/go also accepts the double-hyphen spelling in GOFLAGS.
+env GOFLAGS=--ldflags=-X=main.unexportedVersion=goflags_double_dash
+exec garble -literals -seed=0002deadbeef build
+exec ./main
+stdout 'version: "goflags_double_dash"'
+env GOFLAGS=
+
 go build -ldflags=${LDFLAGS}
 exec ./main
 cmp stdout main.stdout

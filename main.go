@@ -481,19 +481,22 @@ This command wraps "go %s". Below is its help:
 	// as -tags.
 	allFlags := append(append([]string(nil), flags...), trailingFlags...)
 	sharedCache.ForwardBuildFlags, _ = filterForwardBuildFlags(allFlags)
-	if flagLiterals {
-		for value := range flagValues(allFlags, "-ldflags") {
-			if value = strings.TrimSpace(value); value != "" && !strings.HasPrefix(value, "-") {
-				return nil, fmt.Errorf("package patterns in -ldflags are not supported with -literals; use unpatterned flags and build commands separately")
-			}
-		}
-	}
 	if command == "test" {
 		sharedCache.ForwardBuildFlags = append(sharedCache.ForwardBuildFlags, "-test")
 	}
 
 	if err := fetchGoEnv(); err != nil {
 		return nil, err
+	}
+
+	if flagLiterals {
+		// cmd/go applies GOFLAGS to the build as well, so both sources of
+		// -ldflags values must be unpatterned for the values to be injected.
+		for value := range flagValues(effectiveBuildFlags(sharedCache.GoEnv.GOFLAGS, sharedCache.ForwardBuildFlags), "-ldflags") {
+			if value = strings.TrimSpace(value); value != "" && !strings.HasPrefix(value, "-") {
+				return nil, fmt.Errorf("package patterns in -ldflags are not supported with -literals; use unpatterned flags and build commands separately")
+			}
+		}
 	}
 
 	if !goVersionOK() {
@@ -880,6 +883,28 @@ func flagValue(flags []string, name string) string {
 	return lastVal
 }
 
+// effectiveBuildFlags returns the build flags which cmd/go applies to this
+// command: the ones from GOFLAGS first, then the forwarded command-line flags.
+// A repeated flag such as -ldflags takes its last value, so the command line
+// still overrides GOFLAGS as it does for cmd/go.
+//
+// GOFLAGS is deliberately not added to ForwardBuildFlags, since cmd/go applies
+// those flags on its own and would otherwise receive them twice.
+func effectiveBuildFlags(goflags string, forward []string) []string {
+	fromEnv, err := cmdgoQuotedSplit(goflags)
+	if err != nil || len(fromEnv) == 0 {
+		// Without GOFLAGS there is nothing to prepend. A malformed value is
+		// reported by cmd/go itself.
+		return forward
+	}
+	for i, arg := range fromEnv {
+		if strings.HasPrefix(arg, "--") {
+			fromEnv[i] = arg[1:] // cmd/go accepts "--name" as well as "-name"
+		}
+	}
+	return append(fromEnv, forward...)
+}
+
 // flagValues retrieves all the values for a flag such as "-foo", like
 // flagValue. The difference is that it allows handling complex flags, such as
 // those whose values compose a list.
@@ -926,7 +951,7 @@ func flagSetValue(flags []string, name, value string) []string {
 func fetchGoEnv() error {
 	out, err := exec.Command("go", "env", "-json",
 		// Keep in sync with [sharedCacheType.GoEnv].
-		"GOOS", "GOARCH", "GOMOD", "GOVERSION", "GOROOT",
+		"GOOS", "GOARCH", "GOMOD", "GOVERSION", "GOROOT", "GOFLAGS",
 	).Output()
 	if err != nil {
 		// TODO: cover this in the tests.
