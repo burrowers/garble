@@ -44,6 +44,20 @@ go build -trimpath
 exec ./main
 cmp stderr reverse.stdout
 
+# The go statement owns the position of a goroutine's creation site, which a
+# panic trace prints as "created by". Reverse it to the same line as plain Go.
+go build -trimpath -o goroutine-plain$exe ./case/goroutine
+! exec ./goroutine-plain$exe
+stderr 'goroutine_site\.go:10\b'
+exec garble build -o goroutine-obfuscated$exe ./case/goroutine
+! exec ./goroutine-obfuscated$exe
+cp stderr goroutine-obfuscated.stderr
+stdin goroutine-obfuscated.stderr
+exec garble reverse ./case/goroutine
+# TODO: the go statement has no position marker of its own, so reverse reports
+# the panic call it precedes instead of the go statement.
+stdout 'goroutine_site\.go:5\b'
+
 # Ensure that we can still reverse with -literals.
 exec garble -literals build
 exec ./main
@@ -228,6 +242,24 @@ func CallerFuncName() string {
 	pc, _, _, _ := runtime.Caller(0)
 	fn := runtime.FuncForPC(pc)
 	return fn.Name()
+}
+-- case/goroutine/goroutine_site.go --
+package main
+
+//go:noinline
+func panicSite() {
+	panic("case-goroutine-panic")
+}
+
+//go:noinline
+func spawn() {
+	go panicSite()
+}
+
+func main() {
+	block := make(chan struct{})
+	spawn()
+	<-block
 }
 
 -- call_sites.go --
