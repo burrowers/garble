@@ -294,6 +294,7 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
 	newFile.Decls = append(newFile.Decls, or.liftedFuncs...)
+	newFile.Decls = append(newFile.Decls, or.sharedDecls...)
 	for _, dispatcher := range dispatchers {
 		dispatcher.AddToFile(newFile)
 	}
@@ -591,6 +592,9 @@ func withPos(node ast.Node, pos token.Pos) ast.Node {
 func obfuscateString(or *obfRand, data string) *ast.CallExpr {
 	if call := or.stringCalls[data]; call != nil {
 		return or.proxyDispatcher.cloneStringCall(call).(*ast.CallExpr)
+	}
+	if or.testObfuscator == nil && len(data) <= maxSizeShared {
+		return or.obfuscateSharedString(data)
 	}
 	obf := or.pickObfuscator(len(data))
 
