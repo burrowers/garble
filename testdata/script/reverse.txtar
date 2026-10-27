@@ -54,8 +54,7 @@ exec garble build -o goroutine-obfuscated$exe ./case/goroutine
 cp stderr goroutine-obfuscated.stderr
 stdin goroutine-obfuscated.stderr
 exec garble reverse ./case/goroutine
-# TODO: the go statement has no position marker of its own, so reverse reports
-# the panic call it precedes instead of the go statement.
+stdout 'goroutine_site\.go:10\b'
 stdout 'goroutine_site\.go:5\b'
 
 # Ensure that we can still reverse with -literals.
@@ -243,6 +242,7 @@ func CallerFuncName() string {
 	fn := runtime.FuncForPC(pc)
 	return fn.Name()
 }
+
 -- case/goroutine/goroutine_site.go --
 package main
 

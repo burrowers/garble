@@ -104,6 +104,12 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	// their actual parentheses even for nested or generated callee expressions.
 	var origCallOffsets []int
 	var generatedIdent []bool
+	// A go statement's own position is user visible: the runtime records it as
+	// the creation site of the goroutine, which a panic trace prints as
+	// "created by". Only call expressions get a marker below, so without one
+	// the keyword would keep the file state of the preceding marker and a
+	// bogus line, and reverse would report that call's source position instead.
+	var origGoOffsets []int
 	for node := range ast.Preorder(file) {
 		switch node := node.(type) {
 		case *ast.CallExpr:
@@ -112,6 +118,14 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 				offset = fsetFile.Position(node.Lparen).Offset
 			}
 			origCallOffsets = append(origCallOffsets, offset)
+		case *ast.GoStmt:
+			// Keep one entry per statement in source order, so the entries
+			// line up with the keywords found below.
+			origOffset := -1
+			if node.Pos().IsValid() {
+				origOffset = fsetFile.Position(node.Pos()).Offset
+			}
+			origGoOffsets = append(origGoOffsets, origOffset)
 		case *ast.Ident:
 			generatedIdent = append(generatedIdent, generatedIdents[node])
 		}
@@ -148,7 +162,18 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	s.Init(fsetFile, src, nil, scanner.ScanComments)
 
 	identIndex := 0
+	goIndex := 0
 	braceDepth, parenDepth := 0, 0
+
+	// hashedMarkerName returns the filename used to obfuscate the source
+	// position at origOffset, shared by the call and go statement markers.
+	hashedMarkerName := func(origOffset int) string {
+		if flagTiny {
+			return ""
+		}
+		origPos := fmt.Sprintf("%s:%d", filename, origOffset)
+		return hashWithPackage(lpkg, origPos) + ".go"
+	}
 	generated := false
 	generatedLine := 0
 	for {
@@ -194,6 +219,25 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			offset := fsetFile.Position(pos).Offset
 			printBuf2.Write(src[copied:offset])
 			copied = offset + len(lit)
+		case token.GO:
+			// The runtime records the creation site of a goroutine at the go
+			// statement itself, so it needs a marker of its own; the call
+			// marker below only covers the callee.
+			if goIndex >= len(origGoOffsets) {
+				// A transform such as ctrlflow/ssa2ast may add statements that
+				// were not collected from the original AST; they carry no
+				// original position to remap.
+				continue
+			}
+			origOffset := origGoOffsets[goIndex]
+			goIndex++
+			if origOffset == -1 || generated {
+				continue
+			}
+			offset := fsetFile.Position(pos).Offset
+			printBuf2.Write(src[copied:offset])
+			copied = offset
+			fmt.Fprintf(&printBuf2, " /*line %s%s:1*/ ", newPrefix, hashedMarkerName(origOffset))
 		case token.IDENT:
 			identIndex++
 		case token.LPAREN:
@@ -201,12 +245,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			if !ok || origOffset < 0 || generated {
 				continue
 			}
-			newName := ""
-			if !flagTiny {
-				origPos := fmt.Sprintf("%s:%d", filename, origOffset)
-				newName = hashWithPackage(lpkg, origPos) + ".go"
-				// log.Printf("%q hashed with %x to %q", origPos, curPkg.GarbleActionID, newName)
-			}
+			newName := hashedMarkerName(origOffset)
 
 			offset := fsetFile.Position(pos).Offset
 			printBuf2.Write(src[copied:offset])
