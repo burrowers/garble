@@ -111,13 +111,19 @@ Runtime code which prints panics, fatal errors, and trace/debug info is removed.
 Many symbol names are also omitted from binary sections at link time.
 All in all, this can make binaries about 15% smaller.
 
-With this flag, no panics or fatal runtime errors will ever be printed, but they
-can still be handled internally with `recover` as normal.
+With this flag, a panic still prints a single line, so a crash is not mistaken
+for a program which exited without running. A plain string panic prints
+`panic: <token>`, where the token is a hash of the message; `garble -tiny reverse`
+maps it back to the original message using the same source and seed, as long as
+the message is known at compile time. Panic values which are not strings are
+never formatted, and print `panic: hidden` instead.
+Fatal runtime errors stay silent. Panics can still be handled with `recover` as
+normal.
 
-Note that this flag can make debugging crashes harder, as a panic will simply
-exit the entire program without printing a stack trace, and source code
-positions and many names are removed.
-Similarly, `garble reverse` is generally not useful in this mode.
+Note that this flag can make debugging crashes harder, as a panic prints no
+stack trace and no source position, and many names are removed.
+`garble reverse` can still recover panic messages and obfuscated names in this
+mode, but it cannot recover source positions.
 
 ### Control flow obfuscation
 

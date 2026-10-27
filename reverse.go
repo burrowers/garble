@@ -116,6 +116,12 @@ Use -test to reverse frames from a binary built with "garble test":
 					newFilename, originalFile,
 				)
 			}
+			if flagTiny {
+				// Tiny mode prints a token instead of a panic message.
+				for token, msg := range tinyPanicMessages(tf, file) {
+					replaces = append(replaces, token, msg)
+				}
+			}
 			for node := range ast.Preorder(file) {
 				switch node := node.(type) {
 
