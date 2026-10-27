@@ -470,6 +470,24 @@ func (fc *funcConverter) tupleVarNameAndType(reg ssa.Value, idx int) (name strin
 	return
 }
 
+// commaOkAssign builds the two-value assignment of a comma-ok instruction,
+// recording the tuple variables which later instructions reference.
+func (fc *funcConverter) commaOkAssign(vars map[string]types.Type, instr ssa.Value, rhs ast.Expr) *ast.AssignStmt {
+	valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 0)
+	okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
+	if valHasRefs {
+		vars[valName] = valType
+	}
+	if okHasRefs {
+		vars[okName] = okType
+	}
+	return &ast.AssignStmt{
+		Lhs: []ast.Expr{ast.NewIdent(valName), ast.NewIdent(okName)},
+		Tok: token.ASSIGN,
+		Rhs: []ast.Expr{rhs},
+	}
+}
+
 func isNilValue(value ssa.Value) bool {
 	constVal, ok := value.(*ssa.Const)
 	return ok && constVal.Value == nil
@@ -688,21 +706,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 
 			mapIndexExpr := ah.IndexExprByExpr(mapExpr, indexExpr)
 			if instr.CommaOk {
-				valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 0)
-				okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
-
-				if valHasRefs {
-					astFunc.Vars[valName] = valType
-				}
-				if okHasRefs {
-					astFunc.Vars[okName] = okType
-				}
-
-				stmt = &ast.AssignStmt{
-					Lhs: []ast.Expr{ast.NewIdent(valName), ast.NewIdent(okName)},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{mapIndexExpr},
-				}
+				stmt = fc.commaOkAssign(astFunc.Vars, instr, mapIndexExpr)
 			} else {
 				stmt = defineVar(instr, mapIndexExpr)
 			}
@@ -994,23 +998,11 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				return err
 			}
 
+			typeAssertExpr := &ast.TypeAssertExpr{X: valExpr, Type: assertTypeExpr}
 			if instr.CommaOk {
-				valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 0)
-				okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
-				if valHasRefs {
-					astFunc.Vars[valName] = valType
-				}
-				if okHasRefs {
-					astFunc.Vars[okName] = okType
-				}
-
-				stmt = &ast.AssignStmt{
-					Lhs: []ast.Expr{ast.NewIdent(valName), ast.NewIdent(okName)},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{&ast.TypeAssertExpr{X: valExpr, Type: assertTypeExpr}},
-				}
+				stmt = fc.commaOkAssign(astFunc.Vars, instr, typeAssertExpr)
 			} else {
-				stmt = defineVar(instr, &ast.TypeAssertExpr{X: valExpr, Type: assertTypeExpr})
+				stmt = defineVar(instr, typeAssertExpr)
 			}
 		case *ssa.UnOp:
 			valExpr, err := fc.convertSsaValue(instr.X)
@@ -1022,23 +1014,10 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					return fmt.Errorf("unary operator %q in %v: %w", instr.Op, instr, ErrUnsupported)
 				}
 
-				valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 0)
-				okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
-				if valHasRefs {
-					astFunc.Vars[valName] = valType
-				}
-				if okHasRefs {
-					astFunc.Vars[okName] = okType
-				}
-
-				stmt = &ast.AssignStmt{
-					Lhs: []ast.Expr{ast.NewIdent(valName), ast.NewIdent(okName)},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{&ast.UnaryExpr{
-						Op: token.ARROW,
-						X:  valExpr,
-					}},
-				}
+				stmt = fc.commaOkAssign(astFunc.Vars, instr, &ast.UnaryExpr{
+					Op: token.ARROW,
+					X:  valExpr,
+				})
 			} else if instr.Op == token.MUL {
 				stmt = defineVar(instr, &ast.StarExpr{X: valExpr})
 			} else {
