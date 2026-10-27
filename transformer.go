@@ -35,13 +35,20 @@ import (
 //go:generate sed -i /go:generate/d cmdgo_quoted.go
 
 // computeLinkerVariableStrings resolves -X assignments before literal obfuscation.
-func computeLinkerVariableStrings(pkg *types.Package, isMain bool) (map[*types.Var]string, error) {
+func computeLinkerVariableStrings(pkg *types.Package, files []*ast.File, isMain bool) (map[*types.Var]string, error) {
 	values := make(map[*types.Var]string)
 	ldflags, err := cmdgoQuotedSplit(flagValue(sharedCache.ForwardBuildFlags, "-ldflags"))
 	if err != nil {
 		return nil, err
 	}
 	pkgPath, _, _ := strings.Cut(pkg.Path(), " [")
+	// cmd/link matches -X against symbol names, so the name a variable emits
+	// after any //go:linkname directive decides whether the assignment applies.
+	symPath := pkgPath
+	if isMain {
+		symPath = "main"
+	}
+	linknamed := linknamedVariableTargets(files)
 	for val := range flagValues(ldflags, "-X") {
 		fullName, value, found := strings.Cut(val, "=")
 		i := strings.LastIndexByte(fullName, '.')
@@ -57,12 +64,65 @@ func computeLinkerVariableStrings(pkg *types.Package, isMain bool) (map[*types.V
 		if obj == nil {
 			continue // no such variable; skip
 		}
+		// A //go:linkname directive which points the declaration at another
+		// symbol makes -X on the local name a no-op in plain Go, as the local
+		// name is no longer a symbol. Injecting the value would change the
+		// program's behavior instead.
+		if target, ok := linknamed[name]; ok && target != symPath+"."+name {
+			continue
+		}
 		if !types.Identical(obj.Type(), types.Typ[types.String]) {
 			return nil, fmt.Errorf("%s: cannot set with -X: not a var of type string (%s)", obj.Name(), obj.Type())
 		}
 		values[obj] = value
 	}
 	return values, nil
+}
+
+// linknamedVariableTargets reports the target symbol of every two-argument
+// //go:linkname directive attached to a variable declaration, keyed by the
+// directive's local name. Variables without such a directive, or with the
+// one-argument form, keep their own symbol name.
+func linknamedVariableTargets(files []*ast.File) map[string]string {
+	targets := make(map[string]string)
+	record := func(docs []*ast.CommentGroup, names []*ast.Ident) {
+		for _, doc := range docs {
+			if doc == nil {
+				continue
+			}
+			for _, comment := range doc.List {
+				dir, ok := ast.ParseDirective(token.NoPos, comment.Text)
+				if !ok || dir.Tool != "go" || (dir.Name != "linkname" && dir.Name != "linknamestd") {
+					continue
+				}
+				// //go:linkname localName newName
+				fields := strings.Fields(comment.Text)
+				if len(fields) != 3 {
+					continue
+				}
+				for _, name := range names {
+					if name.Name == fields[1] {
+						targets[name.Name] = fields[2]
+					}
+				}
+			}
+		}
+	}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range genDecl.Specs {
+				valueSpec := spec.(*ast.ValueSpec)
+				// A directive directly above a single-spec declaration is
+				// attached to the GenDecl rather than the ValueSpec.
+				record([]*ast.CommentGroup{valueSpec.Doc, genDecl.Doc}, valueSpec.Names)
+			}
+		}
+	}
+	return targets
 }
 
 // typecheck type-checks the package, populating only the [types.Info] maps that
@@ -951,7 +1011,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	tf.validateBuiltinSymbolNames()
 
 	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.ImportPath) {
-		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg, flagValue(flags, "-p") == "main"); err != nil {
+		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg, files, flagValue(flags, "-p") == "main"); err != nil {
 			return nil, err
 		}
 	}
