@@ -92,8 +92,11 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 					for range node.Names {
 						node.Values = append(node.Values, &ast.BasicLit{Kind: token.STRING, Value: `""`})
 					}
-				} else if hadValues && (len(node.Values) != len(node.Names) || info.Types[node.Values[i]].Value == nil) {
-					// Like cmd/link, leave non-constant initializers alone.
+				} else if hadValues && (len(node.Values) != len(node.Names) ||
+					(info.Types[node.Values[i]].Value == nil && !isEmbeddedPlaceholder(node.Values[i], embeds))) {
+					// Like cmd/link, leave non-constant initializers alone. An
+					// embedded variable has no initializer in the source, so -X
+					// still applies to it; see isEmbeddedPlaceholder.
 					continue
 				}
 				expr := ast.Expr(&ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(value)})
@@ -593,4 +596,13 @@ func (or *obfRand) pickObfuscator(size int) obfuscator {
 		return Obfuscators[or.rnd.Intn(len(Obfuscators))]
 	}
 	return CheapObfuscators[or.rnd.Intn(len(CheapObfuscators))]
+}
+
+// isEmbeddedPlaceholder reports whether expr is the initializer that the embed
+// transform installed for a //go:embed variable. Such a variable is uninitialized
+// in the source, which is the case where cmd/link applies a -X assignment, so the
+// placeholder must not be mistaken for a non-constant initializer.
+func isEmbeddedPlaceholder(expr ast.Expr, embeds map[ast.Expr]EmbeddedValue) bool {
+	_, ok := embeds[expr]
+	return ok
 }
