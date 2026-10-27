@@ -37,7 +37,7 @@ stdout 'ok'
 
 # -X must reach the tested package itself, not only its dependencies.
 env EXPECT_TEST_VARIANT=test_variant_replaced
-exec garble -seed=0002deadbeef test -ldflags=${LDFLAGS}' -X=domain.test/main.testVariantVersion=test_variant_replaced' .
+exec garble -seed=0002deadbeef test -ldflags=${LDFLAGS}' -X=domain.test/main.testVariantVersion=test_variant_replaced' ./...
 stdout 'ok'
 env EXPECT_TEST_VARIANT=
 
@@ -133,10 +133,8 @@ func TestTestVariantValue(t *testing.T) {
 	if want == "" {
 		t.Skip("only checked by the invocation that passes -X")
 	}
-	// TODO: garble test currently loses -X for the tested package. Expect the
-	// source initializer until transformLink resolves the test variant.
-	if testVariantVersion != "test_orig" {
-		t.Fatalf("-X for the tested package: got %q, want the source initializer", testVariantVersion)
+	if testVariantVersion != want {
+		t.Fatalf("-X for the tested package: got %q, want %q", testVariantVersion, want)
 	}
 }
 

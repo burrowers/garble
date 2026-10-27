@@ -1781,16 +1781,20 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 		path, name := fullName[:i], fullName[i+1:]
 
 		// If the package path is "main", it's the current top-level
-		// package we are linking. Otherwise, find it in the cache.
+		// package we are linking. Otherwise, resolve the package through
+		// listPackage, which prefers the test variant of a package that the
+		// test binary actually depends on. A direct map lookup would pick
+		// the non-variant entry, whose obfuscated names do not exist in the
+		// binary, so the -X assignment would be silently ignored by cmd/link.
 		lpkg := tf.curPkg
 		if path != "main" {
-			lpkg, _ = sharedCache.ListedPackages.get(path)
-		}
-		if lpkg == nil {
-			// We couldn't find the package.
-			// Perhaps a typo, perhaps not part of the build.
-			// cmd/link ignores those, so we should too.
-			continue
+			var err error
+			lpkg, err = listPackage(tf.curPkg, path)
+			if err != nil {
+				// Perhaps a typo, perhaps not part of the build.
+				// cmd/link ignores those, so we should too.
+				continue
+			}
 		}
 		if flagLiterals && lpkg.toObfuscate() && !isRuntimePkgPath(lpkg.ImportPath) {
 			// Compilation already injected the value. Leaving either spelling
