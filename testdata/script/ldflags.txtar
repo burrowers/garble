@@ -5,7 +5,7 @@
 #   -X=name=value
 #   -X name=value
 #   -X "name=value" (or with single quotes, allows spaces in value)
-env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/main/imported.AnotherUnset=another_replaced -X=main.nonConstant=ignored_value -X=domain.test/missing/path.missingVar=value -X=main.someType=notAVariable -X=main.embeddedDefault=embedded_replaced'
+env LDFLAGS='-X=main.unexportedVersion=v1.22.33 -X=main.replacedWithEmpty= -X "main.replacedWithSpaces= foo bar " -X=domain.test/main/imported.ExportedUnset=garble_replaced -X=domain.test/main/imported.AnotherUnset=another_replaced -X=main.nonConstant=ignored_value -X=domain.test/missing/path.missingVar=value -X=main.someType=notAVariable -X=main.embeddedDefault=embedded_replaced -X=main.linknamed=linknamed_replaced'
 
 exec garble build -ldflags=${LDFLAGS}
 exec ./main
@@ -63,6 +63,7 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	_ "unsafe"
 
 	"domain.test/main/imported"
 )
@@ -75,6 +76,13 @@ var replacedWithSpaces = "original"
 
 //go:embed embedded.txt
 var embeddedDefault string
+
+// A two-argument linkname makes the declaration share imported's symbol, so
+// -X=main.linknamed names no symbol and cmd/link ignores it. Garble must not
+// inject the value into this declaration either.
+//
+//go:linkname linknamed domain.test/main/imported.LinknameTarget
+var linknamed string
 
 var notString = 42
 
@@ -99,6 +107,7 @@ func main() {
 	fmt.Printf("not replaced: %q, %q\n", notReplacedBefore, notReplacedAfter)
 	fmt.Printf("no longer unset: %q\n", imported.ExportedUnset)
 	fmt.Printf("embedded default: %q\n", embeddedDefault)
+	fmt.Printf("linknamed variable: %q\n", linknamed)
 }
 
 -- main_test.go --
@@ -123,6 +132,9 @@ package imported
 
 var (
 	ExportedUnset, AnotherUnset string
+
+	// LinknameTarget is shared with main's linknamed variable.
+	LinknameTarget string
 
 	otherVar int
 )
@@ -151,3 +163,4 @@ becomes string with spaces: " foo bar "
 not replaced: "unchanged_before", "unchanged_after"
 no longer unset: "garble_replaced"
 embedded default: "embedded_replaced"
+linknamed variable: ""
