@@ -1,5 +1,5 @@
 # Tiny mode
-exec garble -tiny build
+exec garble -tiny -seed=AAAAAAAAAAA build
 ! binsubstr main$exe 'garble_main.go' 'fmt/print.go'
 ! binsubstr main$exe 'fatal: morestack on g0'
 ! binsubstr main$exe 'all goroutines are asleep - deadlock!' 'no goroutines (main called runtime.Goexit) - deadlock!'
@@ -17,7 +17,8 @@ stderr '^funcline.local: \? 0$'
 stderr '^funcline.stdlib: \? 0$'
 stderr '^callersframes.removed true$'
 stderr '^recovered: ya like jazz?'
-! stderr 'panic: oh noes' # panics are hidden
+# An unrecovered string panic prints a single token instead of its message.
+stderr '^panic: [0-9a-f]{16}$'
 stderr 'funcExported false funcUnexported true'
 stderr 'funcStructExported false funcStructUnexported true'
 # The runtime consumes a handful of function names as data even in -tiny:
@@ -33,6 +34,32 @@ stderr '^runtime.sentinels.goexit true gopanic true$'
 # GOTRACEBACK controls more than traceback output, which tiny mode hides:
 # "crash" must still crash the process rather than exit with status 2.
 stderr '^single aborts: false crash aborts: true$'
+
+# Panic values which are not plain strings are not formatted, so they stay
+# hidden rather than exposing their contents.
+! exec ./main$exe single
+stderr '^panic: hidden$'
+
+# The token maps back to the message without retaining any source position.
+! exec ./main$exe
+cp stderr panic.stderr
+exec garble -tiny -seed=AAAAAAAAAAA reverse . panic.stderr
+stdout '^panic: oh noes$'
+
+# Panics in imported packages reverse as well, including messages which the
+# compiler folds together from constant expressions.
+! exec ./main$exe helper
+cp stderr panic-helper.stderr
+exec garble -tiny -seed=AAAAAAAAAAA reverse . panic-helper.stderr
+stdout '^panic: helper exploded$'
+
+# Obfuscated string literals decode to the same message before the token is
+# computed, so -literals prints and reverses the identical token.
+exec garble -tiny -literals -seed=AAAAAAAAAAA build -o literals$exe
+! exec ./literals$exe
+cp stderr panic-literals.stderr
+exec garble -tiny -literals -seed=AAAAAAAAAAA reverse . panic-literals.stderr
+stdout '^panic: oh noes$'
 
 [short] stop # no need to verify this with -short
 
@@ -75,6 +102,13 @@ func init() {
 		syscall.Setrlimit(syscall.RLIMIT_CORE, &lim)
 	}
 }
+-- helper/helper.go --
+package helper
+
+// Crash panics with a message the compiler folds from two constants.
+func Crash() {
+	panic("helper " + "exploded")
+}
 -- garble_main.go --
 package main
 
@@ -86,6 +120,8 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sync"
+
+	"test/main/helper"
 )
 
 var nilPtr *int
@@ -228,6 +264,9 @@ func printPositionInfo() {
 
 func main() {
 	if len(os.Args) > 1 {
+		if os.Args[1] == "helper" {
+			helper.Crash()
+		}
 		debug.SetTraceback(os.Args[1])
 		println(*nilPtr)
 	}

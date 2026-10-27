@@ -306,7 +306,9 @@ func stripRuntime(basename string, file *ast.File) (strippedFunctions map[string
 		case "panic.go":
 			// used for printing panics
 			switch funcDecl.Name.Name {
-			case "preprintpanics", "printpanics":
+			case "preprintpanics":
+				// printpanics is rewritten before type checking, so its
+				// tiny-mode diagnostic is left alone.
 				funcDecl.Body.List = nil
 			}
 		case "print.go":
