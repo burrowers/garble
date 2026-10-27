@@ -37,7 +37,7 @@ import (
 // computeLinkerVariableStrings resolves -X assignments before literal obfuscation.
 func computeLinkerVariableStrings(pkg *types.Package, files []*ast.File, isMain bool) (map[*types.Var]string, error) {
 	values := make(map[*types.Var]string)
-	ldflags, err := cmdgoQuotedSplit(flagValue(sharedCache.ForwardBuildFlags, "-ldflags"))
+	ldflags, err := cmdgoQuotedSplit(flagValue(effectiveBuildFlags(sharedCache.GoEnv.GOFLAGS, sharedCache.ForwardBuildFlags), "-ldflags"))
 	if err != nil {
 		return nil, err
 	}

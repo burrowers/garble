@@ -66,6 +66,9 @@ type sharedCacheType struct {
 
 		GOVERSION string
 		GOROOT    string
+
+		// GOFLAGS as cmd/go applies it, including a value set with "go env -w".
+		GOFLAGS string
 	}
 }
 

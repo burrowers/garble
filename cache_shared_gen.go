@@ -590,9 +590,9 @@ func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.AppendString(o, z.GoCmd)
 	// string "GoEnv"
 	o = append(o, 0xa5, 0x47, 0x6f, 0x45, 0x6e, 0x76)
-	// map header, size 4
+	// map header, size 5
 	// string "GOOS"
-	o = append(o, 0x84, 0xa4, 0x47, 0x4f, 0x4f, 0x53)
+	o = append(o, 0x85, 0xa4, 0x47, 0x4f, 0x4f, 0x53)
 	o = msgp.AppendString(o, z.GoEnv.GOOS)
 	// string "GOARCH"
 	o = append(o, 0xa6, 0x47, 0x4f, 0x41, 0x52, 0x43, 0x48)
@@ -603,6 +603,9 @@ func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "GOROOT"
 	o = append(o, 0xa6, 0x47, 0x4f, 0x52, 0x4f, 0x4f, 0x54)
 	o = msgp.AppendString(o, z.GoEnv.GOROOT)
+	// string "GOFLAGS"
+	o = append(o, 0xa7, 0x47, 0x4f, 0x46, 0x4c, 0x41, 0x47, 0x53)
+	o = msgp.AppendString(o, z.GoEnv.GOFLAGS)
 	return
 }
 
@@ -717,6 +720,12 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 						err = msgp.WrapError(err, "GoEnv", "GOROOT")
 						return
 					}
+				case "GOFLAGS":
+					z.GoEnv.GOFLAGS, bts, err = msgp.ReadStringBytes(bts)
+					if err != nil {
+						err = msgp.WrapError(err, "GoEnv", "GOFLAGS")
+						return
+					}
 				default:
 					bts, err = msgp.Skip(bts)
 					if err != nil {
@@ -749,6 +758,6 @@ func (z *sharedCacheType) Msgsize() (s int) {
 	} else {
 		s += z.ListedPackages.Msgsize()
 	}
-	s += 16 + msgp.BytesPrefixSize + len(z.BinaryContentID) + 6 + msgp.StringPrefixSize + len(z.GoCmd) + 6 + 1 + 5 + msgp.StringPrefixSize + len(z.GoEnv.GOOS) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOARCH) + 10 + msgp.StringPrefixSize + len(z.GoEnv.GOVERSION) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOROOT)
+	s += 16 + msgp.BytesPrefixSize + len(z.BinaryContentID) + 6 + msgp.StringPrefixSize + len(z.GoCmd) + 6 + 1 + 5 + msgp.StringPrefixSize + len(z.GoEnv.GOOS) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOARCH) + 10 + msgp.StringPrefixSize + len(z.GoEnv.GOVERSION) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOROOT) + 8 + msgp.StringPrefixSize + len(z.GoEnv.GOFLAGS)
 	return
 }

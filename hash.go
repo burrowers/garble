@@ -115,7 +115,7 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 	appendFlags(hasher, true)
 	if flagLiterals {
 		// -X now changes compiled initializers, not just the final link.
-		fmt.Fprintf(hasher, " ldflags=%q", flagValue(sharedCache.ForwardBuildFlags, "-ldflags"))
+		fmt.Fprintf(hasher, " ldflags=%q", flagValue(effectiveBuildFlags(sharedCache.GoEnv.GOFLAGS, sharedCache.ForwardBuildFlags), "-ldflags"))
 	}
 	// addGarbleToHash returns the sum buffer, so we need a new copy.
 	// Otherwise the next use of the global sumBuffer would conflict.

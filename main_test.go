@@ -570,6 +570,29 @@ func TestFlagValue(t *testing.T) {
 	}
 }
 
+func TestEffectiveBuildFlags(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		goflags string
+		forward []string
+		want    string
+	}{
+		{"NoGoflags", "", []string{"-ldflags=-X=main.v=argv"}, "-X=main.v=argv"},
+		{"OnlyGoflags", "-ldflags=-X=main.v=goflags", nil, "-X=main.v=goflags"},
+		{"CommandLineWins", "-ldflags=-X=main.v=goflags", []string{"-ldflags=-X=main.v=argv"}, "-X=main.v=argv"},
+		{"DoubleDashGoflags", "--ldflags=-X=main.v=goflags", nil, "-X=main.v=goflags"},
+		{"MalformedGoflags", "-ldflags='unterminated", []string{"-ldflags=-X=main.v=argv"}, "-X=main.v=argv"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := flagValue(effectiveBuildFlags(test.goflags, test.forward), "-ldflags")
+			qt.Assert(t, qt.Equals(got, test.want))
+		})
+	}
+}
+
 func TestRuntimeFuncIDBuiltinSymbols(t *testing.T) {
 	for _, name := range []string{
 		"abort", "asmcgocall", "asyncPreempt", "cgocallback", "corostart",
