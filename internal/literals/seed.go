@@ -16,88 +16,52 @@ type seed struct{}
 // check that the obfuscator interface is implemented
 var _ obfuscator = seed{}
 
+// The encrypted bytes are kept as one static payload which a single loop
+// interprets. Building a call chain of one function value per byte made the
+// generated code grow with the literal length: every byte became its own
+// indirect call, which the linker keeps as text and per-function metadata.
 func (seed) obfuscate(obfRand *mathrand.Rand, names *generatedNames, data []byte, extKeys []*externalKey) *ast.BlockStmt {
+	mask := byte(obfRand.Uint32())
 	seed := byte(obfRand.Uint32())
 	originalSeed := seed
 
 	op := randOperator(obfRand)
-	var callExpr *ast.CallExpr
+	payload := make([]byte, len(data))
 	for i, b := range data {
 		encB := evalOperator(op, b, seed)
 		seed += encB
 
-		if i == 0 {
-			callExpr = ah.CallExpr(names.ident("fnc"), byteLitWithExtKey(obfRand, encB, extKeys, highProb))
-			continue
-		}
-
-		callExpr = ah.CallExpr(callExpr, byteLitWithExtKey(obfRand, encB, extKeys, lowProb))
+		payload[i] = encB ^ mask
 	}
 
 	return ah.BlockStmt(
-		ah.AssignDefineStmt(
-			names.ident("seed"),
-			ah.CallExprByName("byte", byteLitWithExtKey(obfRand, originalSeed, extKeys, highProb)),
-		),
+		ah.AssignDefineStmt(names.ident("payload"), ah.StringLit(string(payload))),
 		ah.AssignDefineStmt(names.ident("data"),
 			ah.CallExprByName("make", ah.ByteSliceType(), ah.IntLit(len(data)))),
-		ah.AssignDefineStmt(names.ident("i"), ah.IntLit(0)),
-		&ast.DeclStmt{
-			Decl: &ast.GenDecl{
-				Tok: token.TYPE,
-				Specs: []ast.Spec{&ast.TypeSpec{
-					Name: names.ident("decFunc"),
-					Type: &ast.FuncType{
-						Params: &ast.FieldList{List: []*ast.Field{
-							{Type: ast.NewIdent("byte")},
-						}},
-						Results: &ast.FieldList{List: []*ast.Field{
-							{Type: names.ident("decFunc")},
-						}},
-					},
-				}},
-			},
-		},
-		&ast.DeclStmt{
-			Decl: &ast.GenDecl{
-				Tok: token.VAR,
-				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{names.ident("fnc")},
-					Type:  names.ident("decFunc"),
-				}},
-			},
-		},
-		ah.AssignStmt(
-			names.ident("fnc"),
-			&ast.FuncLit{
-				Type: &ast.FuncType{
-					Params: &ast.FieldList{
-						List: []*ast.Field{{
-							Names: []*ast.Ident{names.ident("x")},
-							Type:  ast.NewIdent("byte"),
-						}},
-					},
-					Results: &ast.FieldList{
-						List: []*ast.Field{{
-							Type: names.ident("decFunc"),
-						}},
-					},
-				},
-				Body: ah.BlockStmt(
-					ah.AssignStmt(
-						ah.IndexExpr(names.name("data"), names.ident("i")),
-						operatorToReversedBinaryExpr(op, names.ident("x"), names.ident("seed")),
+		ah.AssignDefineStmt(names.ident("mask"), ah.CallExprByName("byte", byteLitWithExtKey(obfRand, mask, extKeys, highProb))),
+		ah.AssignDefineStmt(names.ident("seed"), ah.CallExprByName("byte", byteLitWithExtKey(obfRand, originalSeed, extKeys, highProb))),
+		&ast.ForStmt{
+			Init: ah.AssignDefineStmt(names.ident("i"), ah.IntLit(0)),
+			Cond: ah.BinaryExpr(names.ident("i"), token.LSS, ah.IntLit(len(data))),
+			Post: &ast.IncDecStmt{X: names.ident("i"), Tok: token.INC},
+			Body: ah.BlockStmt(
+				ah.AssignDefineStmt(names.ident("b"),
+					ah.BinaryExpr(
+						ah.IndexExpr(names.name("payload"), names.ident("i")),
+						token.XOR,
+						names.ident("mask"),
 					),
-					&ast.IncDecStmt{X: names.ident("i"), Tok: token.INC},
-					&ast.AssignStmt{
-						Lhs: []ast.Expr{names.ident("seed")},
-						Tok: token.ADD_ASSIGN,
-						Rhs: []ast.Expr{names.ident("x")},
-					},
-					ah.ReturnStmt(names.ident("fnc")),
 				),
-			},
-		),
-		ah.ExprStmt(callExpr),
+				ah.AssignStmt(
+					ah.IndexExpr(names.name("data"), names.ident("i")),
+					operatorToReversedBinaryExpr(op, names.ident("b"), names.ident("seed")),
+				),
+				&ast.AssignStmt{
+					Lhs: []ast.Expr{names.ident("seed")},
+					Tok: token.ADD_ASSIGN,
+					Rhs: []ast.Expr{names.ident("b")},
+				},
+			),
+		},
 	)
 }
