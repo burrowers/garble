@@ -1,5 +1,6 @@
 env GARBLE_CACHE=${WORK}/garble-cache
-exec garble -seed=c2VlZDAwMDE= build
+# A fixed seed makes original and obfuscated method ordering differ reliably.
+exec garble -seed=0002deadbeef build
 exec ./main
 cmp stdout main.stdout
 
@@ -25,7 +26,7 @@ stdout '^used$'
 # and only link again. Keep GOCACHE and the seed from the initial build above;
 # the linker must reconstruct the reflected names even without recompilation.
 rm garble-cache
-exec garble -seed=c2VlZDAwMDE= build -ldflags=-X=main.unused=changed
+exec garble -seed=0002deadbeef build -ldflags=-X=main.unused=changed
 exec ./main
 cmp stdout main.stdout
 
@@ -53,7 +54,27 @@ type orderedInterface interface {
 	ZuluMethod() string
 }
 
+type directTypeForReceiver struct{}
+type genericTypeForReceiver struct{}
+
+func (directTypeForReceiver) TypeForDirectMethod()   {}
+func (genericTypeForReceiver) TypeForGenericMethod() {}
+
+func genericReflectedType[T any]() reflect.Type { return reflect.TypeFor[T]() }
+
 func checkMethodOrder() {
+	for _, test := range []struct {
+		typ  reflect.Type
+		name string
+	}{
+		{reflect.TypeFor[directTypeForReceiver](), "TypeForDirectMethod"},
+		{genericReflectedType[genericTypeForReceiver](), "TypeForGenericMethod"},
+	} {
+		method, ok := test.typ.MethodByName(test.name)
+		if !ok || method.Name != test.name {
+			panic("method lost through TypeFor")
+		}
+	}
 	value := reflect.ValueOf(orderedMethods{})
 	iface := orderedInterface(orderedMethods{})
 	ifaceValue := reflect.ValueOf(&iface).Elem()
