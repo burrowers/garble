@@ -68,41 +68,6 @@ stdin stdout
 exec garble -literals reverse ./case/line
 cmp stdout line.expected
 
-# A call whose callee is a function literal is positioned at its opening
-# parenthesis, so its caller frame needs a marker of its own.
-go build -trimpath -o iife-plain$exe ./case/iife
-! exec ./iife-plain$exe
-stderr 'iife_site\.go:10\b'
-exec garble build -o iife-obfuscated$exe ./case/iife
-! exec ./iife-obfuscated$exe
-cp stderr iife-obfuscated.stderr
-stdin iife-obfuscated.stderr
-exec garble reverse ./case/iife
-# Reverse the caller's frame to the same line as plain Go, and keep the panic
-# call inside the literal so the two frames cannot collapse.
-stdout 'iife_site\.go:10\b'
-stdout 'iife_site\.go:9\b'
-
-# A call is positioned at its opening parenthesis even when its callee starts on
-# an earlier line, so the caller frame needs the offset of the parenthesis
-# rather than the offset of the callee expression.
-go build -trimpath -o multiline-plain$exe ./case/multiline
-! exec ./multiline-plain$exe selector
-stderr 'multiline_site\.go:17\b'
-! exec ./multiline-plain$exe chain
-stderr 'multiline_site\.go:21\b'
-exec garble build -o multiline-obfuscated$exe ./case/multiline
-! exec ./multiline-obfuscated$exe selector
-cp stderr multiline-selector.stderr
-stdin multiline-selector.stderr
-exec garble reverse ./case/multiline
-stdout 'multiline_site\.go:17\b'
-! exec ./multiline-obfuscated$exe chain
-cp stderr multiline-chain.stderr
-stdin multiline-chain.stderr
-exec garble reverse ./case/multiline
-stdout 'multiline_site\.go:21\b'
-
 # https://github.com/burrowers/garble/pull/967
 # Ensure that we can reverse a package with build tag required.
 exec garble build -o tag.bin -tags sometag ./case/tag
@@ -165,12 +130,13 @@ func main() {
 	_, filename, _, _ := runtime.Caller(0)
 	println()
 	println("main filename:", filename)
+	callSites()
 }
 
 type Logger struct{}
 
 func (l *Logger) Fields(args ...any) *Logger { return l }
-func (l *Logger) Info(message string) { _ = log.Output(2, message) }
+func (l *Logger) Info(message string)        { _ = log.Output(2, message) }
 
 func unexportedMainFunc() {
 	anonFunc := func() {
@@ -264,21 +230,39 @@ func CallerFuncName() string {
 	return fn.Name()
 }
 
--- case/iife/iife_site.go --
+-- call_sites.go --
 package main
 
-import "fmt"
+import (
+	"runtime"
+	"strconv"
+)
 
 //go:noinline
-func run() {
-	fmt.Println("case-iife")
+func callSites() {
+	// Each call's parenthesis must have its own position marker.
 	func() {
-		panic("case-iife-panic")
+		reportCallers("iife")
 	}()
+	s := site{}
+	s.
+		report()
+	s.
+		chain().
+		report()
 }
 
-func main() {
-	run()
+type site struct{}
+
+func (s site) chain() site { return s }
+
+func (site) report() { reportCallers("multiline") }
+
+func reportCallers(label string) {
+	for skip := 1; skip <= 2; skip++ {
+		_, file, line, _ := runtime.Caller(skip)
+		println(label, file+":"+strconv.Itoa(line))
+	}
 }
 
 -- reverse.stdout --
@@ -290,37 +274,17 @@ test/main/lib.printStackTrace(...)
 test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
 	test/main/lib/long_lib.go:20 +0x??
 main.unexportedMainFunc.func1(...)
-	test/main/long_main.go:32
+	test/main/long_main.go:33
 main.unexportedMainFunc(...)
-	test/main/long_main.go:36 +0x??
+	test/main/long_main.go:37 +0x??
 main.main(...)
 	test/main/long_main.go:12 +0x??
 test/main/long_main.go:17: first
 
 main filename: test/main/long_main.go
--- case/multiline/multiline_site.go --
-package main
-
-import "os"
-
-type site struct{}
-
-func (site) boom() { panic("multiline boom") }
-
-func (site) chain() site { return site{} }
-
-//go:noinline
-func pick(mode string) {
-	s := site{}
-	switch mode {
-	case "selector":
-		s.
-			boom()
-	case "chain":
-		s.
-			chain().
-			boom()
-	}
-}
-
-func main() { pick(os.Args[1]) }
+iife test/main/call_sites.go:12
+iife test/main/call_sites.go:13
+multiline test/main/call_sites.go:26
+multiline test/main/call_sites.go:16
+multiline test/main/call_sites.go:26
+multiline test/main/call_sites.go:19
