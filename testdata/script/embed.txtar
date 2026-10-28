@@ -123,6 +123,21 @@ func main() {
 	if string(data) != string(aliasData) {
 		panic("alias differs")
 	}
+	aliasData[0] ^= 0xff
+	again, err := assets.ReadFile("static/a.txt")
+	if err != nil || string(again) != string(data) || aliasData[0] == data[0] {
+		panic("ReadFile results must have independent storage")
+	}
+	held, err := assets.Open("static/a.txt")
+	if err != nil {
+		panic(err)
+	}
+	again[0] ^= 0xff
+	heldData, err := io.ReadAll(held)
+	held.Close()
+	if err != nil || string(heldData) != string(data) {
+		panic("ReadFile mutation must not change an open file")
+	}
 	nested, _ := assets.ReadFile("static/sub/nested.txt")
 	fmt.Printf("nested: %s", nested)
 	fmt.Printf("read: %s", data)

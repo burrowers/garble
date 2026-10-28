@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"go/printer"
 	"go/token"
 	"io/fs"
@@ -699,6 +700,34 @@ func TestReplaceGoAsmNamesPreservesOtherIdentifiers(t *testing.T) {
 	if got := replaceGoAsmNames(input, nameMap); got != want {
 		t.Fatalf("replaceGoAsmNames() = %q, want %q", got, want)
 	}
+}
+
+func TestEmbedOpenByteBuffer(t *testing.T) {
+	out, err := exec.Command("go", "env", "GOROOT").Output()
+	qt.Assert(t, qt.IsNil(err))
+	goroot := strings.TrimSpace(string(out))
+	file, err := parser.ParseFile(fset, filepath.Join(goroot, "src", "embed", "embed.go"), nil, 0)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(patchEmbedPackage(file)))
+	var source strings.Builder
+	qt.Assert(t, qt.IsNil(printer.Fprint(&source, fset, file)))
+	if !strings.Contains(source.String(), "func garbleEmbedDecode(s string) []byte") ||
+		strings.Contains(source.String(), "string(garbleBlobDecode(s))") {
+		t.Fatal("embed decode must return its byte buffer without a string copy")
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.TypeSpec)
+		if !ok || spec.Name.Name != "openFile" {
+			return true
+		}
+		fields := spec.Type.(*ast.StructType).Fields.List
+		field := fields[len(fields)-1]
+		var typ strings.Builder
+		qt.Assert(t, qt.IsNil(printer.Fprint(&typ, fset, field.Type)))
+		qt.Assert(t, qt.Equals(field.Names[0].Name, "data"))
+		qt.Assert(t, qt.Equals(typ.String(), "[]byte"))
+		return false
+	})
 }
 
 func TestReverseContentPreservesRuntimeFrames(t *testing.T) {

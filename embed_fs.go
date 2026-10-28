@@ -76,9 +76,9 @@ func garbleEmbedSize(s string) int {
  }
  return len(s)
 }
-func garbleEmbedDecode(s string) string {
- if len(s) < len(garbleEmbedMagic)+32 || s[:len(garbleEmbedMagic)] != garbleEmbedMagic { return s }
- return string(garbleBlobDecode(s))
+func garbleEmbedDecode(s string) []byte {
+ if len(s) < len(garbleEmbedMagic)+32 || s[:len(garbleEmbedMagic)] != garbleEmbedMagic { return []byte(s) }
+ return garbleBlobDecode(s)
 }
 func garbleBlobDecode(s string) []byte DECODE_BODY`
 	helpSource := strings.Replace(helperTemplate, "EMBED_MAGIC", strconv.Quote(literals.BlobMagic), 1)
@@ -100,7 +100,7 @@ func garbleBlobDecode(s string) []byte DECODE_BODY`
 				if !ok || len(st.Fields.List) != 2 {
 					return fmt.Errorf("unexpected embed.openFile layout")
 				}
-				st.Fields.List = append(st.Fields.List, &ast.Field{Names: []*ast.Ident{ast.NewIdent("data")}, Type: ast.NewIdent("string")})
+				st.Fields.List = append(st.Fields.List, &ast.Field{Names: []*ast.Ident{ast.NewIdent("data")}, Type: &ast.ArrayType{Elt: ast.NewIdent("byte")}})
 				counts["struct"]++
 			}
 		case *ast.FuncDecl:
