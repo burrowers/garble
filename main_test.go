@@ -153,6 +153,14 @@ func TestScript(t *testing.T) {
 			"setenvfile":        setenvfile,
 			"grepfiles":         grepfiles,
 			"setup-go":          setupGo,
+			"literal-inits": func(ts *testscript.TestScript, neg bool, args []string) {
+				if neg || len(args) != 3 || (args[2] != "weak" && args[2] != "strong") {
+					ts.Fatalf("usage: literal-inits source graph weak|strong")
+				}
+				checkLiteralInitReachability(ts, ts.MkAbs(args[0]), []byte(ts.ReadFile(args[1])), []int{0, 1}, func(i int) bool {
+					return i == 0 || args[2] == "strong"
+				})
+			},
 		},
 		UpdateScripts:       *update,
 		RequireExplicitExec: true,

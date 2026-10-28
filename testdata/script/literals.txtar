@@ -1,9 +1,14 @@
-exec garble -literals build
+# Dead-global reachability is covered by TestLiteralInitLargePackage.
+exec garble -literals build -ldflags=-dumpdep
+# Outgoing aliases keep eager initialization, even if otherwise unused.
+stderr 'deadLiteralGlobal1167'
+stderr 'deadLiteralImported1167'
 exec ./main$exe
 cmp stderr main.stderr
 
 binsubstr main$exe 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const' 'sz<min'
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret' 'parens!!'
+! binsubstr main$exe 'initialized owner of linked string'
 ! binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz'
 
 [short] stop # checking that the build is reproducible is slow
@@ -11,7 +16,7 @@ binsubstr main$exe 'skip typed const' 'skip typed var' 'skip typed var assign' '
 # Also check that the binary is reproducible.
 cp main$exe main_old$exe
 rm main$exe
-exec garble -literals build
+exec garble -literals build -ldflags=-dumpdep
 bincmp main$exe main_old$exe
 
 # Check that the program works as expected without garble.
@@ -29,20 +34,196 @@ go build
 binsubstr main$exe 'garble_unique_string'
 
 # ensure we don't find the extra literals in an obfuscated build
-exec garble -literals build
+# A plugin can later refer to globals absent from the executable's live graph.
+exec garble -literals build -tags=literalplugin -ldflags=-dumpdep
+[linux] [cgo] stderr 'deadLiteralGlobal1167'
+[linux] [cgo] stderr 'deadLiteralImported1167'
 exec ./main$exe
 cmp stderr main.stderr
 ! binsubstr main$exe 'garble_unique_string'
+
+# Darwin arm64 uses compiler -shared for normal PIC executables, not just libraries.
+# The other build modes are covered by TestLiteralInitBuildModeCacheIdentity.
+cd pic
+env GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr weak
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr weak
+env GOFLAGS=-buildmode=c-archive
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr strong
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr strong
+# Override GOFLAGS and reuse the same dependency/cache after a library build.
+exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -buildmode=pie -ldflags=-dumpdep -o out
+literal-inits debug/garbled/test/main/pic/main.go stderr weak
+literal-inits debug/garbled/test/main/pic/dep/dep.go stderr weak
+
+-- pic/main.go --
+package main
+
+import "test/main/pic/dep"
+
+var Live = "live main global string"
+var Dead = "dead main global string"
+
+func main() { println(Live, dep.Live) }
+
+-- pic/dep/dep.go --
+package dep
+
+var Live = "live imported global string"
+var Dead = "dead imported global string"
+
+-- a/p.go --
+package a
+
+import _ "unsafe"
+
+//go:linkname Value sharedAliasReview
+var Value string
+
+//go:linkname Aggregate sharedAggregateReview
+var Aggregate [2]string
+
+-- b/p.go --
+package b
+
+import _ "unsafe"
+
+//go:linkname Value sharedAliasReview
+var Value = "initialized owner of linked string"
+
+//go:linkname Aggregate sharedAggregateReview
+var Aggregate = [2]string{1: "initialized owner of linked aggregate"}
+
+-- plugin.go --
+//go:build literalplugin && linux && cgo
+
+package main
+
+import _ "plugin"
+
+-- global_init.go --
+package main
+
+import (
+	"test/main/a"
+	_ "test/main/b"
+	"test/main/global_ref"
+)
+
+var initEvents int
+
+type aggregateRecord struct {
+	Text   string
+	Count  int
+	Nested [2]string
+}
+
+var aggregate = aggregateRecord{Text: "an eagerly initialized aggregate", Count: 3, Nested: [2]string{1: "a nested aggregate string"}}
+var aggregateAddress = &aggregate
+var aggregateArray = [...]aggregateRecord{{"an array aggregate string", 4, [2]string{"nested array string", "short"}}}
+var deadAggregate = [2]string{"a dead array aggregate string", "another dead array string"}
+var deadRecord = aggregateRecord{Text: "a dead struct aggregate string"}
+var aggregateEffect = aggregateRecord{Text: literalGlobalFactory()}
+var literalMap = map[string]rune{"an eagerly initialized map key": 'x'}
+var literalMapAddress = &literalMap
+var deadLiteralMap = map[string]rune{"a dead constant map key": 'y'}
+var mapScheduled = observeMap()
+var unusedMapEffect = map[string]string{"an unused map with side effects": literalGlobalFactory()}
+var addressed = "an addressable initialized literal"
+var addressBeforeUse = &addressed
+var scheduled = observeScheduled()
+var dependency = "initialized before its dependent"
+var userFactory = literalGlobalFactory()
+var unusedEffect = literalGlobalFactory()
+var mixedConstant, mixedEffect = "a mixed constant initializer", literalGlobalFactory()
+var _ = literalGlobalFactory()
+
+func observeScheduled() string {
+	if dependency != "initialized before its dependent" {
+		panic("literal dependency scheduling changed")
+	}
+	initEvents++
+	return dependency
+}
+
+func observeMap() bool {
+	if literalMap["an eagerly initialized map key"] != 'x' {
+		panic("map initialization dependency changed")
+	}
+	return true
+}
+
+func literalGlobalFactory() string {
+	initEvents++
+	return "side effects in a user literal factory"
+}
+
+func init() {
+	// Sibling aliases must keep the initialized owner's eager init alive.
+	if a.Value != "initialized owner of linked string" || a.Aggregate[1] != "initialized owner of linked aggregate" {
+		panic("linknamed initializer removed")
+	}
+	if aggregateAddress != &aggregate || aggregate.Text != "an eagerly initialized aggregate" || aggregate.Nested[1] != "a nested aggregate string" || aggregate.Count != 3 || aggregateArray[0].Count != 4 || aggregateArray[0].Text != "an array aggregate string" {
+		panic("aggregate address or eager initialization changed")
+	}
+	aggregateAddress.Nested[1] = "mutated aggregate field"
+	if aggregate.Nested[1] != "mutated aggregate field" || aggregateEffect.Text != userFactory {
+		panic("aggregate mutation or side effects changed")
+	}
+	if initEvents != 7 || scheduled != dependency || mixedConstant != "a mixed constant initializer" || mixedEffect != userFactory {
+		panic("literal initializer side effects changed")
+	}
+	if !mapScheduled || literalMapAddress != &literalMap || (*literalMapAddress)["an eagerly initialized map key"] != 'x' {
+		panic("map address or eager initialization changed")
+	}
+	literalMap["an eagerly initialized map key"] = 'z'
+	if (*literalMapAddress)["an eagerly initialized map key"] != 'z' {
+		panic("map mutation changed")
+	}
+	if addressBeforeUse != &addressed || *addressBeforeUse != "an addressable initialized literal" {
+		panic("literal global address or eager value changed")
+	}
+	*addressBeforeUse = "mutated after initialization"
+	if addressed != "mutated after initialization" {
+		panic("literal global mutation changed")
+	}
+	global_ref.Check()
+}
+
+-- global_ref/ref.go --
+package global_ref
+
+import (
+	_ "test/main/imp_var"
+	_ "unsafe"
+)
+
+//go:linkname linkedLiteral test/main/imp_var.LinknameGlobal
+var linkedLiteral string
+
+func Check() {
+	if linkedLiteral != "a global referenced only by linkname" {
+		panic("linknamed literal initializer removed")
+	}
+	linkedLiteral = "mutation through linkname"
+	if linkedLiteral != "mutation through linkname" {
+		panic("linknamed literal mutation changed")
+	}
+}
 
 -- go.mod --
 module test/main
 
 go 1.23
+
 -- main.go --
 package main
 
 import (
 	_ "runtime/debug"
+	_ "unsafe"
 
 	"test/main/imp"
 	. "test/main/imp_const"
@@ -51,6 +232,9 @@ import (
 	. "test/main/imp_type"
 	. "test/main/imp_var"
 )
+
+//go:linkname deadLiteralGlobal deadLiteralGlobal1167
+var deadLiteralGlobal = "a dead constant string global must not retain its decoder"
 
 type structTest struct {
 	field        string
@@ -359,7 +543,7 @@ func byteTest() {
 	// Parentheses used to leave the invalid &(decoder()) behind.
 	func(s *[]byte) {
 		print(string(*s))
-	}(&(([]byte{112, 97, 114, 101, 110, 115, '!', '!'})))
+	}(&([]byte{112, 97, 114, 101, 110, 115, '!', '!'}))
 	println()
 
 	// A composite literal which we leave alone must keep its parentheses,
@@ -475,7 +659,13 @@ func DotImportedFunc() string {
 -- imp_var/imported.go --
 package imp_var
 
+import _ "unsafe"
+
+//go:linkname deadImported deadLiteralImported1167
+var deadImported = "a dead literal in a cached imported package"
+
 var DotImportedVar = "str from dot imported var"
+var LinknameGlobal = "a global referenced only by linkname"
 
 -- imp_type/imported.go --
 package imp_type

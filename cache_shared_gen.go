@@ -561,13 +561,16 @@ func (z pkgRange) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 6
+	// map header, size 7
 	// string "ForwardBuildFlags"
-	o = append(o, 0x86, 0xb1, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x46, 0x6c, 0x61, 0x67, 0x73)
+	o = append(o, 0x87, 0xb1, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x46, 0x6c, 0x61, 0x67, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.ForwardBuildFlags)))
 	for za0001 := range z.ForwardBuildFlags {
 		o = msgp.AppendString(o, z.ForwardBuildFlags[za0001])
 	}
+	// string "UsesPlugins"
+	o = append(o, 0xab, 0x55, 0x73, 0x65, 0x73, 0x50, 0x6c, 0x75, 0x67, 0x69, 0x6e, 0x73)
+	o = msgp.AppendBool(o, z.UsesPlugins)
 	// string "CacheDir"
 	o = append(o, 0xa8, 0x43, 0x61, 0x63, 0x68, 0x65, 0x44, 0x69, 0x72)
 	o = msgp.AppendString(o, z.CacheDir)
@@ -645,6 +648,12 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 					err = msgp.WrapError(err, "ForwardBuildFlags", za0001)
 					return
 				}
+			}
+		case "UsesPlugins":
+			z.UsesPlugins, bts, err = msgp.ReadBoolBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "UsesPlugins")
+				return
 			}
 		case "CacheDir":
 			z.CacheDir, bts, err = msgp.ReadStringBytes(bts)
@@ -752,7 +761,7 @@ func (z *sharedCacheType) Msgsize() (s int) {
 	for za0001 := range z.ForwardBuildFlags {
 		s += msgp.StringPrefixSize + len(z.ForwardBuildFlags[za0001])
 	}
-	s += 9 + msgp.StringPrefixSize + len(z.CacheDir) + 15
+	s += 12 + msgp.BoolSize + 9 + msgp.StringPrefixSize + len(z.CacheDir) + 15
 	if z.ListedPackages == nil {
 		s += msgp.NilSize
 	} else {

@@ -16,6 +16,7 @@ import (
 	"github.com/rogpeppe/go-internal/cache"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
+	"mvdan.cc/garble/internal/literals"
 )
 
 // "maps binkeys" lets pkgCache.ReflectAPIs use its int-keyed inner map.
@@ -53,6 +54,9 @@ type pkgCache struct {
 	// ReflectObjectNames maps obfuscated names which are reflected to their original
 	// non-obfuscated names. The key is a [reflectInspector.obfuscatedObjectName].
 	ReflectObjectNames map[string]string
+
+	// PureConstructors records body-proven value constructors by Func.FullName.
+	PureConstructors map[string]bool
 }
 
 type reflectCallEdge struct {
@@ -61,6 +65,7 @@ type reflectCallEdge struct {
 }
 
 func (c *pkgCache) CopyFrom(c2 pkgCache) {
+	maps.Copy(c.PureConstructors, c2.PureConstructors)
 	for name, params := range c2.ReflectAPIs {
 		mergeReflectParams(c.ReflectAPIs, name, params)
 	}
@@ -192,11 +197,13 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			"reflect.ValueOf": {0: true},
 		},
 		ReflectObjectNames: map[string]string{},
+		PureConstructors:   map[string]bool{},
 	}
+	constructors := flagLiterals && !isRuntimePkgPath(lpkg.ImportPath)
 	// Standard packages with no reflection dependency cannot contribute reflected
 	// names. Non-standard packages may still forward models to an interface whose
 	// implementation is found downstream, so retain their call edges.
-	if !lpkg.hasDep("reflect") && lpkg.Standard {
+	if !lpkg.hasDep("reflect") && lpkg.Standard && !constructors {
 		return computed, nil
 	}
 	for _, imp := range lpkg.Imports {
@@ -231,7 +238,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			}
 			// A non-standard dependency may forward a parameter through an
 			// interface even if it never imports reflect itself.
-			if !lpkg.hasDep("reflect") && lpkg.Standard {
+			if !lpkg.hasDep("reflect") && lpkg.Standard && (!flagLiterals || isRuntimePkgPath(lpkg.ImportPath)) {
 				return nil
 			}
 			// Missing or corrupted entry in the cache for a dependency.
@@ -257,6 +264,9 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		}
 	}
 
+	if constructors {
+		maps.Copy(computed.PureConstructors, literals.ConstructorSummaries(files, info, computed.PureConstructors))
+	}
 	if lpkg.Name == "main" {
 		matchReflectedInterfaceMethods(pkg, &computed)
 	}
