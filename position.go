@@ -101,11 +101,22 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	}
 	var origCallOffsets []int
 	var generatedIdent []bool
+	// A call on a function literal has no callee identifier to carry a marker,
+	// and the compiler positions the call at its opening parenthesis. Keep the
+	// offset of that parenthesis for every such call, in source order.
+	var origFuncLitCallOffsets []int
 	nextOffset := -1
 	for node := range ast.Preorder(file) {
 		switch node := node.(type) {
 		case *ast.CallExpr:
 			nextOffset = fsetFile.Position(node.Pos()).Offset
+			if _, ok := node.Fun.(*ast.FuncLit); ok {
+				origOffset := -1
+				if node.Lparen.IsValid() {
+					origOffset = fsetFile.Position(node.Lparen).Offset
+				}
+				origFuncLitCallOffsets = append(origFuncLitCallOffsets, origOffset)
+			}
 		case *ast.Ident:
 			origCallOffsets = append(origCallOffsets, nextOffset)
 			generatedIdent = append(generatedIdent, generatedIdents[node])
@@ -131,6 +142,8 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	s.Init(fsetFile, src, nil, scanner.ScanComments)
 
 	identIndex := 0
+	funcLitCallIndex := 0
+	afterRbrace := false
 	braceDepth, parenDepth := 0, 0
 	generated := false
 	generatedLine := 0
@@ -147,6 +160,28 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			printBuf2.Write(src[copied:offset])
 			copied = offset
 			fmt.Fprintf(&printBuf2, " /*line %s:1*/ ", newPrefix)
+		}
+		// A call on a function literal is positioned at its opening
+		// parenthesis, which no identifier of the call covers. In valid Go a
+		// closing brace followed by an opening parenthesis is that call, and
+		// the loop above collected the parentheses in the same source order.
+		if afterRbrace && tok == token.LPAREN && funcLitCallIndex < len(origFuncLitCallOffsets) {
+			origOffset := origFuncLitCallOffsets[funcLitCallIndex]
+			funcLitCallIndex++
+			if origOffset != -1 && !generated {
+				newName := ""
+				if !flagTiny {
+					origPos := fmt.Sprintf("%s:%d", filename, origOffset)
+					newName = hashWithPackage(lpkg, origPos) + ".go"
+				}
+				offset := fsetFile.Position(pos).Offset
+				printBuf2.Write(src[copied:offset])
+				copied = offset
+				fmt.Fprintf(&printBuf2, " /*line %s%s:1*/ ", newPrefix, newName)
+			}
+		}
+		if tok != token.COMMENT {
+			afterRbrace = tok == token.RBRACE
 		}
 		switch tok {
 		case token.LPAREN:
