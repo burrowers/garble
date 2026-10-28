@@ -203,6 +203,59 @@ func functionPackage(val *ssa.Function) *types.Package {
 	return nil
 }
 
+// convertFunction resolves a function reference and its type arguments.
+// For direct calls, it also consumes the receiver argument of a method call.
+// A nil call converts a function value without consuming arguments.
+func (fc *funcConverter) convertFunction(val *ssa.Function, call *ssa.CallCommon) (ast.Expr, int, error) {
+	anonFuncName, err := fc.getAnonFunctionName(val)
+	if err != nil {
+		return nil, 0, err
+	}
+	if anonFuncName != nil {
+		return anonFuncName, 0, nil
+	}
+	thunkCall, err := fc.getThunkMethodCall(val)
+	if err != nil || thunkCall != nil {
+		return thunkCall, 0, err
+	}
+
+	name := ast.NewIdent(val.Name())
+	var funcExpr ast.Expr = name
+	argsOffset := 0
+	if val.Signature.Recv() != nil {
+		if call != nil {
+			recvExpr, err := fc.convertSsaValue(call.Args[0])
+			if err != nil {
+				return nil, 0, err
+			}
+			funcExpr = ah.SelectExpr(recvExpr, name)
+			argsOffset = 1
+		}
+	} else if pkg := functionPackage(val); pkg != nil {
+		if pkgIdent := fc.importNameResolver(pkg); pkgIdent != nil {
+			funcExpr = ah.SelectExpr(pkgIdent, name)
+		}
+	}
+	if typeArgs := val.TypeArgs(); len(typeArgs) > 0 {
+		// Generic methods are called in a monomorphic view (e.g. "someMethod[int string]"),
+		// so to get the original name, delete everything starting from "[" inclusive.
+		name.Name, _, _ = strings.Cut(name.Name, "[")
+		indexed := &ast.IndexListExpr{X: funcExpr}
+
+		// For better readability of generated code and to avoid ambiguities,
+		// we explicitly specify generic method types (e.g. "someMethod[int, string](0, "str")")
+		for _, typArg := range typeArgs {
+			typeExpr, err := fc.tc.Convert(typArg)
+			if err != nil {
+				return nil, 0, err
+			}
+			indexed.Indices = append(indexed.Indices, typeExpr)
+		}
+		funcExpr = indexed
+	}
+	return funcExpr, argsOffset, nil
+}
+
 func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, error) {
 	callExpr := &ast.CallExpr{}
 	argsOffset := 0
@@ -210,61 +263,10 @@ func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, 
 	if !callCommon.IsInvoke() {
 		switch val := callCommon.Value.(type) {
 		case *ssa.Function:
-			anonFuncName, err := fc.getAnonFunctionName(val)
+			var err error
+			callExpr.Fun, argsOffset, err = fc.convertFunction(val, &callCommon)
 			if err != nil {
 				return nil, err
-			}
-			if anonFuncName != nil {
-				callExpr.Fun = anonFuncName
-				break
-			}
-
-			thunkCall, err := fc.getThunkMethodCall(val)
-			if err != nil {
-				return nil, err
-			}
-			if thunkCall != nil {
-				callExpr.Fun = thunkCall
-				break
-			}
-
-			hasRecv := val.Signature.Recv() != nil
-			methodName := ast.NewIdent(val.Name())
-			if hasRecv {
-				argsOffset = 1
-				recvExpr, err := fc.convertSsaValue(callCommon.Args[0])
-				if err != nil {
-					return nil, err
-				}
-				callExpr.Fun = ah.SelectExpr(recvExpr, methodName)
-			} else {
-				if pkg := functionPackage(val); pkg != nil {
-					if pkgIdent := fc.importNameResolver(pkg); pkgIdent != nil {
-						callExpr.Fun = ah.SelectExpr(pkgIdent, methodName)
-					}
-				}
-				if callExpr.Fun == nil {
-					callExpr.Fun = methodName
-				}
-			}
-			if typeArgs := val.TypeArgs(); len(typeArgs) > 0 {
-				// Generic methods are called in a monomorphic view (e.g. "someMethod[int string]"),
-				// so to get the original name, delete everything starting from "[" inclusive.
-				methodName.Name, _, _ = strings.Cut(methodName.Name, "[")
-				genericCallExpr := &ast.IndexListExpr{
-					X: callExpr.Fun,
-				}
-
-				// For better readability of generated code and to avoid ambiguities,
-				// we explicitly specify generic method types (e.g. "someMethod[int, string](0, "str")")
-				for _, typArg := range typeArgs {
-					typeExpr, err := fc.tc.Convert(typArg)
-					if err != nil {
-						return nil, err
-					}
-					genericCallExpr.Indices = append(genericCallExpr.Indices, typeExpr)
-				}
-				callExpr.Fun = genericCallExpr
 			}
 		case *ssa.Builtin:
 			name := val.Name()
@@ -357,42 +359,8 @@ func (fc *funcConverter) ssaValue(ssaValue ssa.Value, explicitNil bool) (expr as
 		}
 		return globalExpr, nil
 	case *ssa.Function:
-		anonFuncName, err := fc.getAnonFunctionName(val)
-		if err != nil {
-			return nil, err
-		}
-		if anonFuncName != nil {
-			return anonFuncName, nil
-		}
-
-		thunkCall, err := fc.getThunkMethodCall(val)
-		if err != nil {
-			return nil, err
-		}
-		if thunkCall != nil {
-			return thunkCall, nil
-		}
-
-		name := ast.NewIdent(val.Name())
-		var funcExpr ast.Expr = name
-		if pkg := functionPackage(val); pkg != nil && val.Signature.Recv() == nil {
-			if pkgIdent := fc.importNameResolver(pkg); pkgIdent != nil {
-				funcExpr = ah.SelectExpr(pkgIdent, name)
-			}
-		}
-		if typeArgs := val.TypeArgs(); len(typeArgs) > 0 {
-			name.Name, _, _ = strings.Cut(name.Name, "[")
-			indexed := &ast.IndexListExpr{X: funcExpr}
-			for _, typArg := range typeArgs {
-				typeExpr, err := fc.tc.Convert(typArg)
-				if err != nil {
-					return nil, err
-				}
-				indexed.Indices = append(indexed.Indices, typeExpr)
-			}
-			funcExpr = indexed
-		}
-		return funcExpr, nil
+		expr, _, err := fc.convertFunction(val, nil)
+		return expr, err
 	case *ssa.Const:
 		var constExpr ast.Expr
 		if val.Value == nil {
@@ -1076,35 +1044,25 @@ func (fc *funcConverter) convertAnonFuncs(anonFuncs []*ssa.Function) ([]ast.Stmt
 		}
 		anonLit.Body = ah.BlockStmt(anonStmts...)
 
-		if len(anonFunc.FreeVars) == 0 {
-			stmts = append(stmts, &ast.AssignStmt{
-				Lhs: []ast.Expr{ast.NewIdent(fc.getAnonFuncName(i))},
-				Tok: token.DEFINE,
-				Rhs: []ast.Expr{anonLit},
-			})
-			continue
+		if len(anonFunc.FreeVars) > 0 {
+			var closureVars []*types.Var
+			for _, freeVar := range anonFunc.FreeVars {
+				closureVars = append(closureVars, types.NewVar(token.NoPos, nil, freeVar.Name(), freeVar.Type()))
+			}
+
+			makeClosureType := types.NewSignatureType(nil, nil, nil, types.NewTuple(closureVars...), types.NewTuple(
+				types.NewVar(token.NoPos, nil, "", anonFunc.Signature),
+			), false)
+
+			makeClosureLit, err := fc.convertSignatureToFuncLit(makeClosureType)
+			if err != nil {
+				return nil, err
+			}
+			makeClosureLit.Body = ah.BlockStmt(ah.ReturnStmt(anonLit))
+			anonLit = makeClosureLit
 		}
 
-		var closureVars []*types.Var
-		for _, freeVar := range anonFunc.FreeVars {
-			closureVars = append(closureVars, types.NewVar(token.NoPos, nil, freeVar.Name(), freeVar.Type()))
-		}
-
-		makeClosureType := types.NewSignatureType(nil, nil, nil, types.NewTuple(closureVars...), types.NewTuple(
-			types.NewVar(token.NoPos, nil, "", anonFunc.Signature),
-		), false)
-
-		makeClosureLit, err := fc.convertSignatureToFuncLit(makeClosureType)
-		if err != nil {
-			return nil, err
-		}
-		makeClosureLit.Body = ah.BlockStmt(&ast.ReturnStmt{Results: []ast.Expr{anonLit}})
-
-		stmts = append(stmts, &ast.AssignStmt{
-			Lhs: []ast.Expr{ast.NewIdent(fc.getAnonFuncName(i))},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{makeClosureLit},
-		})
+		stmts = append(stmts, ah.AssignDefineStmt(ast.NewIdent(fc.getAnonFuncName(i)), anonLit))
 	}
 	return stmts, nil
 }
