@@ -354,13 +354,13 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 				// record each call argument passed to a function parameter which is used in reflection
 				knownParams := ri.result.ReflectAPIs[callName]
-				if len(knownParams) == 0 && inst.Call.StaticCallee() == nil {
+				if len(knownParams) == 0 && call.StaticCallee() == nil {
 					// The callee is only known dynamically, such as a function
 					// value or an interface method selection, so its name above
 					// is not the one recorded for the implementation. Go
 					// requires the signature to match, so fall back to the
 					// reflected parameters recorded for this signature.
-					sigKey := reflectSignatureKey(inst.Call.Signature())
+					sigKey := reflectSignatureKey(call.Signature())
 					knownParams = ri.result.ReflectAPIs[sigKey]
 					if flagDebug && len(knownParams) > 0 {
 						log.Printf("reflect: dynamic call %q matches signature %q", rawCallName, sigKey)
