@@ -298,18 +298,22 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 					ri.recursivelyRecordUsedForReflect(inst.Type())
 					ri.propagatedInstr[inst] = true
 				}
-			case *ssa.Call:
+			case ssa.CallInstruction:
+				// A direct call, a deferred call and a goroutine call all
+				// evaluate their arguments here, at the declared parameter
+				// positions of the callee.
+				call := inst.Common()
 				callName := ""
-				if callee := inst.Call.StaticCallee(); callee != nil {
+				if callee := call.StaticCallee(); callee != nil {
 					if obj, ok := ssaFuncOrigin(callee).Object().(*types.Func); ok && obj != nil {
 						callName = obj.FullName()
 					}
 				}
-				if callName == "" && inst.Call.Method != nil {
-					callName = inst.Call.Method.FullName()
+				if callName == "" && call.Method != nil {
+					callName = call.Method.FullName()
 				}
 				if callName == "" {
-					callName = inst.Call.Value.String()
+					callName = call.Value.String()
 				}
 				rawCallName := callName
 				callName, genericCall := stripTypeArgs(callName)
@@ -323,7 +327,7 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 				knownParams := ri.result.ReflectAPIs[callName]
 				// Iterate in a stable order too, like the member loop above.
 				for _, knownParam := range slices.Sorted(maps.Keys(knownParams)) {
-					sig := inst.Call.Signature()
+					sig := call.Signature()
 					if sig == nil {
 						continue
 					}
@@ -336,13 +340,13 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 					//   - bound call  `f := t.M; f(x)` has Call.Args = [x]
 					// In both cases Params().Len() == 1, so firstParamArg is
 					// len(Args)-1, and parameter x resolves correctly.
-					firstParamArg := len(inst.Call.Args) - sig.Params().Len()
+					firstParamArg := len(call.Args) - sig.Params().Len()
 					argPos := firstParamArg + knownParam
-					if argPos < 0 || argPos >= len(inst.Call.Args) {
+					if argPos < 0 || argPos >= len(call.Args) {
 						continue
 					}
 
-					arg := inst.Call.Args[argPos]
+					arg := call.Args[argPos]
 					/* fmt.Printf("flagging arg: %v\n", arg) */
 
 					reflectedParam := ri.recordArgReflected(arg, make(map[ssa.Value]bool))
