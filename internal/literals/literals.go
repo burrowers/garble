@@ -112,7 +112,7 @@ func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkString
 				if value.String {
 					replacement = obfuscateString(or, string(value.Data))
 				} else {
-					replacement = obfuscateByteSlice(or, false, value.Data)
+					replacement = obfuscateBytes(or, false, value.Data, 0)
 				}
 				cursor.Replace(withPos(replacement, node.Pos()))
 				return false
@@ -383,11 +383,7 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 		data = append(data, byte(value))
 	}
 
-	if arrayLen > 0 {
-		return withPos(obfuscateByteArray(or, isPointer, data, arrayLen), node.Pos())
-	}
-
-	return withPos(obfuscateByteSlice(or, isPointer, data), node.Pos())
+	return withPos(obfuscateBytes(or, isPointer, data, arrayLen), node.Pos())
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.
@@ -518,7 +514,8 @@ func (r *obfRand) stringConversionAdapter() (ast.Expr, *ast.FuncType) {
 	return d.clonePath(d.stringAdapter), d.stringAdapterType
 }
 
-func obfuscateByteSlice(or *obfRand, isPointer bool, data []byte) *ast.CallExpr {
+// obfuscateBytes returns a slice decoder when arrayLen is zero, otherwise an array decoder.
+func obfuscateBytes(or *obfRand, isPointer bool, data []byte, arrayLen int64) *ast.CallExpr {
 	obf := or.pickObfuscator(len(data))
 
 	names := newGeneratedNames(or)
@@ -526,63 +523,44 @@ func obfuscateByteSlice(or *obfRand, isPointer bool, data []byte) *ast.CallExpr 
 	block := obf.obfuscate(or.rnd, names, data, extKeys)
 	params, args := extKeysToParams(or, extKeys)
 
-	if isPointer {
-		block.List = append(block.List, ah.ReturnStmt(
-			ah.UnaryExpr(token.AND, names.ident("data")),
-		))
-		return or.liftCall(params, ah.StarExpr(ah.ByteSliceType()), block, args)
-	}
-
-	block.List = append(block.List, ah.ReturnStmt(names.ident("data")))
-	return or.liftCall(params, ah.ByteSliceType(), block, args)
-}
-
-func obfuscateByteArray(or *obfRand, isPointer bool, data []byte, length int64) *ast.CallExpr {
-	obf := or.pickObfuscator(len(data))
-
-	names := newGeneratedNames(or)
-	extKeys := randExtKeys(or.rnd, names)
-	block := obf.obfuscate(or.rnd, names, data, extKeys)
-	params, args := extKeysToParams(or, extKeys)
-
-	arrayType := ah.ByteArrayType(length)
-
-	sliceToArray := []ast.Stmt{
-		&ast.DeclStmt{
-			Decl: &ast.GenDecl{
-				Tok: token.VAR,
-				Specs: []ast.Spec{&ast.ValueSpec{
-					Names: []*ast.Ident{names.ident("newdata")},
-					Type:  arrayType,
-				}},
+	var resultType ast.Expr
+	resultName := "data"
+	if arrayLen > 0 {
+		resultType = ah.ByteArrayType(arrayLen)
+		resultName = "newdata"
+		block.List = append(block.List,
+			&ast.DeclStmt{
+				Decl: &ast.GenDecl{
+					Tok: token.VAR,
+					Specs: []ast.Spec{&ast.ValueSpec{
+						Names: []*ast.Ident{names.ident("newdata")},
+						Type:  resultType,
+					}},
+				},
 			},
-		},
-		&ast.RangeStmt{
-			Key: names.ident("i"),
-			Tok: token.DEFINE,
-			X:   names.ident("data"),
-			Body: ah.BlockStmt(
-				ah.AssignStmt(
-					ah.IndexExprByExpr(names.ident("newdata"), names.ident("i")),
-					ah.IndexExprByExpr(names.ident("data"), names.ident("i")),
+			&ast.RangeStmt{
+				Key: names.ident("i"),
+				Tok: token.DEFINE,
+				X:   names.ident("data"),
+				Body: ah.BlockStmt(
+					ah.AssignStmt(
+						ah.IndexExprByExpr(names.ident("newdata"), names.ident("i")),
+						ah.IndexExprByExpr(names.ident("data"), names.ident("i")),
+					),
 				),
-			),
-		},
+			},
+		)
+	} else {
+		resultType = ah.ByteSliceType()
 	}
 
-	var retexpr ast.Expr = names.ident("newdata")
+	var result ast.Expr = names.ident(resultName)
 	if isPointer {
-		retexpr = ah.UnaryExpr(token.AND, retexpr)
+		result = ah.UnaryExpr(token.AND, result)
+		resultType = ah.StarExpr(resultType)
 	}
-
-	sliceToArray = append(sliceToArray, ah.ReturnStmt(retexpr))
-	block.List = append(block.List, sliceToArray...)
-
-	if isPointer {
-		return or.liftCall(params, ah.StarExpr(arrayType), block, args)
-	}
-
-	return or.liftCall(params, arrayType, block, args)
+	block.List = append(block.List, ah.ReturnStmt(result))
+	return or.liftCall(params, resultType, block, args)
 }
 
 func (or *obfRand) pickObfuscator(size int) obfuscator {
