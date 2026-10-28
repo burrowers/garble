@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"go/printer"
 	"go/scanner"
 	"go/token"
@@ -15,43 +16,6 @@ import (
 )
 
 var printBuf1, printBuf2 bytes.Buffer
-
-// trailingCalleeIdent returns the last identifier of a callee expression. The
-// call's position marker is written in front of that identifier, so it can
-// carry the call's own offset.
-func trailingCalleeIdent(fun ast.Expr) *ast.Ident {
-	switch fun := fun.(type) {
-	case *ast.Ident:
-		return fun
-	case *ast.SelectorExpr:
-		return fun.Sel
-	case *ast.IndexExpr:
-		return trailingCalleeIdent(fun.X)
-	case *ast.IndexListExpr:
-		return trailingCalleeIdent(fun.X)
-	}
-	return nil
-}
-
-// leadingCalleeIdent returns the first identifier of a callee expression which
-// has no trailing one, so a callee such as (f) or x.(func()) keeps a marker.
-func leadingCalleeIdent(fun ast.Expr) *ast.Ident {
-	switch fun := fun.(type) {
-	case *ast.Ident:
-		return fun
-	case *ast.SelectorExpr:
-		return leadingCalleeIdent(fun.X)
-	case *ast.IndexExpr:
-		return leadingCalleeIdent(fun.X)
-	case *ast.IndexListExpr:
-		return leadingCalleeIdent(fun.X)
-	case *ast.ParenExpr:
-		return leadingCalleeIdent(fun.X)
-	case *ast.TypeAssertExpr:
-		return leadingCalleeIdent(fun.X)
-	}
-	return nil
-}
 
 // printFile prints a Go file to a buffer, while also removing non-directive
 // comments and adding extra compiler directives to obfuscate position information.
@@ -106,12 +70,12 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	// Unfortunately, comments are free-floating in File.Comments,
 	// and those are the only source of truth that go/printer uses.
 	// So the positions of the comments in the given file are wrong.
-	// The only way we can get the final ones is to tokenize again.
-	// Using go/scanner is slightly awkward, but cheaper than parsing again.
+	// Parse the printed source to locate call parentheses, then tokenize it
+	// below to remove comments and insert position directives.
 
 	// We want to use the original positions for the hashed positions.
 	// Since later we'll iterate on tokens rather than walking an AST,
-	// we use a list of offsets indexed by identifiers in source order.
+	// we match call expressions between the original and printed ASTs.
 	// Positionless top-level functions are generated, not original source.
 	// Their printed line numbers carry no reversible source information.
 	generatedIdents := make(map[*ast.Ident]bool)
@@ -136,43 +100,33 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			}
 		}
 	}
-	// The compiler positions a call at its opening parenthesis, so the marker
-	// describing a call must carry that offset. An ordinary call hands it to
-	// the identifier its callee ends with, which is the token the marker is
-	// written in front of. A call whose callee has no trailing identifier is
-	// handled from the printed token stream below.
-	callOffsetByIdent := make(map[*ast.Ident]int)
-	var origParenCallOffsets []int
+	// Match calls in AST order before and after printing. Re-parsing identifies
+	// their actual parentheses even for nested or generated callee expressions.
 	var origCallOffsets []int
 	var generatedIdent []bool
 	for node := range ast.Preorder(file) {
 		switch node := node.(type) {
 		case *ast.CallExpr:
-			origOffset := -1
+			offset := -1
 			if node.Lparen.IsValid() {
-				origOffset = fsetFile.Position(node.Lparen).Offset
-			}
-			ident := trailingCalleeIdent(node.Fun)
-			if ident == nil {
-				// Without a trailing identifier the call's own parenthesis is
-				// marked below; keep a marker on the callee's first identifier
-				// only when that is the sole identifier the call has.
-				if _, ok := node.Fun.(*ast.FuncLit); ok {
-					origParenCallOffsets = append(origParenCallOffsets, origOffset)
-					continue
-				}
-				ident = leadingCalleeIdent(node.Fun)
-			}
-			if ident != nil {
-				callOffsetByIdent[ident] = origOffset
-			}
-		case *ast.Ident:
-			offset, ok := callOffsetByIdent[node]
-			if !ok {
-				offset = -1
+				offset = fsetFile.Position(node.Lparen).Offset
 			}
 			origCallOffsets = append(origCallOffsets, offset)
+		case *ast.Ident:
 			generatedIdent = append(generatedIdent, generatedIdents[node])
+		}
+	}
+	printed, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	printedFile := fset.File(printed.Pos())
+	callOffsets := make(map[int]int)
+	callIndex := 0
+	for node := range ast.Preorder(printed) {
+		if call, ok := node.(*ast.CallExpr); ok {
+			callOffsets[printedFile.Offset(call.Lparen)] = origCallOffsets[callIndex]
+			callIndex++
 		}
 	}
 
@@ -194,8 +148,6 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	s.Init(fsetFile, src, nil, scanner.ScanComments)
 
 	identIndex := 0
-	parenCallIndex := 0
-	afterRbrace := false
 	braceDepth, parenDepth := 0, 0
 	generated := false
 	generatedLine := 0
@@ -212,28 +164,6 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			printBuf2.Write(src[copied:offset])
 			copied = offset
 			fmt.Fprintf(&printBuf2, " /*line %s:1*/ ", newPrefix)
-		}
-		// A call on a function literal is positioned at its opening
-		// parenthesis, which no identifier of the call covers. In valid Go a
-		// closing brace followed by an opening parenthesis is that call, and
-		// the loop above collected the parentheses in the same source order.
-		if afterRbrace && tok == token.LPAREN && parenCallIndex < len(origParenCallOffsets) {
-			origOffset := origParenCallOffsets[parenCallIndex]
-			parenCallIndex++
-			if origOffset != -1 && !generated {
-				newName := ""
-				if !flagTiny {
-					origPos := fmt.Sprintf("%s:%d", filename, origOffset)
-					newName = hashWithPackage(lpkg, origPos) + ".go"
-				}
-				offset := fsetFile.Position(pos).Offset
-				printBuf2.Write(src[copied:offset])
-				copied = offset
-				fmt.Fprintf(&printBuf2, " /*line %s%s:1*/ ", newPrefix, newName)
-			}
-		}
-		if tok != token.COMMENT {
-			afterRbrace = tok == token.RBRACE
 		}
 		switch tok {
 		case token.LPAREN:
@@ -265,21 +195,11 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			printBuf2.Write(src[copied:offset])
 			copied = offset + len(lit)
 		case token.IDENT:
-			if identIndex >= len(origCallOffsets) {
-				// A transform such as ctrlflow/ssa2ast may add identifiers
-				// that have no corresponding entry in origCallOffsets, so the
-				// printed source can contain more identifiers than were
-				// collected from the AST. They carry no original position to
-				// remap, so leave them untouched.
-				continue
-			}
-			origOffset := origCallOffsets[identIndex]
 			identIndex++
-			if generatedIdent[identIndex-1] {
+		case token.LPAREN:
+			origOffset, ok := callOffsets[fsetFile.Offset(pos)]
+			if !ok || origOffset < 0 || generated {
 				continue
-			}
-			if origOffset == -1 {
-				continue // identifiers which don't start func calls are left untouched
 			}
 			newName := ""
 			if !flagTiny {

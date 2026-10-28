@@ -146,11 +146,7 @@ Use -test to reverse frames from a binary built with "garble test":
 					}
 
 				case *ast.CallExpr:
-					// Reverse position information of call sites. The
-					// compiler positions a call at its opening parenthesis,
-					// which is the offset printFile hashes for it.
-					// node.Pos() keeps traces from binaries built before
-					// printFile used the parenthesis reversible.
+					// Calls use their opening parenthesis; keep old callee positions reversible.
 					addPosition(node.Lparen)
 					addPosition(node.Pos())
 				case ast.Expr:
