@@ -61,6 +61,20 @@ cp stderr panic-literals.stderr
 exec garble -tiny -literals -seed=AAAAAAAAAAA reverse . panic-literals.stderr
 stdout '^panic: oh noes$'
 
+# A panic raised while another panic unwinds currently reports the panic which
+# was raised during unwinding, not the original one.
+! exec ./main$exe chain
+cp stderr panic-chain.stderr
+exec garble -tiny -seed=AAAAAAAAAAA reverse . panic-chain.stderr
+stdout '^panic: cleanup message 2222$'
+
+# When the panic raised during unwinding is not a plain string, the original
+# message is not reported at all and reverse has nothing to replace.
+! exec ./main$exe wrap
+cp stderr panic-wrap.stderr
+! exec garble -tiny -seed=AAAAAAAAAAA reverse . panic-wrap.stderr
+stdout '^panic: hidden$'
+
 [short] stop # no need to verify this with -short
 
 # Default mode
@@ -233,6 +247,25 @@ func childAborts(level string) bool {
 	return cmd.ProcessState.ExitCode() != 2
 }
 
+// panicChain panics with a plain string and panics again in a deferred
+// function while the first panic unwinds. Go reports the first message, the
+// one from the original panic, as its primary panic line.
+func panicChain() {
+	defer func() { panic("cleanup message 2222") }()
+	panic("original message 1111")
+}
+
+// wrapPanic is an error, so the panic raised by panicWrap during unwinding is
+// not a plain string while the original panic is.
+type wrapPanic struct{ msg string }
+
+func (e wrapPanic) Error() string { return e.msg }
+
+func panicWrap() {
+	defer func() { panic(wrapPanic{"cleanup failed 6666"}) }()
+	panic("original message 5555")
+}
+
 //go:noinline
 func printPositionInfo() {
 	pc, file, line, _ := runtime.Caller(0)
@@ -266,6 +299,12 @@ func main() {
 	if len(os.Args) > 1 {
 		if os.Args[1] == "helper" {
 			helper.Crash()
+		}
+		if os.Args[1] == "chain" {
+			panicChain()
+		}
+		if os.Args[1] == "wrap" {
+			panicWrap()
 		}
 		debug.SetTraceback(os.Args[1])
 		println(*nilPtr)
