@@ -36,6 +36,46 @@ go build
 exec ./main
 cmp stdout main.stdout
 
+-- method_order.go --
+package main
+
+import "reflect"
+
+type orderedMethods struct{}
+
+func (orderedMethods) AlphaMethod() string  { return "AlphaMethod" }
+func (orderedMethods) MiddleMethod() string { return "MiddleMethod" }
+func (orderedMethods) ZuluMethod() string   { return "ZuluMethod" }
+
+type orderedInterface interface {
+	AlphaMethod() string
+	MiddleMethod() string
+	ZuluMethod() string
+}
+
+func checkMethodOrder() {
+	value := reflect.ValueOf(orderedMethods{})
+	iface := orderedInterface(orderedMethods{})
+	ifaceValue := reflect.ValueOf(&iface).Elem()
+	for _, v := range []reflect.Value{value, ifaceValue} {
+		for i, name := range []string{"AlphaMethod", "MiddleMethod", "ZuluMethod"} {
+			method := v.Type().Method(i)
+			if method.Name != name || method.Index != i {
+				panic("reflected method ordering")
+			}
+			byName, ok := v.Type().MethodByName(name)
+			if !ok || byName.Index != i {
+				panic("reflected method index")
+			}
+			for _, call := range []reflect.Value{v.Method(i), v.MethodByName(name)} {
+				if call.Type().NumIn() != 0 || call.Call(nil)[0].String() != name {
+					panic("reflected method dispatch")
+				}
+			}
+		}
+	}
+}
+
 -- go.mod --
 module test/main
 
@@ -195,7 +235,7 @@ func inspectDynamic(v any) string {
 
 func main() {
 	checkTypelinks()
-
+	checkMethodOrder()
 	var methodReceiver any = methodCallReceiver{}
 	fmt.Println(reflect.ValueOf(methodReceiver).Method(0).Call(nil)[0])
 
@@ -954,7 +994,6 @@ func closure() {
 
 	alias.Security = outer()
 }
-
 -- importedpkg/imported.go --
 package importedpkg
 
@@ -1045,7 +1084,6 @@ type ReflectUnnamedStruct int
 func (ReflectUnnamedStruct) UnnamedStructMethod(s struct{ UnnamedStructField string }) {
 	fmt.Println(reflect.TypeOf(s))
 }
-
 -- importedpkg2/imported2.go --
 package importedpkg2
 
@@ -1061,7 +1099,6 @@ type FieldByNameWrapper[T any] struct {
 	Value   T
 	Present bool
 }
-
 -- importedpkg/indirect/indirect.go --
 package indirect
 
@@ -1080,13 +1117,14 @@ type IndirectNamedWithoutReflect struct {
 
 	DuplicateFieldName int
 }
-
 -- methods/main.go --
 package main
 
 import (
 	"fmt"
 	"reflect"
+
+	"test/main/methodlookup"
 )
 
 type T struct{}
@@ -1096,15 +1134,22 @@ func (T) Unused() string { return "unused-method-marker" }
 
 func main() {
 	it := reflect.TypeOf((*interface{ Used() string })(nil)).Elem()
-	if m, ok := it.MethodByName("Used"); !ok || m.Name != "Used" {
+	if m, ok := methodlookup.Find(it); !ok || m.Name != "Used" {
 		panic("interface Used not found")
 	}
-	m, ok := reflect.TypeOf(T{}).MethodByName("Used")
+	m, ok := methodlookup.Find(reflect.TypeOf(T{}))
 	if !ok {
 		panic("Used not found")
 	}
 	fmt.Println(m.Func.Call([]reflect.Value{reflect.ValueOf(T{})})[0].String())
 }
+-- methodlookup/lookup.go --
+package methodlookup
+
+import "reflect"
+
+//go:noinline
+func Find(t reflect.Type) (reflect.Method, bool) { return t.MethodByName("Used") }
 
 -- typelinks.go --
 package main
@@ -1175,6 +1220,7 @@ func checkTypelinks() {
 		panic("SliceOf does not give the static type")
 	}
 }
+
 -- recover.go --
 package main
 
@@ -1209,7 +1255,6 @@ func checkReflectedRecover() {
 		panic("boom")
 	}()
 }
-
 -- ormapi/ormapi.go --
 package ormapi
 
@@ -1231,7 +1276,6 @@ type Inspector interface {
 type Merger interface{ Merge(any, any) }
 
 func Inspect(i Inspector, a, unusedA, unusedB, b any) { i.First(a, unusedA); i.Second(unusedB, b) }
-
 -- migrate/migrate.go --
 package migrate
 
@@ -1282,7 +1326,6 @@ func parseModels(models ...any) error {
 }
 
 func reorder(models []any) []any { return models }
-
 -- migrateother/migrate.go --
 package migrateother
 
@@ -1296,7 +1339,6 @@ type Inspector struct{}
 func (Inspector) Merge(a, b any) { _ = reflect.TypeOf(b) }
 
 var _ ormapi.Merger = Inspector{}
-
 -- migratefirst/migrate.go --
 package migratefirst
 
@@ -1310,7 +1352,6 @@ type Inspector struct{}
 func (Inspector) Merge(a, b any) { _ = reflect.TypeOf(a) }
 
 var _ ormapi.Merger = Inspector{}
-
 -- main.stdout --
 M called
 ok MakeFunc

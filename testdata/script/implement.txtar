@@ -1,9 +1,9 @@
 go build
-exec garble -debugdir=/tmp/test build
+exec garble build
 exec ./main
 cmp stdout main.stdout
 
-! binsubstr main$exe 'unexportedMethod' 'privateIface'
+! binsubstr main$exe 'unexportedMethod' 'privateIface' 'CrossPackageMethod'
 
 [short] stop # no need to verify this with -short
 
@@ -42,6 +42,13 @@ type privateInterface interface {
 
 func (T) privateIface() {}
 
+type crossPackageReceiver struct{}
+
+func (crossPackageReceiver) CrossPackageMethod() string { return "cross-package method" }
+
+var _ lib1.MethodInterface[string] = crossPackageReceiver{}
+var _ lib2.MethodInterface = crossPackageReceiver{}
+
 var _ privateInterface = T("")
 
 type StructUnnamed = struct {
@@ -64,8 +71,10 @@ var _ = StructUnnamed(lib2.Struct2{})
 func main() {
 	fmt.Println(T("foo"))
 	fmt.Println(T("foo").unexportedMethod())
+	fmt.Println(lib1.CallMethod[string](crossPackageReceiver{}))
+	var value any = crossPackageReceiver{}
+	fmt.Println(value.(lib2.MethodInterface).CrossPackageMethod())
 }
-
 -- main_linux.go --
 package main
 
@@ -79,11 +88,15 @@ type Rlimit2 struct {
 }
 
 var _ = (*syscall.Rlimit)(new(Rlimit2))
-
 -- lib1/lib1.go --
 package lib1
 
 import "test/main/lib3"
+
+type MethodInterface[T any] interface{ CrossPackageMethod() T }
+
+//go:noinline
+func CallMethod[T any](v MethodInterface[T]) T { return v.CrossPackageMethod() }
 
 type Struct1 struct {
 	Foo int
@@ -99,11 +112,12 @@ type Struct1 struct {
 }
 
 type alias1 = int64
-
 -- lib2/lib2.go --
 package lib2
 
 import "test/main/lib3"
+
+type MethodInterface interface{ CrossPackageMethod() string }
 
 type Struct2 struct {
 	Foo int
@@ -119,7 +133,6 @@ type Struct2 struct {
 }
 
 type alias2 = int64
-
 -- lib3/lib3.go --
 package lib3
 
@@ -128,7 +141,8 @@ type Named int
 type StructEmbed struct {
 	Baz any
 }
-
 -- main.stdout --
 String method for foo
 unexported method for foo
+cross-package method
+cross-package method
