@@ -1,8 +1,14 @@
 # build the test binary
+env GARBLE_CACHE=${WORK}/garble-cache
 exec garble test -c
 ! stdout 'PASS'
 binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
 ! binsubstr bar.test$exe 'LocalFoo|ImportedVar|OriginalFuncName'
+
+# A cached test main has GoFiles but no CompiledGoFiles in go list output.
+# Retain GOCACHE and force relinking after evicting reflection metadata.
+rm garble-cache
+exec garble test -c -ldflags=-X=main.unused=changed
 
 # run the tests; OriginalFuncName should be obfuscated
 exec ./bar.test -test.v
