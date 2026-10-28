@@ -78,8 +78,9 @@ exec garble build -o iife-obfuscated$exe ./case/iife
 cp stderr iife-obfuscated.stderr
 stdin iife-obfuscated.stderr
 exec garble reverse ./case/iife
-# TODO: the call has no position marker of its own, so reverse reports the
-# panic call inside the literal instead of the call's opening parenthesis.
+# Reverse the caller's frame to the same line as plain Go, and keep the panic
+# call inside the literal so the two frames cannot collapse.
+stdout 'iife_site\.go:10\b'
 stdout 'iife_site\.go:9\b'
 
 # https://github.com/burrowers/garble/pull/967

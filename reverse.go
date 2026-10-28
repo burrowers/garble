@@ -146,7 +146,12 @@ Use -test to reverse frames from a binary built with "garble test":
 					}
 
 				case *ast.CallExpr:
-					// Reverse position information of call sites.
+					// Reverse position information of call sites. A call on a
+					// function literal is positioned at its opening
+					// parenthesis, which is the token printFile marks for it.
+					if _, ok := node.Fun.(*ast.FuncLit); ok {
+						addPosition(node.Lparen)
+					}
 					addPosition(node.Pos())
 				case ast.Expr:
 					// Literal obfuscation turns a string constant expression into
