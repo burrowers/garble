@@ -302,6 +302,21 @@ func main() {
 	// Keep the result types in the binary, so that binsubstr can see their names.
 	_ = fmt.Sprintf("%#v %#v", ptrResult, valResult)
 
+	// A reflected argument can also reach the reflecting function through a
+	// goroutine call (*ssa.Go) or a deferred call (*ssa.Defer), not just a
+	// direct call (*ssa.Call). The argument types must be protected in all
+	// three forms.
+	var reflectWG sync.WaitGroup
+	reflectWG.Add(1)
+	go recordReflected(&GoroutineReflectJob{GoroutineReflectField: "goroutine-call"},
+		"GoroutineReflectField", &reflectWG)
+	reflectWG.Wait()
+	fmt.Println("goroutine reflect:", lastReflected)
+
+	defer func() { fmt.Println("deferred reflect:", lastReflected) }()
+	defer recordReflected(&DeferredReflectJob{DeferredReflectField: "deferred-call"},
+		"DeferredReflectField", nil)
+
 	// SSA gives range-over-func defers a synthetic $ssa.deferStack type.
 	for i := range rangeFuncSequence {
 		defer fmt.Println("range defer", i)
@@ -314,6 +329,27 @@ func rangeFuncSequence(yield func(int) bool) {
 			return
 		}
 	}
+}
+
+// A reflected argument can reach the reflecting function through a goroutine
+// call or a deferred call, which SSA represents as *ssa.Go and *ssa.Defer
+// rather than *ssa.Call. Both evaluate their arguments at the statement, at the
+// same declared parameter positions as a direct call.
+type DeferredReflectJob struct {
+	DeferredReflectField string
+}
+
+type GoroutineReflectJob struct {
+	GoroutineReflectField string
+}
+
+var lastReflected string
+
+func recordReflected(v any, field string, wg *sync.WaitGroup) {
+	if wg != nil {
+		defer wg.Done()
+	}
+	lastReflected = reflect.ValueOf(v).Elem().FieldByName(field).String()
 }
 
 type EmbeddingIndirect struct {
@@ -923,6 +959,8 @@ TypeOfParent embedded: TypeOfEmbeddedField EmbeddedReflectionField
 main.Connection
 {"CallArgPtrField":"ptr"}
 {"CallArgValField":"val"}
+goroutine reflect: goroutine-call
 range defer 2
 range defer 1
 range defer 0
+deferred reflect: deferred-call
