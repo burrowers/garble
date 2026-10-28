@@ -99,17 +99,30 @@ var builtinSymbols = map[string][]string{
 {{- end }}
 }
 
+// preservedMethodNames cannot be renamed anywhere: Error implements the
+// predeclared error interface, Method and MethodByName are compiler contracts,
+// and the remaining names occur in packages whose source is not obfuscated.
+var preservedMethodNames = map[string]bool{
+	"Error": true,
+	"Method": true,
+	"MethodByName": true,
+{{- range $name := .PreservedMethodNames }}
+	"{{ $name.String }}": true, // {{ $name.GoVersionLang }}
+{{- end }}
+}
+
 var reflectSkipPkg = map[string]bool{
 	"fmt": true,
 }
 `[1:]))
 
 type tmplData struct {
-	GoVersions          []string
-	RuntimePkgPaths     []versionedString
-	RuntimeAndLinknamed []versionedString
-	CompilerIntrinsics  []tmplIntrinsic
-	BuiltinSymbols      []tmplIntrinsic
+	GoVersions           []string
+	RuntimePkgPaths      []versionedString
+	RuntimeAndLinknamed  []versionedString
+	CompilerIntrinsics   []tmplIntrinsic
+	BuiltinSymbols       []tmplIntrinsic
+	PreservedMethodNames []versionedString
 }
 
 type tmplIntrinsic struct {
@@ -503,6 +516,51 @@ func generateBuiltinSymbols(goroots []versionedString) []tmplIntrinsic {
 	return groupedSymbols(symbols)
 }
 
+func generatePreservedMethodNames(goroots []versionedString) []versionedString {
+	var names []versionedString
+	for _, goroot := range goroots {
+		for _, path := range []string{"runtime/cgo", "crypto/internal/fips140"} {
+			err := filepath.WalkDir(filepath.Join(goroot.String, "src", path), func(path string, entry fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+					return nil
+				}
+				file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+				if err != nil {
+					return err
+				}
+				add := func(name string) {
+					if token.IsExported(name) && name != "Error" && name != "Method" && name != "MethodByName" {
+						names = append(names, versionedString{String: name, GoVersionLang: goroot.GoVersionLang})
+					}
+				}
+				for node := range ast.Preorder(file) {
+					switch node := node.(type) {
+					case *ast.FuncDecl:
+						if node.Recv != nil {
+							add(node.Name.Name)
+						}
+					case *ast.InterfaceType:
+						for _, field := range node.Methods.List {
+							for _, name := range field.Names {
+								add(name.Name)
+							}
+						}
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	slices.SortFunc(names, versionedString.Compare)
+	return slices.CompactFunc(names, versionedString.Equal)
+}
+
 func main() {
 	var goroots []versionedString
 	for _, goVersion := range goVersions {
@@ -584,11 +642,12 @@ func main() {
 
 	var buf bytes.Buffer
 	if err := tmplTables.Execute(&buf, tmplData{
-		GoVersions:          goVersions,
-		RuntimePkgPaths:     runtimePkgPaths,
-		RuntimeAndLinknamed: runtimeAndLinknamed,
-		CompilerIntrinsics:  compilerIntrinsics,
-		BuiltinSymbols:      builtinSymbols,
+		GoVersions:           goVersions,
+		RuntimePkgPaths:      runtimePkgPaths,
+		RuntimeAndLinknamed:  runtimeAndLinknamed,
+		CompilerIntrinsics:   compilerIntrinsics,
+		BuiltinSymbols:       builtinSymbols,
+		PreservedMethodNames: generatePreservedMethodNames(goroots),
 	}); err != nil {
 		panic(err)
 	}

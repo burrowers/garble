@@ -4,7 +4,7 @@ cmp stderr main.stderr
 
 # TODO: why is 'obfuscatedMethod' present?
 ! binsubstr main$exe 'obfuscatedFunc' 'ObfuscatedFunc'
-binsubstr main$exe 'UnobfuscatedMethod'
+! binsubstr main$exe 'UnobfuscatedMethod'
 
 [short] stop # no need to verify this with -short
 

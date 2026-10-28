@@ -284,6 +284,7 @@ func mainErr(args []string) error {
 		return restoreDebugDirFromCache()
 
 	case "toolexec":
+		methodNamesFile := ""
 		_, tool := filepath.Split(args[0])
 		if runtime.GOOS == "windows" {
 			tool = strings.TrimSuffix(tool, ".exe")
@@ -317,6 +318,10 @@ func mainErr(args []string) error {
 			var err error
 			if transformed, err = transform(&tf, transformed); err != nil {
 				return err
+			}
+			methodNamesFile = tf.compilerMethodNames
+			if methodNamesFile != "" {
+				defer os.Remove(methodNamesFile)
 			}
 			log.Printf("transformed args for %s in %s: %s", tool, debugSince(startTime), strings.Join(transformed, " "))
 		} else {
@@ -400,6 +405,7 @@ func mainErr(args []string) error {
 		}
 
 		cmd := exec.Command(executablePath, transformed...)
+		cmd.Env = append(cmd.Environ(), patcher.MethodMapEnv+"="+methodNamesFile)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()

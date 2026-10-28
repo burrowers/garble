@@ -176,9 +176,13 @@ if a `-seed` value used in a build is lost, `garble reverse` will not work.
 Most of these can improve with time and effort. The purpose of this section is
 to document the current shortcomings of this tool.
 
-* Exported methods are never obfuscated at the moment, since they could
-  be required by interfaces. This area is a work in progress; see
-  [#3](https://github.com/burrowers/garble/issues/3).
+* Exported methods and interface methods use the same obfuscated names across
+  packages. Equal method names remain correlated across types and signatures.
+  Names required by the predeclared `error` interface, compiler reflection
+  checks, or the unobfuscated FIPS and cgo packages remain unchanged globally.
+  Reflection restores names it detects as used; those names remain recoverable.
+  Reflected method indexing translates between original and obfuscated ordering,
+  adding quadratic work in the number of methods to `Type.Method` and `Value.Method`.
 
 * There is no supported way to exclude obfuscating a selection of files or packages.
   More often than not, a user would want to do this to work around a bug; please file the bug instead.
