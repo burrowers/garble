@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"go/token"
 	"go/types"
 	"log"
 	"maps"
@@ -14,6 +15,34 @@ import (
 
 	"golang.org/x/tools/go/ssa"
 )
+
+// reflectSignatureKey encodes the parameters and results of a signature, so
+// that a call whose callee is not statically known can be matched with the
+// functions which are known to reflect on some of their parameters.
+//
+// Go requires a function value call and an interface method implementation to
+// have the same signature as the target it is called through, so a signature
+// carries the parameter positions over to every call site of that shape. The
+// receiver and any parameter names are left out, since they don't affect the
+// parameter positions.
+func reflectSignatureKey(sig *types.Signature) string {
+	if sig == nil {
+		return ""
+	}
+	unnamedVars := func(tuple *types.Tuple) []*types.Var {
+		vars := make([]*types.Var, tuple.Len())
+		for i := range vars {
+			vars[i] = types.NewVar(token.NoPos, nil, "", tuple.At(i).Type())
+		}
+		return vars
+	}
+	bare := types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(unnamedVars(sig.Params())...),
+		types.NewTuple(unnamedVars(sig.Results())...),
+		sig.Variadic(),
+	)
+	return types.TypeString(bare, nil)
+}
 
 //go:embed reflect_abi_code.go
 var reflectAbiCode string
@@ -325,6 +354,18 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 
 				// record each call argument passed to a function parameter which is used in reflection
 				knownParams := ri.result.ReflectAPIs[callName]
+				if len(knownParams) == 0 && inst.Call.StaticCallee() == nil {
+					// The callee is only known dynamically, such as a function
+					// value or an interface method selection, so its name above
+					// is not the one recorded for the implementation. Go
+					// requires the signature to match, so fall back to the
+					// reflected parameters recorded for this signature.
+					sigKey := reflectSignatureKey(inst.Call.Signature())
+					knownParams = ri.result.ReflectAPIs[sigKey]
+					if flagDebug && len(knownParams) > 0 {
+						log.Printf("reflect: dynamic call %q matches signature %q", rawCallName, sigKey)
+					}
+				}
 				// Iterate in a stable order too, like the member loop above.
 				for _, knownParam := range slices.Sorted(maps.Keys(knownParams)) {
 					sig := call.Signature()
@@ -387,6 +428,21 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 			return
 		}
 		ri.result.ReflectAPIs[funcName] = reflectParams
+		// Also key the parameters by signature, so that calls which can only
+		// be resolved dynamically, such as a function value or an interface
+		// method selection, still protect the argument types. Generic
+		// signatures keep their type parameters and so only match call sites
+		// with the same type arguments. Several functions can share a
+		// signature while reflecting on different parameters, so union them.
+		if !genericFunc {
+			sigKey := reflectSignatureKey(fun.Signature)
+			sigParams := ri.result.ReflectAPIs[sigKey]
+			if sigParams == nil {
+				sigParams = make(map[int]bool)
+				ri.result.ReflectAPIs[sigKey] = sigParams
+			}
+			maps.Copy(sigParams, reflectParams)
+		}
 		if flagDebug {
 			log.Printf("reflect: function %s has reflected params %v", funcName, reflectParams)
 		}
