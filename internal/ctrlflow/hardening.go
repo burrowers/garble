@@ -105,40 +105,29 @@ func (xorHardening) Apply(dispatcher []cfgInfo, ssaRemap map[ssa.Value]ast.Expr,
 	*/
 	globalKeyDecl := &ast.GenDecl{
 		Tok: token.VAR,
-		Specs: []ast.Spec{
-			&ast.ValueSpec{
-				Names: []*ast.Ident{ast.NewIdent(globalKeyName)},
-				Values: []ast.Expr{ah.CallExpr(&ast.FuncLit{
-					Type: &ast.FuncType{
-						Params: &ast.FieldList{List: []*ast.Field{{
-							Names: []*ast.Ident{ast.NewIdent("secondKey")},
-							Type:  &ast.ArrayType{Len: ah.IntLit(len(secondKey)), Elt: ast.NewIdent("byte")},
-						}}},
-						Results: &ast.FieldList{List: []*ast.Field{{
-							Type: ast.NewIdent("int"),
-						}}},
+		Specs: []ast.Spec{&ast.ValueSpec{
+			Names: []*ast.Ident{ast.NewIdent(globalKeyName)},
+			Values: []ast.Expr{ah.LambdaCall(
+				&ast.FieldList{List: []*ast.Field{ah.Field(ah.ByteArrayType(int64(len(secondKey))), ast.NewIdent("secondKey"))}},
+				ast.NewIdent("int"),
+				ah.BlockStmt(
+					ah.AssignDefineStmt(ast.NewIdent("r"), ah.IntLit(firstKey)),
+					&ast.RangeStmt{
+						Key:   ast.NewIdent("_"),
+						Value: ast.NewIdent("b"),
+						Tok:   token.DEFINE,
+						X:     ast.NewIdent("secondKey"),
+						Body: ah.BlockStmt(&ast.AssignStmt{
+							Lhs: []ast.Expr{ast.NewIdent("r")},
+							Tok: token.XOR_ASSIGN,
+							Rhs: []ast.Expr{ah.CallExprByName("int", ast.NewIdent("b"))},
+						}),
 					},
-					Body: &ast.BlockStmt{List: []ast.Stmt{
-						ah.AssignDefineStmt(ast.NewIdent("r"), ah.IntLit(firstKey)),
-						&ast.RangeStmt{
-							Key:   ast.NewIdent("_"),
-							Value: ast.NewIdent("b"),
-							Tok:   token.DEFINE,
-							X:     ast.NewIdent("secondKey"),
-							Body: &ast.BlockStmt{List: []ast.Stmt{&ast.AssignStmt{
-								Lhs: []ast.Expr{ast.NewIdent("r")},
-								Tok: token.XOR_ASSIGN,
-								Rhs: []ast.Expr{&ast.CallExpr{
-									Fun:  ast.NewIdent("int"),
-									Args: []ast.Expr{ast.NewIdent("b")},
-								}},
-							}}},
-						},
-						ah.ReturnStmt(ast.NewIdent("r")),
-					}},
-				}, ah.DataToArray(secondKey))},
-			},
-		},
+					ah.ReturnStmt(ast.NewIdent("r")),
+				),
+				[]ast.Expr{ah.DataToArray(secondKey)},
+			)},
+		}},
 	}
 	return globalKeyDecl, ah.AssignDefineStmt(ast.NewIdent(localKeyName), ast.NewIdent(globalKeyName))
 }
@@ -190,30 +179,16 @@ func (delegateTableHardening) Apply(dispatcher []cfgInfo, ssaRemap map[ssa.Value
 		*/
 		delegateAst := &ast.FuncLit{
 			Type: &ast.FuncType{
-				Params: &ast.FieldList{List: []*ast.Field{{
-					Names: []*ast.Ident{ast.NewIdent("i")},
-					Type:  ast.NewIdent("int"),
-				}}},
-				Results: &ast.FieldList{List: []*ast.Field{{
-					Type: ast.NewIdent("int"),
-				}}},
+				Params:  &ast.FieldList{List: []*ast.Field{ah.Field(ast.NewIdent("int"), ast.NewIdent("i"))}},
+				Results: &ast.FieldList{List: []*ast.Field{ah.Field(ast.NewIdent("int"))}},
 			},
-			Body: &ast.BlockStmt{List: []ast.Stmt{
-				&ast.ReturnStmt{Results: []ast.Expr{
-					&ast.BinaryExpr{
-						X:  ast.NewIdent("i"),
-						Op: token.XOR,
-						Y: &ast.BinaryExpr{
-							X: ah.CallExprByName("int", &ast.IndexExpr{
-								X:     ast.NewIdent("key"),
-								Index: ah.IntLit(delegateKeyIdxs[i]),
-							}),
-							Op: token.XOR,
-							Y:  ah.IntLit(delegateLocalKeys[i]),
-						},
-					},
-				}},
-			}},
+			Body: ah.BlockStmt(ah.ReturnStmt(ah.BinaryExpr(
+				ast.NewIdent("i"), token.XOR,
+				ah.BinaryExpr(
+					ah.CallExprByName("int", ah.IndexExpr("key", ah.IntLit(delegateKeyIdxs[i]))),
+					token.XOR, ah.IntLit(delegateLocalKeys[i]),
+				),
+			))),
 		}
 		delegatesAst[i] = delegateAst
 	}
