@@ -108,7 +108,7 @@ func (d *proxyDispatcher) initialize(proxyRoot *proxyRoot, index int) {
 	for _, value := range proxyRoot.pending {
 		strct := proxyRoot.flattenStructs[d.rand.Intn(len(proxyRoot.flattenStructs))]
 		strct.values = append(strct.values, value)
-		path := buildPath(strct, value.name).(*ast.SelectorExpr)
+		path := buildPath(strct, value.name)
 		// The caller positioned the placeholder before this subtree existed.
 		// Preserve that site throughout the path so comments stay in place.
 		withPos(path.X, value.path.Sel.Pos())
@@ -124,18 +124,12 @@ func (d *proxyDispatcher) initialize(proxyRoot *proxyRoot, index int) {
 // buildPath creates an AST expression that represents a field access path
 // from the root of a nested struct hierarchy to a specific field.
 // Example: root.child.grandchild.fieldName
-func buildPath(strct *proxyStruct, valueName string) ast.Expr {
-	var stack []*proxyStruct
-	for s := strct; s != nil; s = s.parent {
-		stack = append(stack, s)
-	}
-
-	var expr ast.Expr = ast.NewIdent(stack[len(stack)-1].name)
-	for i := len(stack) - 2; i >= 0; i-- {
-		expr = &ast.SelectorExpr{
-			X:   expr,
-			Sel: ast.NewIdent(stack[i].name),
-		}
+func buildPath(strct *proxyStruct, valueName string) *ast.SelectorExpr {
+	var expr ast.Expr
+	if strct.parent == nil {
+		expr = ast.NewIdent(strct.name)
+	} else {
+		expr = buildPath(strct.parent, strct.name)
 	}
 
 	return &ast.SelectorExpr{

@@ -18,10 +18,10 @@ func TestDecodersObfuscateGeneratedNames(t *testing.T) {
 		build func(*obfRand)
 	}{
 		{"string", func(r *obfRand) { obfuscateString(r, literal) }},
-		{"slice", func(r *obfRand) { obfuscateByteSlice(r, false, []byte(literal)) }},
-		{"slice pointer", func(r *obfRand) { obfuscateByteSlice(r, true, []byte(literal)) }},
-		{"array", func(r *obfRand) { obfuscateByteArray(r, false, []byte(literal), int64(len(literal))) }},
-		{"array pointer", func(r *obfRand) { obfuscateByteArray(r, true, []byte(literal), int64(len(literal))) }},
+		{"slice", func(r *obfRand) { obfuscateBytes(r, false, []byte(literal), 0) }},
+		{"slice pointer", func(r *obfRand) { obfuscateBytes(r, true, []byte(literal), 0) }},
+		{"array", func(r *obfRand) { obfuscateBytes(r, false, []byte(literal), int64(len(literal))) }},
+		{"array pointer", func(r *obfRand) { obfuscateBytes(r, true, []byte(literal), int64(len(literal))) }},
 	}
 	for _, obf := range Obfuscators {
 		for _, tc := range cases {
