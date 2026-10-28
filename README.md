@@ -181,6 +181,8 @@ to document the current shortcomings of this tool.
   Names required by the predeclared `error` interface, compiler reflection
   checks, or the unobfuscated FIPS and cgo packages remain unchanged globally.
   Reflection restores names it detects as used; those names remain recoverable.
+  Method names reachable from generic type arguments are conservatively restored
+  as well, so `reflect.TypeFor` also works through generic wrappers.
   Reflected method indexing translates between original and obfuscated ordering,
   adding quadratic work in the number of methods to `Type.Method` and `Value.Method`.
 
