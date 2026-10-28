@@ -26,28 +26,17 @@ func (simple) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte,
 	}
 
 	return ah.BlockStmt(
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{names.ident("key")},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, names, key, extKeys)},
-		},
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{names.ident("data")},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, names, data, extKeys)},
-		},
+		ah.AssignDefineStmt(names.ident("key"), dataToByteSliceWithExtKeys(rand, names, key, extKeys)),
+		ah.AssignDefineStmt(names.ident("data"), dataToByteSliceWithExtKeys(rand, names, data, extKeys)),
 		&ast.RangeStmt{
 			Key:   names.ident("i"),
 			Value: names.ident("b"),
 			Tok:   token.DEFINE,
 			X:     names.ident("key"),
-			Body: &ast.BlockStmt{List: []ast.Stmt{
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.IndexExpr(names.name("data"), names.ident("i"))},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{operatorToReversedBinaryExpr(op, ah.IndexExpr(names.name("data"), names.ident("i")), names.ident("b"))},
-				},
-			}},
+			Body: ah.BlockStmt(ah.AssignStmt(
+				ah.IndexExpr(names.name("data"), names.ident("i")),
+				operatorToReversedBinaryExpr(op, ah.IndexExpr(names.name("data"), names.ident("i")), names.ident("b")),
+			)),
 		},
 	)
 }

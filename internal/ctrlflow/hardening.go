@@ -226,51 +226,34 @@ func (delegateTableHardening) Apply(dispatcher []cfgInfo, ssaRemap map[ssa.Value
 			}
 		})(<key>)
 	*/
+	// Keep the return type and composite literal type in sync, with fresh AST nodes.
+	tableType := func() *ast.ArrayType {
+		return &ast.ArrayType{
+			Len: ah.IntLit(delegateCount),
+			Elt: &ast.FuncType{
+				Params:  &ast.FieldList{List: []*ast.Field{{Type: ast.NewIdent("int")}}},
+				Results: &ast.FieldList{List: []*ast.Field{{Type: ast.NewIdent("int")}}},
+			},
+		}
+	}
 	delegateTableDecl := &ast.GenDecl{
 		Tok: token.VAR,
 		Specs: []ast.Spec{
 			&ast.ValueSpec{
 				Names: []*ast.Ident{ast.NewIdent(globalTableName)},
-				Values: []ast.Expr{
-					&ast.CallExpr{
-						Fun: &ast.ParenExpr{X: &ast.FuncLit{
-							Type: &ast.FuncType{
-								Params: &ast.FieldList{List: []*ast.Field{{
-									Names: []*ast.Ident{ast.NewIdent("key")},
-									Type:  &ast.ArrayType{Len: ah.IntLit(len(key)), Elt: ast.NewIdent("byte")},
-								}}},
-								Results: &ast.FieldList{List: []*ast.Field{{Type: &ast.ArrayType{
-									Len: ah.IntLit(delegateCount),
-									Elt: &ast.FuncType{
-										Params: &ast.FieldList{List: []*ast.Field{{
-											Type: ast.NewIdent("int"),
-										}}},
-										Results: &ast.FieldList{List: []*ast.Field{{
-											Type: ast.NewIdent("int"),
-										}}},
-									},
-								}}}},
-							},
-							Body: &ast.BlockStmt{List: []ast.Stmt{
-								&ast.ReturnStmt{Results: []ast.Expr{&ast.CompositeLit{
-									Type: &ast.ArrayType{
-										Len: ah.IntLit(delegateCount),
-										Elt: &ast.FuncType{
-											Params: &ast.FieldList{List: []*ast.Field{{
-												Type: ast.NewIdent("int"),
-											}}},
-											Results: &ast.FieldList{List: []*ast.Field{{
-												Type: ast.NewIdent("int"),
-											}}},
-										},
-									},
-									Elts: delegatesAst,
-								}}},
-							}},
-						}},
-						Args: []ast.Expr{ah.DataToArray(key)},
+				Values: []ast.Expr{ah.CallExpr(&ast.ParenExpr{X: &ast.FuncLit{
+					Type: &ast.FuncType{
+						Params: &ast.FieldList{List: []*ast.Field{{
+							Names: []*ast.Ident{ast.NewIdent("key")},
+							Type:  &ast.ArrayType{Len: ah.IntLit(len(key)), Elt: ast.NewIdent("byte")},
+						}}},
+						Results: &ast.FieldList{List: []*ast.Field{{Type: tableType()}}},
 					},
-				},
+					Body: ah.BlockStmt(ah.ReturnStmt(&ast.CompositeLit{
+						Type: tableType(),
+						Elts: delegatesAst,
+					})),
+				}}, ah.DataToArray(key))},
 			},
 		},
 	}
