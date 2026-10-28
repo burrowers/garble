@@ -11,9 +11,9 @@ import (
 // MarshalMsg implements msgp.Marshaler
 func (z *listedPackage) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 13
+	// map header, size 14
 	// string "Name"
-	o = append(o, 0x8d, 0xa4, 0x4e, 0x61, 0x6d, 0x65)
+	o = append(o, 0x8e, 0xa4, 0x4e, 0x61, 0x6d, 0x65)
 	o = msgp.AppendString(o, z.Name)
 	// string "ImportPath"
 	o = append(o, 0xaa, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x68)
@@ -40,23 +40,29 @@ func (z *listedPackage) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "Dir"
 	o = append(o, 0xa3, 0x44, 0x69, 0x72)
 	o = msgp.AppendString(o, z.Dir)
+	// string "GoFiles"
+	o = append(o, 0xa7, 0x47, 0x6f, 0x46, 0x69, 0x6c, 0x65, 0x73)
+	o = msgp.AppendArrayHeader(o, uint32(len(z.GoFiles)))
+	for za0003 := range z.GoFiles {
+		o = msgp.AppendString(o, z.GoFiles[za0003])
+	}
 	// string "CompiledGoFiles"
 	o = append(o, 0xaf, 0x43, 0x6f, 0x6d, 0x70, 0x69, 0x6c, 0x65, 0x64, 0x47, 0x6f, 0x46, 0x69, 0x6c, 0x65, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.CompiledGoFiles)))
-	for za0003 := range z.CompiledGoFiles {
-		o = msgp.AppendString(o, z.CompiledGoFiles[za0003])
+	for za0004 := range z.CompiledGoFiles {
+		o = msgp.AppendString(o, z.CompiledGoFiles[za0004])
 	}
 	// string "SFiles"
 	o = append(o, 0xa6, 0x53, 0x46, 0x69, 0x6c, 0x65, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.SFiles)))
-	for za0004 := range z.SFiles {
-		o = msgp.AppendString(o, z.SFiles[za0004])
+	for za0005 := range z.SFiles {
+		o = msgp.AppendString(o, z.SFiles[za0005])
 	}
 	// string "Imports"
 	o = append(o, 0xa7, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.Imports)))
-	for za0005 := range z.Imports {
-		o = msgp.AppendString(o, z.Imports[za0005])
+	for za0006 := range z.Imports {
+		o = msgp.AppendString(o, z.Imports[za0006])
 	}
 	// string "Error"
 	o = append(o, 0xa5, 0x45, 0x72, 0x72, 0x6f, 0x72)
@@ -165,60 +171,79 @@ func (z *listedPackage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "Dir")
 				return
 			}
-		case "CompiledGoFiles":
+		case "GoFiles":
 			var zb0003 uint32
 			zb0003, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "GoFiles")
+				return
+			}
+			if cap(z.GoFiles) >= int(zb0003) {
+				z.GoFiles = (z.GoFiles)[:zb0003]
+			} else {
+				z.GoFiles = make([]string, zb0003)
+			}
+			for za0003 := range z.GoFiles {
+				z.GoFiles[za0003], bts, err = msgp.ReadStringBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "GoFiles", za0003)
+					return
+				}
+			}
+		case "CompiledGoFiles":
+			var zb0004 uint32
+			zb0004, bts, err = msgp.ReadArrayHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "CompiledGoFiles")
 				return
 			}
-			if cap(z.CompiledGoFiles) >= int(zb0003) {
-				z.CompiledGoFiles = (z.CompiledGoFiles)[:zb0003]
+			if cap(z.CompiledGoFiles) >= int(zb0004) {
+				z.CompiledGoFiles = (z.CompiledGoFiles)[:zb0004]
 			} else {
-				z.CompiledGoFiles = make([]string, zb0003)
+				z.CompiledGoFiles = make([]string, zb0004)
 			}
-			for za0003 := range z.CompiledGoFiles {
-				z.CompiledGoFiles[za0003], bts, err = msgp.ReadStringBytes(bts)
+			for za0004 := range z.CompiledGoFiles {
+				z.CompiledGoFiles[za0004], bts, err = msgp.ReadStringBytes(bts)
 				if err != nil {
-					err = msgp.WrapError(err, "CompiledGoFiles", za0003)
+					err = msgp.WrapError(err, "CompiledGoFiles", za0004)
 					return
 				}
 			}
 		case "SFiles":
-			var zb0004 uint32
-			zb0004, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			var zb0005 uint32
+			zb0005, bts, err = msgp.ReadArrayHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "SFiles")
 				return
 			}
-			if cap(z.SFiles) >= int(zb0004) {
-				z.SFiles = (z.SFiles)[:zb0004]
+			if cap(z.SFiles) >= int(zb0005) {
+				z.SFiles = (z.SFiles)[:zb0005]
 			} else {
-				z.SFiles = make([]string, zb0004)
+				z.SFiles = make([]string, zb0005)
 			}
-			for za0004 := range z.SFiles {
-				z.SFiles[za0004], bts, err = msgp.ReadStringBytes(bts)
+			for za0005 := range z.SFiles {
+				z.SFiles[za0005], bts, err = msgp.ReadStringBytes(bts)
 				if err != nil {
-					err = msgp.WrapError(err, "SFiles", za0004)
+					err = msgp.WrapError(err, "SFiles", za0005)
 					return
 				}
 			}
 		case "Imports":
-			var zb0005 uint32
-			zb0005, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			var zb0006 uint32
+			zb0006, bts, err = msgp.ReadArrayHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "Imports")
 				return
 			}
-			if cap(z.Imports) >= int(zb0005) {
-				z.Imports = (z.Imports)[:zb0005]
+			if cap(z.Imports) >= int(zb0006) {
+				z.Imports = (z.Imports)[:zb0006]
 			} else {
-				z.Imports = make([]string, zb0005)
+				z.Imports = make([]string, zb0006)
 			}
-			for za0005 := range z.Imports {
-				z.Imports[za0005], bts, err = msgp.ReadStringBytes(bts)
+			for za0006 := range z.Imports {
+				z.Imports[za0006], bts, err = msgp.ReadStringBytes(bts)
 				if err != nil {
-					err = msgp.WrapError(err, "Imports", za0005)
+					err = msgp.WrapError(err, "Imports", za0006)
 					return
 				}
 			}
@@ -233,14 +258,14 @@ func (z *listedPackage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				if z.Error == nil {
 					z.Error = new(packageError)
 				}
-				var zb0006 uint32
-				zb0006, bts, err = msgp.ReadMapHeaderBytes(bts)
+				var zb0007 uint32
+				zb0007, bts, err = msgp.ReadMapHeaderBytes(bts)
 				if err != nil {
 					err = msgp.WrapError(err, "Error")
 					return
 				}
-				for zb0006 > 0 {
-					zb0006--
+				for zb0007 > 0 {
+					zb0007--
 					field, bts, err = msgp.ReadMapKeyZC(bts)
 					if err != nil {
 						err = msgp.WrapError(err, "Error")
@@ -295,17 +320,21 @@ func (z *listedPackage) Msgsize() (s int) {
 			s += msgp.StringPrefixSize + len(za0001) + msgp.StringPrefixSize + len(za0002)
 		}
 	}
-	s += 9 + msgp.BoolSize + 4 + msgp.StringPrefixSize + len(z.Dir) + 16 + msgp.ArrayHeaderSize
-	for za0003 := range z.CompiledGoFiles {
-		s += msgp.StringPrefixSize + len(z.CompiledGoFiles[za0003])
+	s += 9 + msgp.BoolSize + 4 + msgp.StringPrefixSize + len(z.Dir) + 8 + msgp.ArrayHeaderSize
+	for za0003 := range z.GoFiles {
+		s += msgp.StringPrefixSize + len(z.GoFiles[za0003])
+	}
+	s += 16 + msgp.ArrayHeaderSize
+	for za0004 := range z.CompiledGoFiles {
+		s += msgp.StringPrefixSize + len(z.CompiledGoFiles[za0004])
 	}
 	s += 7 + msgp.ArrayHeaderSize
-	for za0004 := range z.SFiles {
-		s += msgp.StringPrefixSize + len(z.SFiles[za0004])
+	for za0005 := range z.SFiles {
+		s += msgp.StringPrefixSize + len(z.SFiles[za0005])
 	}
 	s += 8 + msgp.ArrayHeaderSize
-	for za0005 := range z.Imports {
-		s += msgp.StringPrefixSize + len(z.Imports[za0005])
+	for za0006 := range z.Imports {
+		s += msgp.StringPrefixSize + len(z.Imports[za0006])
 	}
 	s += 6
 	if z.Error == nil {
