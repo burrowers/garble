@@ -45,8 +45,17 @@ stderr '^panic: hidden$'
 # message is the original one, the line a regular build prints first.
 ! exec ./main$exe
 cp stderr panic.stderr
-exec garble -tiny -seed=AAAAAAAAAAA reverse . panic.stderr
+
+# Reuse the same binary for an unrecovered string chain and an error-valued
+# panic during unwinding, and reverse all three outputs in one invocation.
+! exec ./main$exe chain
+cp stderr panic-chain.stderr
+! exec ./main$exe wrap
+cp stderr panic-wrap.stderr
+exec garble -tiny -seed=AAAAAAAAAAA reverse . panic.stderr panic-chain.stderr panic-wrap.stderr
 stdout '^panic: ya like jazz\?$'
+stdout '^panic: original message 1111$'
+stdout '^panic: original message 5555$'
 
 # Panics in imported packages reverse as well, including messages which the
 # compiler folds together from constant expressions.
@@ -62,20 +71,6 @@ exec garble -tiny -literals -seed=AAAAAAAAAAA build -o literals$exe
 cp stderr panic-literals.stderr
 exec garble -tiny -literals -seed=AAAAAAAAAAA reverse . panic-literals.stderr
 stdout '^panic: ya like jazz\?$'
-
-# A panic raised while another panic unwinds still reports the original panic,
-# which is the message a regular build prints first.
-! exec ./main$exe chain
-cp stderr panic-chain.stderr
-exec garble -tiny -seed=AAAAAAAAAAA reverse . panic-chain.stderr
-stdout '^panic: original message 1111$'
-
-# The original panic is reported even when the panic raised during unwinding
-# carries a value tiny mode does not format.
-! exec ./main$exe wrap
-cp stderr panic-wrap.stderr
-exec garble -tiny -seed=AAAAAAAAAAA reverse . panic-wrap.stderr
-stdout '^panic: original message 5555$'
 
 [short] stop # no need to verify this with -short
 
