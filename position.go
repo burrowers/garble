@@ -16,6 +16,43 @@ import (
 
 var printBuf1, printBuf2 bytes.Buffer
 
+// trailingCalleeIdent returns the last identifier of a callee expression. The
+// call's position marker is written in front of that identifier, so it can
+// carry the call's own offset.
+func trailingCalleeIdent(fun ast.Expr) *ast.Ident {
+	switch fun := fun.(type) {
+	case *ast.Ident:
+		return fun
+	case *ast.SelectorExpr:
+		return fun.Sel
+	case *ast.IndexExpr:
+		return trailingCalleeIdent(fun.X)
+	case *ast.IndexListExpr:
+		return trailingCalleeIdent(fun.X)
+	}
+	return nil
+}
+
+// leadingCalleeIdent returns the first identifier of a callee expression which
+// has no trailing one, so a callee such as (f) or x.(func()) keeps a marker.
+func leadingCalleeIdent(fun ast.Expr) *ast.Ident {
+	switch fun := fun.(type) {
+	case *ast.Ident:
+		return fun
+	case *ast.SelectorExpr:
+		return leadingCalleeIdent(fun.X)
+	case *ast.IndexExpr:
+		return leadingCalleeIdent(fun.X)
+	case *ast.IndexListExpr:
+		return leadingCalleeIdent(fun.X)
+	case *ast.ParenExpr:
+		return leadingCalleeIdent(fun.X)
+	case *ast.TypeAssertExpr:
+		return leadingCalleeIdent(fun.X)
+	}
+	return nil
+}
+
 // printFile prints a Go file to a buffer, while also removing non-directive
 // comments and adding extra compiler directives to obfuscate position information.
 func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
@@ -99,28 +136,43 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			}
 		}
 	}
+	// The compiler positions a call at its opening parenthesis, so the marker
+	// describing a call must carry that offset. An ordinary call hands it to
+	// the identifier its callee ends with, which is the token the marker is
+	// written in front of. A call whose callee has no trailing identifier is
+	// handled from the printed token stream below.
+	callOffsetByIdent := make(map[*ast.Ident]int)
+	var origParenCallOffsets []int
 	var origCallOffsets []int
 	var generatedIdent []bool
-	// A call on a function literal has no callee identifier to carry a marker,
-	// and the compiler positions the call at its opening parenthesis. Keep the
-	// offset of that parenthesis for every such call, in source order.
-	var origFuncLitCallOffsets []int
-	nextOffset := -1
 	for node := range ast.Preorder(file) {
 		switch node := node.(type) {
 		case *ast.CallExpr:
-			nextOffset = fsetFile.Position(node.Pos()).Offset
-			if _, ok := node.Fun.(*ast.FuncLit); ok {
-				origOffset := -1
-				if node.Lparen.IsValid() {
-					origOffset = fsetFile.Position(node.Lparen).Offset
+			origOffset := -1
+			if node.Lparen.IsValid() {
+				origOffset = fsetFile.Position(node.Lparen).Offset
+			}
+			ident := trailingCalleeIdent(node.Fun)
+			if ident == nil {
+				// Without a trailing identifier the call's own parenthesis is
+				// marked below; keep a marker on the callee's first identifier
+				// only when that is the sole identifier the call has.
+				if _, ok := node.Fun.(*ast.FuncLit); ok {
+					origParenCallOffsets = append(origParenCallOffsets, origOffset)
+					continue
 				}
-				origFuncLitCallOffsets = append(origFuncLitCallOffsets, origOffset)
+				ident = leadingCalleeIdent(node.Fun)
+			}
+			if ident != nil {
+				callOffsetByIdent[ident] = origOffset
 			}
 		case *ast.Ident:
-			origCallOffsets = append(origCallOffsets, nextOffset)
+			offset, ok := callOffsetByIdent[node]
+			if !ok {
+				offset = -1
+			}
+			origCallOffsets = append(origCallOffsets, offset)
 			generatedIdent = append(generatedIdent, generatedIdents[node])
-			nextOffset = -1
 		}
 	}
 
@@ -142,7 +194,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	s.Init(fsetFile, src, nil, scanner.ScanComments)
 
 	identIndex := 0
-	funcLitCallIndex := 0
+	parenCallIndex := 0
 	afterRbrace := false
 	braceDepth, parenDepth := 0, 0
 	generated := false
@@ -165,9 +217,9 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		// parenthesis, which no identifier of the call covers. In valid Go a
 		// closing brace followed by an opening parenthesis is that call, and
 		// the loop above collected the parentheses in the same source order.
-		if afterRbrace && tok == token.LPAREN && funcLitCallIndex < len(origFuncLitCallOffsets) {
-			origOffset := origFuncLitCallOffsets[funcLitCallIndex]
-			funcLitCallIndex++
+		if afterRbrace && tok == token.LPAREN && parenCallIndex < len(origParenCallOffsets) {
+			origOffset := origParenCallOffsets[parenCallIndex]
+			parenCallIndex++
 			if origOffset != -1 && !generated {
 				newName := ""
 				if !flagTiny {
