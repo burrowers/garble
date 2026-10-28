@@ -226,19 +226,10 @@ func buildPatchOverlay(goRoot, workingDir string, patchFiles, deletedFiles map[s
 	return overlay
 }
 
-func makeFileSet(files []string) map[string]bool {
-	set := make(map[string]bool, len(files))
-	for _, file := range files {
-		set[file] = true
-	}
-	return set
-}
-
 func filterFiles(files map[string]bool, allowedFiles []string) map[string]bool {
-	allowed := makeFileSet(allowedFiles)
 	filtered := make(map[string]bool)
-	for file := range files {
-		if allowed[file] {
+	for _, file := range allowedFiles {
+		if _, ok := files[file]; ok {
 			filtered[file] = true
 		}
 	}
@@ -430,19 +421,13 @@ func hashFiles(paths []string) (string, error) {
 	return base64.RawStdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
-func collectOverlayFiles(goSrcRoot, goRoot string, patchFiles map[string]bool, extraFiles []string) (relFiles []string, absFiles []string) {
+func collectOverlayFiles(goSrcRoot, goRoot string, files []string) (relFiles []string, absFiles []string) {
 	if goSrcRoot == "" || goSrcRoot == goRoot {
 		return nil, nil
 	}
 
 	seen := make(map[string]bool)
-	for file := range patchFiles {
-		modifiedPath := filepath.Join(goSrcRoot, "src", file)
-		if fileExists(modifiedPath) {
-			seen[file] = true
-		}
-	}
-	for _, file := range extraFiles {
+	for _, file := range files {
 		modifiedPath := filepath.Join(goSrcRoot, "src", file)
 		if fileExists(modifiedPath) {
 			seen[file] = true
@@ -510,7 +495,7 @@ func patchAndBuildTool(toolName, toolPkg, goSrcRoot, goRoot, goVersion, cacheDir
 	toolPatchFiles := filterFiles(patchFiles, extraOverlayFiles)
 	toolDeletedFiles := filterFiles(deletedFiles, extraOverlayFiles)
 
-	overlayRelFiles, overlayAbsFiles := collectOverlayFiles(goSrcRoot, goRoot, toolPatchFiles, extraOverlayFiles)
+	overlayRelFiles, overlayAbsFiles := collectOverlayFiles(goSrcRoot, goRoot, extraOverlayFiles)
 	overlayHash := ""
 	if len(overlayAbsFiles) > 0 {
 		overlayHash, err = hashFiles(overlayAbsFiles)

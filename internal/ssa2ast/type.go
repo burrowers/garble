@@ -152,50 +152,18 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 		}
 		return &ast.StarExpr{X: expr}, nil
 	case *types.Signature:
-		funcSigExpr := &ast.FuncType{Params: &ast.FieldList{}}
-		if sigParams := typ.Params(); sigParams != nil {
-			for i := range sigParams.Len() {
-				param := sigParams.At(i)
-
-				var paramType ast.Expr
-				if typ.Variadic() && i == sigParams.Len()-1 {
-					slice := param.Type().(*types.Slice)
-
-					eltExpr, err := tc.Convert(slice.Elem())
-					if err != nil {
-						return nil, err
-					}
-					paramType = &ast.Ellipsis{Elt: eltExpr}
-				} else {
-					paramExpr, err := tc.Convert(param.Type())
-					if err != nil {
-						return nil, err
-					}
-					paramType = paramExpr
-				}
-				f := &ast.Field{Type: paramType}
-				if name := param.Name(); name != "" {
-					f.Names = []*ast.Ident{ast.NewIdent(name)}
-				}
-				funcSigExpr.Params.List = append(funcSigExpr.Params.List, f)
-			}
+		params, err := tc.convertTuple(typ.Params(), typ.Variadic())
+		if err != nil {
+			return nil, err
 		}
-		if sigResults := typ.Results(); sigResults != nil {
-			funcSigExpr.Results = &ast.FieldList{}
-			for i := range sigResults.Len() {
-				result := sigResults.At(i)
-				resultExpr, err := tc.Convert(result.Type())
-				if err != nil {
-					return nil, err
-				}
-
-				f := &ast.Field{Type: resultExpr}
-				if name := result.Name(); name != "" {
-					f.Names = []*ast.Ident{ast.NewIdent(name)}
-				}
-				funcSigExpr.Results.List = append(funcSigExpr.Results.List, f)
-			}
+		if params == nil {
+			params = &ast.FieldList{}
 		}
+		results, err := tc.convertTuple(typ.Results(), false)
+		if err != nil {
+			return nil, err
+		}
+		funcSigExpr := &ast.FuncType{Params: params, Results: results}
 		if typeParams := typ.TypeParams(); typeParams != nil {
 			funcSigExpr.TypeParams = &ast.FieldList{}
 			for i := range typeParams.Len() {
@@ -256,4 +224,33 @@ func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 	default:
 		return nil, fmt.Errorf("type %v: %w", typ, ErrUnsupported)
 	}
+}
+
+// convertTuple converts function parameters or results, preserving their names.
+func (tc *TypeConverter) convertTuple(tuple *types.Tuple, variadic bool) (*ast.FieldList, error) {
+	if tuple == nil {
+		return nil, nil
+	}
+	fields := &ast.FieldList{}
+	for i := range tuple.Len() {
+		v := tuple.At(i)
+		typ := v.Type()
+		ellipsis := variadic && i == tuple.Len()-1
+		if ellipsis {
+			typ = typ.(*types.Slice).Elem()
+		}
+		expr, err := tc.Convert(typ)
+		if err != nil {
+			return nil, err
+		}
+		if ellipsis {
+			expr = &ast.Ellipsis{Elt: expr}
+		}
+		field := &ast.Field{Type: expr}
+		if name := v.Name(); name != "" {
+			field.Names = []*ast.Ident{ast.NewIdent(name)}
+		}
+		fields.List = append(fields.List, field)
+	}
+	return fields, nil
 }

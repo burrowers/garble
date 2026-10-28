@@ -11,7 +11,6 @@ import (
 	"maps"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/ssa"
@@ -91,8 +90,6 @@ func reflectMainPrePatch(path string) (string, error) {
 	}
 	_, code, _ := strings.Cut(reflectAbiCode, "// Injected code below this line.")
 	code = strings.ReplaceAll(code, "//disabledgo:", "//go:")
-	// This constant is declared in our hash.go file.
-	code = strings.ReplaceAll(code, "minHashLength", strconv.Itoa(minHashLength))
 	return string(content) + code, nil
 }
 
@@ -178,27 +175,18 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 		memb := ssaPkg.Members[membName]
 		switch x := memb.(type) {
 		case *ssa.Type:
-			// methods aren't package members only their reciever types are
-			// so some logic is required to find the methods a type has
-
-			method := func(mset *types.MethodSet) {
-				for at := range mset.Methods() {
-					if m := ssaPkg.Prog.MethodValue(at); m != nil {
+			// Methods are not package members. Check both value and pointer
+			// method sets to include all methods of this type.
+			for _, typ := range []types.Type{x.Type(), types.NewPointer(x.Type())} {
+				for method := range ssaPkg.Prog.MethodSets.MethodSet(typ).Methods() {
+					if m := ssaPkg.Prog.MethodValue(method); m != nil {
 						ri.checkFunction(m)
 					} else {
-						m := at.Obj().(*types.Func)
-						// handle interface declarations
-						ri.checkInterfaceMethod(m)
+						// Handle interface declarations.
+						ri.checkInterfaceMethod(method.Obj().(*types.Func))
 					}
 				}
 			}
-
-			// yes, finding all methods really only works with both calls
-			mset := ssaPkg.Prog.MethodSets.MethodSet(x.Type())
-			method(mset)
-
-			mset = ssaPkg.Prog.MethodSets.MethodSet(types.NewPointer(x.Type()))
-			method(mset)
 
 		case *ssa.Function:
 			// these not only include top level functions, but also synthetic
@@ -221,32 +209,23 @@ func (ri *reflectInspector) checkMethodSignature(reflectParams map[int]bool, sig
 		return
 	}
 
-	i := 0
-	for param := range sig.Params().Variables() {
+	for i := range sig.Params().Len() {
 		if reflectParams[i] {
-			i++
 			continue
 		}
 
-		ignore := false
-		switch x := param.Type().(type) {
-		case *types.Struct:
-			ignore = true
+		param := sig.Params().At(i)
+		typ := param.Type()
+		switch t := typ.(type) {
 		case *types.Array:
-			if _, ok := x.Elem().(*types.Struct); ok {
-				ignore = true
-			}
+			typ = t.Elem()
 		case *types.Slice:
-			if _, ok := x.Elem().(*types.Struct); ok {
-				ignore = true
-			}
+			typ = t.Elem()
 		}
-
-		if ignore {
+		if _, ok := typ.(*types.Struct); ok {
 			reflectParams[i] = true
 			ri.recursivelyRecordUsedForReflect(param.Type())
 		}
-		i++
 	}
 }
 

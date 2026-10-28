@@ -8,7 +8,6 @@ import (
 	"go/token"
 	"go/types"
 	"slices"
-	"strconv"
 	"strings"
 
 	ah "mvdan.cc/garble/internal/asthelper"
@@ -32,10 +31,7 @@ func updateMagicValue(file *ast.File, magicValue uint32) {
 				continue
 			}
 			if spec.Names[0].Name == "Go120PCLnTabMagic" {
-				spec.Values[0] = &ast.BasicLit{
-					Kind:  token.INT,
-					Value: strconv.FormatUint(uint64(magicValue), 10),
-				}
+				spec.Values[0] = ah.UintLit(uint64(magicValue))
 				magicUpdated = true
 			}
 		}
@@ -132,23 +128,10 @@ func updateEntryOffset(file *ast.File, entryOffKey uint32, info *types.Info) {
 			info.Uses[nameOffIdent] = nameOffVar
 		}
 
-		newSelector := &ast.SelectorExpr{
-			X:   clonedReceiver,
-			Sel: nameOffIdent,
-		}
-
-		callExpr.Args[0] = &ast.BinaryExpr{
-			X:  selExpr,
-			Op: token.XOR,
-			Y: &ast.ParenExpr{X: &ast.BinaryExpr{
-				X:  ah.CallExpr(ast.NewIdent("uint32"), newSelector),
-				Op: token.MUL,
-				Y: &ast.BasicLit{
-					Kind:  token.INT,
-					Value: strconv.FormatUint(uint64(entryOffKey), 10),
-				},
-			}},
-		}
+		newSelector := ah.SelectExpr(clonedReceiver, nameOffIdent)
+		callExpr.Args[0] = ah.BinaryExpr(selExpr, token.XOR, &ast.ParenExpr{X: ah.BinaryExpr(
+			ah.CallExprByName("uint32", newSelector), token.MUL, ah.UintLit(uint64(entryOffKey)),
+		)})
 		entryOffUpdated = true
 		return false
 	}
@@ -271,6 +254,9 @@ func stripRuntime(basename string, file *ast.File) (strippedFunctions map[string
 		if !ok {
 			continue
 		}
+		if slices.Contains(requiredDirectRuntimeStrips[basename], funcDecl.Name.Name) {
+			emptyBody(funcDecl)
+		}
 
 		switch basename {
 		case "error.go":
@@ -278,19 +264,6 @@ func stripRuntime(basename string, file *ast.File) (strippedFunctions map[string
 			switch funcDecl.Name.Name {
 			case "printany", "printanycustomtype":
 				funcDecl.Body.List = nil
-			}
-		case "debuglog.go":
-			// printDebugLog is called directly from fatal panic and signal
-			// paths. Its implementation can also write through gwrite, so the
-			// generic print/println rewrite below is not sufficient.
-			if funcDecl.Name.Name == "printDebugLog" {
-				emptyBody(funcDecl)
-			}
-		case "hexdump.go":
-			// Go 1.26 moved hexdumpWords out of print.go. It is only used for
-			// fatal GC, signal, and traceback diagnostics in production builds.
-			if funcDecl.Name.Name == "hexdumpWords" {
-				emptyBody(funcDecl)
 			}
 		case "mgcscavenge.go":
 			// used in tracing the scavenger
@@ -326,16 +299,6 @@ func stripRuntime(basename string, file *ast.File) (strippedFunctions map[string
 			// much of a traceback is printed, it decides whether fatal errors
 			// crash the process rather than exiting with status 2, and it
 			// enables Windows Error Reporting for GOTRACEBACK=wer.
-		case "runtime.go":
-			// writeErrStr bypasses the print builtins and writes fixed fatal
-			// diagnostics straight to stderr (and SetCrashOutput). Tiny mode
-			// already suppresses those same diagnostics through the ordinary
-			// runtime print paths, so suppress this bypass as well. Do not
-			// empty writeErrData or gwrite: application print/println relies on
-			// those lower-level writers.
-			if funcDecl.Name.Name == "writeErrStr" {
-				emptyBody(funcDecl)
-			}
 		case "set_vma_name_linux.go":
 			// Linux exposes anonymous VMA names through /proc/PID/maps. They are
 			// diagnostic-only labels such as "Go: heap arena", not correctness
@@ -374,9 +337,17 @@ func stripRuntime(basename string, file *ast.File) (strippedFunctions map[string
 }
 
 var requiredDirectRuntimeStrips = map[string][]string{
+	// printDebugLog is called directly from fatal panic and signal paths.
+	// It also writes through gwrite, so rewriting print/println is insufficient.
 	"debuglog.go": {"printDebugLog"},
-	"hexdump.go":  {"hexdumpWords"},
-	"runtime.go":  {"writeErrStr"},
+	// Go 1.26 moved hexdumpWords out of print.go. It is only used for fatal GC,
+	// signal, and traceback diagnostics in production builds.
+	"hexdump.go": {"hexdumpWords"},
+	// writeErrStr bypasses the print builtins and writes fixed fatal diagnostics
+	// straight to stderr and SetCrashOutput. Tiny mode suppresses these through
+	// the ordinary runtime print paths, so suppress this bypass as well. Leave
+	// writeErrData and gwrite alone: application print/println relies on them.
+	"runtime.go": {"writeErrStr"},
 }
 
 func validateDirectRuntimeStripping(strippedByFile map[string]map[string]bool) {
