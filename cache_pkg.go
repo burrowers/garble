@@ -137,6 +137,11 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool)
 			if err != nil {
 				return nil, err
 			}
+		} else if lpkg.ImportPath == "reflect" && (base == "type.go" || base == "value.go") {
+			src, err = reflectMethodsPatch(path, base)
+			if err != nil {
+				return nil, err
+			}
 		} else if mainPackage && reflectPatchFile == "" && !strings.HasPrefix(base, "_cgo_") {
 			// Note that we cannot add our code to e.g. _cgo_gotypes.go.
 			src, err = reflectMainPrePatch(path)

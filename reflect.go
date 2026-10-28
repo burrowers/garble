@@ -843,6 +843,12 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 			return // prevent endless recursion
 		}
 		ri.recordUsedForReflect(obj, nil)
+		for i := range t.NumMethods() {
+			method := t.Method(i)
+			if method.Exported() {
+				ri.recordUsedForReflect(method, nil)
+			}
+		}
 		// Match [computeFieldToStruct]: use the generic/origin struct, not an
 		// instantiated underlying, so field identities line up with [hashWithStruct].
 		ri.recursivelyRecordUsedForReflectImpl(t.Origin().Underlying(), visited)
@@ -859,6 +865,10 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 				ri.recordUsedForReflect(originField, t)
 			}
 			ri.recursivelyRecordUsedForReflectImpl(field.Type(), visited)
+		}
+	case *types.Interface:
+		for i := range t.NumMethods() {
+			ri.recordUsedForReflect(t.Method(i), nil)
 		}
 
 	case *types.Map:
@@ -925,6 +935,9 @@ func (ri *reflectInspector) obfuscatedObjectName(obj types.Object, parent *types
 
 	if v, ok := obj.(*types.Var); ok && parent != nil {
 		return hashWithStruct(parent, v)
+	}
+	if fn, ok := obj.(*types.Func); ok && fn.Signature().Recv() != nil && fn.Exported() {
+		return obfuscatedMethodName(fn.Name())
 	}
 
 	lpkg := ri.lpkg

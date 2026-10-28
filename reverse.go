@@ -127,7 +127,11 @@ Use -test to reverse frames from a binary built with "garble test":
 				// Replace names.
 				// TODO: do var names ever show up in output?
 				case *ast.FuncDecl:
-					addHashedWithPackage(node.Name.Name)
+					if node.Recv != nil {
+						replaces = append(replaces, methodName(lpkg, node.Name.Name), node.Name.Name)
+					} else {
+						addHashedWithPackage(node.Name.Name)
+					}
 				case *ast.TypeSpec:
 					addHashedWithPackage(node.Name.Name)
 				case *ast.Field:

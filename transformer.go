@@ -327,6 +327,8 @@ func alterTrimpath(flags []string) []string {
 // transformer holds all the information and state necessary to obfuscate a
 // single Go package.
 type transformer struct {
+	compilerMethodNames string
+
 	// coverageNames are generated variables named in the compiler's
 	// -coveragecfg file. Renaming them would break the compiler's fixup.
 	coverageNames struct {
@@ -1105,6 +1107,9 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	}
 	flags = flagSetValue(flags, "-importcfg", newImportCfg)
 
+	if tf.compilerMethodNames, err = writeCompilerMethodNames(tf.info); err != nil {
+		return nil, err
+	}
 	return append(flags, newPaths...), nil
 }
 
@@ -1271,13 +1276,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		if pointer {
 			receiver = "(*" + receiver + ")"
 		}
-		// Exported methods are never obfuscated.
-		//
-		// TODO(mvdan): We're duplicating the logic behind these decisions.
-		// Reuse the logic with transformCompile.
-		if !token.IsExported(name) {
-			name = hashWithPackage(lpkg, name)
-		}
+		name = methodName(lpkg, name)
 		newForeignName = receiver + "." + name
 	} else {
 		// pkg/path.function
@@ -1523,6 +1522,14 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 		return "", false // universe scope
 	}
 	name := obj.Name()
+	if fn, ok := obj.(*types.Func); ok && fn.Signature().Recv() != nil {
+		lpkg, err := listPackage(tf.curPkg, pkg.Path())
+		if err != nil {
+			panic(err)
+		}
+		newName := methodName(lpkg, name)
+		return newName, newName != name
+	}
 	if pkg.Path() == tf.curPkg.ImportPath && obj.Parent() == pkg.Scope() {
 		cfg := tf.coverageNames
 		if name == cfg.MetaVar || name == cfg.PkgIdVar ||
@@ -1608,14 +1615,7 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 		debugName = "type"
 	case *types.Func:
 		sign := obj.Signature()
-		if sign.Recv() == nil {
-			debugName = "func"
-		} else {
-			debugName = "method"
-		}
-		if obj.Exported() && sign.Recv() != nil {
-			return "", false // might implement an interface
-		}
+		debugName = "func"
 		switch name {
 		case "main", "init", "TestMain":
 			return "", false // don't break them
