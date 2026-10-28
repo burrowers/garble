@@ -126,13 +126,6 @@ func isInternal(path string) bool {
 	return strings.HasSuffix(path, "/internal") || strings.HasPrefix(path, "internal/") || strings.Contains(path, "/internal/")
 }
 
-func under(t types.Type) types.Type {
-	if t == t.Underlying() {
-		return t
-	}
-	return under(t.Underlying())
-}
-
 func deref(typ types.Type) types.Type {
 	if ptr, ok := typ.(*types.Pointer); ok {
 		typ = ptr.Elem()
@@ -142,14 +135,11 @@ func deref(typ types.Type) types.Type {
 
 // canConvert checks if one type can be converted to another type
 func canConvert(from, to types.Type) bool {
-	i, isInterface := under(to).(*types.Interface)
+	i, isInterface := to.Underlying().(*types.Interface)
 	if !isInterface {
 		return types.ConvertibleTo(from, to)
 	}
-	if ptr, ok := from.(*types.Pointer); ok {
-		from = ptr.Elem()
-	}
-	return types.Implements(from, i)
+	return types.Implements(deref(from), i)
 }
 
 // isSupportedType checks that it is possible to generate a compatible value using valueGenerators
@@ -345,7 +335,7 @@ func (t *trashGenerator) generateRandomConst(p types.Type, rand *mathrand.Rand) 
 
 	generatorType := candidates[rand.Intn(len(candidates))]
 	generator := valueGenerators[generatorType]
-	return t.convertExpr(generatorType, p, generator(rand, under(p)))
+	return t.convertExpr(generatorType, p, generator(rand, p.Underlying()))
 }
 
 // generateRandomValue returns a random local or global variable or a constant value with regard to probabilities

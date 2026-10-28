@@ -1158,7 +1158,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 					continue
 				}
 				if localNamePart, ok := strings.CutPrefix(fields[1], tf.curPkg.ImportPath+"."); ok {
-					fields[1] = tf.curPkg.obfuscatedImportPath() + "." + tf.directiveLocalName(localNamePart)
+					fields[1] = tf.curPkg.obfuscatedImportPath() + "." + obfuscatedPackageObjectName(tf.curPkg, localNamePart)
 				}
 				comment.Text = strings.Join(fields, " ")
 			}
@@ -1167,15 +1167,8 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 	return nil
 }
 
-func (tf *transformer) directiveLocalName(localName string) string {
-	if tf.curPkg.toObfuscate() && !isToolchainNameDependency(tf.curPkg.ImportPath, localName) {
-		return hashWithPackage(tf.curPkg, localName)
-	}
-	return localName
-}
-
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
-	localName = tf.directiveLocalName(localName)
+	localName = obfuscatedPackageObjectName(tf.curPkg, localName)
 	if newName == "" {
 		return localName, ""
 	}
@@ -1252,18 +1245,14 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 
 	var newForeignName string
 	if receiver, name, ok := strings.Cut(foreignName, "."); ok {
-		if receiver, ok = strings.CutPrefix(receiver, "(*"); ok {
-			// pkg/path.(*Receiver).method
+		// Handle both pkg/path.Receiver.method and pkg/path.(*Receiver).method.
+		receiver, pointer := strings.CutPrefix(receiver, "(*")
+		if pointer {
 			receiver, _ = strings.CutSuffix(receiver, ")")
-			if !isToolchainNameDependency(lpkg.ImportPath, receiver) {
-				receiver = hashWithPackage(lpkg, receiver)
-			}
+		}
+		receiver = obfuscatedPackageObjectName(lpkg, receiver)
+		if pointer {
 			receiver = "(*" + receiver + ")"
-		} else {
-			// pkg/path.Receiver.method
-			if !isToolchainNameDependency(lpkg.ImportPath, receiver) {
-				receiver = hashWithPackage(lpkg, receiver)
-			}
 		}
 		// Exported methods are never obfuscated.
 		//
@@ -1318,20 +1307,16 @@ func (tf *transformer) processImportCfg(flags []string, requiredPkgs []string) (
 		if !found {
 			continue
 		}
+		key, value, found := strings.Cut(args, "=")
+		if !found {
+			continue
+		}
 		switch verb {
 		case "importmap":
-			beforePath, afterPath, found := strings.Cut(args, "=")
-			if !found {
-				continue
-			}
-			importmaps = append(importmaps, [2]string{beforePath, afterPath})
+			importmaps = append(importmaps, [2]string{key, value})
 		case "packagefile":
-			importPath, objectPath, found := strings.Cut(args, "=")
-			if !found {
-				continue
-			}
-			packagefiles = append(packagefiles, [2]string{importPath, objectPath})
-			delete(newIndirectImports, importPath)
+			packagefiles = append(packagefiles, [2]string{key, value})
+			delete(newIndirectImports, key)
 		}
 	}
 
@@ -1477,20 +1462,13 @@ func (tf *transformer) useAllImports(file *ast.File) {
 		decl := &ast.GenDecl{Specs: []ast.Spec{spec}}
 
 		nameIdent := ast.NewIdent(nameObj.Name())
-		var nameExpr ast.Expr
-		switch {
-		case imp.Name == nil: // import "pkg/path"
+		var nameExpr ast.Expr = nameIdent
+		// PkgNameOf already accounts for an explicit import name.
+		if pkgName.Name() != "." {
 			nameExpr = &ast.SelectorExpr{
 				X:   ast.NewIdent(pkgName.Name()),
 				Sel: nameIdent,
 			}
-		case imp.Name.Name != ".": // import path2 "pkg/path"
-			nameExpr = &ast.SelectorExpr{
-				X:   ast.NewIdent(imp.Name.Name),
-				Sel: nameIdent,
-			}
-		default: // import . "pkg/path"
-			nameExpr = nameIdent
 		}
 
 		switch nameObj.(type) {

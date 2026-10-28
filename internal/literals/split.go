@@ -93,30 +93,19 @@ func (split) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, 
 	switchCases := []ast.Stmt{&ast.CaseClause{
 		List: []ast.Expr{ah.IntLit(decryptIndex)},
 		Body: shuffleStmts(rand,
-			&ast.AssignStmt{
-				Lhs: []ast.Expr{names.ident("i")},
-				Tok: token.ASSIGN,
-				Rhs: []ast.Expr{ah.IntLit(exitIndex)},
-			},
+			ah.AssignStmt(names.ident("i"), ah.IntLit(exitIndex)),
 			&ast.RangeStmt{
 				Key: names.ident("y"),
 				Tok: token.DEFINE,
 				X:   names.ident("data"),
-				Body: ah.BlockStmt(&ast.AssignStmt{
-					Lhs: []ast.Expr{ah.IndexExpr(names.name("data"), names.ident("y"))},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{
-						operatorToReversedBinaryExpr(
-							op,
-							ah.IndexExpr(names.name("data"), names.ident("y")),
-							ah.CallExpr(ast.NewIdent("byte"), &ast.BinaryExpr{
-								X:  names.ident("decryptKey"),
-								Op: token.XOR,
-								Y:  names.ident("y"),
-							}),
-						),
-					},
-				}),
+				Body: ah.BlockStmt(ah.AssignStmt(
+					ah.IndexExpr(names.name("data"), names.ident("y")),
+					operatorToReversedBinaryExpr(
+						op,
+						ah.IndexExpr(names.name("data"), names.ident("y")),
+						ah.CallExpr(ast.NewIdent("byte"), ah.BinaryExpr(names.ident("decryptKey"), token.XOR, names.ident("y"))),
+					),
+				)),
 			},
 		),
 	}}
@@ -140,43 +129,22 @@ func (split) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, 
 		switchCases = append(switchCases, &ast.CaseClause{
 			List: []ast.Expr{ah.IntLit(index)},
 			Body: shuffleStmts(rand,
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{names.ident("i")},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{ah.IntLit(nextIndex)},
-				},
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{names.ident("data")},
-					Tok: token.ASSIGN,
-					Rhs: []ast.Expr{appendCallExpr},
-				},
+				ah.AssignStmt(names.ident("i"), ah.IntLit(nextIndex)),
+				ah.AssignStmt(names.ident("data"), appendCallExpr),
 			),
 		})
 	}
 
 	return ah.BlockStmt(
 		makeDataStmt(names, len(data)),
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{names.ident("i")},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.IntLit(indexes[0])},
-		},
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{names.ident("decryptKey")},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.CallExprByName("int", byteLitWithExtKey(rand, decryptKeyInitial, extKeys, normalProb))},
-		},
+		ah.AssignDefineStmt(names.ident("i"), ah.IntLit(indexes[0])),
+		ah.AssignDefineStmt(
+			names.ident("decryptKey"),
+			ah.CallExprByName("int", byteLitWithExtKey(rand, decryptKeyInitial, extKeys, normalProb)),
+		),
 		&ast.ForStmt{
-			Init: &ast.AssignStmt{
-				Lhs: []ast.Expr{names.ident("counter")},
-				Tok: token.DEFINE,
-				Rhs: []ast.Expr{ah.IntLit(0)},
-			},
-			Cond: &ast.BinaryExpr{
-				X:  names.ident("i"),
-				Op: token.NEQ,
-				Y:  ah.IntLit(indexes[len(indexes)-1]),
-			},
+			Init: ah.AssignDefineStmt(names.ident("counter"), ah.IntLit(0)),
+			Cond: ah.BinaryExpr(names.ident("i"), token.NEQ, ah.IntLit(indexes[len(indexes)-1])),
 			Post: &ast.IncDecStmt{
 				X:   names.ident("counter"),
 				Tok: token.INC,
@@ -186,11 +154,7 @@ func (split) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, 
 					Lhs: []ast.Expr{names.ident("decryptKey")},
 					Tok: token.XOR_ASSIGN,
 					Rhs: []ast.Expr{
-						&ast.BinaryExpr{
-							X:  names.ident("i"),
-							Op: token.MUL,
-							Y:  names.ident("counter"),
-						},
+						ah.BinaryExpr(names.ident("i"), token.MUL, names.ident("counter")),
 					},
 				},
 				&ast.SwitchStmt{

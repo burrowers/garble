@@ -237,20 +237,10 @@ func (d *proxyDispatcher) junkValue() *proxyValue {
 	data := make([]byte, size)
 	d.rand.Read(data)
 
-	dummyDataExpr := &ast.CompositeLit{
-		Type: &ast.ArrayType{
-			Len: ah.IntLit(size),
-			Elt: ast.NewIdent("byte"),
-		},
-		Elts: ah.DataToArray(data).Elts,
-	}
 	return &proxyValue{
 		name: d.nameFunc(d.rand, "junkValue"),
-		typ: &ast.ArrayType{
-			Len: ah.IntLit(size),
-			Elt: ast.NewIdent("byte"),
-		},
-		val: dummyDataExpr,
+		typ:  ah.ByteArrayType(int64(size)),
+		val:  ah.DataToArray(data),
 	}
 }
 

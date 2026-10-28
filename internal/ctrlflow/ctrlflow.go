@@ -64,11 +64,7 @@ func (m directiveParamMap) StringSlice(name string) []string {
 		return nil
 	}
 
-	slice := strings.Split(rawVal, ",")
-	if len(slice) == 0 {
-		return nil
-	}
-	return slice
+	return strings.Split(rawVal, ",")
 }
 
 // parseDirective parses a "//garble:controlflow" comment and returns a map of directive parameters.
@@ -85,12 +81,8 @@ func parseDirective(comment string) (directiveParamMap, bool) {
 	}
 	m := make(map[string]string)
 	for _, v := range fields {
-		key, value, ok := strings.Cut(v, "=")
-		if ok {
-			m[key] = value
-		} else {
-			m[key] = ""
-		}
+		key, value, _ := strings.Cut(v, "=")
+		m[key] = value
 	}
 	return m, true
 }

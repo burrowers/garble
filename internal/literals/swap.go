@@ -73,73 +73,44 @@ func (swap) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, e
 	}
 
 	return ah.BlockStmt(
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{names.ident("data")},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{dataToByteSliceWithExtKeys(rand, names, data, extKeys)},
-		},
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{names.ident("positions")},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{positionsToSlice(positions)},
-		},
+		ah.AssignDefineStmt(names.ident("data"), dataToByteSliceWithExtKeys(rand, names, data, extKeys)),
+		ah.AssignDefineStmt(names.ident("positions"), positionsToSlice(positions)),
 		&ast.ForStmt{
-			Init: &ast.AssignStmt{
-				Lhs: []ast.Expr{names.ident("i")},
-				Tok: token.DEFINE,
-				Rhs: []ast.Expr{ah.IntLit(0)},
-			},
-			Cond: &ast.BinaryExpr{
-				X:  names.ident("i"),
-				Op: token.LSS,
-				Y:  ah.IntLit(len(positions)),
-			},
+			Init: ah.AssignDefineStmt(names.ident("i"), ah.IntLit(0)),
+			Cond: ah.BinaryExpr(names.ident("i"), token.LSS, ah.IntLit(len(positions))),
 			Post: &ast.AssignStmt{
 				Lhs: []ast.Expr{names.ident("i")},
 				Tok: token.ADD_ASSIGN,
 				Rhs: []ast.Expr{ah.IntLit(2)},
 			},
 			Body: ah.BlockStmt(
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{names.ident("localKey")},
-					Tok: token.DEFINE,
-					Rhs: []ast.Expr{&ast.BinaryExpr{
-						X: &ast.BinaryExpr{
-							X:  ah.CallExpr(ast.NewIdent("byte"), names.ident("i")),
-							Op: token.ADD,
-							Y: ah.CallExpr(ast.NewIdent("byte"), &ast.BinaryExpr{
-								X:  ah.IndexExpr(names.name("positions"), names.ident("i")),
-								Op: token.XOR,
-								Y: ah.IndexExpr(names.name("positions"), &ast.BinaryExpr{
-									X:  names.ident("i"),
-									Op: token.ADD,
-									Y:  ah.IntLit(1),
-								}),
-							}),
-						},
-						Op: token.ADD,
-						Y:  byteLitWithExtKey(rand, shiftKey, extKeys, highProb),
-					}},
-				},
+				ah.AssignDefineStmt(
+					names.ident("localKey"),
+					ah.BinaryExpr(
+						ah.BinaryExpr(
+							ah.CallExpr(ast.NewIdent("byte"), names.ident("i")),
+							token.ADD,
+							ah.CallExpr(ast.NewIdent("byte"), ah.BinaryExpr(
+								ah.IndexExpr(names.name("positions"), names.ident("i")),
+								token.XOR,
+								ah.IndexExpr(names.name("positions"), ah.BinaryExpr(names.ident("i"), token.ADD, ah.IntLit(1))),
+							)),
+						),
+						token.ADD,
+						byteLitWithExtKey(rand, shiftKey, extKeys, highProb),
+					),
+				),
 				&ast.AssignStmt{
 					Lhs: []ast.Expr{
 						ah.IndexExpr(names.name("data"), ah.IndexExpr(names.name("positions"), names.ident("i"))),
-						ah.IndexExpr(names.name("data"), ah.IndexExpr(names.name("positions"), &ast.BinaryExpr{
-							X:  names.ident("i"),
-							Op: token.ADD,
-							Y:  ah.IntLit(1),
-						})),
+						ah.IndexExpr(names.name("data"), ah.IndexExpr(names.name("positions"), ah.BinaryExpr(names.ident("i"), token.ADD, ah.IntLit(1)))),
 					},
 					Tok: token.ASSIGN,
 					Rhs: []ast.Expr{
 						operatorToReversedBinaryExpr(
 							op,
 							ah.IndexExpr(names.name("data"),
-								ah.IndexExpr(names.name("positions"), &ast.BinaryExpr{
-									X:  names.ident("i"),
-									Op: token.ADD,
-									Y:  ah.IntLit(1),
-								}),
+								ah.IndexExpr(names.name("positions"), ah.BinaryExpr(names.ident("i"), token.ADD, ah.IntLit(1))),
 							),
 							names.ident("localKey"),
 						),

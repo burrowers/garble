@@ -35,11 +35,10 @@ func (seed) obfuscate(obfRand *mathrand.Rand, names *generatedNames, data []byte
 	}
 
 	return ah.BlockStmt(
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{names.ident("seed")},
-			Tok: token.DEFINE,
-			Rhs: []ast.Expr{ah.CallExprByName("byte", byteLitWithExtKey(obfRand, originalSeed, extKeys, highProb))},
-		},
+		ah.AssignDefineStmt(
+			names.ident("seed"),
+			ah.CallExprByName("byte", byteLitWithExtKey(obfRand, originalSeed, extKeys, highProb)),
+		),
 		ah.AssignDefineStmt(names.ident("data"),
 			ah.CallExprByName("make", ah.ByteSliceType(), ah.IntLit(len(data)))),
 		ah.AssignDefineStmt(names.ident("i"), ah.IntLit(0)),
@@ -68,41 +67,37 @@ func (seed) obfuscate(obfRand *mathrand.Rand, names *generatedNames, data []byte
 				}},
 			},
 		},
-		&ast.AssignStmt{
-			Lhs: []ast.Expr{names.ident("fnc")},
-			Tok: token.ASSIGN,
-			Rhs: []ast.Expr{
-				&ast.FuncLit{
-					Type: &ast.FuncType{
-						Params: &ast.FieldList{
-							List: []*ast.Field{{
-								Names: []*ast.Ident{names.ident("x")},
-								Type:  ast.NewIdent("byte"),
-							}},
-						},
-						Results: &ast.FieldList{
-							List: []*ast.Field{{
-								Type: names.ident("decFunc"),
-							}},
-						},
+		ah.AssignStmt(
+			names.ident("fnc"),
+			&ast.FuncLit{
+				Type: &ast.FuncType{
+					Params: &ast.FieldList{
+						List: []*ast.Field{{
+							Names: []*ast.Ident{names.ident("x")},
+							Type:  ast.NewIdent("byte"),
+						}},
 					},
-					Body: ah.BlockStmt(
-						&ast.AssignStmt{
-							Lhs: []ast.Expr{ah.IndexExpr(names.name("data"), names.ident("i"))},
-							Tok: token.ASSIGN,
-							Rhs: []ast.Expr{operatorToReversedBinaryExpr(op, names.ident("x"), names.ident("seed"))},
-						},
-						&ast.IncDecStmt{X: names.ident("i"), Tok: token.INC},
-						&ast.AssignStmt{
-							Lhs: []ast.Expr{names.ident("seed")},
-							Tok: token.ADD_ASSIGN,
-							Rhs: []ast.Expr{names.ident("x")},
-						},
-						ah.ReturnStmt(names.ident("fnc")),
-					),
+					Results: &ast.FieldList{
+						List: []*ast.Field{{
+							Type: names.ident("decFunc"),
+						}},
+					},
 				},
+				Body: ah.BlockStmt(
+					ah.AssignStmt(
+						ah.IndexExpr(names.name("data"), names.ident("i")),
+						operatorToReversedBinaryExpr(op, names.ident("x"), names.ident("seed")),
+					),
+					&ast.IncDecStmt{X: names.ident("i"), Tok: token.INC},
+					&ast.AssignStmt{
+						Lhs: []ast.Expr{names.ident("seed")},
+						Tok: token.ADD_ASSIGN,
+						Rhs: []ast.Expr{names.ident("x")},
+					},
+					ah.ReturnStmt(names.ident("fnc")),
+				),
 			},
-		},
+		),
 		ah.ExprStmt(callExpr),
 	)
 }

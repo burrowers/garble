@@ -435,16 +435,6 @@ func (fc *funcConverter) ssaValue(ssaValue ssa.Value, explicitNil bool) (expr as
 	}
 }
 
-type register interface {
-	Name() string
-	Referrers() *[]ssa.Instruction
-	Type() types.Type
-
-	String() string
-	Parent() *ssa.Function
-	Pos() token.Pos
-}
-
 func (fc *funcConverter) tupleVarName(val ssa.Value, idx int) string {
 	return fmt.Sprintf("%s_%d", fc.getVarName(val), idx)
 }
@@ -470,17 +460,20 @@ func (fc *funcConverter) tupleVarNameAndType(reg ssa.Value, idx int) (name strin
 	return
 }
 
+// declareTupleVar records a tuple element if subsequent instructions use it.
+func (fc *funcConverter) declareTupleVar(vars map[string]types.Type, value ssa.Value, index int) (string, bool) {
+	name, typ, hasRefs := fc.tupleVarNameAndType(value, index)
+	if hasRefs {
+		vars[name] = typ
+	}
+	return name, hasRefs
+}
+
 // commaOkAssign builds the two-value assignment of a comma-ok instruction,
 // recording the tuple variables which later instructions reference.
 func (fc *funcConverter) commaOkAssign(vars map[string]types.Type, instr ssa.Value, rhs ast.Expr) *ast.AssignStmt {
-	valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 0)
-	okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
-	if valHasRefs {
-		vars[valName] = valType
-	}
-	if okHasRefs {
-		vars[okName] = okType
-	}
+	valName, _ := fc.declareTupleVar(vars, instr, 0)
+	okName, _ := fc.declareTupleVar(vars, instr, 1)
 	return &ast.AssignStmt{
 		Lhs: []ast.Expr{ast.NewIdent(valName), ast.NewIdent(okName)},
 		Tok: token.ASSIGN,
@@ -496,7 +489,7 @@ func isNilValue(value ssa.Value) bool {
 func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock, astBlock *AstBlock) error {
 	astBlock.HasRefs = len(ssaBlock.Preds) != 0
 
-	defineTypedVar := func(r register, typ types.Type, expr ast.Expr) ast.Stmt {
+	defineTypedVar := func(r ssa.Value, typ types.Type, expr ast.Expr) ast.Stmt {
 		if isVoidType(typ) {
 			return &ast.ExprStmt{X: expr}
 		}
@@ -541,10 +534,11 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 		}
 		return assignStmt
 	}
-	defineVar := func(r register, expr ast.Expr) ast.Stmt {
+	defineVar := func(r ssa.Value, expr ast.Expr) ast.Stmt {
 		return defineTypedVar(r, r.Type(), expr)
 	}
 
+	var operands [1]*ssa.Value
 	for _, instr := range ssaBlock.Instrs[:len(ssaBlock.Instrs)-1] {
 		if instr == MarkerInstr {
 			if fc.markerInstrCallback == nil {
@@ -596,30 +590,14 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				return err
 			}
 			stmt = defineVar(instr, callFunExpr)
-		case *ssa.ChangeInterface:
-			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
+		case *ssa.ChangeInterface, *ssa.ChangeType, *ssa.Convert, *ssa.MultiConvert, *ssa.MakeInterface, *ssa.SliceToArrayPointer:
+			// All conversion instructions have one operand and produce a value.
+			value := instr.(ssa.Value)
+			castExpr, err := fc.castCallExpr(value.Type(), *instr.Operands(operands[:0])[0])
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(instr, castExpr)
-		case *ssa.ChangeType:
-			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
-			if err != nil {
-				return err
-			}
-			stmt = defineVar(instr, castExpr)
-		case *ssa.Convert:
-			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
-			if err != nil {
-				return err
-			}
-			stmt = defineVar(instr, castExpr)
-		case *ssa.MultiConvert:
-			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
-			if err != nil {
-				return err
-			}
-			stmt = defineVar(instr, castExpr)
+			stmt = defineVar(value, castExpr)
 		case *ssa.Defer:
 			callExpr, err := fc.convertCall(instr.Call)
 			if err != nil {
@@ -724,12 +702,6 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				makeExpr.Args = append(makeExpr.Args, reserveExpr)
 			}
 			stmt = defineVar(instr, makeExpr)
-		case *ssa.MakeInterface:
-			castExpr, err := fc.castCallExpr(instr.Type(), instr.X)
-			if err != nil {
-				return err
-			}
-			stmt = defineVar(instr, castExpr)
 		case *ssa.MakeMap:
 			mapExpr, err := fc.tc.Convert(instr.Type())
 			if err != nil {
@@ -773,18 +745,9 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			}
 			stmt = ah.AssignStmt(ah.IndexExprByExpr(mapExpr, keyExpr), valueExpr)
 		case *ssa.Next:
-			okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 0)
-			keyName, keyType, keyHasRefs := fc.tupleVarNameAndType(instr, 1)
-			valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, 2)
-			if okHasRefs {
-				astFunc.Vars[okName] = okType
-			}
-			if keyHasRefs {
-				astFunc.Vars[keyName] = keyType
-			}
-			if valHasRefs {
-				astFunc.Vars[valName] = valType
-			}
+			okName, _ := fc.declareTupleVar(astFunc.Vars, instr, 0)
+			keyName, _ := fc.declareTupleVar(astFunc.Vars, instr, 1)
+			valName, _ := fc.declareTupleVar(astFunc.Vars, instr, 2)
 
 			if instr.IsString {
 				runeIdxName := fc.tupleVarName(instr.Iter, 0)
@@ -870,14 +833,8 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 		case *ssa.Select:
 			const reservedTupleIdx = 2
 
-			indexName, indexType, indexHasRefs := fc.tupleVarNameAndType(instr, 0)
-			okName, okType, okHasRefs := fc.tupleVarNameAndType(instr, 1)
-			if indexHasRefs {
-				astFunc.Vars[indexName] = indexType
-			}
-			if okHasRefs {
-				astFunc.Vars[okName] = okType
-			}
+			indexName, _ := fc.declareTupleVar(astFunc.Vars, instr, 0)
+			okName, okHasRefs := fc.declareTupleVar(astFunc.Vars, instr, 1)
 
 			var stmts []ast.Stmt
 
@@ -897,10 +854,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					}
 					commStmt = &ast.SendStmt{Chan: chanExpr, Value: valueExpr}
 				case types.RecvOnly:
-					valName, valType, valHasRefs := fc.tupleVarNameAndType(instr, reservedTupleIdx+recvIndex)
-					if valHasRefs {
-						astFunc.Vars[valName] = valType
-					}
+					valName, _ := fc.declareTupleVar(astFunc.Vars, instr, reservedTupleIdx+recvIndex)
 					recvExpr := &ast.UnaryExpr{Op: token.ARROW, X: chanExpr}
 					if okHasRefs {
 						commStmt = &ast.AssignStmt{
@@ -967,16 +921,6 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				}
 			}
 			stmt = defineVar(instr, sliceExpr)
-		case *ssa.SliceToArrayPointer:
-			castExpr, err := fc.tc.Convert(instr.Type())
-			if err != nil {
-				return err
-			}
-			xExpr, err := fc.convertSsaValue(instr.X)
-			if err != nil {
-				return err
-			}
-			stmt = defineVar(instr, ah.CallExpr(&ast.ParenExpr{X: castExpr}, xExpr))
 		case *ssa.Store:
 			addrExpr, err := fc.convertSsaValue(instr.Addr)
 			if err != nil {
