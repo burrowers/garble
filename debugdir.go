@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -44,9 +45,6 @@ func saveDebugArtifactsForPkg(lpkg *listedPackage, kind string, artifacts cached
 	if flagDebugDir == "" || artifacts.empty() {
 		return nil
 	}
-	if len(lpkg.GarbleActionID) == 0 {
-		return nil
-	}
 	fsCache, err := openCache()
 	if err != nil {
 		return err
@@ -58,25 +56,17 @@ func saveDebugArtifactsForPkg(lpkg *listedPackage, kind string, artifacts cached
 	return fsCache.PutBytes(debugArtifactsCacheID(lpkg.GarbleActionID, kind), data)
 }
 
-func loadDebugArtifactsForPkg(fsCache *cache.Cache, lpkg *listedPackage, kind string) (cachedDebugArtifacts, bool, error) {
+func restoreDebugArtifactsForPkg(fsCache *cache.Cache, lpkg *listedPackage, kind string) error {
 	filename, _, err := fsCache.GetFile(debugArtifactsCacheID(lpkg.GarbleActionID, kind))
 	if err != nil {
-		return cachedDebugArtifacts{}, false, nil // cache miss is expected
+		return nil // cache miss is expected
 	}
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return cachedDebugArtifacts{}, false, err
+		return err
 	}
 	var artifacts cachedDebugArtifacts
 	if _, err := artifacts.UnmarshalMsg(data); err != nil {
-		return cachedDebugArtifacts{}, false, err
-	}
-	return artifacts, true, nil
-}
-
-func restoreDebugArtifactsForPkg(fsCache *cache.Cache, lpkg *listedPackage, kind string) error {
-	artifacts, ok, err := loadDebugArtifactsForPkg(fsCache, lpkg, kind)
-	if err != nil || !ok {
 		return err
 	}
 	for relPath, content := range artifacts.SourceFiles {
@@ -101,16 +91,8 @@ func restoreDebugDirFromCache() error {
 		return err
 	}
 	listed := sharedCache.ListedPackages.all()
-	importPaths := make([]string, 0, len(listed))
-	for importPath := range listed {
-		importPaths = append(importPaths, importPath)
-	}
-	slices.Sort(importPaths)
-	for _, importPath := range importPaths {
+	for _, importPath := range slices.Sorted(maps.Keys(listed)) {
 		lpkg := listed[importPath]
-		if len(lpkg.GarbleActionID) == 0 {
-			continue
-		}
 		if err := restoreDebugArtifactsForPkg(fsCache, lpkg, debugCacheKindCompile); err != nil {
 			return err
 		}
@@ -134,20 +116,14 @@ func debugDirNeedsRebuild() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	sawBuildInputs := false
 	missingArtifacts := false
 	for _, lpkg := range sharedCache.ListedPackages.all() {
-		if len(lpkg.GarbleActionID) == 0 {
-			continue
-		}
 		if len(lpkg.CompiledGoFiles) > 0 {
-			sawBuildInputs = true
 			if !debugArtifactsExistForPkg(fsCache, lpkg, debugCacheKindCompile) {
 				missingArtifacts = true
 			}
 		}
 		if len(lpkg.SFiles) > 0 {
-			sawBuildInputs = true
 			if !debugArtifactsExistForPkg(fsCache, lpkg, debugCacheKindAsm) {
 				missingArtifacts = true
 			}
@@ -155,5 +131,5 @@ func debugDirNeedsRebuild() (bool, error) {
 	}
 	// For -debugdir to be complete, we either need artifacts in cache for every
 	// package input, or we need to force one full rebuild with -a.
-	return sawBuildInputs && missingArtifacts, nil
+	return missingArtifacts, nil
 }

@@ -165,19 +165,19 @@ func TestGarbleMappingSourceIsOverlaid(t *testing.T) {
 	t.Parallel()
 
 	const file = "cmd/internal/objabi/garble.go"
-	if !makeFileSet(compilerOverlayFiles)[file] {
+	if !slices.Contains(compilerOverlayFiles, file) {
 		t.Fatalf("%q is not included in the compiler overlay", file)
 	}
-	if !makeFileSet(linkerOverlayFiles)[file] {
+	if !slices.Contains(linkerOverlayFiles, file) {
 		t.Fatalf("%q is not included in the linker overlay", file)
 	}
-	if file := "cmd/internal/obj/x86/seh.go"; !makeFileSet(compilerOverlayFiles)[file] {
+	if file := "cmd/internal/obj/x86/seh.go"; !slices.Contains(compilerOverlayFiles, file) {
 		t.Fatalf("%q is not included in the compiler and assembler overlay", file)
 	}
-	if file := "cmd/internal/obj/ppc64/obj9.go"; !makeFileSet(compilerOverlayFiles)[file] {
+	if file := "cmd/internal/obj/ppc64/obj9.go"; !slices.Contains(compilerOverlayFiles, file) {
 		t.Fatalf("%q is not included in the compiler and assembler overlay", file)
 	}
-	if file := "cmd/internal/objabi/pkgspecial.go"; !makeFileSet(linkerOverlayFiles)[file] {
+	if file := "cmd/internal/objabi/pkgspecial.go"; !slices.Contains(linkerOverlayFiles, file) {
 		t.Fatalf("%q is not included in the linker overlay", file)
 	}
 }
@@ -189,13 +189,13 @@ func TestPatchedProductionFilesAreOverlaid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	overlaid := makeFileSet(append(slices.Clone(compilerOverlayFiles), linkerOverlayFiles...))
+	overlaid := slices.Concat(compilerOverlayFiles, linkerOverlayFiles)
 	for file := range patchFiles {
 		if strings.HasSuffix(file, "_test.go") {
 			t.Errorf("toolchain patch contains dead test file %q", file)
 			continue
 		}
-		if !overlaid[file] {
+		if !slices.Contains(overlaid, file) {
 			t.Errorf("patched production file %q is absent from tool overlays", file)
 		}
 	}

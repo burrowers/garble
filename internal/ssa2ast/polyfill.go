@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 func makeMapIteratorPolyfill(tc *TypeConverter, mapType *types.Map) (ast.Expr, types.Type, error) {
@@ -42,135 +44,56 @@ func makeMapIteratorPolyfill(tc *TypeConverter, mapType *types.Map) (ast.Expr, t
 	*/
 	return &ast.FuncLit{
 		Type: &ast.FuncType{
-			Params: &ast.FieldList{List: []*ast.Field{{
-				Names: []*ast.Ident{{Name: "m"}},
-				Type: &ast.MapType{
-					Key:   keyTypeExpr,
-					Value: valueTypeExpr,
-				},
-			}}},
+			Params: &ast.FieldList{List: []*ast.Field{
+				ah.Field(&ast.MapType{Key: keyTypeExpr, Value: valueTypeExpr}, ast.NewIdent("m")),
+			}},
 			Results: &ast.FieldList{List: []*ast.Field{{
 				Type: &ast.FuncType{
 					Params: &ast.FieldList{},
 					Results: &ast.FieldList{List: []*ast.Field{
-						{Type: &ast.Ident{Name: "bool"}},
+						{Type: ast.NewIdent("bool")},
 						{Type: keyTypeExpr},
 						{Type: valueTypeExpr},
 					}},
 				},
 			}}},
 		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{&ast.Ident{Name: "keys"}},
-					Tok: token.DEFINE,
-					Rhs: []ast.Expr{
-						&ast.CallExpr{
-							Fun: &ast.Ident{Name: "make"},
-							Args: []ast.Expr{
-								&ast.ArrayType{Elt: keyTypeExpr},
-								&ast.BasicLit{Kind: token.INT, Value: "0"},
-								&ast.CallExpr{
-									Fun:  &ast.Ident{Name: "len"},
-									Args: []ast.Expr{&ast.Ident{Name: "m"}},
-								},
-							},
-						},
-					},
-				},
-				&ast.RangeStmt{
-					Key: &ast.Ident{Name: "k"},
-					Tok: token.DEFINE,
-					X:   &ast.Ident{Name: "m"},
-					Body: &ast.BlockStmt{
-						List: []ast.Stmt{
-							&ast.AssignStmt{
-								Lhs: []ast.Expr{&ast.Ident{Name: "keys"}},
-								Tok: token.ASSIGN,
-								Rhs: []ast.Expr{
-									&ast.CallExpr{
-										Fun: &ast.Ident{Name: "append"},
-										Args: []ast.Expr{
-											&ast.Ident{Name: "keys"},
-											&ast.Ident{Name: "k"},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-				&ast.AssignStmt{
-					Lhs: []ast.Expr{&ast.Ident{Name: "i"}},
-					Tok: token.DEFINE,
-					Rhs: []ast.Expr{&ast.BasicLit{Kind: token.INT, Value: "0"}},
-				},
-				&ast.ReturnStmt{Results: []ast.Expr{
-					&ast.FuncLit{
-						Type: &ast.FuncType{
-							Params: &ast.FieldList{},
-							Results: &ast.FieldList{List: []*ast.Field{
-								{
-									Names: []*ast.Ident{{Name: "ok"}},
-									Type:  &ast.Ident{Name: "bool"},
-								},
-								{
-									Names: []*ast.Ident{{Name: "k"}},
-									Type:  keyTypeExpr,
-								},
-								{
-									Names: []*ast.Ident{{Name: "r"}},
-									Type:  valueTypeExpr,
-								},
-							}},
-						},
-						Body: &ast.BlockStmt{
-							List: []ast.Stmt{
-								&ast.IfStmt{
-									Cond: &ast.BinaryExpr{
-										X:  &ast.Ident{Name: "i"},
-										Op: token.LSS,
-										Y: &ast.CallExpr{
-											Fun:  &ast.Ident{Name: "len"},
-											Args: []ast.Expr{&ast.Ident{Name: "keys"}},
-										},
-									},
-									Body: &ast.BlockStmt{List: []ast.Stmt{
-										&ast.AssignStmt{
-											Lhs: []ast.Expr{&ast.Ident{Name: "k"}},
-											Tok: token.ASSIGN,
-											Rhs: []ast.Expr{&ast.IndexExpr{
-												X:     &ast.Ident{Name: "keys"},
-												Index: &ast.Ident{Name: "i"},
-											}},
-										},
-										&ast.AssignStmt{
-											Lhs: []ast.Expr{
-												&ast.Ident{Name: "ok"},
-												&ast.Ident{Name: "r"},
-											},
-											Tok: token.ASSIGN,
-											Rhs: []ast.Expr{
-												&ast.Ident{Name: "true"},
-												&ast.IndexExpr{
-													X:     &ast.Ident{Name: "m"},
-													Index: &ast.Ident{Name: "k"},
-												},
-											},
-										},
-										&ast.IncDecStmt{
-											X:   &ast.Ident{Name: "i"},
-											Tok: token.INC,
-										},
-									}},
-								},
-								&ast.ReturnStmt{},
-							},
-						},
-					},
-				}},
+		Body: ah.BlockStmt(
+			ah.AssignDefineStmt(ast.NewIdent("keys"), ah.CallExprByName("make",
+				&ast.ArrayType{Elt: keyTypeExpr}, ah.IntLit(0), ah.CallExprByName("len", ast.NewIdent("m")))),
+			&ast.RangeStmt{
+				Key: ast.NewIdent("k"),
+				Tok: token.DEFINE,
+				X:   ast.NewIdent("m"),
+				Body: ah.BlockStmt(ah.AssignStmt(ast.NewIdent("keys"),
+					ah.CallExprByName("append", ast.NewIdent("keys"), ast.NewIdent("k")))),
 			},
-		},
+			ah.AssignDefineStmt(ast.NewIdent("i"), ah.IntLit(0)),
+			ah.ReturnStmt(&ast.FuncLit{
+				Type: &ast.FuncType{
+					Params: &ast.FieldList{},
+					Results: &ast.FieldList{List: []*ast.Field{
+						ah.Field(ast.NewIdent("bool"), ast.NewIdent("ok")),
+						ah.Field(keyTypeExpr, ast.NewIdent("k")),
+						ah.Field(valueTypeExpr, ast.NewIdent("r")),
+					}},
+				},
+				Body: ah.BlockStmt(
+					&ast.IfStmt{
+						Cond: ah.BinaryExpr(ast.NewIdent("i"), token.LSS, ah.CallExprByName("len", ast.NewIdent("keys"))),
+						Body: ah.BlockStmt(
+							ah.AssignStmt(ast.NewIdent("k"), ah.IndexExpr("keys", ast.NewIdent("i"))),
+							&ast.AssignStmt{
+								Lhs: []ast.Expr{ast.NewIdent("ok"), ast.NewIdent("r")},
+								Tok: token.ASSIGN,
+								Rhs: []ast.Expr{ast.NewIdent("true"), ah.IndexExpr("m", ast.NewIdent("k"))},
+							},
+							&ast.IncDecStmt{X: ast.NewIdent("i"), Tok: token.INC},
+						),
+					},
+					ah.ReturnStmt(),
+				),
+			}),
+		),
 	}, nextType, nil
 }

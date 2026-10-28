@@ -321,38 +321,26 @@ func mainErr(args []string) error {
 
 		executablePath := args[0]
 		switch tool {
-		case "compile":
+		case "compile", "asm":
 			pkgPathMap, symbolMap := buildRuntimePkgPathMap(), buildSymbolMap()
 			if pkgPathMap == "" && symbolMap == "" {
 				break
 			}
-			modifiedPath, err := patcher.PatchCompiler(
+			patch, name := patcher.PatchCompiler, "compiler"
+			if tool == "asm" {
+				patch, name = patcher.PatchAssembler, "assembler"
+			}
+			modifiedPath, err := patch(
 				os.Getenv(patcher.GoSrcEnv), sharedCache.GoEnv.GOROOT,
 				sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir,
 			)
 			if err != nil {
-				return fmt.Errorf("cannot get modified compiler: %v", err)
+				return fmt.Errorf("cannot get modified %s: %v", name, err)
 			}
 			executablePath = modifiedPath
 			os.Setenv(patcher.PkgPathMapEnv, pkgPathMap)
 			os.Setenv(patcher.SymbolMapEnv, symbolMap)
-			log.Printf("replaced compiler with: %s", executablePath)
-		case "asm":
-			pkgPathMap, symbolMap := buildRuntimePkgPathMap(), buildSymbolMap()
-			if pkgPathMap == "" && symbolMap == "" {
-				break
-			}
-			modifiedPath, err := patcher.PatchAssembler(
-				os.Getenv(patcher.GoSrcEnv), sharedCache.GoEnv.GOROOT,
-				sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir,
-			)
-			if err != nil {
-				return fmt.Errorf("cannot get modified assembler: %v", err)
-			}
-			executablePath = modifiedPath
-			os.Setenv(patcher.PkgPathMapEnv, pkgPathMap)
-			os.Setenv(patcher.SymbolMapEnv, symbolMap)
-			log.Printf("replaced assembler with: %s", executablePath)
+			log.Printf("replaced %s with: %s", name, executablePath)
 		case "link":
 			modifiedPath, err := patcher.PatchLinker(
 				sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION,
@@ -373,10 +361,7 @@ func mainErr(args []string) error {
 		cmd := exec.Command(executablePath, transformed...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return err
-		}
-		return nil
+		return cmd.Run()
 	default:
 		return fmt.Errorf("unknown command: %q", command)
 	}
@@ -566,19 +551,17 @@ This command wraps "go %s". Below is its help:
 			}
 		}
 	}
-	if listErr := appendListedPackages(listArgs, true); listErr != nil {
-		// A Go tool which can't be run at all fails here as well as in the
-		// background fetch above; prefer that error, as it is the root cause.
-		if err := <-binaryContentID; err != nil {
-			return nil, err
-		}
+	listErr := appendListedPackages(listArgs, true)
+	// A Go tool which can't be run at all fails here as well as in the
+	// background fetch above; prefer that error, as it is the root cause.
+	if err := <-binaryContentID; err != nil {
+		return nil, err
+	}
+	if listErr != nil {
 		return nil, listErr
 	}
 
 	// Now that we have both halves, hash each package's action ID with ours.
-	if err := <-binaryContentID; err != nil {
-		return nil, err
-	}
 	for _, lpkg := range sharedCache.ListedPackages.all() {
 		if lpkg.BuildID != "" {
 			lpkg.GarbleActionID = addGarbleToHash(decodeBuildIDHash(splitActionID(lpkg.BuildID)))
@@ -911,19 +894,12 @@ func effectiveBuildFlags(goflags string, forward []string) []string {
 func flagValues(flags []string, name string) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for i, arg := range flags {
-			if val, ok := strings.CutPrefix(arg, name+"="); ok {
-				// -name=value
-				if !yield(val) {
-					return
-				}
+			val, ok := strings.CutPrefix(arg, name+"=") // -name=value
+			if arg == name && i+1 < len(flags) {        // -name value
+				val, ok = flags[i+1], true
 			}
-			if arg == name { // -name ...
-				if i+1 < len(flags) {
-					// -name value
-					if !yield(flags[i+1]) {
-						return
-					}
-				}
+			if ok && !yield(val) {
+				return
 			}
 		}
 	}
