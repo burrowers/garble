@@ -116,7 +116,9 @@ for a program which exited without running. A plain string panic prints
 `panic: <token>`, where the token is a hash of the message; `garble -tiny reverse`
 maps it back to the original message using the same source and seed, as long as
 the message is known at compile time. Panic values which are not strings are
-never formatted, and print `panic: hidden` instead.
+never formatted, and print `panic: hidden` instead. When a deferred call panics
+while another panic unwinds, the line reports the original panic, which is the
+message a regular build prints first.
 Fatal runtime errors stay silent. Panics can still be handled with `recover` as
 normal.
 

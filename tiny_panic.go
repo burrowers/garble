@@ -50,7 +50,19 @@ func tinyPanicRuntimeSource(path, basename string) (string, error) {
 		}
 		end := start + endOffset + len("\n}\n")
 		src = src[:start] + `func printpanics(p *_panic) {
-	garblePrintPanic(p.arg)
+	// Report the panic Go prints first: the oldest one in the chain. Panics
+	// raised while it unwinds only add indented lines, which tiny mode does
+	// not print, and a Goexit panic prints nothing of its own.
+	var first *_panic
+	for q := p; q != nil; q = q.link {
+		if !q.goexit {
+			first = q
+		}
+	}
+	if first == nil {
+		return
+	}
+	garblePrintPanic(first.arg)
 }
 ` + src[end:]
 		return src, nil
