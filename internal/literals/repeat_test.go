@@ -55,8 +55,10 @@ var callback = func() string { return "repeated literal secret" }
 					}
 				}
 			}
-			if decoders != 6 || helpers != 4 {
-				t.Fatalf("got %d decoders and %d casters, want 6 and 4", decoders, helpers)
+			// The removable global has a private adapter, separate from the
+			// package-initializer callback and the three function owners.
+			if decoders != 6 || helpers != 5 {
+				t.Fatalf("got %d decoders and %d casters, want 6 and 5", decoders, helpers)
 			}
 			checked := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue)}
 			if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, checked); err != nil {
@@ -64,6 +66,11 @@ var callback = func() string { return "repeated literal secret" }
 			}
 			claimed := make(map[string]string)
 			for _, decl := range file.Decls[:originalCount] {
+				if gen, ok := decl.(*ast.GenDecl); ok {
+					if spec := gen.Specs[0].(*ast.ValueSpec); spec.Names[0].Name == "global" {
+						continue // The certified global calls its own factory directly.
+					}
+				}
 				owner := "package"
 				if fn, ok := decl.(*ast.FuncDecl); ok {
 					owner = fn.Name.Name
