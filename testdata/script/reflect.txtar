@@ -8,6 +8,8 @@ stderr '^\*main\.StoredEarly$'
 stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
 stderr '^\*main\.SecondParam$'
+stdout '^dynamic func value: dynamic-call$'
+stdout '^dynamic interface: dynamic-call$'
 
 # A constant MethodByName must not retain unrelated exported methods.
 exec garble build -o methods-bin$exe ./methods
@@ -83,6 +85,27 @@ func (optionData) IterateMergedOption() any {
 type methodCallReceiver struct{}
 
 func (methodCallReceiver) M() string { return "M called" }
+
+// A reflected argument can reach the reflecting function only through a
+// dynamically dispatched call: a function value taken from a map, or an
+// interface method selection. Go requires the callee to have the signature the
+// call is made through, so the reflected parameter is known even though the
+// callee itself is not.
+type DynamicCallJob struct{ DynamicCallField string }
+
+type DynamicCallInspector interface{ Inspect(any) string }
+
+type dynamicCallImpl struct{}
+
+func (dynamicCallImpl) Inspect(v any) string { return inspectDynamic(v) }
+
+func inspectDynamic(v any) string {
+	f := reflect.ValueOf(v).FieldByName("DynamicCallField")
+	if !f.IsValid() {
+		return "<missing>"
+	}
+	return f.String()
+}
 
 func main() {
 	var methodReceiver any = methodCallReceiver{}
@@ -235,6 +258,14 @@ func main() {
 
 	x := UnnamedStructInterface(importedpkg.ReflectUnnamedStruct(0))
 	x.UnnamedStructMethod(struct{ UnnamedStructField string }{UnnamedStructField: "field value"})
+
+	// The same reflected value can only reach the inspecting function through
+	// a dynamically dispatched call; the fields must still keep their names.
+	dynJob := DynamicCallJob{DynamicCallField: "dynamic-call"}
+	dynHandlers := map[string]func(any) string{"inspect": inspectDynamic}
+	fmt.Println("dynamic func value:", dynHandlers["inspect"](dynJob))
+	var dynInspector DynamicCallInspector = dynamicCallImpl{}
+	fmt.Println("dynamic interface:", dynInspector.Inspect(dynJob))
 
 	// Local names not used in reflection should not be in the final binary,
 	// even if they are embedded in a struct and become a field name.
@@ -953,6 +984,8 @@ VariadicReflection{ReflectionField:"variadic"}
 *main.StatUser
 *main.StatCompUser
 struct { UnnamedStructField string }
+dynamic func value: dynamic-call
+dynamic interface: dynamic-call
 TypeOfParent's own name: TypeOfParent
 TypeOfParent named: TypeOfNamedField NamedReflectionField
 TypeOfParent embedded: TypeOfEmbeddedField EmbeddedReflectionField
