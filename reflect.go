@@ -848,6 +848,19 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 			ri.recursivelyRecordUsedForReflectImpl(field.Type(), visited)
 		}
 
+	case *types.Map:
+		// reflect.Type.Key and Elem both expose component types.
+		ri.recursivelyRecordUsedForReflectImpl(t.Key(), visited)
+		ri.recursivelyRecordUsedForReflectImpl(t.Elem(), visited)
+
+	case *types.Signature:
+		// reflect.Type.In and Out expose the parameter and result types.
+		for _, tuple := range [...]*types.Tuple{t.Params(), t.Results()} {
+			for i := range tuple.Len() {
+				ri.recursivelyRecordUsedForReflectImpl(tuple.At(i).Type(), visited)
+			}
+		}
+
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
 		ri.recursivelyRecordUsedForReflectImpl(t.Elem(), visited)
