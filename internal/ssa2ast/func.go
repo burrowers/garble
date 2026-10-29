@@ -103,6 +103,7 @@ func (fc *funcConverter) convertSignatureToFuncDecl(name string, signature *type
 		if err != nil {
 			return nil, err
 		}
+		setReceiverPos(recvTypeExpr, recv.Pos())
 		f := &ast.Field{Type: recvTypeExpr}
 		if recvName := recv.Name(); recvName != "" {
 			f.Names = []*ast.Ident{ast.NewIdent(recvName)}
@@ -110,6 +111,36 @@ func (fc *funcConverter) convertSignatureToFuncDecl(name string, signature *type
 		funcDecl.Recv = &ast.FieldList{List: []*ast.Field{f}}
 	}
 	return funcDecl, nil
+}
+
+// setReceiverPos gives the generated receiver expression the original receiver
+// position. go/types instantiates a generic receiver at the position of this
+// expression and resolves the instance's file through it, so an expression
+// without positions, including a pointer receiver's star, makes it look up a
+// nil token file and panic.
+func setReceiverPos(expr ast.Expr, pos token.Pos) {
+	if !pos.IsValid() {
+		return
+	}
+	switch expr := expr.(type) {
+	case *ast.Ident:
+		expr.NamePos = pos
+	case *ast.StarExpr:
+		expr.Star = pos
+	case *ast.SelectorExpr:
+		setReceiverPos(expr.X, pos)
+		expr.Sel.NamePos = pos
+	case *ast.IndexExpr:
+		setReceiverPos(expr.X, pos)
+		setReceiverPos(expr.Index, pos)
+	case *ast.IndexListExpr:
+		setReceiverPos(expr.X, pos)
+		for _, index := range expr.Indices {
+			setReceiverPos(index, pos)
+		}
+	case *ast.ParenExpr:
+		expr.Lparen = pos
+	}
 }
 
 func (fc *funcConverter) convertSignatureToFuncLit(signature *types.Signature) (*ast.FuncLit, error) {

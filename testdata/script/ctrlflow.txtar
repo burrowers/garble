@@ -176,6 +176,32 @@ func reverseDuringRange(values []int) []int {
 	return seen
 }
 
+type genericBox[T any] struct {
+	value T
+}
+
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0
+func (b genericBox[T]) pick(def T, use bool) T {
+	if use {
+		return b.value
+	}
+	return def
+}
+
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0
+func (b *genericBox[T]) set(value T) {
+	b.value = value
+}
+
+// genericBoxCheck is not flattened; it calls the generated generic methods as
+// plain Go code.
+func genericBoxCheck() {
+	boxed := genericBox[int]{value: 5}
+	println(boxed.pick(9, true), boxed.pick(9, false))
+	boxed.set(6)
+	println(boxed.value)
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
 	keepShadow()
@@ -222,6 +248,8 @@ func main() {
 	println(multiHardeningTest(0))
 	ModifyValue()
 	rangeFunction()
+
+	genericBoxCheck()
 }
 
 -- main.stderr --
@@ -241,3 +269,5 @@ yielded 3
 stopped at 3
 pair 0 pair
 pair 1 pair
+5 9
+6
