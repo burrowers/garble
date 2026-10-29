@@ -91,6 +91,18 @@ func (optionData) IterateMergedOption() any {
 
 type methodCallReceiver struct{}
 
+// Types reached from a reflected value only through a map key or a function
+// signature must keep their original names as well, since reflect exposes both
+// positions to the user.
+type MapKeyReflect struct {
+	KeyName string
+	KeyPort int
+}
+
+type FuncArgReflect struct {
+	ArgName string
+}
+
 func (methodCallReceiver) M() string { return "M called" }
 
 // A reflected argument can reach the reflecting function only through a
@@ -128,6 +140,19 @@ func main() {
 	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOf(2))
 	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOfIndirect(4))
 	fmt.Println(reflect.TypeOf(importedpkg2.ForeignNamedType{}).Name())
+
+	keyType := reflect.TypeOf(map[MapKeyReflect]bool{}).Key()
+	if field, ok := keyType.FieldByName("KeyName"); ok {
+		fmt.Println("map key:", keyType.Name(), field.Name)
+	} else {
+		fmt.Println("map key: missing")
+	}
+	argType := reflect.TypeOf(func(FuncArgReflect) {}).In(0)
+	if field, ok := argType.FieldByName("ArgName"); ok {
+		fmt.Println("func arg:", argType.Name(), field.Name)
+	} else {
+		fmt.Println("func arg: missing")
+	}
 
 	// More complex use of reflect.
 	v := importedpkg.ReflectValueOfVar
@@ -1099,6 +1124,8 @@ ok Method
 ReflectTypeOf
 ReflectTypeOfIndirect
 ForeignNamedType
+map key: MapKeyReflect KeyName
+func arg: FuncArgReflect ArgName
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
 {"Foo":3}
