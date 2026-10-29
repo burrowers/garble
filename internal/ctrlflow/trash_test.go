@@ -144,3 +144,39 @@ func main() {
 	second := run()
 	qt.Assert(t, qt.Equals(second, first))
 }
+
+// TestObfuscateWithoutCallablePackages ensures that trash block generation
+// skips calls instead of drawing from an empty candidate list when no
+// dependency offers a package-level function it could call. A program whose
+// imports only declare types and methods has no such function, and building it
+// with trash_blocks used to panic inside math/rand.
+func TestObfuscateWithoutCallablePackages(t *testing.T) {
+	const src = `package main
+
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=8
+func compute(n int) int {
+	if n > 0 {
+		return n * 2
+	}
+	return -n
+}
+
+func main() {
+	println(compute(10))
+}
+`
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
+	qt.Assert(t, qt.IsNil(err))
+	ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{file}, 0)
+	qt.Assert(t, qt.IsNil(err))
+	_, newFile, _, err := Obfuscate(fset, ssaPkg, []*ast.File{file}, mathrand.New(mathrand.NewSource(1)))
+	qt.Assert(t, qt.IsNil(err))
+
+	var buf bytes.Buffer
+	qt.Assert(t, qt.IsNil(printer.Fprint(&buf, fset, newFile)))
+	// The generated source must still be valid Go even though no trash calls
+	// could be added.
+	_, err = parser.ParseFile(token.NewFileSet(), "garbled.go", buf.String(), 0)
+	qt.Assert(t, qt.IsNil(err))
+}
