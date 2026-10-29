@@ -442,6 +442,12 @@ func (t *trashGenerator) generateCall(vars map[string]*definedVar) ast.Stmt {
 	}
 
 	if targetFunc == nil {
+		if len(t.pkgFunctions) == 0 {
+			// No dependency offers a package-level function with generatable
+			// parameters, so there is nothing to call. Skip this statement
+			// rather than drawing from an empty candidate list.
+			return nil
+		}
 		targetPkg := t.pkgFunctions[t.rand.Intn(len(t.pkgFunctions))]
 		targetFunc = targetPkg[t.rand.Intn(len(targetPkg))]
 	}
@@ -560,6 +566,9 @@ func (t *trashGenerator) Generate(statementCount int, externalVars map[string]ty
 			stmt = t.generateAssign(vars)
 		} else {
 			stmt = t.generateCall(vars)
+			if stmt == nil {
+				continue
+			}
 		}
 		stmts = append(stmts, stmt)
 	}
