@@ -771,6 +771,128 @@ var builtinSymbols = map[string][]string{
 	},
 }
 
+// preservedMethodNames cannot be renamed anywhere: Error implements the
+// predeclared error interface, Method and MethodByName are compiler contracts,
+// and the remaining names occur in packages whose source is not obfuscated.
+var preservedMethodNames = map[string]bool{
+	"Error":                          true,
+	"Method":                         true,
+	"MethodByName":                   true,
+	"Absolute":                       true, // go1.27
+	"Add":                            true, // go1.27
+	"AddAffine":                      true, // go1.27
+	"AppendBinary":                   true, // go1.27
+	"BitLen":                         true, // go1.27
+	"BitLenVarTime":                  true, // go1.27
+	"Bits":                           true, // go1.27
+	"BlockSize":                      true, // go1.27
+	"Bytes":                          true, // go1.27
+	"BytesCompressed":                true, // go1.27
+	"BytesX":                         true, // go1.27
+	"ClientApplicationTrafficSecret": true, // go1.27
+	"ClientEarlyTrafficSecret":       true, // go1.27
+	"ClientHandshakeTrafficSecret":   true, // go1.27
+	"Clone":                          true, // go1.27
+	"Compute":                        true, // go1.27
+	"CondNeg":                        true, // go1.27
+	"CryptBlocks":                    true, // go1.27
+	"Decapsulate":                    true, // go1.27
+	"Decrypt":                        true, // go1.27
+	"Delete":                         true, // go1.27
+	"DeriveKey":                      true, // go1.27
+	"DivShortVarTime":                true, // go1.27
+	"Double":                         true, // go1.27
+	"EarlyExporterMasterSecret":      true, // go1.27
+	"Encapsulate":                    true, // go1.27
+	"EncapsulateInternal":            true, // go1.27
+	"EncapsulationKey":               true, // go1.27
+	"Encrypt":                        true, // go1.27
+	"Equal":                          true, // go1.27
+	"Exp":                            true, // go1.27
+	"ExpShortVarTime":                true, // go1.27
+	"ExpandFor":                      true, // go1.27
+	"Export":                         true, // go1.27
+	"Exporter":                       true, // go1.27
+	"ExporterMasterSecret":           true, // go1.27
+	"FromP1xP1":                      true, // go1.27
+	"FromP3":                         true, // go1.27
+	"GCDVarTime":                     true, // go1.27
+	"Generate":                       true, // go1.27
+	"HandshakeSecret":                true, // go1.27
+	"InverseVarTime":                 true, // go1.27
+	"Invert":                         true, // go1.27
+	"IsMinusOne":                     true, // go1.27
+	"IsNegative":                     true, // go1.27
+	"IsOdd":                          true, // go1.27
+	"IsOne":                          true, // go1.27
+	"IsZero":                         true, // go1.27
+	"MAC":                            true, // go1.27
+	"MarshalBinary":                  true, // go1.27
+	"MasterSecret":                   true, // go1.27
+	"Mod":                            true, // go1.27
+	"Mul":                            true, // go1.27
+	"Mult32":                         true, // go1.27
+	"Multiply":                       true, // go1.27
+	"MultiplyAdd":                    true, // go1.27
+	"Nat":                            true, // go1.27
+	"Negate":                         true, // go1.27
+	"NonceSize":                      true, // go1.27
+	"One":                            true, // go1.27
+	"Open":                           true, // go1.27
+	"Overhead":                       true, // go1.27
+	"Parameters":                     true, // go1.27
+	"Pow22523":                       true, // go1.27
+	"Projective":                     true, // go1.27
+	"PublicKey":                      true, // go1.27
+	"Read":                           true, // go1.27
+	"Reseed":                         true, // go1.27
+	"Reset":                          true, // go1.27
+	"ResumptionBinderKey":            true, // go1.27
+	"ResumptionMasterSecret":         true, // go1.27
+	"Rsh":                            true, // go1.27
+	"ScalarBaseMult":                 true, // go1.27
+	"ScalarMult":                     true, // go1.27
+	"Seal":                           true, // go1.27
+	"Seed":                           true, // go1.27
+	"Select":                         true, // go1.27
+	"SelectInto":                     true, // go1.27
+	"ServerApplicationTrafficSecret": true, // go1.27
+	"ServerHandshakeTrafficSecret":   true, // go1.27
+	"Set":                            true, // go1.27
+	"SetBits":                        true, // go1.27
+	"SetBytes":                       true, // go1.27
+	"SetBytesWithClamping":           true, // go1.27
+	"SetCanonicalBytes":              true, // go1.27
+	"SetGenerator":                   true, // go1.27
+	"SetIV":                          true, // go1.27
+	"SetNoncePrefixAndMask":          true, // go1.27
+	"SetOverflowingBytes":            true, // go1.27
+	"SetUint":                        true, // go1.27
+	"SetUniformBytes":                true, // go1.27
+	"ShiftRightByOne":                true, // go1.27
+	"ShiftRightVarTime":              true, // go1.27
+	"Size":                           true, // go1.27
+	"SqrtRatio":                      true, // go1.27
+	"Square":                         true, // go1.27
+	"SquareN":                        true, // go1.27
+	"String":                         true, // go1.27
+	"Sub":                            true, // go1.27
+	"SubAffine":                      true, // go1.27
+	"SubOne":                         true, // go1.27
+	"Subtract":                       true, // go1.27
+	"Sum":                            true, // go1.27
+	"Swap":                           true, // go1.27
+	"TrailingZeroBitsVarTime":        true, // go1.27
+	"UnmarshalBinary":                true, // go1.27
+	"Unwrap":                         true, // go1.27
+	"Value":                          true, // go1.27
+	"VarTimeDoubleScalarBaseMult":    true, // go1.27
+	"Write":                          true, // go1.27
+	"XORKeyStream":                   true, // go1.27
+	"XORKeyStreamAt":                 true, // go1.27
+	"Zero":                           true, // go1.27
+}
+
 var reflectSkipPkg = map[string]bool{
 	"fmt": true,
 }

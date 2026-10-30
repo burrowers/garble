@@ -137,6 +137,11 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool)
 			if err != nil {
 				return nil, err
 			}
+		} else if lpkg.ImportPath == "reflect" && (base == "type.go" || base == "value.go") {
+			src, err = reflectMethodsPatch(path, base)
+			if err != nil {
+				return nil, err
+			}
 		} else if mainPackage && reflectPatchFile == "" && !strings.HasPrefix(base, "_cgo_") {
 			// Note that we cannot add our code to e.g. _cgo_gotypes.go.
 			src, err = reflectMainPrePatch(path)
@@ -266,6 +271,15 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 	}
 	if ssaPkg == nil {
 		ssaPkg = ssaBuildPkg(pkg, files, info)
+	}
+	// TypeFor can receive a type through generic wrappers rather than an SSA
+	// value. Conservatively retain method metadata for type arguments; method
+	// identifiers still use the global hash, and fields/type names are untouched.
+	methodTypes := make(map[types.Type]bool)
+	for _, instance := range info.Instances {
+		for i := range instance.TypeArgs.Len() {
+			inspector.recordGenericMethodNames(instance.TypeArgs.At(i), methodTypes)
+		}
 	}
 	inspector.recordReflection(ssaPkg)
 	computed = inspector.result // the edge slice header can grow during analysis

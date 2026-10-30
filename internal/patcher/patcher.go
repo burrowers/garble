@@ -30,6 +30,7 @@ const (
 	PkgPathMapEnv   = "GARBLE_PKGPATH_MAP"
 	SymbolMapEnv    = "GARBLE_SYMBOL_MAP"
 	LiteralInitsEnv = "GARBLE_LITERAL_INITS_FILE"
+	MethodMapEnv    = "GARBLE_METHOD_MAP"
 
 	MagicValueEnv  = "GARBLE_LINK_MAGIC"
 	TinyEnv        = "GARBLE_LINK_TINY"
@@ -76,6 +77,7 @@ var compilerOverlayFiles = []string{
 	"cmd/internal/obj/ppc64/obj9.go",
 	"cmd/internal/obj/wasm/wasmobj.go",
 	"cmd/internal/objabi/garble.go",
+	"cmd/internal/objabi/garble_methods.go",
 	"cmd/internal/objabi/funcid.go",
 	"cmd/internal/objabi/pkgspecial.go",
 }
@@ -101,6 +103,7 @@ var linkerOverlayFiles = []string{
 	"cmd/link/internal/wasm/asm.go",
 	"cmd/internal/goobj/builtin.go",
 	"cmd/internal/objabi/garble.go",
+	"cmd/internal/objabi/garble_methods.go",
 	"cmd/internal/objabi/funcid.go",
 	"cmd/internal/objabi/pkgspecial.go",
 }
