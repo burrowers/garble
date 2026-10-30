@@ -58,6 +58,20 @@ exec garble reverse ./case/goroutine
 stdout 'goroutine_site\.go:10\b'
 stdout 'goroutine_site\.go:5\b'
 
+# A panic raised by the runtime at a statement without a call expression would
+# otherwise inherit the position of the last call marker in the file. Reverse it
+# to the panicking statement's own line.
+go build -trimpath -o statement-plain$exe ./case/statement
+! exec ./statement-plain$exe
+stderr 'statement_site\.go:10\b'
+exec garble build -o statement-obfuscated$exe ./case/statement
+! exec ./statement-obfuscated$exe
+cp stderr statement-obfuscated.stderr
+stdin statement-obfuscated.stderr
+exec garble reverse ./case/statement
+stdout 'statement_site\.go:10\b'
+! stdout 'statement_site\.go:9\b'
+
 # Ensure that we can still reverse with -literals.
 exec garble -literals build
 exec ./main
@@ -242,6 +256,23 @@ func CallerFuncName() string {
 	pc, _, _, _ := runtime.Caller(0)
 	fn := runtime.FuncForPC(pc)
 	return fn.Name()
+}
+
+-- case/statement/statement_site.go --
+package main
+
+var buf [1]byte
+
+var idx = 7
+
+//go:noinline
+func boom() {
+	println("before")
+	_ = buf[idx]
+}
+
+func main() {
+	boom()
 }
 
 -- case/goroutine/goroutine_site.go --

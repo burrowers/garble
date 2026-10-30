@@ -99,11 +99,13 @@ Use -test to reverse frames from a binary built with "garble test":
 				}
 				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
 				newFilename := hashWithPackage(lpkg, origPos) + ".go"
-				original := fmt.Sprintf("%s:%d", originalFile, pos.Line)
-				positions[newFilename] = original
+				// Markers carry the original line, and every line after them
+				// keeps counting from there, so only the filename needs
+				// replacing; the reported line is already the original one.
+				positions[newFilename] = originalFile
 				if filepath.IsAbs(originalFile) {
 					obfuscatedPath := hashWithPackage(lpkg, lpkg.ImportPath) + "/" + newFilename
-					positions[obfuscatedPath] = original
+					positions[obfuscatedPath] = originalFile
 					replaces = append(replaces, obfuscatedPath, originalFile)
 				}
 
@@ -111,10 +113,7 @@ Use -test to reverse frames from a binary built with "garble test":
 				// relative to the package's import path, so positions read
 				// as "obfuscatedpkg/obfuscated.go". We only replace the
 				// filename, as the import path before it is replaced above.
-				replaces = append(replaces,
-					newFilename+":1", original,
-					newFilename, originalFile,
-				)
+				replaces = append(replaces, newFilename, originalFile)
 			}
 			if flagTiny {
 				// Tiny mode prints a token instead of a panic message.
@@ -149,10 +148,10 @@ Use -test to reverse frames from a binary built with "garble test":
 					// Calls use their opening parenthesis; keep old callee positions reversible.
 					addPosition(node.Lparen)
 					addPosition(node.Pos())
-				case *ast.GoStmt:
-					// The runtime records a goroutine's creation site at the go
-					// statement, which printFile marks separately from the call
-					// it starts.
+				case ast.Stmt:
+					// A goroutine's creation site and a runtime-raised panic are
+					// both reported at the statement itself, so printFile marks
+					// statement positions.
 					addPosition(node.Pos())
 				case ast.Expr:
 					// Literal obfuscation turns a string constant expression into
@@ -229,16 +228,17 @@ func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer, positions 
 		line, readErr := br.ReadString('\n')
 		originalLine := line
 		if len(positions) > 0 {
-			// The compiler can report :2 (or later) when generated code
-			// spans lines after a //line directive that started at :1.
+			// Markers carry the original line, so the reported line after a
+			// marker is already correct; only the hashed filename, which
+			// encodes the original position, needs replacing.
 			line = obfuscatedPosition.ReplaceAllStringFunc(line, func(pos string) string {
-				name, _, _ := strings.Cut(pos, ":")
+				name, num, _ := strings.Cut(pos, ":")
 				if original, ok := positions[name]; ok {
-					return original
+					return original + ":" + num
 				}
 				if slash := strings.LastIndexByte(name, '/'); slash >= 0 {
 					if original, ok := positions[name[slash+1:]]; ok {
-						return name[:slash+1] + original
+						return name[:slash+1] + original + ":" + num
 					}
 				}
 				return pos
