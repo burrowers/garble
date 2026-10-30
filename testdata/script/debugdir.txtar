@@ -14,6 +14,15 @@ grep 'some comment' $WORK/debug1/source/test/main/main.go
 ! grep ImportedFunc $WORK/debug1/garbled/test/main/main.go
 ! grep 'some comment' $WORK/debug1/garbled/test/main/main.go
 
+# Each garbled file must hold its own transformed source. Printing reuses a
+# buffer, so the cached debug artifacts must not alias it across files.
+grep ALPHA-MARKER $WORK/debug1/garbled/test/main/alpha.go
+! grep BETA-MARKER $WORK/debug1/garbled/test/main/alpha.go
+grep BETA-MARKER $WORK/debug1/garbled/test/main/beta.go
+! grep ALPHA-MARKER $WORK/debug1/garbled/test/main/beta.go
+[amd64] grep ASM-ONE-MARKER $WORK/debug1/garbled/test/main/one_amd64.s
+[amd64] ! grep ASM-TWO-MARKER $WORK/debug1/garbled/test/main/one_amd64.s
+
 # We should refuse to delete non-empty directories which weren't created
 # by an earlier invocation of garble -debugdir, as that could lead to data loss.
 ! exec garble -debugdir=notdebug build
@@ -66,3 +75,36 @@ func main() {
 package imported
 
 func ImportedFunc() {}
+-- alpha.go --
+package main
+
+const alphaMarker = "ALPHA-MARKER"
+
+func alphaString() string { return alphaMarker }
+-- beta.go --
+package main
+
+const betaMarker = "BETA-MARKER"
+
+func betaString() string { return betaMarker }
+-- marker_amd64.go --
+//go:build amd64
+
+package main
+
+func OneMarker() int
+func TwoMarker() int
+-- one_amd64.s --
+#include "textflag.h"
+
+// ASM-ONE-MARKER
+TEXT ·OneMarker(SB), NOSPLIT, $0-8
+	MOVQ $11, ret+0(FP)
+	RET
+-- two_amd64.s --
+#include "textflag.h"
+
+// ASM-TWO-MARKER
+TEXT ·TwoMarker(SB), NOSPLIT, $0-8
+	MOVQ $22, ret+0(FP)
+	RET

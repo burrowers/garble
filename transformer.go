@@ -497,7 +497,9 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 						return nil, err
 					}
 					if flagDebugDir != "" {
-						debugArtifacts.GarbledFiles[basename] = content
+						// includeBuf is reused for the next header, so the
+						// artifact must own its bytes.
+						debugArtifacts.GarbledFiles[basename] = bytes.Clone(content)
 					}
 					newHeaderPaths[includePath] = newPath
 				}
@@ -535,7 +537,9 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 			newPaths = append(newPaths, path)
 		}
 		if flagDebugDir != "" {
-			debugArtifacts.GarbledFiles[basename] = content
+			// buf is reused for the next assembly file, so the artifact must
+			// own its bytes.
+			debugArtifacts.GarbledFiles[basename] = bytes.Clone(content)
 		}
 	}
 	if err := saveDebugArtifactsForPkg(tf.curPkg, debugCacheKindAsm, debugArtifacts); err != nil {
@@ -1088,7 +1092,9 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			newPaths = append(newPaths, path)
 		}
 		if flagDebugDir != "" {
-			debugArtifacts.GarbledFiles[basename] = src
+			// printFile prints into a shared buffer which the next file
+			// overwrites, so the artifact must own its bytes.
+			debugArtifacts.GarbledFiles[basename] = bytes.Clone(src)
 		}
 	}
 	if tf.curPkg.ImportPath == "runtime" && flagTiny {
