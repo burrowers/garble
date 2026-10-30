@@ -42,6 +42,27 @@ import (
 	"unsafe"
 )
 
+//garble:controlflow flatten_passes=1 flatten_regions=2
+func partialRegions(n int) int {
+	x := n
+	if n&1 != 0 {
+		x += 3
+	} else {
+		x -= 2
+	}
+	if n&2 != 0 {
+		x *= 2
+	} else {
+		x += 5
+	}
+	if n&4 != 0 {
+		x -= 7
+	} else {
+		x += 11
+	}
+	return x
+}
+
 //garble:controlflow flatten_passes=0 junk_jumps=max block_splits=max
 func func1() {}
 
@@ -219,6 +240,9 @@ func main() {
 	}
 	if got := namedClosureResult(); got != 12 {
 		panic("deferred closure result was lost")
+	}
+	if partialRegions(0) != 14 || partialRegions(7) != 13 {
+		panic("partial regions")
 	}
 	// Reference to the unexported interface triggers creation of a new interface
 	// with a list of all functions of the private interface
