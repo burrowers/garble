@@ -155,6 +155,21 @@ type GenericMethodSignatureReflect[T any] struct{}
 
 func (GenericMethodSignatureReflect[T]) Take(v T) T { return v }
 
+// A generic struct's field holds its type parameter, so the reflected field
+// type is the instantiation's argument. Recording the origin struct keeps the
+// field identities but leaves that substituted type unrecorded.
+type GenericFieldArgReflect struct {
+	GenericFieldArgName string
+}
+
+type GenericFieldOtherArgReflect struct {
+	GenericFieldOtherArgName int
+}
+
+type GenericFieldStructReflect[T any] struct {
+	GenericFieldValue T
+}
+
 func (methodCallReceiver) M() string { return "M called" }
 
 // A reflected argument can reach the reflecting function only through a
@@ -248,6 +263,22 @@ func main() {
 			names = append(names, arg.Field(i).Name)
 		}
 		fmt.Println("generic method:", arg.Name(), names)
+	}
+	for _, typ := range []reflect.Type{
+		reflect.TypeOf(GenericFieldStructReflect[GenericFieldArgReflect]{}),
+		reflect.TypeOf(GenericFieldStructReflect[GenericFieldOtherArgReflect]{}),
+	} {
+		field, ok := typ.FieldByName("GenericFieldValue")
+		if !ok {
+			fmt.Println("generic field: field missing")
+			continue
+		}
+		arg := field.Type
+		names := make([]string, 0, arg.NumField())
+		for i := range arg.NumField() {
+			names = append(names, arg.Field(i).Name)
+		}
+		fmt.Println("generic field:", arg.Name(), names)
 	}
 
 	// More complex use of reflect.
@@ -1296,6 +1327,8 @@ method result: MethodResultReflect MethodResultName
 method iface arg: MethodIfaceArgReflect MethodIfaceArgName
 generic method: GenericMethodArgReflect [GenericMethodArgName]
 generic method: GenericMethodOtherArgReflect [GenericMethodOtherArgName]
+generic field: GenericFieldArgReflect [GenericFieldArgName]
+generic field: GenericFieldOtherArgReflect [GenericFieldOtherArgName]
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
 {"Foo":3}
