@@ -89,6 +89,7 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 			// Cache decoder recipes only within an original function, including
 			// its nested closures, never across package initializer scopes.
 			or.stringCalls = make(map[string]*ast.CallExpr)
+			or.payloads = make(map[string]*sharedPayload)
 			owner := len(dispatchers)
 			or.proxyDispatcher = newProxyDispatcher(rand, func(rand *mathrand.Rand, base string) string {
 				return nameFunc(rand, fmt.Sprintf("literalOwner%d_%s", owner, base))
@@ -280,6 +281,7 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 		if _, ok := cursor.Node().(*ast.FuncDecl); ok {
 			or.proxyDispatcher = packageDispatcher
 			or.stringCalls = nil
+			or.payloads = nil
 		}
 		// Here we handle the plain []byte{...} or [4]byte{...} value form.
 		// The pointer form was already replaced on the way down; a literal
@@ -294,6 +296,7 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
 	newFile.Decls = append(newFile.Decls, or.liftedFuncs...)
+	newFile.Decls = append(newFile.Decls, or.payloadDecls...)
 	for _, dispatcher := range dispatchers {
 		dispatcher.AddToFile(newFile)
 	}
@@ -678,7 +681,7 @@ func obfuscateBytes(or *obfRand, isPointer bool, data []byte, arrayLen int64) *a
 
 	names := newGeneratedNames(or)
 	extKeys := randExtKeys(or.rnd, names)
-	block := obf.obfuscate(or.rnd, names, data, extKeys)
+	block := or.obfuscatePayload(obf, names, data, extKeys)
 	params, args := extKeysToParams(or, extKeys)
 
 	var resultType ast.Expr
