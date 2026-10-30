@@ -118,9 +118,9 @@ type reflectInspector struct {
 	seenEdges       map[reflectCallEdge]bool
 	// Function literals have no types.Func name to put in the package cache.
 	localReflectAPIs map[*ssa.Function]map[int]bool
-	// walkedMethodSets holds the instantiations whose method set was already
+	// walkedInstantiations holds the instantiations whose members were already
 	// walked, so repeated passes over the package do not repeat that work.
-	walkedMethodSets map[types.Type]bool
+	walkedInstantiations map[types.Type]bool
 
 	result pkgCache
 }
@@ -834,11 +834,11 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 		if ri.usedForReflect(obj) {
 			// t.Obj reports the origin's type object for an instantiation, so the
 			// origin being recorded says nothing about the concrete types this
-			// instantiation substitutes into the method set. Walk each
-			// instantiation's method set once, which also bounds the recursion.
-			if t.TypeArgs().Len() > 0 && !ri.walkedMethodSets[t] {
-				ri.walkedMethodSets[t] = true
-				ri.recordMethodSignatures(t, visited)
+			// instantiation substitutes into its members. Walk each
+			// instantiation's members once, which also bounds the recursion.
+			if t.TypeArgs().Len() > 0 && !ri.walkedInstantiations[t] {
+				ri.walkedInstantiations[t] = true
+				ri.recordInstantiationMembers(t, visited)
 			}
 			return // prevent endless recursion
 		}
@@ -846,11 +846,8 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 		// Match [computeFieldToStruct]: use the generic/origin struct, not an
 		// instantiated underlying, so field identities line up with [hashWithStruct].
 		ri.recursivelyRecordUsedForReflectImpl(t.Origin().Underlying(), visited)
-		// reflect.Type.Method and MethodByName expose a method's signature, but a
-		// method lives in the type's method set rather than in its underlying
-		// type, so nothing above reaches its parameter and result types.
-		ri.walkedMethodSets[t] = true
-		ri.recordMethodSignatures(t, visited)
+		ri.walkedInstantiations[t] = true
+		ri.recordInstantiationMembers(t, visited)
 
 	case *types.Struct:
 		for i := range t.NumFields() {
@@ -880,6 +877,23 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
 		ri.recursivelyRecordUsedForReflectImpl(t.Elem(), visited)
+	}
+}
+
+// recordInstantiationMembers records the members that a generic instantiation
+// substitutes with its type arguments. Recording the origin type object covers
+// neither them nor the field types of its own underlying struct, because the
+// origin's method set only mentions the type parameters and its struct only
+// holds them as field types.
+func (ri *reflectInspector) recordInstantiationMembers(t *types.Named, visited map[types.Type]bool) {
+	ri.recordMethodSignatures(t, visited)
+	// The origin struct's fields are already recorded with the origin as their
+	// parent, matching [hashWithStruct], so only the substituted field types are
+	// left to walk.
+	if st, ok := t.Underlying().(*types.Struct); ok {
+		for i := range st.NumFields() {
+			ri.recursivelyRecordUsedForReflectImpl(st.Field(i).Type(), visited)
+		}
 	}
 }
 
