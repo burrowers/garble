@@ -58,20 +58,6 @@ exec garble reverse ./case/goroutine
 stdout 'goroutine_site\.go:10\b'
 stdout 'goroutine_site\.go:5\b'
 
-# A panic raised by the runtime at a statement without a call expression would
-# otherwise inherit the position of the last call marker in the file. Reverse it
-# to the panicking statement's own line.
-go build -trimpath -o statement-plain$exe ./case/statement
-! exec ./statement-plain$exe
-stderr 'statement_site\.go:10\b'
-exec garble build -o statement-obfuscated$exe ./case/statement
-! exec ./statement-obfuscated$exe
-cp stderr statement-obfuscated.stderr
-stdin statement-obfuscated.stderr
-exec garble reverse ./case/statement
-stdout 'statement_site\.go:10\b'
-! stdout 'statement_site\.go:9\b'
-
 # Ensure that we can still reverse with -literals.
 exec garble -literals build
 exec ./main
@@ -159,6 +145,7 @@ func main() {
 	println()
 	println("main filename:", filename)
 	callSites()
+	statementPanic()
 }
 
 type Logger struct{}
@@ -258,21 +245,42 @@ func CallerFuncName() string {
 	return fn.Name()
 }
 
--- case/statement/statement_site.go --
+-- statement_site.go --
 package main
+
+import (
+	"runtime"
+	"strconv"
+)
 
 var buf [1]byte
 
 var idx = 7
 
 //go:noinline
-func boom() {
-	println("before")
+func statementPanic() {
+	pc, _, _, _ := runtime.Caller(0)
+	entry := runtime.FuncForPC(pc).Entry()
+	defer func() {
+		if recover() == nil {
+			panic("missing bounds panic")
+		}
+		var pcs [32]uintptr
+		frames := runtime.CallersFrames(pcs[:runtime.Callers(0, pcs[:])])
+		for {
+			frame, more := frames.Next()
+			if frame.Entry == entry {
+				println("statement panic:", frame.File+":"+strconv.Itoa(frame.Line))
+				return
+			}
+			if !more {
+				panic("missing statement panic frame")
+			}
+		}
+	}()
+	// A runtime-raised panic must not inherit the preceding call's line.
+	println("before statement panic")
 	_ = buf[idx]
-}
-
-func main() {
-	boom()
 }
 
 -- case/goroutine/goroutine_site.go --
@@ -338,9 +346,9 @@ test/main/lib.printStackTrace(...)
 test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
 	test/main/lib/long_lib.go:20 +0x??
 main.unexportedMainFunc.func1(...)
-	test/main/long_main.go:33
+	test/main/long_main.go:34
 main.unexportedMainFunc(...)
-	test/main/long_main.go:37 +0x??
+	test/main/long_main.go:38 +0x??
 main.main(...)
 	test/main/long_main.go:12 +0x??
 test/main/long_main.go:17: first
@@ -352,3 +360,5 @@ multiline test/main/call_sites.go:26
 multiline test/main/call_sites.go:16
 multiline test/main/call_sites.go:26
 multiline test/main/call_sites.go:19
+before statement panic
+statement panic: test/main/statement_site.go:35
