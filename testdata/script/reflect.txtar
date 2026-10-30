@@ -139,6 +139,22 @@ type MethodIfaceReflect interface {
 	Serve(arg MethodIfaceArgReflect)
 }
 
+// A generic method's signature is substituted with the type arguments of each
+// instantiation, so one generic type exposes different named types through the
+// same method. Every instantiation needs its own recording, not just the first
+// one whose origin type object Garble records.
+type GenericMethodArgReflect struct {
+	GenericMethodArgName string
+}
+
+type GenericMethodOtherArgReflect struct {
+	GenericMethodOtherArgName int
+}
+
+type GenericMethodSignatureReflect[T any] struct{}
+
+func (GenericMethodSignatureReflect[T]) Take(v T) T { return v }
+
 func (methodCallReceiver) M() string { return "M called" }
 
 // A reflected argument can reach the reflecting function only through a
@@ -216,6 +232,22 @@ func main() {
 		}
 	} else {
 		fmt.Println("method iface arg: method missing")
+	}
+	for _, typ := range []reflect.Type{
+		reflect.TypeOf(GenericMethodSignatureReflect[GenericMethodArgReflect]{}),
+		reflect.TypeOf(GenericMethodSignatureReflect[GenericMethodOtherArgReflect]{}),
+	} {
+		m, ok := typ.MethodByName("Take")
+		if !ok {
+			fmt.Println("generic method: method missing")
+			continue
+		}
+		arg := m.Type.In(1)
+		names := make([]string, 0, arg.NumField())
+		for i := range arg.NumField() {
+			names = append(names, arg.Field(i).Name)
+		}
+		fmt.Println("generic method:", arg.Name(), names)
 	}
 
 	// More complex use of reflect.
@@ -1262,6 +1294,8 @@ func arg: FuncArgReflect ArgName
 method arg: MethodArgReflect MethodArgName
 method result: MethodResultReflect MethodResultName
 method iface arg: MethodIfaceArgReflect MethodIfaceArgName
+generic method: GenericMethodArgReflect [GenericMethodArgName]
+generic method: GenericMethodOtherArgReflect [GenericMethodOtherArgName]
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
 {"Foo":3}
