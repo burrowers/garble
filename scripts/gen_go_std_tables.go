@@ -121,10 +121,6 @@ func (t tmplIntrinsic) Compare(t2 tmplIntrinsic) int {
 	return cmp.Compare(t.Path, t2.Path)
 }
 
-func (t tmplIntrinsic) Equal(t2 tmplIntrinsic) bool {
-	return t.Compare(t2) == 0
-}
-
 type versionedString struct {
 	String        string
 	GoVersionLang string
@@ -567,8 +563,7 @@ func main() {
 	slices.SortFunc(runtimeAndLinknamed, versionedString.Compare)
 	runtimeAndLinknamed = slices.CompactFunc(runtimeAndLinknamed, versionedString.Equal)
 
-	compilerIntrinsicsIndexByPath := make(map[string]int)
-	var compilerIntrinsics []tmplIntrinsic
+	compilerIntrinsicsByPath := make(map[string][]versionedString)
 	for _, goroot := range goroots {
 		for line := range strings.SplitSeq(readFile(filepath.Join(
 			goroot.String, "src", "cmd", "compile", "internal", "ssagen", "intrinsics.go",
@@ -578,28 +573,13 @@ func main() {
 				continue
 			}
 			path, name := m[2], m[3]
-			vs := versionedString{
+			compilerIntrinsicsByPath[path] = append(compilerIntrinsicsByPath[path], versionedString{
 				String:        name,
 				GoVersionLang: goroot.GoVersionLang,
-			}
-			if i, ok := compilerIntrinsicsIndexByPath[path]; !ok {
-				compilerIntrinsicsIndexByPath[path] = len(compilerIntrinsics)
-				compilerIntrinsics = append(compilerIntrinsics, tmplIntrinsic{
-					Path:  path,
-					Names: []versionedString{vs},
-				})
-			} else {
-				compilerIntrinsics[i].Names = append(compilerIntrinsics[i].Names, vs)
-			}
+			})
 		}
 	}
-	slices.SortFunc(compilerIntrinsics, tmplIntrinsic.Compare)
-	compilerIntrinsics = slices.CompactFunc(compilerIntrinsics, tmplIntrinsic.Equal)
-	for path := range compilerIntrinsics {
-		intr := &compilerIntrinsics[path]
-		slices.SortFunc(intr.Names, versionedString.Compare)
-		intr.Names = slices.CompactFunc(intr.Names, versionedString.Equal)
-	}
+	compilerIntrinsics := groupedSymbols(compilerIntrinsicsByPath)
 	builtinSymbols := generateBuiltinSymbols(goroots)
 
 	var buf bytes.Buffer
