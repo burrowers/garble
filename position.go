@@ -100,32 +100,31 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			}
 		}
 	}
-	// Match calls in AST order before and after printing. Re-parsing identifies
-	// their actual parentheses even for nested or generated callee expressions.
-	var origCallOffsets []int
+	// Match calls and statements in AST order before and after printing.
+	// Re-parsing identifies their actual parentheses even for nested or
+	// generated callee expressions.
+	var origCallPositions []token.Position
 	var generatedIdent []bool
-	// A go statement's own position is user visible: the runtime records it as
-	// the creation site of the goroutine, which a panic trace prints as
-	// "created by". Only call expressions get a marker below, so without one
-	// the keyword would keep the file state of the preceding marker and a
-	// bogus line, and reverse would report that call's source position instead.
-	var origGoOffsets []int
+	var origStmtPositions []token.Position
 	for node := range ast.Preorder(file) {
 		switch node := node.(type) {
 		case *ast.CallExpr:
-			offset := -1
+			var origPos token.Position
 			if node.Lparen.IsValid() {
-				offset = fsetFile.Position(node.Lparen).Offset
+				origPos = fsetFile.Position(node.Lparen)
 			}
-			origCallOffsets = append(origCallOffsets, offset)
-		case *ast.GoStmt:
-			// Keep one entry per statement in source order, so the entries
-			// line up with the keywords found below.
-			origOffset := -1
+			origCallPositions = append(origCallPositions, origPos)
+		case ast.Stmt:
+			// Statement positions are user visible: a panic that the runtime
+			// raises at a statement without a call expression, and a
+			// goroutine's creation site, are both reported at the statement
+			// itself. Keep them so that below we can both correct line drift
+			// and mark the first statement of a file.
+			var origPos token.Position
 			if node.Pos().IsValid() {
-				origOffset = fsetFile.Position(node.Pos()).Offset
+				origPos = fset.Position(node.Pos())
 			}
-			origGoOffsets = append(origGoOffsets, origOffset)
+			origStmtPositions = append(origStmtPositions, origPos)
 		case *ast.Ident:
 			generatedIdent = append(generatedIdent, generatedIdents[node])
 		}
@@ -135,13 +134,33 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		return nil, err
 	}
 	printedFile := fset.File(printed.Pos())
-	callOffsets := make(map[int]int)
+	callPositions := make(map[int]token.Position, len(origCallPositions))
 	callIndex := 0
 	for node := range ast.Preorder(printed) {
-		if call, ok := node.(*ast.CallExpr); ok {
-			callOffsets[printedFile.Offset(call.Lparen)] = origCallOffsets[callIndex]
-			callIndex++
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			continue
 		}
+		if callIndex < len(origCallPositions) && call.Lparen.IsValid() {
+			if origPos := origCallPositions[callIndex]; origPos.IsValid() {
+				callPositions[printedFile.Offset(call.Lparen)] = origPos
+			}
+		}
+		callIndex++
+	}
+	stmtPositions := make(map[int]token.Position, len(origStmtPositions))
+	stmtIndex := 0
+	for node := range ast.Preorder(printed) {
+		stmt, ok := node.(ast.Stmt)
+		if !ok {
+			continue
+		}
+		if stmtIndex < len(origStmtPositions) && stmt.Pos().IsValid() {
+			if origPos := origStmtPositions[stmtIndex]; origPos.IsValid() {
+				stmtPositions[printedFile.Offset(stmt.Pos())] = origPos
+			}
+		}
+		stmtIndex++
 	}
 
 	copied := 0
@@ -162,17 +181,38 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	s.Init(fsetFile, src, nil, scanner.ScanComments)
 
 	identIndex := 0
-	goIndex := 0
 	braceDepth, parenDepth := 0, 0
 
+	// Markers carry the original line rather than resetting to line 1, so that
+	// positions after a marker keep a meaningful line. markerLine and
+	// markerAtLine remember the last marker so that we can tell when the
+	// printed lines have drifted from the original ones.
+	markerLine, markerAtLine := 0, 0
+	haveMarker := false
+
 	// hashedMarkerName returns the filename used to obfuscate the source
-	// position at origOffset, shared by the call and go statement markers.
-	hashedMarkerName := func(origOffset int) string {
+	// position origPos, shared by the call and statement markers.
+	hashedMarkerName := func(origPos token.Position) string {
 		if flagTiny {
 			return ""
 		}
-		origPos := fmt.Sprintf("%s:%d", filename, origOffset)
-		return hashWithPackage(lpkg, origPos) + ".go"
+		return hashWithPackage(lpkg, fmt.Sprintf("%s:%d", filename, origPos.Offset)) + ".go"
+	}
+	// writeMarker inserts a //line directive for the original position origPos
+	// before the token at offset, which was found at printed line printedLine.
+	writeMarker := func(offset, printedLine int, origPos token.Position) {
+		printBuf2.Write(src[copied:offset])
+		copied = offset
+
+		// We use the "/*text*/" form, since we can use multiple of them
+		// on a single line, and they don't require extra newlines.
+		// Make sure there is whitespace at either side of a comment.
+		// Otherwise, we could change the syntax of the program.
+		// Inserting "/*text*/" in "a/b" // must be "a/ /*text*/ b",
+		// as "a//*text*/b" is tokenized as a "//" comment.
+		fmt.Fprintf(&printBuf2, " /*line %s%s:%d*/ ", newPrefix, hashedMarkerName(origPos), origPos.Line)
+		markerAtLine, markerLine = printedLine, origPos.Line
+		haveMarker = true
 	}
 	generated := false
 	generatedLine := 0
@@ -189,6 +229,17 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			printBuf2.Write(src[copied:offset])
 			copied = offset
 			fmt.Fprintf(&printBuf2, " /*line %s:1*/ ", newPrefix)
+			markerAtLine, markerLine = line, 1
+			haveMarker = true
+		}
+		if origPos, ok := stmtPositions[fsetFile.Offset(pos)]; ok && !generated {
+			// The first statement of a file gets a marker so that positions
+			// before any call are reversible at all. Later statements only
+			// need one when go/printer changed the line spacing or a
+			// transform moved code, as their line would otherwise drift.
+			if want := markerLine + (line - markerAtLine); !haveMarker || want != origPos.Line {
+				writeMarker(fsetFile.Position(pos).Offset, line, origPos)
+			}
 		}
 		switch tok {
 		case token.LPAREN:
@@ -219,45 +270,14 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			offset := fsetFile.Position(pos).Offset
 			printBuf2.Write(src[copied:offset])
 			copied = offset + len(lit)
-		case token.GO:
-			// The runtime records the creation site of a goroutine at the go
-			// statement itself, so it needs a marker of its own; the call
-			// marker below only covers the callee.
-			if goIndex >= len(origGoOffsets) {
-				// A transform such as ctrlflow/ssa2ast may add statements that
-				// were not collected from the original AST; they carry no
-				// original position to remap.
-				continue
-			}
-			origOffset := origGoOffsets[goIndex]
-			goIndex++
-			if origOffset == -1 || generated {
-				continue
-			}
-			offset := fsetFile.Position(pos).Offset
-			printBuf2.Write(src[copied:offset])
-			copied = offset
-			fmt.Fprintf(&printBuf2, " /*line %s%s:1*/ ", newPrefix, hashedMarkerName(origOffset))
 		case token.IDENT:
 			identIndex++
 		case token.LPAREN:
-			origOffset, ok := callOffsets[fsetFile.Offset(pos)]
-			if !ok || origOffset < 0 || generated {
+			origPos, ok := callPositions[fsetFile.Offset(pos)]
+			if !ok || generated {
 				continue
 			}
-			newName := hashedMarkerName(origOffset)
-
-			offset := fsetFile.Position(pos).Offset
-			printBuf2.Write(src[copied:offset])
-			copied = offset
-
-			// We use the "/*text*/" form, since we can use multiple of them
-			// on a single line, and they don't require extra newlines.
-			// Make sure there is whitespace at either side of a comment.
-			// Otherwise, we could change the syntax of the program.
-			// Inserting "/*text*/" in "a/b" // must be "a/ /*text*/ b",
-			// as "a//*text*/b" is tokenized as a "//" comment.
-			fmt.Fprintf(&printBuf2, " /*line %s%s:1*/ ", newPrefix, newName)
+			writeMarker(fsetFile.Position(pos).Offset, line, origPos)
 		}
 	}
 }
