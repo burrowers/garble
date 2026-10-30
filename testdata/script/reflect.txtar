@@ -103,6 +103,32 @@ type FuncArgReflect struct {
 	ArgName string
 }
 
+// Likewise for the parameter and result types of a method whose receiver type
+// is reflected: Type.Method and Type.MethodByName expose that signature, but it
+// only exists in the method set, not in the type's underlying struct.
+type MethodArgReflect struct {
+	MethodArgName string
+}
+
+type MethodResultReflect struct {
+	MethodResultName string
+}
+
+type MethodSignatureReflect struct{}
+
+func (MethodSignatureReflect) Handle(arg MethodArgReflect) MethodResultReflect {
+	return MethodResultReflect{MethodResultName: arg.MethodArgName}
+}
+
+// The same position exists on an interface's method set.
+type MethodIfaceArgReflect struct {
+	MethodIfaceArgName string
+}
+
+type MethodIfaceReflect interface {
+	Serve(arg MethodIfaceArgReflect)
+}
+
 func (methodCallReceiver) M() string { return "M called" }
 
 // A reflected argument can reach the reflecting function only through a
@@ -152,6 +178,32 @@ func main() {
 		fmt.Println("func arg:", argType.Name(), field.Name)
 	} else {
 		fmt.Println("func arg: missing")
+	}
+	if m, ok := reflect.TypeOf(MethodSignatureReflect{}).MethodByName("Handle"); ok {
+		methodArg := m.Type.In(1)
+		if field, ok := methodArg.FieldByName("MethodArgName"); ok {
+			fmt.Println("method arg:", methodArg.Name(), field.Name)
+		} else {
+			fmt.Println("method arg: missing")
+		}
+		methodResult := m.Type.Out(0)
+		if field, ok := methodResult.FieldByName("MethodResultName"); ok {
+			fmt.Println("method result:", methodResult.Name(), field.Name)
+		} else {
+			fmt.Println("method result: missing")
+		}
+	} else {
+		fmt.Println("method arg: method missing")
+	}
+	if m, ok := reflect.TypeOf((*MethodIfaceReflect)(nil)).Elem().MethodByName("Serve"); ok {
+		ifaceArg := m.Type.In(0)
+		if field, ok := ifaceArg.FieldByName("MethodIfaceArgName"); ok {
+			fmt.Println("method iface arg:", ifaceArg.Name(), field.Name)
+		} else {
+			fmt.Println("method iface arg: missing")
+		}
+	} else {
+		fmt.Println("method iface arg: method missing")
 	}
 
 	// More complex use of reflect.
@@ -1126,6 +1178,9 @@ ReflectTypeOfIndirect
 ForeignNamedType
 map key: MapKeyReflect KeyName
 func arg: FuncArgReflect ArgName
+method arg: MethodArgReflect MethodArgName
+method result: MethodResultReflect MethodResultName
+method iface arg: MethodIfaceArgReflect MethodIfaceArgName
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
 {"Foo":3}

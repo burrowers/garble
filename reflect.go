@@ -835,6 +835,10 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 		// Match [computeFieldToStruct]: use the generic/origin struct, not an
 		// instantiated underlying, so field identities line up with [hashWithStruct].
 		ri.recursivelyRecordUsedForReflectImpl(t.Origin().Underlying(), visited)
+		// reflect.Type.Method and MethodByName expose a method's signature, but a
+		// method lives in the type's method set rather than in its underlying
+		// type, so nothing above reaches its parameter and result types.
+		ri.recordMethodSignatures(t, visited)
 
 	case *types.Struct:
 		for i := range t.NumFields() {
@@ -864,6 +868,19 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
 		ri.recursivelyRecordUsedForReflectImpl(t.Elem(), visited)
+	}
+}
+
+// recordMethodSignatures recurses into the parameter and result types of every
+// method in the named type's method set. Both the value and the pointer method
+// set are walked, since Garble does not track whether the program reflects the
+// type or a pointer to it. Recording a name does not make a method reachable,
+// so Garble's dead-method elimination is unaffected.
+func (ri *reflectInspector) recordMethodSignatures(t *types.Named, visited map[types.Type]bool) {
+	for _, recv := range [...]types.Type{t, types.NewPointer(t)} {
+		for method := range types.NewMethodSet(recv).Methods() {
+			ri.recursivelyRecordUsedForReflectImpl(method.Obj().Type(), visited)
+		}
 	}
 }
 
