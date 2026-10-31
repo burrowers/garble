@@ -303,7 +303,7 @@ func loadListedPkgCache(fsCache *cache.Cache, lpkg *listedPackage) (pkgCache, er
 	// Could happen if GARBLE_CACHE was emptied but GOCACHE was not.
 	// Compute it, which can recurse if many entries are missing.
 	paths := lpkg.CompiledGoFiles
-	if len(paths) == 0 && lpkg.Name == "main" && lpkg.ForTest == "" && strings.HasSuffix(lpkg.ImportPath, ".test") {
+	if len(paths) == 0 && isSynthesizedTestMain(*lpkg) {
 		paths = lpkg.GoFiles
 	}
 	files, err := parseFiles(lpkg, lpkg.Dir, paths, true)
