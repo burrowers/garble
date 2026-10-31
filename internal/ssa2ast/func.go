@@ -537,7 +537,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 		return defineTypedVar(r, r.Type(), expr)
 	}
 
-	var operands [1]*ssa.Value
+	var operands [2]*ssa.Value
 	for _, instr := range ssaBlock.Instrs[:len(ssaBlock.Instrs)-1] {
 		if instr == MarkerInstr {
 			if fc.markerInstrCallback == nil {
@@ -687,48 +687,26 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			} else {
 				stmt = defineVar(instr, mapIndexExpr)
 			}
-		case *ssa.MakeChan:
-			chanExpr, err := fc.tc.Convert(instr.Type())
+		case *ssa.MakeChan, *ssa.MakeMap, *ssa.MakeSlice:
+			value := instr.(ssa.Value)
+			typeExpr, err := fc.tc.Convert(value.Type())
 			if err != nil {
 				return err
 			}
-			makeExpr := ah.CallExprByName("make", chanExpr)
-			if instr.Size != nil {
-				reserveExpr, err := fc.convertSsaValue(instr.Size)
+			makeExpr := ah.CallExprByName("make", typeExpr)
+			args := instr.Operands(operands[:0])
+			// A channel size or map reservation is optional; both slice bounds are required.
+			if len(args) == 1 && *args[0] == nil {
+				args = nil
+			}
+			for _, arg := range args {
+				argExpr, err := fc.convertSsaValue(*arg)
 				if err != nil {
 					return err
 				}
-				makeExpr.Args = append(makeExpr.Args, reserveExpr)
+				makeExpr.Args = append(makeExpr.Args, argExpr)
 			}
-			stmt = defineVar(instr, makeExpr)
-		case *ssa.MakeMap:
-			mapExpr, err := fc.tc.Convert(instr.Type())
-			if err != nil {
-				return err
-			}
-			makeExpr := ah.CallExprByName("make", mapExpr)
-			if instr.Reserve != nil {
-				reserveExpr, err := fc.convertSsaValue(instr.Reserve)
-				if err != nil {
-					return err
-				}
-				makeExpr.Args = append(makeExpr.Args, reserveExpr)
-			}
-			stmt = defineVar(instr, makeExpr)
-		case *ssa.MakeSlice:
-			sliceExpr, err := fc.tc.Convert(instr.Type())
-			if err != nil {
-				return err
-			}
-			lenExpr, err := fc.convertSsaValue(instr.Len)
-			if err != nil {
-				return err
-			}
-			capExpr, err := fc.convertSsaValue(instr.Cap)
-			if err != nil {
-				return err
-			}
-			stmt = defineVar(instr, ah.CallExprByName("make", sliceExpr, lenExpr, capExpr))
+			stmt = defineVar(value, makeExpr)
 		case *ssa.MapUpdate:
 			mapExpr, err := fc.convertSsaValue(instr.Map)
 			if err != nil {
