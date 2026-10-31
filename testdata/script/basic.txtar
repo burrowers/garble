@@ -64,6 +64,12 @@ exec go tool covdata percent -i=$WORK/coverdir
 stdout 'coverage: 100.0% of statements'
 env GOCOVERDIR=
 
+# Test binaries keep their coverage instrumentation, and listing the
+# synthesized test main package must not fail.
+exec garble test -cover -v -run TestGlobalVar -count=1 .
+stdout 'test-cover-ok'
+stdout 'coverage: .* of statements'
+
 # A leading -C changes directory before module discovery and relative outputs.
 cd ..
 exec garble build -C $WORK -o=chdir_binary$exe garble_main.go
@@ -156,3 +162,15 @@ func main() {
 -- main.stderr --
 global value
 global func body
+-- main_test.go --
+package main
+
+import "testing"
+
+func TestGlobalVar(t *testing.T) {
+	if globalVar != "global value" {
+		t.Fatal("unexpected global value")
+	}
+	globalFunc()
+	t.Log("test-cover-ok")
+}
