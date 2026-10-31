@@ -523,6 +523,12 @@ func linknamedToList() []string {
 	return linknamed
 }
 
+// isSynthesizedTestMain reports whether lpkg is the test main package which
+// go list generates for a test binary, rather than a package on disk.
+func isSynthesizedTestMain(lpkg listedPackage) bool {
+	return lpkg.Name == "main" && lpkg.ForTest == "" && strings.HasSuffix(lpkg.ImportPath, ".test")
+}
+
 // appendListedPackages gets information about the current package
 // and all of its dependencies
 func appendListedPackages(packages []string, mainBuild bool) error {
@@ -594,6 +600,14 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 			} else if lenient && strings.Contains(perr.Err, "is not in std") {
 				// When we support multiple Go versions at once, some packages may only
 				// exist in the newer version, so we fail to list them with the older.
+			} else if isSynthesizedTestMain(pkg) && strings.Contains(perr.Err, "cover: open") {
+				// With -test and -cover together, go list sets the synthesized test
+				// main's GoFiles to a file in the build cache and still builds the
+				// package, so cmd/cover joins that cache path with the package
+				// directory and fails to open a nonexistent .cover.go file. We need
+				// -cover in the listing for the coverage import graph, and nothing
+				// garble takes from this package depends on that build; the real
+				// build reports any genuine failure of the test main.
 			} else {
 				if pkgErrors.Len() > 0 {
 					pkgErrors.WriteString("\n")
