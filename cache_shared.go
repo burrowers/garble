@@ -441,13 +441,26 @@ func isRuntimePkgPath(path string) bool {
 	return ok
 }
 
+// linkerLoadedPkgPaths are packages that cmd/link opens by a literal import
+// path instead of following a package's Imports: it adds the instrumentation
+// runtime for -race, -msan and -asan on behalf of the linker. Obscuring their
+// paths only works while the obfuscated path is mapped back to the original,
+// otherwise loadinternal silently finds no race, msan or asan runtime.
+var linkerLoadedPkgPaths = [...]string{
+	"runtime/race",
+	"runtime/msan",
+	"runtime/asan",
+}
+
 // buildRuntimePkgPathMap builds a mapping of obfuscated->original paths for all
-// runtime packages. This is passed to the patched compiler so it can recognize
-// obfuscated runtime packages for special handling (write barriers, etc.)
+// runtime packages and the toolchain packages the linker loads by name. This is
+// passed to the patched compiler and linker so they can recognize obfuscated
+// runtime packages for special handling (write barriers, etc.)
 // Format: "obfuscated1=original1,obfuscated2=original2,..."
 func buildRuntimePkgPathMap() string {
+	pkgPaths := slices.Concat(runtimePkgPaths, linkerLoadedPkgPaths[:])
 	var mappings []string
-	for _, pkgPath := range runtimePkgPaths {
+	for _, pkgPath := range pkgPaths {
 		lpkg, _ := sharedCache.ListedPackages.get(pkgPath)
 		if lpkg == nil {
 			continue // Package not in current build
