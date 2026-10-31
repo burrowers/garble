@@ -135,6 +135,7 @@ package bar_test
 
 import (
 	"flag"
+	"reflect"
 	"testing"
 
 	"test/bar"
@@ -154,6 +155,12 @@ func TestSeparateFoo(t *testing.T) {
 func TestMockedFoo(t *testing.T) {
 	if mocks.Foo() != "Foo" {
 		t.FailNow()
+	}
+	// Reflecting a type of a package compiled only as a test variant must
+	// resolve the variant rather than crash on a missing bare package.
+	field := reflect.TypeOf(mocks.Payload{}).Field(0)
+	if field.Name != "Value" {
+		t.Fatalf("reflected field name: %s", field.Name)
 	}
 }
 
@@ -226,3 +233,7 @@ package mocks
 import "test/bar"
 
 func Foo() string { return bar.LocalFoo() }
+
+type Payload struct {
+	Value string
+}
