@@ -1255,9 +1255,17 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		panic(err) // shouldn't happen
 	}
 
-	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.ImportPath, foreignName) {
+	if !lpkg.toObfuscate() {
 		// We're not obfuscating that package or name.
 		return localName, newName
+	}
+	if isToolchainNameDependency(lpkg.ImportPath, foreignName) {
+		// The declaration keeps its name, but the package path is obfuscated
+		// like any other reference to it. Leaving the original path here emits
+		// a directive pointing at a package which the build no longer contains,
+		// which only shows up once the shim is reachable, such as the runtime's
+		// sync/atomic wrappers under -race.
+		return localName, lpkg.obfuscatedImportPath() + "." + foreignName
 	}
 
 	var newForeignName string

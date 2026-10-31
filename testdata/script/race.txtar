@@ -1,0 +1,60 @@
+# A race build instruments the whole standard library and links the prebuilt
+# race runtime, which cmd/link pulls in by package name alone. The instrumented
+# runtime also makes its go:linkname wrappers around sync/atomic live, so this
+# is the only mode that links both of those paths.
+[short] skip 'a race build instruments the standard library again'
+[!cgo] skip 'the race detector needs a C toolchain'
+[!linux] skip 'the race runtime is only covered on linux/amd64 here'
+[!amd64] skip 'the race runtime is only covered on linux/amd64 here'
+
+exec garble build -race -o=main$exe .
+exec ./main$exe
+stdout '^sum 20$'
+
+# The instrumentation must be functional, not merely linked in.
+env RACY=1
+! exec ./main$exe
+stderr 'DATA RACE'
+-- go.mod --
+module test/main
+
+go 1.23
+-- main.go --
+package main
+
+import (
+	"fmt"
+	"os"
+	"sync"
+	"sync/atomic"
+)
+
+var shared atomic.Uint64
+
+func main() {
+	if os.Getenv("RACY") != "" {
+		racy()
+		return
+	}
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			shared.Add(5)
+		}()
+	}
+	wg.Wait()
+	fmt.Println("sum", shared.Load())
+}
+
+var plain int
+
+func racy() {
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); plain++ }()
+	go func() { defer wg.Done(); plain++ }()
+	wg.Wait()
+	fmt.Fprintln(os.Stderr, "plain", plain)
+}
