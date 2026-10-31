@@ -655,6 +655,23 @@ var ErrNotFound = errors.New("not found")
 
 var ErrNotDependency = errors.New("not a dependency")
 
+// testVariantPath returns the listed import path of the test variant of path
+// that from compiles against, or "" if from is not part of a test binary.
+//
+// A test binary links the test variants of its packages, which go list keys as
+// "path [pkg.test]", while the code compiled into it refers to those packages
+// by their bare import path. Note that the bare path may name a different,
+// non-variant package, or not be listed at all.
+func (from *listedPackage) testVariantPath(path string) string {
+	if from.ForTest != "" {
+		return path + " [" + from.ForTest + ".test]"
+	}
+	if strings.HasSuffix(from.ImportPath, ".test") {
+		return path + " [" + from.ImportPath + "]"
+	}
+	return ""
+}
+
 // implicitLinkerDeps are the packages which the go command adds to main
 // packages on behalf of the linker, depending on the target platform and build
 // flags. They are never in a package's Imports, so any package may refer to
@@ -709,8 +726,10 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 	// their bare import path. The bare path may be unknown, or belong to a
 	// non-variant package which the test binary does not depend on. Resolve
 	// to the variant so we use its obfuscated import path.
-	if variant, ok := sharedCache.ListedPackages.get(path + " [" + from.ImportPath + "]"); ok && from.hasDep(variant.ImportPath) {
-		return variant, nil
+	if variantPath := from.testVariantPath(path); variantPath != "" {
+		if variant, ok := sharedCache.ListedPackages.get(variantPath); ok && from.hasDep(variant.ImportPath) {
+			return variant, nil
+		}
 	}
 
 	if !ok {

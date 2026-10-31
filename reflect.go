@@ -932,6 +932,13 @@ func (ri *reflectInspector) obfuscatedObjectName(obj types.Object, parent *types
 		var ok bool
 		lpkg, ok = sharedCache.ListedPackages.get(pkg.Path())
 		if !ok {
+			// A test binary may only list the test variant of the package it
+			// links, while the reflected object names the bare import path.
+			if variantPath := ri.lpkg.testVariantPath(pkg.Path()); variantPath != "" {
+				lpkg, ok = sharedCache.ListedPackages.get(variantPath)
+			}
+		}
+		if !ok {
 			panic("missing listed package for foreign reflected object: " + pkg.Path())
 		}
 	}
