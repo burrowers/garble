@@ -9,6 +9,7 @@ import (
 	"go/constant"
 	"go/token"
 	"strconv"
+	"strings"
 )
 
 // StringLit returns an ast.BasicLit of kind STRING
@@ -206,10 +207,39 @@ func ConstToAst(val constant.Value) ast.Expr {
 	case constant.Int:
 		return &ast.BasicLit{Kind: token.INT, Value: val.ExactString()}
 	case constant.Float:
-		return &ast.BasicLit{Kind: token.FLOAT, Value: val.String()}
+		return floatExpr(val)
 	case constant.Complex:
 		return CallExprByName("complex", ConstToAst(constant.Real(val)), ConstToAst(constant.Imag(val)))
 	default:
 		panic("unreachable")
 	}
+}
+
+// floatExpr renders a floating-point constant as an expression that evaluates
+// to exactly the constant's own value. Value.String reports a decimal
+// approximation rounded to six significant digits, so re-emitting a constant
+// that way changes the value the transformed program computes.
+func floatExpr(val constant.Value) ast.Expr {
+	num, den, isRatio := strings.Cut(val.ExactString(), "/")
+	if !isRatio {
+		return floatLit(num)
+	}
+	// An exact ratio is a rational constant. Written as division of two
+	// integers, source Go would divide them as integers, so the numerator is
+	// spelled as a floating-point literal to keep the exact quotient.
+	return &ast.BinaryExpr{
+		X:  floatLit(num),
+		Op: token.QUO,
+		Y:  floatLit(den),
+	}
+}
+
+// floatLit spells an exact integer or hexadecimal float as a floating-point
+// literal. A bare integer would become an integer constant, which changes the
+// kind of the constant and, for a large numerator or denominator, overflows it.
+func floatLit(s string) *ast.BasicLit {
+	if !strings.ContainsAny(s, ".ep") {
+		s += ".0"
+	}
+	return &ast.BasicLit{Kind: token.FLOAT, Value: s}
 }
