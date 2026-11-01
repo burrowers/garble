@@ -1,0 +1,79 @@
+From c6a922659651fc81ce8d2a1ce6faefaf75a59def Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Wed, 28 Oct 2026 23:14:44 +0000
+Subject: [PATCH] compile: translate reflected method reachability names
+
+Exported methods and interfaces now share global hashed names. Constant
+MethodByName calls still pass original names at runtime, where ABI name
+restoration handles the lookup, but their R_USENAMEDMETHOD relocations
+must refer to the transformed name to keep the implementation reachable.
+
+Read a per-compilation name map from a private file and translate only
+that relocation's name. Leave runtime arguments and generic interface
+markers unchanged. With no map configured the compiler retains its
+ordinary behavior, and unreadable or malformed maps fail closed.
+
+Refs https://github.com/burrowers/garble/issues/3
+---
+ cmd/compile/internal/walk/expr.go     |  1 +
+ cmd/internal/objabi/garble_methods.go | 36 +++++++++++++++++++++++++++
+ 2 files changed, 37 insertions(+)
+ create mode 100644 src/cmd/internal/objabi/garble_methods.go
+
+diff --git a/cmd/compile/internal/walk/expr.go b/cmd/compile/internal/walk/expr.go
+index dd59760..8fd3f54 100644
+--- a/cmd/compile/internal/walk/expr.go
++++ b/cmd/compile/internal/walk/expr.go
+@@ -1139,6 +1139,7 @@ func usemethod(n *ir.CallExpr) {
+ 
+ 	if ir.IsConst(targetName, constant.String) {
+ 		name := constant.StringVal(targetName.Val())
++		name = objabi.ObfuscatedMethodName(name)
+ 		ir.CurFunc.LSym.AddRel(base.Ctxt, obj.Reloc{
+ 			Type: objabi.R_USENAMEDMETHOD,
+ 			Sym:  staticdata.StringSymNoCommon(name),
+diff --git a/cmd/internal/objabi/garble_methods.go b/cmd/internal/objabi/garble_methods.go
+new file mode 100644
+index 0000000..a4e79b5
+--- /dev/null
++++ b/cmd/internal/objabi/garble_methods.go
+@@ -0,0 +1,36 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package objabi
++
++import (
++	"encoding/json"
++	"os"
++	"sync"
++)
++
++var methodNames = sync.OnceValue(func() map[string]string {
++	path := os.Getenv("GARBLE_METHOD_MAP")
++	if path == "" {
++		return nil
++	}
++	data, err := os.ReadFile(path)
++	if err != nil {
++		panic(err)
++	}
++	var names map[string]string
++	if err := json.Unmarshal(data, &names); err != nil {
++		panic(err)
++	}
++	return names
++})
++
++// ObfuscatedMethodName translates constant reflection lookup names for the
++// linker's method reachability markers, without changing runtime arguments.
++func ObfuscatedMethodName(name string) string {
++	if obfuscated := methodNames()[name]; obfuscated != "" {
++		return obfuscated
++	}
++	return name
++}
+-- 
+2.47.3
+
