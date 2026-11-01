@@ -16,6 +16,21 @@ func NewTypeConverted(resolver ImportNameResolver) *TypeConverter {
 	return &TypeConverter{resolver: resolver}
 }
 
+// canName reports whether Convert writes typ as the named type itself, rather
+// than as a substitute such as its underlying type or an emulated interface for
+// an unexported type of another package.
+func (tc *TypeConverter) canName(typ types.Type) bool {
+	named, ok := types.Unalias(typ).(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	if obj.Pkg() != nil && obj.Parent() != obj.Pkg().Scope() {
+		return false
+	}
+	return tc.resolver(obj.Pkg()) == nil || token.IsExported(obj.Name())
+}
+
 func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 	switch typ := types.Unalias(typ).(type) {
 	case *types.Array:

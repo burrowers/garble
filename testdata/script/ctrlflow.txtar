@@ -40,6 +40,8 @@ import (
 	"hash/crc32"
 	"slices"
 	"unsafe"
+
+	"test/main/named"
 )
 
 //garble:controlflow flatten_passes=0 junk_jumps=max block_splits=max
@@ -152,6 +154,18 @@ func namedClosureResult() int {
 
 func applyReverse(f func([]int), values []int) { f(values) }
 
+// scoreList is a named slice type, so slicing a composite literal of it must
+// keep the named type for method calls and interface conversions.
+type scoreList []int
+
+func (s scoreList) Total() int {
+	total := 0
+	for _, v := range s {
+		total += v
+	}
+	return total
+}
+
 func keepShadow() {
 	slices := struct{ Field int }{7}
 	if slices.Field != 7 {
@@ -250,8 +264,33 @@ func main() {
 	rangeFunction()
 
 	genericBoxCheck()
+
+	if got := (scoreList{3, 4}).Total(); got != 7 {
+		panic("named slice method call changed")
+	}
+	var scored interface{ Total() int } = scoreList{5, 6}
+	if got := scored.Total(); got != 11 {
+		panic("named slice interface conversion changed")
+	}
+	// A named slice type of another package keeps its methods as well.
+	if got := (named.Scores{1, 2}).Total(); got != 3 {
+		panic("exported foreign named slice changed")
+	}
 }
 
+-- named/scores.go --
+package named
+
+// Scores is an exported named slice type used from a flattened function.
+type Scores []int
+
+func (s Scores) Total() int {
+	total := 0
+	for _, v := range s {
+		total += v
+	}
+	return total
+}
 -- main.stderr --
 LittleEndian
 binary.LittleEndian

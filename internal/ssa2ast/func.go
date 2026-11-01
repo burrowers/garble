@@ -897,7 +897,21 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 					return err
 				}
 			}
-			stmt = defineVar(instr, sliceExpr)
+			// Slicing an array, or a slice of another named type, yields the
+			// unnamed element slice type, while the instruction keeps its own
+			// named type. Convert back so method calls and interface
+			// conversions on the value keep typechecking. Slicing an
+			// instruction whose type cannot be named, such as an unexported
+			// type of another package, keeps the unnamed type.
+			var sliceValue ast.Expr = sliceExpr
+			if fc.tc.canName(instr.Type()) {
+				typeExpr, err := fc.tc.Convert(instr.Type())
+				if err != nil {
+					return err
+				}
+				sliceValue = ah.CallExpr(&ast.ParenExpr{X: typeExpr}, sliceExpr)
+			}
+			stmt = defineVar(instr, sliceValue)
 		case *ssa.Store:
 			addrExpr, err := fc.convertSsaValue(instr.Addr)
 			if err != nil {
