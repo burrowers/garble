@@ -216,6 +216,39 @@ func genericBoxCheck() {
 	println(boxed.value)
 }
 
+// zeroValues is an array type, so its zero value has to be written as an empty
+// composite literal; there is no nil array value to convert from.
+type zeroValues [3]int
+
+// zeroArrayValues materializes zero values of unnamed, named and nested array
+// types, and one behind an interface, inside a flattened function.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func zeroArrayValues() zeroValues {
+	unnamed := [3]int{}
+	unnamed[1] = 5
+	if unnamed != ([3]int{0, 5, 0}) {
+		panic("unnamed zero array changed")
+	}
+	nested := [2][2]int{}
+	if nested != ([2][2]int{}) {
+		panic("nested zero array changed")
+	}
+	var boxed any = [2]int{}
+	if got, ok := boxed.([2]int); !ok || got != ([2]int{}) {
+		panic("zero array behind an interface changed")
+	}
+	return zeroValues{}
+}
+
+// zeroArrayResult returns a zero array, so the value is materialized as a
+// return operand instead of an assignment target.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func zeroArrayResult() [2]int {
+	return [2]int{}
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
 	keepShadow()
@@ -275,6 +308,13 @@ func main() {
 	// A named slice type of another package keeps its methods as well.
 	if got := (named.Scores{1, 2}).Total(); got != 3 {
 		panic("exported foreign named slice changed")
+	}
+
+	if got := zeroArrayValues(); got != (zeroValues{}) {
+		panic("named zero array value changed")
+	}
+	if got := zeroArrayResult(); got != ([2]int{}) {
+		panic("zero array result changed")
 	}
 }
 
