@@ -395,12 +395,11 @@ func (fc *funcConverter) ssaValue(ssaValue ssa.Value, explicitNil bool) (expr as
 	case *ssa.Const:
 		var constExpr ast.Expr
 		if val.Value == nil {
-			// handle nil constant for non-pointer structs
-			typ := val.Type()
-			if _, ok := typ.(*types.Named); ok {
-				typ = typ.Underlying()
-			}
-			if _, ok := typ.(*types.Struct); ok {
+			// A zero value of a struct or array type is written as its empty
+			// composite literal. A nil conversion only type-checks for
+			// pointer, interface, slice, map and channel types, so printing
+			// an array zero value as nil did not compile.
+			if fc.zeroCompositeType(val.Type()) {
 				typExpr, err := fc.tc.Convert(val.Type())
 				if err != nil {
 					return nil, err
@@ -483,6 +482,29 @@ func (fc *funcConverter) commaOkAssign(vars map[string]types.Type, instr ssa.Val
 func isNilValue(value ssa.Value) bool {
 	constVal, ok := value.(*ssa.Const)
 	return ok && constVal.Value == nil
+}
+
+// zeroCompositeType reports whether a nil constant of typ is written as an
+// empty composite literal rather than as nil. Struct and array types have a
+// composite literal form, but a named type of another package which is not
+// exported is emitted as an emulated interface, which does not.
+func (fc *funcConverter) zeroCompositeType(typ types.Type) bool {
+	switch typ.Underlying().(type) {
+	case *types.Struct:
+		return true
+	case *types.Array:
+		named, ok := types.Unalias(typ).(*types.Named)
+		if !ok {
+			return true
+		}
+		// A named type declared in a local scope is written as its
+		// underlying type, so it keeps a composite literal form.
+		if obj := named.Obj(); obj.Pkg() != nil && obj.Parent() != obj.Pkg().Scope() {
+			return true
+		}
+		return fc.tc.canName(typ)
+	}
+	return false
 }
 
 func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock, astBlock *AstBlock) error {
