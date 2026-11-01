@@ -226,6 +226,19 @@ func main() {
 	_, file, line, _ = runtime.Caller(0)
 	fmt.Printf("absolute=%s:%d\n", file, line)
 	fmt.Printf("absolute-file=%s\n", file)
+	deferredSite()
+}
+
+// A deferred call reports its return site at the enclosing function's closing
+// brace, which is not a statement and so needs a position of its own.
+//
+//line virtual/deferred.go:200
+func deferredSite() {
+	defer func() {
+		_, file, line, _ := runtime.Caller(1)
+		fmt.Printf("deferred-parent=%s:%d\n", file, line)
+	}()
+//line virtual/deferred.go:201
 }
 
 -- case/tag/main.go --

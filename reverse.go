@@ -148,6 +148,13 @@ Use -test to reverse frames from a binary built with "garble test":
 					// Calls use their opening parenthesis; keep old callee positions reversible.
 					addPosition(node.Lparen)
 					addPosition(node.Pos())
+				case *ast.BlockStmt:
+					// A block's closing brace is the position of the return
+					// instruction and of a deferred call's return site.
+					addPosition(node.Pos())
+					if node.Rbrace.IsValid() {
+						addPosition(node.Rbrace)
+					}
 				case ast.Stmt:
 					// A goroutine's creation site and a runtime-raised panic are
 					// both reported at the statement itself, so printFile marks
