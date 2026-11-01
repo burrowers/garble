@@ -38,6 +38,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"hash/crc32"
+	"math"
 	"slices"
 	"unsafe"
 
@@ -316,6 +317,10 @@ func main() {
 	if got := zeroArrayResult(); got != ([2]int{}) {
 		panic("zero array result changed")
 	}
+
+	// A float constant must keep its exact value when it is rendered back into
+	// source, so print the resulting bit patterns rather than the decimals.
+	println(math.Float64bits(1.0/3.0), math.Float64bits(0.1234567), math.Float32bits(float32(0.1234567)), math.Float64bits((0.5+1.0/6.0)*3.0))
 }
 
 -- named/scores.go --
@@ -350,3 +355,4 @@ pair 0 pair
 pair 1 pair
 5 9
 6
+4599676419421066581 4593560413433027186 1039980254 4611686018427387904
