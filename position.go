@@ -106,7 +106,18 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	var origCallPositions []token.Position
 	var generatedIdent []bool
 	var origStmtPositions []token.Position
+	// A block's closing brace is its own position in the runtime: the
+	// compiler places the return instruction and a deferred call's return
+	// site there. It is not a statement, so it needs its own positions.
+	var origBlockEnds []token.Position
 	for node := range ast.Preorder(file) {
+		if block, ok := node.(*ast.BlockStmt); ok {
+			var origPos token.Position
+			if block.Rbrace.IsValid() {
+				origPos = fset.Position(block.Rbrace)
+			}
+			origBlockEnds = append(origBlockEnds, origPos)
+		}
 		switch node := node.(type) {
 		case *ast.CallExpr:
 			var origPos token.Position
@@ -161,6 +172,19 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			}
 		}
 		stmtIndex++
+	}
+	blockIndex := 0
+	for node := range ast.Preorder(printed) {
+		block, ok := node.(*ast.BlockStmt)
+		if !ok {
+			continue
+		}
+		if blockIndex < len(origBlockEnds) && block.Rbrace.IsValid() {
+			if origPos := origBlockEnds[blockIndex]; origPos.IsValid() {
+				stmtPositions[printedFile.Offset(block.Rbrace)] = origPos
+			}
+		}
+		blockIndex++
 	}
 
 	copied := 0
@@ -234,9 +258,10 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		}
 		if origPos, ok := stmtPositions[fsetFile.Offset(pos)]; ok && !generated {
 			// The first statement of a file gets a marker so that positions
-			// before any call are reversible at all. Later statements only
-			// need one when go/printer changed the line spacing or a
-			// transform moved code, as their line would otherwise drift.
+			// before any call are reversible at all. Later statements and
+			// block ends only need one when go/printer changed the line
+			// spacing or a transform moved code, as their line would
+			// otherwise drift.
 			if want := markerLine + (line - markerAtLine); !haveMarker || want != origPos.Line {
 				writeMarker(fsetFile.Position(pos).Offset, line, origPos)
 			}
