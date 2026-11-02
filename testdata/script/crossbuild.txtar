@@ -16,7 +16,8 @@
 [!386] env GOARCH=386
 [386] env GOARCH=amd64
 exec garble build -gcflags=math/bits=-d=ssa/intrinsics/debug=1
-stderr 'intrinsic substitution for ReverseBytes32.*Bswap32'
+# The declaration name is obfuscated, but the compiler must still substitute Bswap32.
+stderr 'intrinsic substitution for [A-Za-z0-9_]+ with v[0-9]+ = Bswap32'
 
 # Also test building for MacOS if we're not already on it.
 # We already cover Windows and Linux above, and MacOS is the other major OS.

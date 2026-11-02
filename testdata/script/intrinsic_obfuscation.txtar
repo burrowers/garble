@@ -1,0 +1,26 @@
+# An intrinsic declaration is renamed even when its caller is compiled as an
+# intrinsic. The compiler must recover the original name via the symbol map.
+[short] skip 'runtime obfuscation is an integration test'
+exec garble -debugdir=debug build -o=main$exe .
+exec ./main$exe
+stdout '^intrinsic-ok$'
+# Inspect the transformed declaration, not just the final linked binary.
+grep 'func [A-Za-z0-9_]+\([^)]*uint64\) \([^)]*int\)' $WORK/debug/garbled/math/bits/bits.go
+! grep 'func Len64\(' $WORK/debug/garbled/math/bits/bits.go
+! binsubstr main$exe 'math/bits.Len64' 'Len64'
+-- go.mod --
+module test/intrinsic
+
+go 1.27
+-- main.go --
+package main
+
+import (
+ "fmt"
+ "math/bits"
+)
+
+func main() {
+ if bits.Len64(1 << 55) != 56 { panic("wrong intrinsic result") }
+ fmt.Println("intrinsic-ok")
+}

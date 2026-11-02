@@ -1,0 +1,39 @@
+# Execute allocations from both scanned and no-scan size classes under the
+# obfuscated runtime. The generated helper declarations must be renamed.
+[short] skip 'runtime allocation helpers require rebuilding the standard library'
+exec garble build -o=alloc$exe .
+exec ./alloc$exe
+stdout '^allocation-helpers-ok$'
+! binsubstr alloc$exe 'mallocgcSmallNoScanSC2'
+! binsubstr alloc$exe 'mallocgcSmallScanNoHeaderSC1'
+! binsubstr alloc$exe 'mallocgcTinySC2'
+
+-- go.mod --
+module test/allocationhelpers
+
+go 1.27
+-- main.go --
+package main
+
+import "fmt"
+
+var keep [][]byte
+var pointers []*node
+
+type node struct {
+    next *node
+    payload [128]byte
+}
+
+func main() {
+    for size := 1; size <= 1024; size++ {
+        data := make([]byte, size)
+        data[size-1] = byte(size)
+        keep = append(keep, data)
+        pointers = append(pointers, &node{payload: [128]byte{byte(size)}})
+    }
+    if len(keep) != 1024 || len(pointers) != 1024 || keep[1023][1023] != 0 || pointers[1023].payload[0] != 0 {
+        panic("small allocation mismatch")
+    }
+    fmt.Println("allocation-helpers-ok")
+}
