@@ -672,42 +672,24 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				return err
 			}
 			stmt = &ast.GoStmt{Call: callExpr}
-		case *ssa.Index:
-			xExpr, err := fc.convertSsaValue(instr.X)
+		case *ssa.Index, *ssa.IndexAddr, *ssa.Lookup:
+			args := instr.Operands(operands[:0])
+			xExpr, err := fc.convertSsaValue(*args[0])
 			if err != nil {
 				return err
 			}
-			indexExpr, err := fc.convertSsaValue(instr.Index)
+			indexExpr, err := fc.convertSsaValue(*args[1])
 			if err != nil {
 				return err
 			}
-			stmt = defineVar(instr, ah.IndexExprByExpr(xExpr, indexExpr))
-		case *ssa.IndexAddr:
-			xExpr, err := fc.convertSsaValue(instr.X)
-			if err != nil {
-				return err
+			var indexed ast.Expr = ah.IndexExprByExpr(xExpr, indexExpr)
+			if _, address := instr.(*ssa.IndexAddr); address {
+				indexed = &ast.UnaryExpr{Op: token.AND, X: indexed}
 			}
-			indexExpr, err := fc.convertSsaValue(instr.Index)
-			if err != nil {
-				return err
-			}
-			stmt = defineVar(instr, &ast.UnaryExpr{Op: token.AND, X: ah.IndexExprByExpr(xExpr, indexExpr)})
-		case *ssa.Lookup:
-			mapExpr, err := fc.convertSsaValue(instr.X)
-			if err != nil {
-				return err
-			}
-
-			indexExpr, err := fc.convertSsaValue(instr.Index)
-			if err != nil {
-				return err
-			}
-
-			mapIndexExpr := ah.IndexExprByExpr(mapExpr, indexExpr)
-			if instr.CommaOk {
-				stmt = fc.commaOkAssign(astFunc.Vars, instr, mapIndexExpr)
+			if lookup, ok := instr.(*ssa.Lookup); ok && lookup.CommaOk {
+				stmt = fc.commaOkAssign(astFunc.Vars, lookup, indexed)
 			} else {
-				stmt = defineVar(instr, mapIndexExpr)
+				stmt = defineVar(instr.(ssa.Value), indexed)
 			}
 		case *ssa.MakeChan, *ssa.MakeMap, *ssa.MakeSlice:
 			value := instr.(ssa.Value)
