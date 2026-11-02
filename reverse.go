@@ -104,7 +104,9 @@ Use -test to reverse frames from a binary built with "garble test":
 				// replacing; the reported line is already the original one.
 				positions[newFilename] = originalFile
 				if filepath.IsAbs(originalFile) {
-					obfuscatedPath := hashWithPackage(lpkg, lpkg.ImportPath) + "/" + newFilename
+					// The directory prefix is the package's source directory,
+					// which keeps the listing identity of a test variant.
+					obfuscatedPath := hashWithListingIdentity(lpkg, lpkg.ImportPath) + "/" + newFilename
 					positions[obfuscatedPath] = originalFile
 					replaces = append(replaces, obfuscatedPath, originalFile)
 				}
@@ -172,7 +174,9 @@ Use -test to reverse frames from a binary built with "garble test":
 			if base == lpkg.ForTest+"_test" {
 				base = lpkg.ForTest
 			}
-			replaces = append(replaces, hashWithPackage(lpkg, lpkg.ImportPath), base)
+			// The obfuscated source directory keeps the listing identity of a
+			// test variant, while its symbols use the plain package identity.
+			replaces = append(replaces, hashWithListingIdentity(lpkg, lpkg.ImportPath), base)
 		} else {
 			addHashedWithPackage(lpkg.ImportPath)
 		}

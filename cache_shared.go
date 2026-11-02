@@ -319,14 +319,46 @@ type listedPackage struct {
 	GarbleActionID [sha256.Size]byte `json:"-"`
 }
 
+// baseImportPath returns the package's import path without the " [pkg.test]"
+// suffix which the go command adds to a package rebuilt for a test binary.
+// That suffix names the test, not the package, so every decision about the
+// package itself uses the base path.
+func (p *listedPackage) baseImportPath() string {
+	path, _, _ := strings.Cut(p.ImportPath, " [")
+	return path
+}
+
+// namingPackage returns the package whose identity names p's symbols and
+// import path. A package rebuilt for a test binary is the same package
+// compiled with extra test files: the go command passes the plain import path
+// to the compiler, the linker keys the object by it, and a package which is
+// compiled only once - such as runtime - writes its //go:linkname targets
+// against the plain package. Naming the variant after its plain package keeps
+// those references resolvable, and it keeps a once-compiled package's
+// transformed source identical between a test build and a plain build.
+func (p *listedPackage) namingPackage() *listedPackage {
+	base := p.baseImportPath()
+	if base == p.ImportPath {
+		return p
+	}
+	if sharedCache == nil || sharedCache.ListedPackages == nil {
+		return p
+	}
+	if plain, ok := sharedCache.ListedPackages.get(base); ok && plain.ImportPath == base {
+		return plain
+	}
+	return p
+}
+
 // toObfuscate excludes runtime/cgo (which crashes on Windows), FIPS packages
 // (whose special symbols and no-relocation rule prevent obfuscation), and empty
 // packages such as OS-specific packages with no matching files.
 func (p *listedPackage) toObfuscate() bool {
-	path := p.ImportPath
-	if p.ForTest != "" {
-		path = p.ForTest
-	}
+	// A dependency rebuilt for a test binary has an ImportPath such as
+	// "crypto/internal/fips140 [strings.test]", while ForTest names the package
+	// under test. These exclusions are about the package itself, so they look
+	// at its own path rather than at the package being tested.
+	path := p.baseImportPath()
 	return path != "runtime/cgo" &&
 		path != "crypto/internal/fips140" &&
 		!strings.HasPrefix(path, "crypto/internal/fips140/") &&
@@ -389,7 +421,9 @@ func (p *listedPackage) obfuscatedPackageName() string {
 // to write obfuscated source files to. This directory name should be unique per package,
 // even when building many main packages at once, such as in `go test ./...`.
 func (p *listedPackage) obfuscatedSourceDir() string {
-	return hashWithPackage(p, p.ImportPath)
+	// Keep the listing identity here: a plain package and its test variant may
+	// be compiled in the same invocation, and each needs its own directory.
+	return hashWithListingIdentity(p, p.ImportPath)
 }
 
 // obfuscatedImportPath returns a package's obfuscated import path,
@@ -397,16 +431,22 @@ func (p *listedPackage) obfuscatedSourceDir() string {
 // Note that package main always has the unchanged import path "main" as part of a build,
 // but not if it's a main package as part of a test, which can be imported.
 func (p *listedPackage) obfuscatedImportPath() string {
+	// A package rebuilt for a test binary has an ImportPath such as
+	// "crypto/internal/fips140 [strings.test]". The go command passes the
+	// package's real path to the compiler and resolves the variant through the
+	// import config, and a Go import cannot carry the variant suffix, so every
+	// path we keep has to be the real one.
+	path := p.baseImportPath()
 	if p.Name == "main" && p.ForTest == "" {
 		return "main"
 	}
 	if !p.toObfuscate() {
-		return p.ImportPath
+		return path
 	}
 	// Keep import paths whose toolchain contracts are not yet translated.
 	// Runtime package paths and intrinsic paths are translated by the patched
 	// compiler and linker through GARBLE_PKGPATH_MAP and GARBLE_SYMBOL_MAP.
-	switch p.ImportPath {
+	switch path {
 	case "reflect", "embed",
 		// WASI host imports recognize structs.HostLayout by exact package path.
 		"structs",
@@ -420,10 +460,10 @@ func (p *listedPackage) obfuscatedImportPath() string {
 		"internal/runtime/startlinetest",
 		// The compiler identifies NotInHeap through this exact package path.
 		"internal/runtime/sys":
-		return p.ImportPath
+		return path
 	}
 
-	newPath := hashWithPackage(p, p.ImportPath)
+	newPath := hashWithPackage(p, path)
 	log.Printf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
 	return newPath
 }
@@ -658,6 +698,26 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		if len(missing) > 0 {
 			if err := appendListedPackages(missing, false); err != nil {
 				return fmt.Errorf("failed to load missing runtime-linknamed packages: %v", err)
+			}
+		}
+
+		// A test binary compiles its packages as variants of their plain
+		// packages, and a once-compiled package such as runtime writes linkname
+		// targets against the plain identity. List any plain counterpart which
+		// the -test listing omitted, so a variant is always named after the
+		// package the go command itself knows.
+		var plainMissing []string
+		for _, pkg := range sharedCache.ListedPackages.all() {
+			base := pkg.baseImportPath()
+			if base != pkg.ImportPath && !sharedCache.ListedPackages.has(base) {
+				plainMissing = append(plainMissing, base)
+			}
+		}
+		slices.Sort(plainMissing)
+		plainMissing = slices.Compact(plainMissing)
+		if len(plainMissing) > 0 {
+			if err := appendListedPackages(plainMissing, false); err != nil {
+				return fmt.Errorf("failed to load plain packages of test variants: %v", err)
 			}
 		}
 	}
