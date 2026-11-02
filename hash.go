@@ -226,6 +226,14 @@ func entryOffKey() uint32 {
 }
 
 func hashWithPackage(pkg *listedPackage, name string) string {
+	return hashWithListingIdentity(pkg.namingPackage(), name)
+}
+
+// hashWithListingIdentity hashes name with the identity of one listing entry,
+// ignoring that a test variant shares its identity with its plain package. It
+// is only for values which must stay unique per listing, such as the temporary
+// source directory of a compile.
+func hashWithListingIdentity(pkg *listedPackage, name string) string {
 	// If the user provided us with an obfuscation seed,
 	// we use that with the package import path directly..
 	// Otherwise, we use GarbleActionID as a fallback salt.

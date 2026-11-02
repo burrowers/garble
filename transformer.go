@@ -717,7 +717,7 @@ func isToolchainNameDependency(path, name string) bool {
 // obfuscatedPackageObjectName is the shared package-level naming rule used by
 // source transformation and the symbol map consumed by patched tools.
 func obfuscatedPackageObjectName(lpkg *listedPackage, name string) string {
-	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.ImportPath, name) {
+	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.baseImportPath(), name) {
 		return name
 	}
 	return hashWithPackage(lpkg, name)
@@ -854,7 +854,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		name := string(remaining[:nameEnd])
 		remaining = remaining[nameEnd:]
 
-		if lpkg.toObfuscate() && !isToolchainNameDependency(lpkg.ImportPath, name) {
+		if lpkg.toObfuscate() && !isToolchainNameDependency(lpkg.baseImportPath(), name) {
 			newName := hashWithPackage(lpkg, name)
 			if flagDebug { // TODO(mvdan): remove once https://go.dev/issue/53465 if fixed
 				log.Printf("asm name %q hashed with %x to %q", name, tf.curPkg.GarbleActionID, newName)
@@ -1255,7 +1255,7 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		panic(err) // shouldn't happen
 	}
 
-	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.ImportPath, foreignName) {
+	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.baseImportPath(), foreignName) {
 		// We're not obfuscating that package or name.
 		return localName, newName
 	}
