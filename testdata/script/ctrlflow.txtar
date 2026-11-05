@@ -269,6 +269,52 @@ func zeroTypeParam[T any](use bool) T {
 	return value
 }
 
+// constArithmetic wraps like the run-time operations it spells out. The SSA
+// builder propagates the unchanged locals to constants, so the generated
+// source must not turn the operations into constant expressions: the type
+// checker evaluates those exactly and rejects the wrapped result.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func constArithmetic() (int32, uint8, int32, int32, int32, int32, int32) {
+	var mul int32 = 1 << 30
+	var add uint8 = 200
+	var sub int32 = -2147483648
+	var quo int32 = -2147483648
+	var neg int32 = -2147483648
+	var shl int32 = 1
+	var conv uint32 = 4294967295
+	if mul == 0 {
+		return 0, 0, 0, 0, 0, 0, 0
+	}
+	return mul * 4, add + 100, sub - 1, quo / -1, -neg, shl << 31, int32(conv)
+}
+
+// constIndexPanic indexes an array with a propagated constant, which plain Go
+// checks at run time.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func constIndexPanic() int {
+	var a [4]int
+	var i = 9
+	if i == 0 {
+		return 0
+	}
+	return a[i]
+}
+
+// constSlicePanic slices an array with a propagated constant bound, which
+// plain Go checks at run time as well.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func constSlicePanic() []int {
+	var a [8]int
+	var i = 9
+	if i == 0 {
+		return nil
+	}
+	return a[0:i]
+}
+
 // charSum keeps its running sum in a loop phi. Trash blocks used to leave a
 // stale predecessor behind, so block splitting could move the phi assignment
 // before the addition and the loop silently lost its updates.
@@ -396,6 +442,22 @@ func main() {
 	// A float constant must keep its exact value when it is rendered back into
 	// source, so print the resulting bit patterns rather than the decimals.
 	println(math.Float64bits(1.0/3.0), math.Float64bits(0.1234567), math.Float32bits(float32(0.1234567)), math.Float64bits((0.5+1.0/6.0)*3.0))
+
+	println(constArithmetic())
+
+	// Constant bounds and indexes are run-time checks, so the flattened
+	// functions have to panic rather than be rejected while type checking.
+	expectPanic := func(name string, f func()) {
+		defer func() {
+			if recover() == nil {
+				panic(name + " did not panic")
+			}
+		}()
+		f()
+	}
+	expectPanic("constant array index", func() { _ = constIndexPanic() })
+	expectPanic("constant slice bound", func() { _ = constSlicePanic() })
+	println("constant bounds panicked")
 }
 
 -- named/scores.go --
@@ -459,3 +521,5 @@ pair 1 pair
 6
 cross
 4599676419421066581 4593560413433027186 1039980254 4611686018427387904
+0 44 2147483647 -2147483648 -2147483648 -2147483648 -1
+constant bounds panicked
