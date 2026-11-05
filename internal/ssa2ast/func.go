@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"maps"
@@ -65,6 +66,12 @@ type funcConverter struct {
 	ssaValueRemap       map[ssa.Value]ast.Expr
 	namedResultAllocs   map[*ssa.Alloc]string
 	markerInstrCallback func(map[string]types.Type) []ast.Stmt
+	// preStmts holds the declarations of constants quoted for the current
+	// block; see constOperand.
+	preStmts []ast.Stmt
+	// constVars caches the quoted form of a constant within one block, so the
+	// same constant is not declared twice in the same scope.
+	constVars map[*ssa.Const]string
 }
 
 func Convert(ssaFunc *ssa.Function, cfg *ConverterConfig) (*ast.FuncDecl, error) {
@@ -188,12 +195,8 @@ func getFieldName(tp types.Type, index int) (string, error) {
 	return "", fmt.Errorf("field %d not found in %v", index, tp)
 }
 
-func (fc *funcConverter) castCallExpr(typ types.Type, x ssa.Value) (*ast.CallExpr, error) {
+func (fc *funcConverter) castCallExpr(typ types.Type, valExpr ast.Expr) (*ast.CallExpr, error) {
 	castExpr, err := fc.tc.Convert(typ)
-	if err != nil {
-		return nil, err
-	}
-	valExpr, err := fc.convertSsaValue(x)
 	if err != nil {
 		return nil, err
 	}
@@ -502,6 +505,281 @@ func isNilValue(value ssa.Value) bool {
 	return ok && constVal.Value == nil
 }
 
+// foldableConst returns val as a constant of a basic numeric type. The type
+// checker of the generated source evaluates an operation on such a value
+// exactly, so the same operation may be rejected there although the original
+// program computes it at run time.
+func foldableConst(val ssa.Value) (*ssa.Const, bool) {
+	constVal, ok := val.(*ssa.Const)
+	if !ok || constVal.Value == nil {
+		return nil, false
+	}
+	basic, ok := constVal.Type().Underlying().(*types.Basic)
+	if !ok || basic.Info()&(types.IsInteger|types.IsFloat) == 0 {
+		return nil, false
+	}
+	if basic.Info()&types.IsUntyped != 0 {
+		return nil, false
+	}
+	return constVal, true
+}
+
+// constInt returns the value of a constant integer.
+func constInt(val ssa.Value) (int64, bool) {
+	constVal, ok := val.(*ssa.Const)
+	if !ok || constVal.Value == nil || constVal.Value.Kind() != constant.Int {
+		return 0, false
+	}
+	return constant.Int64Val(constVal.Value)
+}
+
+// foldsExactly reports whether a binary operation on two constants is folded
+// by the type checker, which rejects a result outside the operand type where
+// the original program wraps at run time.
+func foldsExactly(op token.Token) bool {
+	switch op {
+	case token.ADD, token.SUB, token.MUL, token.QUO, token.REM, token.SHL:
+		return true
+	}
+	return false
+}
+
+// basicWidth returns the width in bytes of a basic type, or 0 when the type
+// does not have one.
+func basicWidth(basic *types.Basic) int {
+	switch basic.Kind() {
+	case types.Int8, types.Uint8:
+		return 1
+	case types.Int16, types.Uint16:
+		return 2
+	case types.Int32, types.Uint32, types.Float32:
+		return 4
+	case types.Int64, types.Uint64, types.Float64:
+		return 8
+	}
+	return 0
+}
+
+// integerRange returns the inclusive bounds of an integer type. The
+// platform-sized int and uint types use the narrower 32-bit range, so a value
+// which only fits on a 64-bit target is quoted as well.
+func integerRange(basic *types.Basic) (constant.Value, constant.Value) {
+	switch basic.Kind() {
+	case types.Int8:
+		return constant.MakeInt64(-1 << 7), constant.MakeInt64(1<<7 - 1)
+	case types.Int16:
+		return constant.MakeInt64(-1 << 15), constant.MakeInt64(1<<15 - 1)
+	case types.Int32:
+		return constant.MakeInt64(-1 << 31), constant.MakeInt64(1<<31 - 1)
+	case types.Int64:
+		return constant.MakeInt64(-1 << 63), constant.MakeInt64(1<<63 - 1)
+	case types.Int:
+		return constant.MakeInt64(-1 << 31), constant.MakeInt64(1<<31 - 1)
+	case types.Uint8:
+		return constant.MakeInt64(0), constant.MakeInt64(1<<8 - 1)
+	case types.Uint16:
+		return constant.MakeInt64(0), constant.MakeInt64(1<<16 - 1)
+	case types.Uint32:
+		return constant.MakeInt64(0), constant.MakeUint64(1<<32 - 1)
+	case types.Uint, types.Uintptr:
+		return constant.MakeInt64(0), constant.MakeUint64(1<<32 - 1)
+	case types.Uint64:
+		return constant.MakeInt64(0), constant.MakeUint64(1<<64 - 1)
+	}
+	return constant.MakeInt64(0), constant.MakeInt64(0)
+}
+
+// conversionRejects reports whether converting a numeric constant with this
+// value to typ is rejected by the type checker of the generated source,
+// although the runtime conversion of the same value truncates, wraps or rounds
+// it instead.
+func conversionRejects(val constant.Value, to types.Type) bool {
+	basic, ok := to.Underlying().(*types.Basic)
+	if !ok || val == nil {
+		return false
+	}
+	switch {
+	case basic.Info()&types.IsFloat != 0:
+		// Widening to float64 keeps the value of every integer and float32;
+		// a float32 destination rounds a float again or overflows.
+		return basicWidth(basic) < 8
+	case basic.Info()&types.IsInteger != 0:
+		if val.Kind() == constant.Float {
+			// A fractional value never reaches here in valid source, and an
+			// integral one converts like the integer it is.
+			val = constant.ToInt(val)
+		}
+		if val.Kind() != constant.Int {
+			return false
+		}
+		low, high := integerRange(basic)
+		return !constant.Compare(val, token.GEQ, low) || !constant.Compare(val, token.LEQ, high)
+	}
+	return false
+}
+
+// fixedLength returns the length of an array or a constant string, whose
+// constant index and slice bounds the type checker checks. Slices and maps have
+// no length that is known at compile time.
+func fixedLength(val ssa.Value) (int64, bool) {
+	if constVal, ok := val.(*ssa.Const); ok && constVal.Value != nil && constVal.Value.Kind() == constant.String {
+		return int64(len(constant.StringVal(constVal.Value))), true
+	}
+	typ := val.Type()
+	if ptr, ok := types.Unalias(typ).(*types.Pointer); ok {
+		typ = ptr.Elem()
+	}
+	if array, ok := typ.Underlying().(*types.Array); ok {
+		return array.Len(), true
+	}
+	return 0, false
+}
+
+// indexFolds reports whether the type checker rejects the constant index of an
+// index expression, so the bounds check has to happen at run time.
+func indexFolds(indexed, index ssa.Value) bool {
+	i, ok := constInt(index)
+	if !ok {
+		return false
+	}
+	if i < 0 {
+		return true
+	}
+	length, ok := fixedLength(indexed)
+	return ok && i >= length
+}
+
+// sliceBoundsFold reports whether the type checker rejects the constant bounds
+// of a slice expression, which has to be an out of range check at run time.
+func sliceBoundsFold(instr *ssa.Slice) bool {
+	bounds := []ssa.Value{instr.Low, instr.High, instr.Max}
+	values := make([]int64, len(bounds))
+	known := make([]bool, len(bounds))
+	for i, bound := range bounds {
+		if bound != nil {
+			values[i], known[i] = constInt(bound)
+		}
+	}
+	for i, value := range values {
+		if known[i] && value < 0 {
+			return true
+		}
+	}
+	// The type checker rejects a decreasing order of constant bounds.
+	low, high, max := values[0], values[1], values[2]
+	if known[0] && known[1] && low > high {
+		return true
+	}
+	if known[1] && known[2] && high > max {
+		return true
+	}
+	if known[0] && known[2] && low > max {
+		return true
+	}
+	if length, ok := fixedLength(instr.X); ok {
+		for i, value := range values {
+			if known[i] && value > length {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// constOperand renders val, quoting a constant in a variable declared in the
+// current block. The generated source is type checked again, and a constant
+// expression whose exact value leaves the operand type is rejected there,
+// although the original program wraps, truncates or bounds-checks at run time.
+func (fc *funcConverter) constOperand(val ssa.Value) (ast.Expr, error) {
+	constVal, ok := foldableConst(val)
+	if !ok {
+		return fc.convertSsaValueNonExplicitNil(val)
+	}
+	if name, ok := fc.constVars[constVal]; ok {
+		return ast.NewIdent(name), nil
+	}
+	expr, err := fc.ssaValue(constVal, false)
+	if err != nil {
+		return nil, err
+	}
+	name := fc.getVarName(constVal)
+	fc.constVars[constVal] = name
+	fc.preStmts = append(fc.preStmts, ah.AssignDefineStmt(ast.NewIdent(name), expr))
+	return ast.NewIdent(name), nil
+}
+
+// binOpOperands renders the operands of a binary operation. An operation on two
+// constants would be a constant expression in the generated source, so both
+// operands are quoted in variables to keep it a run-time operation.
+func (fc *funcConverter) binOpOperands(instr *ssa.BinOp) (ast.Expr, ast.Expr, error) {
+	_, xConst := foldableConst(instr.X)
+	_, yConst := foldableConst(instr.Y)
+	if xConst && yConst && foldsExactly(instr.Op) {
+		xExpr, err := fc.constOperand(instr.X)
+		if err != nil {
+			return nil, nil, err
+		}
+		yExpr, err := fc.constOperand(instr.Y)
+		if err != nil {
+			return nil, nil, err
+		}
+		return xExpr, yExpr, nil
+	}
+	xExpr, err := fc.convertSsaValueNonExplicitNil(instr.X)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Handle special case: if nil == nil
+	if isNilValue(instr.X) && isNilValue(instr.Y) {
+		yExpr, err := fc.convertSsaValue(instr.Y)
+		return xExpr, yExpr, err
+	}
+	yExpr, err := fc.convertSsaValueNonExplicitNil(instr.Y)
+	return xExpr, yExpr, err
+}
+
+// unOpOperand renders the operand of a unary operation, quoting a negated
+// constant in a variable because negating the smallest value of a signed type
+// is a run-time operation that a constant expression rejects.
+func (fc *funcConverter) unOpOperand(instr *ssa.UnOp) (ast.Expr, error) {
+	if instr.Op == token.SUB {
+		if _, ok := foldableConst(instr.X); ok {
+			return fc.constOperand(instr.X)
+		}
+	}
+	return fc.convertSsaValue(instr.X)
+}
+
+// conversionOperand renders the operand of a conversion, quoting a constant
+// whose value the destination type cannot hold.
+func (fc *funcConverter) conversionOperand(val ssa.Value, typ types.Type) (ast.Expr, error) {
+	if constVal, ok := foldableConst(val); ok && conversionRejects(constVal.Value, typ) {
+		return fc.constOperand(val)
+	}
+	return fc.convertSsaValue(val)
+}
+
+// indexOperand renders the index of an index expression, quoting a constant
+// index that the type checker rejects.
+func (fc *funcConverter) indexOperand(indexed, index ssa.Value) (ast.Expr, error) {
+	if indexFolds(indexed, index) {
+		return fc.constOperand(index)
+	}
+	return fc.convertSsaValue(index)
+}
+
+// sliceOperand renders a slice bound, quoting a constant bound that the type
+// checker rejects.
+func (fc *funcConverter) sliceOperand(instr *ssa.Slice, bound ssa.Value) (ast.Expr, error) {
+	if bound != nil && sliceBoundsFold(instr) {
+		return fc.constOperand(bound)
+	}
+	if bound == nil {
+		return nil, nil
+	}
+	return fc.convertSsaValue(bound)
+}
+
 // zeroCompositeType reports whether a nil constant of typ is written as an
 // empty composite literal rather than as nil. Struct and array types have a
 // composite literal form, but a named type of another package which is not
@@ -527,6 +805,8 @@ func (fc *funcConverter) zeroCompositeType(typ types.Type) bool {
 
 func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock, astBlock *AstBlock) error {
 	astBlock.HasRefs = len(ssaBlock.Preds) != 0
+	fc.preStmts = nil
+	fc.constVars = make(map[*ssa.Const]string)
 
 	defineTypedVar := func(r ssa.Value, typ types.Type, expr ast.Expr) ast.Stmt {
 		if isVoidType(typ) {
@@ -602,18 +882,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				stmt = defineVar(instr, ah.CallExprByName("new", varExpr))
 			}
 		case *ssa.BinOp:
-			xExpr, err := fc.convertSsaValueNonExplicitNil(instr.X)
-			if err != nil {
-				return err
-			}
-
-			var yExpr ast.Expr
-			// Handle special case: if nil == nil
-			if isNilValue(instr.X) && isNilValue(instr.Y) {
-				yExpr, err = fc.convertSsaValue(instr.Y)
-			} else {
-				yExpr, err = fc.convertSsaValueNonExplicitNil(instr.Y)
-			}
+			xExpr, yExpr, err := fc.binOpOperands(instr)
 			if err != nil {
 				return err
 			}
@@ -632,7 +901,12 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 		case *ssa.ChangeInterface, *ssa.ChangeType, *ssa.Convert, *ssa.MultiConvert, *ssa.MakeInterface, *ssa.SliceToArrayPointer:
 			// All conversion instructions have one operand and produce a value.
 			value := instr.(ssa.Value)
-			castExpr, err := fc.castCallExpr(value.Type(), *instr.Operands(operands[:0])[0])
+			operand := *instr.Operands(operands[:0])[0]
+			operandExpr, err := fc.conversionOperand(operand, value.Type())
+			if err != nil {
+				return err
+			}
+			castExpr, err := fc.castCallExpr(value.Type(), operandExpr)
 			if err != nil {
 				return err
 			}
@@ -696,7 +970,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			if err != nil {
 				return err
 			}
-			indexExpr, err := fc.convertSsaValue(*args[1])
+			indexExpr, err := fc.indexOperand(*args[0], *args[1])
 			if err != nil {
 				return err
 			}
@@ -902,19 +1176,19 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 			}
 			sliceExpr := &ast.SliceExpr{X: valExpr}
 			if instr.Low != nil {
-				sliceExpr.Low, err = fc.convertSsaValue(instr.Low)
+				sliceExpr.Low, err = fc.sliceOperand(instr, instr.Low)
 				if err != nil {
 					return err
 				}
 			}
 			if instr.High != nil {
-				sliceExpr.High, err = fc.convertSsaValue(instr.High)
+				sliceExpr.High, err = fc.sliceOperand(instr, instr.High)
 				if err != nil {
 					return err
 				}
 			}
 			if instr.Max != nil {
-				sliceExpr.Max, err = fc.convertSsaValue(instr.Max)
+				sliceExpr.Max, err = fc.sliceOperand(instr, instr.Max)
 				if err != nil {
 					return err
 				}
@@ -962,7 +1236,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 				stmt = defineVar(instr, typeAssertExpr)
 			}
 		case *ssa.UnOp:
-			valExpr, err := fc.convertSsaValue(instr.X)
+			valExpr, err := fc.unOpOperand(instr)
 			if err != nil {
 				return err
 			}
@@ -1019,8 +1293,16 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 		}
 
 		if stmt != nil {
+			if len(fc.preStmts) > 0 {
+				astBlock.Body = append(astBlock.Body, fc.preStmts...)
+				fc.preStmts = nil
+			}
 			astBlock.Body = append(astBlock.Body, stmt)
 		}
+	}
+	if len(fc.preStmts) > 0 {
+		astBlock.Body = append(astBlock.Body, fc.preStmts...)
+		fc.preStmts = nil
 	}
 
 	exitInstr := ssaBlock.Instrs[len(ssaBlock.Instrs)-1]
