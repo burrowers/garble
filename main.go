@@ -498,6 +498,15 @@ This command wraps "go %s". Below is its help:
 	if value := os.Getenv("GOGARBLE"); value != "" && value != "*" {
 		return nil, fmt.Errorf("GOGARBLE=%q is no longer supported; all packages including the runtime are obfuscated now", value)
 	}
+	if command == "test" {
+		// vet typechecks the original source files, but their imports resolve
+		// to obfuscated packages, so running it only produces type errors
+		// inside the vet tool. We pass -vet=off below; an explicit analyzer
+		// list would override that, so report the conflict instead.
+		if arg, checks := explicitVetChecks(flags, trailingFlags); checks {
+			return nil, fmt.Errorf("go vet cannot run on obfuscated code; drop -vet=%s or pass -vet=off", arg)
+		}
+	}
 
 	// Here is the only place we initialize the cache.
 	// The sub-processes will parse it from a shared file.
@@ -1063,6 +1072,55 @@ func hasHelpFlag(flags []string) bool {
 		}
 	}
 	return false
+}
+
+// explicitVetChecks reports the value of the last -vet flag in flagSets and
+// whether it asks for vet checks. Go accepts -vet=value, -vet value and the
+// double-dash spelling, and the last occurrence wins.
+func explicitVetChecks(flagSets ...[]string) (string, bool) {
+	var vetValue string
+	var enabled, found bool
+scan:
+	for _, flags := range flagSets {
+		for i := 0; i < len(flags); i++ {
+			token := flags[i]
+			name := strings.TrimPrefix(strings.TrimPrefix(token, "-"), "-")
+			if name == token {
+				continue // not a flag
+			}
+			name, value, hasValue := strings.Cut(name, "=")
+			if name == "args" && !hasValue {
+				break scan // the remaining arguments go to the test binary
+			}
+			if name != "vet" {
+				continue
+			}
+			if !hasValue {
+				if i+1 == len(flags) {
+					continue // cmd/go reports the missing value
+				}
+				i++
+				value = flags[i]
+			}
+			vetValue, enabled, found = value, vetListEnabled(value), true
+		}
+	}
+	return vetValue, found && enabled
+}
+
+// vetListEnabled mirrors cmd/go: "off" disables vet, "all" re-enables it, and
+// an empty list selects the curated defaults, which also run vet.
+func vetListEnabled(list string) bool {
+	enabled := true
+	for _, elem := range strings.Split(list, ",") {
+		switch elem {
+		case "off":
+			enabled = false
+		case "all", "":
+			enabled = true
+		}
+	}
+	return enabled
 }
 
 // writeGarbleVersion writes garble's version information to w, in the same

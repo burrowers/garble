@@ -52,6 +52,27 @@ exec garble test . -withflag -tags testprefix -v
 stdout 'PASS.*TestWithFlag'
 stdout 'PASS.*TestTaggedFlag'
 
+# go vet reads the original sources while their imports resolve to obfuscated
+# packages, so an explicit analyzer list must be rejected up front rather than
+# failing with type errors inside the vet tool. The last -vet value wins.
+! exec garble test -vet=atomic .
+stderr 'go vet cannot run on obfuscated code; drop -vet=atomic or pass -vet=off'
+! stderr 'vet.cfg'
+! exec garble test --vet=all .
+stderr 'go vet cannot run on obfuscated code'
+! exec garble test . -vet atomic
+stderr 'go vet cannot run on obfuscated code; drop -vet=atomic'
+! exec garble test -vet= .
+stderr 'go vet cannot run on obfuscated code'
+! exec garble test -vet=atomic -run=TestFoo .
+stderr 'drop -vet=atomic or pass -vet=off'
+exec garble test -vet=atomic -vet=off -run=TestFoo -v .
+stdout 'PASS.*TestFoo'
+
+# flags after -args belong to the test binary, not to go vet
+! exec garble test -run=TestFoo -args -vet=atomic .
+! stderr 'go vet cannot run on obfuscated code'
+
 # fuzzing must retain edge coverage guidance under obfuscation
 exec garble -seed=AAAAAAAAAAA test -fuzz=FuzzGuided -fuzztime=1x -run='^$' .
 stdout 'gathering baseline coverage:'
