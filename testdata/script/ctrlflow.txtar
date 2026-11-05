@@ -250,8 +250,24 @@ func zeroArrayResult() [2]int {
 	return [2]int{}
 }
 
+// charSum keeps its running sum in a loop phi. Trash blocks used to leave a
+// stale predecessor behind, so block splitting could move the phi assignment
+// before the addition and the loop silently lost its updates.
+//
+//garble:controlflow flatten_passes=2 junk_jumps=10 block_splits=10 trash_blocks=10
+func charSum(s string) int {
+	sum := 0
+	for _, c := range s {
+		sum += int(c)
+	}
+	return sum
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
+	if got := charSum("abcd"); got != 394 {
+		panic("loop phi values changed")
+	}
 	keepShadow()
 	if got := reverseDuringRange([]int{11, 22, 33, 44, 55}); !slices.Equal(got, []int{11, 44, 33, 22, 11}) {
 		panic("reversed slice range values changed")

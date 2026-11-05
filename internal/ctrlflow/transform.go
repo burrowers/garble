@@ -309,6 +309,17 @@ func addTrashBlockMarkers(ssaFunc *ssa.Function, count int, obfRand *mathrand.Ra
 		setBlockParent(trashBlockDispatch, ssaFunc)
 		targetBlock.Succs[succsIdx] = trashBlockDispatch
 
+		// succs is now reached through trashBlockDispatch. ssa2ast emits phi
+		// assignments at the end of each block in Preds, so keep Preds accurate:
+		// a stale targetBlock entry breaks once applySplitting moves the values
+		// used by the phi into a new block.
+		for i, pred := range succs.Preds {
+			if pred == targetBlock {
+				succs.Preds[i] = trashBlockDispatch
+				break
+			}
+		}
+
 		trashBlock.Preds = []*ssa.BasicBlock{trashBlockDispatch, trashBlock}
 		trashBlock.Succs = []*ssa.BasicBlock{trashBlock}
 

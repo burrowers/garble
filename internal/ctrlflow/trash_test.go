@@ -226,7 +226,5 @@ func main() {}
 			}
 		}
 	}
-	// TODO: addTrashBlockMarkers does not update the Preds of the block it
-	// redirects, so stale predecessors are left behind.
-	qt.Assert(t, qt.Not(qt.HasLen(stale, 0)))
+	qt.Assert(t, qt.HasLen(stale, 0))
 }
