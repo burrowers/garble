@@ -165,6 +165,7 @@ func addJunkBlocks(ssaFunc *ssa.Function, count int, obfRand *mathrand.Rand) {
 		}
 		setBlockParent(fakeBlock, ssaFunc)
 		targetBlock.Succs[succsIdx] = fakeBlock
+		replacePred(succs, targetBlock, fakeBlock)
 
 		ssaFunc.Blocks = append(ssaFunc.Blocks, fakeBlock)
 		candidates = append(candidates, fakeBlock)
@@ -309,10 +310,25 @@ func addTrashBlockMarkers(ssaFunc *ssa.Function, count int, obfRand *mathrand.Ra
 		setBlockParent(trashBlockDispatch, ssaFunc)
 		targetBlock.Succs[succsIdx] = trashBlockDispatch
 
+		replacePred(succs, targetBlock, trashBlockDispatch)
+
 		trashBlock.Preds = []*ssa.BasicBlock{trashBlockDispatch, trashBlock}
 		trashBlock.Succs = []*ssa.BasicBlock{trashBlock}
 
 		ssaFunc.Blocks = append(ssaFunc.Blocks, trashBlockDispatch, trashBlock)
+	}
+}
+
+// replacePred records that block is now reached through newPred instead of
+// oldPred. ssa2ast emits phi assignments at the end of each block in Preds, so a
+// stale oldPred entry breaks once applySplitting moves the values used by the phi
+// into a new block.
+func replacePred(block, oldPred, newPred *ssa.BasicBlock) {
+	for i, pred := range block.Preds {
+		if pred == oldPred {
+			block.Preds[i] = newPred
+			return
+		}
 	}
 }
 

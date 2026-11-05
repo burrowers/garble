@@ -11,6 +11,7 @@ import (
 	"go/types"
 	mathrand "math/rand"
 	"os"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -179,4 +180,62 @@ func main() {
 	// could be added.
 	_, err = parser.ParseFile(token.NewFileSet(), "garbled.go", buf.String(), 0)
 	qt.Assert(t, qt.IsNil(err))
+}
+
+// TestInsertedBlocksPreds ensures that passes inserting blocks on an edge keep
+// BasicBlock.Preds consistent with Succs. ssa2ast places phi assignments at the
+// end of each predecessor listed in Preds, so a stale predecessor makes a later
+// applySplitting move the phi assignment before the computation of its value,
+// silently changing the behavior of the obfuscated function.
+func TestInsertedBlocksPreds(t *testing.T) {
+	const src = `package main
+
+func sum(xs []int) int {
+	s := 0
+	for _, x := range xs {
+		if x > 3 {
+			s += x
+		} else {
+			s--
+		}
+	}
+	return s
+}
+
+func main() {}
+`
+	tests := []struct {
+		name   string
+		insert func(*ssa.Function, *mathrand.Rand)
+	}{
+		{"trash_blocks", func(f *ssa.Function, r *mathrand.Rand) { addTrashBlockMarkers(f, 16, r) }},
+		{"junk_jumps", func(f *ssa.Function, r *mathrand.Rand) { addJunkBlocks(f, 16, r) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "main.go", src, 0)
+			qt.Assert(t, qt.IsNil(err))
+			ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{file}, 0)
+			qt.Assert(t, qt.IsNil(err))
+
+			ssaFunc := ssaPkg.Func("sum")
+			obfRand := mathrand.New(mathrand.NewSource(1))
+			test.insert(ssaFunc, obfRand)
+			for range 16 {
+				applySplitting(ssaFunc, obfRand)
+			}
+
+			// Collect predecessors which do not actually jump to the block listing them.
+			var stale []string
+			for _, block := range ssaFunc.Blocks {
+				for _, pred := range block.Preds {
+					if !slices.Contains(pred.Succs, block) {
+						stale = append(stale, fmt.Sprintf("%s <- %s", block.Comment, pred.Comment))
+					}
+				}
+			}
+			qt.Assert(t, qt.HasLen(stale, 0))
+		})
+	}
 }
