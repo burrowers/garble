@@ -47,6 +47,11 @@ type pkgCache struct {
 	// TODO: we're not including fmt.Printf, as it would have many false positives,
 	// unless we were smart enough to detect which arguments get used as %#v or %T.
 	ReflectAPIs map[string]map[int]bool
+	// ReflectTypeParams records, per function name, the positions of its type
+	// parameters whose instantiation is passed to reflect.TypeFor. The declared
+	// body cannot resolve them, since only a call site knows what instantiates
+	// the function, so the positions travel to the callers instead.
+	ReflectTypeParams map[string]map[int]bool
 	// ReflectCallEdges retain parameter forwarding through named calls even when
 	// the callee's reflection use is only discovered in a downstream package.
 	ReflectCallEdges []reflectCallEdge
@@ -68,6 +73,9 @@ func (c *pkgCache) CopyFrom(c2 pkgCache) {
 	maps.Copy(c.PureConstructors, c2.PureConstructors)
 	for name, params := range c2.ReflectAPIs {
 		mergeReflectParams(c.ReflectAPIs, name, params)
+	}
+	for name, positions := range c2.ReflectTypeParams {
+		mergeReflectParams(c.ReflectTypeParams, name, positions)
 	}
 	maps.Copy(c.ReflectObjectNames, c2.ReflectObjectNames)
 	if len(c2.ReflectCallEdges) > 0 {
@@ -196,6 +204,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			"reflect.TypeOf":  {0: true},
 			"reflect.ValueOf": {0: true},
 		},
+		ReflectTypeParams:  map[string]map[int]bool{},
 		ReflectObjectNames: map[string]string{},
 		PureConstructors:   map[string]bool{},
 	}
