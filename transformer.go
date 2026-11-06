@@ -213,17 +213,18 @@ func recordFieldToStruct(typ types.Type, done map[*types.Named]bool, fieldToStru
 		recordFieldToStruct(typ.Origin().Underlying(), done, fieldToStruct)
 	case *types.Struct:
 		for field := range typ.Fields() {
-			if field != field.Origin() {
-				// Part of this struct is instantiated; do not record it at all.
-				// TODO: can we discard these types earlier on in the recursion?
-				return
-			}
-		}
-		for field := range typ.Fields() {
-			prev := fieldToStruct[field]
+			// Field names are salted with the identity of their parent struct,
+			// and that salt does not include field types, so an instantiated
+			// struct hashes its fields exactly like the declaration it came
+			// from. Record the substituted struct against the origin field,
+			// because a package which only sees an instantiated signature, as
+			// when it calls a generic function in another package, can never
+			// reach the struct which declares that field.
+			origin := field.Origin()
+			prev := fieldToStruct[origin]
 			if prev == nil {
-				fieldToStruct[field] = typ
-			} else if prev != typ {
+				fieldToStruct[origin] = typ
+			} else if prev != typ && hashWithStruct(prev, origin) != hashWithStruct(typ, origin) {
 				// If this struct field is already done, ensure we got the same result.
 				// If we didn't, then this is most likely a bug we need to fix.
 				panic(fmt.Sprintf("inconsistent fieldToStruct results: %s vs %s", prev, typ))
