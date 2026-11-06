@@ -146,6 +146,7 @@ func main() {
 	println("main filename:", filename)
 	callSites()
 	statementPanic()
+	deferredWithoutDirective()
 }
 
 type Logger struct{}
@@ -161,6 +162,16 @@ func unexportedMainFunc() {
 		}
 	}
 	anonFunc()
+}
+
+func deferredWithoutDirective() {
+	defer func() {
+		_, file, line, _ := runtime.Caller(1)
+		println("deferred parent:", file, line)
+	}()
+	/* Removing an ordinary trailing comment can change the distance
+	from the last call marker to the function's closing brace.
+	No source line directive is needed to trigger this drift. */
 }
 
 -- lib/long_lib.go --
@@ -359,9 +370,9 @@ test/main/lib.printStackTrace(...)
 test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
 	test/main/lib/long_lib.go:20 +0x??
 main.unexportedMainFunc.func1(...)
-	test/main/long_main.go:34
+	test/main/long_main.go:35
 main.unexportedMainFunc(...)
-	test/main/long_main.go:38 +0x??
+	test/main/long_main.go:39 +0x??
 main.main(...)
 	test/main/long_main.go:12 +0x??
 test/main/long_main.go:17: first
@@ -375,3 +386,4 @@ multiline test/main/call_sites.go:26
 multiline test/main/call_sites.go:19
 before statement panic
 statement panic: test/main/statement_site.go:35
+deferred parent: test/main/long_main.go 50
