@@ -1184,6 +1184,22 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 	return nil
 }
 
+// listedTestVariant returns the listed external test package whose plain
+// import path is path, or nil when the build contains no such package. Its
+// test files live in the directory of the package under test, so it is never
+// listed under its own import path, only as a variant of the tested package.
+func listedTestVariant(path string) *listedPackage {
+	if sharedCache == nil || sharedCache.ListedPackages == nil {
+		return nil
+	}
+	for _, pkg := range sharedCache.ListedPackages.all() {
+		if pkg.ForTest != "" && pkg.baseImportPath() == path {
+			return pkg
+		}
+	}
+	return nil
+}
+
 func (tf *transformer) transformLinkname(localName, newName string) (string, string) {
 	localName = obfuscatedPackageObjectName(tf.curPkg, localName)
 	if newName == "" {
@@ -1230,9 +1246,15 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		pkgSplit++ // skip over the dot
 
 		if strings.HasSuffix(pkgPath, "_test") {
-			// runtime uses a go:linkname to metrics_test;
-			// we don't need this to work for now on regular builds,
-			// though we might need to rethink this if we want "go test std" to work.
+			// runtime uses a go:linkname to metrics_test, which an ordinary
+			// build does not contain, so that directive is left alone. A test
+			// build does contain the external test package under this name,
+			// listed as a variant of the package it tests, and garble
+			// obfuscates that variant's symbols like any other package's.
+			if lpkg = listedTestVariant(pkgPath); lpkg != nil {
+				foreignName = newName[pkgSplit:]
+				break
+			}
 			continue
 		}
 

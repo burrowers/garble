@@ -14,6 +14,7 @@ exec garble test -c -ldflags=-X=main.unused=changed
 exec ./bar.test -test.v
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
+stdout 'PASS.*TestLinkedFromTestVariant'
 stdout 'PASS.*TestMockedFoo'
 stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
@@ -138,11 +139,20 @@ import (
 	"reflect"
 	"testing"
 
+	_ "unsafe" // for go:linkname
+
 	"test/bar"
 	"test/bar/mocks"
 )
 
 var withFlag = flag.Bool("withflag", false, "")
+
+// The one-argument directive names the symbol of this package, which mocks
+// writes from its own test variant. Both sides have to agree on the
+// obfuscated name or the test binary does not link.
+//
+//go:linkname linkedValue
+func linkedValue() string
 
 func TestSeparateFoo(t *testing.T) {
 	t.Log(bar.ImportedVar)
@@ -150,6 +160,12 @@ func TestSeparateFoo(t *testing.T) {
 		t.FailNow()
 	}
 	t.Logf("package bar_test, func name: %s", bar.OriginalFuncName())
+}
+
+func TestLinkedFromTestVariant(t *testing.T) {
+	if got := linkedValue(); got != "linked" {
+		t.Fatalf("linkedValue() = %q, want %q", got, "linked")
+	}
 }
 
 func TestMockedFoo(t *testing.T) {
@@ -230,9 +246,19 @@ func TestFoo(t *testing.T) {}
 // import path when building the test binary.
 package mocks
 
-import "test/bar"
+import (
+	_ "unsafe" // for go:linkname
+
+	"test/bar"
+)
 
 func Foo() string { return bar.LocalFoo() }
+
+// linkedValue is called through the external test package's directive of the
+// same name, which is the only reference the linker sees.
+//
+//go:linkname linkedValue test/bar_test.linkedValue
+func linkedValue() string { return "linked" }
 
 type Payload struct {
 	Value string
