@@ -387,8 +387,9 @@ func (r *obfRand) globalLiteralFactory(resultType ast.Expr, value func() ast.Exp
 // generatedNames assigns each decoder-local name before building its AST.
 // References receive fresh Ident nodes with the same generated spelling.
 type generatedNames struct {
-	r     *obfRand
-	names map[string]string
+	r      *obfRand
+	names  map[string]string
+	inputs *decoderInputs
 }
 
 func newGeneratedNames(r *obfRand) *generatedNames {
@@ -592,10 +593,10 @@ func obfuscateString(or *obfRand, data string) *ast.CallExpr {
 	if call := or.stringCalls[data]; call != nil {
 		return or.proxyDispatcher.cloneStringCall(call).(*ast.CallExpr)
 	}
-	obf := or.pickObfuscator(len(data))
-	if _, ok := obf.(seed); ok && or.testObfuscator == nil && len(data) <= maxSizeShared {
+	if or.testObfuscator == nil && len(data) >= MinSize && len(data) <= maxSizeShared {
 		return or.obfuscateSharedString(data)
 	}
+	obf := or.pickObfuscator(len(data))
 
 	// Generate junk bytes to to prepend and append to the data.
 	// This is to prevent the obfuscated string from being easily fingerprintable.
@@ -644,6 +645,14 @@ func (d *proxyDispatcher) cloneStringCall(expr ast.Expr) ast.Expr {
 		return ast.NewIdent(expr.Name)
 	case *ast.BasicLit:
 		return &ast.BasicLit{Kind: expr.Kind, Value: expr.Value}
+	case *ast.CompositeLit:
+		elts := make([]ast.Expr, len(expr.Elts))
+		for i, elt := range expr.Elts {
+			elts[i] = d.cloneStringCall(elt)
+		}
+		return &ast.CompositeLit{Type: cloneGeneratedType(expr.Type), Elts: elts}
+	case *ast.ArrayType:
+		return cloneGeneratedType(expr)
 	default:
 		panic(fmt.Sprintf("unsupported string decoder expression %T", expr))
 	}

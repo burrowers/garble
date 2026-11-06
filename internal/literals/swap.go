@@ -62,7 +62,7 @@ func (swap) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, e
 	swapCount := generateSwapCount(rand, len(data))
 	shiftKey := byte(rand.Uint32())
 
-	op := randOperator(rand)
+	op := randOperator(names.codeRand(rand))
 
 	positions := genRandIntSlice(rand, len(data), swapCount)
 	for i := len(positions) - 2; i >= 0; i -= 2 {
@@ -72,12 +72,16 @@ func (swap) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, e
 		data[positions[i]], data[positions[i+1]] = evalOperator(op, data[positions[i+1]], localKey), evalOperator(op, data[positions[i]], localKey)
 	}
 
+	positionData := positionsToSlice(positions)
+	if names.inputs != nil {
+		positionData.Type.(*ast.ArrayType).Len = nil
+	}
 	return ah.BlockStmt(
 		ah.AssignDefineStmt(names.ident("data"), dataToByteSliceWithExtKeys(rand, names, data, extKeys)),
-		ah.AssignDefineStmt(names.ident("positions"), positionsToSlice(positions)),
+		ah.AssignDefineStmt(names.ident("positions"), names.input(positionData, ah.ArrayType(nil, ast.NewIdent("byte")))),
 		&ast.ForStmt{
 			Init: ah.AssignDefineStmt(names.ident("i"), ah.IntLit(0)),
-			Cond: ah.BinaryExpr(names.ident("i"), token.LSS, ah.IntLit(len(positions))),
+			Cond: ah.BinaryExpr(names.ident("i"), token.LSS, names.inputInt(len(positions))),
 			Post: &ast.AssignStmt{
 				Lhs: []ast.Expr{names.ident("i")},
 				Tok: token.ADD_ASSIGN,
@@ -97,7 +101,7 @@ func (swap) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, e
 							)),
 						),
 						token.ADD,
-						byteLitWithExtKey(rand, shiftKey, extKeys, highProb),
+						names.byteLit(rand, shiftKey, extKeys, highProb),
 					),
 				),
 				&ast.AssignStmt{

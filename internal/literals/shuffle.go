@@ -21,8 +21,9 @@ func (shuffle) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte
 	fullData := make([]byte, 2*len(data))
 	positions := rand.Perm(len(fullData))
 	operators := []token.Token{token.XOR, token.ADD, token.SUB}
-	opcodes := rand.Perm(len(operators))
-	fields := rand.Perm(3)
+	codeRand := names.codeRand(rand)
+	opcodes := codeRand.Perm(len(operators))
+	fields := codeRand.Perm(3)
 	mask := byte(rand.Uint32())
 
 	// Records carry masked destination, ciphertext and key positions, followed
@@ -78,12 +79,12 @@ func (shuffle) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte
 	return ah.BlockStmt(
 		ah.AssignDefineStmt(names.ident("fullData"), dataToByteSliceWithExtKeys(rand, names, fullData, extKeys)),
 		ah.AssignDefineStmt(names.ident("operations"), dataToByteSliceWithExtKeys(rand, names, stream, extKeys)),
-		ah.AssignDefineStmt(names.ident("mask"), ah.CallExprByName("byte", byteLitWithExtKey(rand, mask, extKeys, 1))),
+		ah.AssignDefineStmt(names.ident("mask"), ah.CallExprByName("byte", names.byteLit(rand, mask, extKeys, 1))),
 		ah.AssignDefineStmt(names.ident("handlers"), handlers),
-		ah.AssignDefineStmt(names.ident("data"), ah.CallExprByName("make", ah.ByteSliceType(), ah.IntLit(len(data)))),
+		ah.AssignDefineStmt(names.ident("data"), ah.CallExprByName("make", ah.ByteSliceType(), names.inputInt(len(data)))),
 		&ast.ForStmt{
 			Init: ah.AssignDefineStmt(names.ident("i"), ah.IntLit(0)),
-			Cond: ah.BinaryExpr(names.ident("i"), token.LSS, ah.IntLit(len(stream))),
+			Cond: ah.BinaryExpr(names.ident("i"), token.LSS, names.inputInt(len(stream))),
 			Post: &ast.AssignStmt{Lhs: []ast.Expr{names.ident("i")}, Tok: token.ADD_ASSIGN, Rhs: []ast.Expr{ah.IntLit(recordSize)}},
 			Body: ah.BlockStmt(
 				ah.AssignDefineStmt(names.ident("dst"), readPosition(0)),
@@ -93,7 +94,7 @@ func (shuffle) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte
 					ah.IndexExpr(names.name("fullData"), readPosition(2)),
 				)),
 				&ast.IfStmt{
-					Cond: ah.BinaryExpr(names.ident("dst"), token.LSS, ah.IntLit(len(data))),
+					Cond: ah.BinaryExpr(names.ident("dst"), token.LSS, names.inputInt(len(data))),
 					Body: ah.BlockStmt(ah.AssignStmt(ah.IndexExpr(names.name("data"), names.ident("dst")), names.ident("value"))),
 				},
 			),
