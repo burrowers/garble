@@ -152,6 +152,9 @@ func (ri *reflectInspector) recordedCount() int {
 	for _, params := range ri.result.ReflectAPIs {
 		n += 1 + len(params)
 	}
+	for _, positions := range ri.result.ReflectTypeParams {
+		n += 1 + len(positions)
+	}
 	for _, params := range ri.localReflectAPIs {
 		n += 1 + len(params)
 	}
@@ -343,6 +346,10 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 				if flagDebug && genericCall {
 					log.Printf("reflect: normalized call %q to %q", rawCallName, callName)
 				}
+				if callName == reflectTypeForFunc {
+					ri.recordTypeForArgs(fun, call)
+				}
+				ri.recordInstantiatedTypeParams(fun, call, callName)
 
 				/* fmt.Printf("callName: %v\n", callName) */
 
@@ -642,6 +649,182 @@ func (ri *reflectInspector) recordForwardedCall(fun *ssa.Function, caller, calle
 			ri.result.ReflectCallEdges = append(ri.result.ReflectCallEdges, edge)
 		}
 	}
+}
+
+// reflectTypeForFunc is the standard library function whose result exposes the
+// reflection information of its type argument. Unlike reflect.TypeOf it has no
+// value whose static type could be recorded instead.
+const reflectTypeForFunc = "reflect.TypeFor"
+
+// recordTypeForArgs records the types a reflect.TypeFor call exposes to
+// reflection. The argument is either concrete, in which case everything it
+// reaches is recorded now, or it mentions type parameters of the calling
+// function, in which case only that function's call sites can resolve them.
+func (ri *reflectInspector) recordTypeForArgs(fun *ssa.Function, call *ssa.CallCommon) {
+	for _, targ := range typeForTypeArgs(call) {
+		ri.recordReflectType(fun, targ)
+	}
+}
+
+// typeForTypeArgs returns the type arguments a call passes to
+// reflect.TypeFor, or nil when the call is not to that function. The call can
+// be direct or through a function value, which has no static callee.
+func typeForTypeArgs(call *ssa.CallCommon) []types.Type {
+	matches := func(fn *ssa.Function) bool {
+		obj, _ := fn.Object().(*types.Func)
+		return obj != nil && obj.FullName() == reflectTypeForFunc
+	}
+	if callee := call.StaticCallee(); callee != nil && matches(callee) {
+		return callee.TypeArgs()
+	}
+	if fn, ok := call.Value.(*ssa.Function); ok && matches(fn) {
+		return fn.TypeArgs()
+	}
+	return nil
+}
+
+// recordReflectType records a type which reflection exposes from a call in fun,
+// such as the type argument of reflect.TypeFor.
+//
+// A type which only exists as a type parameter cannot be recorded: nothing in
+// the declaring package knows what instantiates it. Record the positions of the
+// parameters it mentions for the callers to complete, and record the named
+// types it spells out, which an instantiation keeps.
+func (ri *reflectInspector) recordReflectType(fun *ssa.Function, typ types.Type) {
+	ri.recursivelyRecordUsedForReflect(typ)
+	for name, positions := range typeParamUses(fun, typ) {
+		if ri.result.ReflectTypeParams == nil {
+			ri.result.ReflectTypeParams = make(map[string]map[int]bool)
+		}
+		mergeReflectParams(ri.result.ReflectTypeParams, name, positions)
+		if flagDebug {
+			log.Printf("reflect: %s reflects type parameters of %s: %v", fun, name, positions)
+		}
+	}
+}
+
+// recordInstantiatedTypeParams completes the reflection of a generic function
+// at one of its call sites: the callee reflects instantiations of the recorded
+// type parameters, so the types this call substitutes are reflected too.
+func (ri *reflectInspector) recordInstantiatedTypeParams(fun *ssa.Function, call *ssa.CallCommon, callName string) {
+	positions := ri.result.ReflectTypeParams[callName]
+	if len(positions) == 0 {
+		return
+	}
+	callee := call.StaticCallee()
+	if callee == nil {
+		// The implementation is only known dynamically, so this call site
+		// cannot tell which types it instantiates.
+		return
+	}
+	targs := callee.TypeArgs()
+	if len(targs) == 0 {
+		return
+	}
+	// A method instantiation carries its receiver's type arguments, which are
+	// neither declared by the method nor indexed like the positions recorded
+	// above, so only a function's own type parameters can be resolved here.
+	if origin := ssaFuncOrigin(callee); origin.TypeParams() == nil || origin.TypeParams().Len() != len(targs) {
+		return
+	}
+	for _, pos := range slices.Sorted(maps.Keys(positions)) {
+		if pos < 0 || pos >= len(targs) {
+			continue
+		}
+		ri.recordReflectType(fun, targs[pos])
+	}
+}
+
+// typeParamUses returns, per generic function in fun's enclosing chain, the
+// positions of its type parameters which typ mentions. Call sites are keyed by
+// the named function that declares them, so a closure reports its enclosing
+// function's parameters.
+func typeParamUses(fun *ssa.Function, typ types.Type) map[string]map[int]bool {
+	uses := make(map[string]map[int]bool)
+	seen := make(map[types.Type]bool)
+	var walk func(types.Type)
+	walk = func(t types.Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+
+		switch t := t.(type) {
+		case *types.TypeParam:
+			name, pos, ok := declaringGenericFunction(fun, t)
+			if !ok {
+				return
+			}
+			if uses[name] == nil {
+				uses[name] = make(map[int]bool)
+			}
+			uses[name][pos] = true
+
+		case *types.Alias:
+			walk(t.Rhs())
+
+		case *types.Named:
+			// The origin's members are recorded by the caller; only the type
+			// arguments it substitutes can still mention a type parameter.
+			if targs := t.TypeArgs(); targs != nil {
+				for i := range targs.Len() {
+					walk(targs.At(i))
+				}
+			}
+
+		case *types.Map:
+			walk(t.Key())
+			walk(t.Elem())
+
+		case *types.Signature:
+			for _, tuple := range [...]*types.Tuple{t.Params(), t.Results()} {
+				for i := range tuple.Len() {
+					walk(tuple.At(i).Type())
+				}
+			}
+
+		case *types.Struct:
+			for i := range t.NumFields() {
+				walk(t.Field(i).Type())
+			}
+
+		case *types.Interface:
+			for i := range t.NumEmbeddeds() {
+				walk(t.EmbeddedType(i))
+			}
+
+		case interface{ Elem() types.Type }:
+			walk(t.Elem())
+		}
+	}
+	walk(typ)
+	return uses
+}
+
+// declaringGenericFunction finds the named function which declares tp among the
+// type parameters of fun or one of its enclosing functions.
+func declaringGenericFunction(fun *ssa.Function, tp *types.TypeParam) (string, int, bool) {
+	for fn := fun; fn != nil; fn = fn.Parent() {
+		origin := ssaFuncOrigin(fn)
+		tparams := origin.TypeParams()
+		if tparams == nil {
+			continue
+		}
+		for i := range tparams.Len() {
+			if tparams.At(i) != tp {
+				continue
+			}
+			obj, _ := origin.Object().(*types.Func)
+			if obj == nil {
+				// A closure has no name a call site could look up, so keep
+				// looking for the function that declares the parameter.
+				continue
+			}
+			name, _ := stripTypeArgs(obj.FullName())
+			return name, i, true
+		}
+	}
+	return "", 0, false
 }
 
 // recordArgReflected finds the type(s) of a function argument, which is being used in reflection

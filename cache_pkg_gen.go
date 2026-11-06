@@ -193,9 +193,9 @@ func (z goAsmNames) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *pkgCache) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 4
+	// map header, size 5
 	// string "ReflectAPIs"
-	o = append(o, 0x84, 0xab, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x41, 0x50, 0x49, 0x73)
+	o = append(o, 0x85, 0xab, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x41, 0x50, 0x49, 0x73)
 	o = msgp.AppendMapHeader(o, uint32(len(z.ReflectAPIs)))
 	for za0001, za0002 := range z.ReflectAPIs {
 		o = msgp.AppendString(o, za0001)
@@ -205,29 +205,40 @@ func (z *pkgCache) MarshalMsg(b []byte) (o []byte, err error) {
 			o = msgp.AppendBool(o, za0004)
 		}
 	}
+	// string "ReflectTypeParams"
+	o = append(o, 0xb1, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x54, 0x79, 0x70, 0x65, 0x50, 0x61, 0x72, 0x61, 0x6d, 0x73)
+	o = msgp.AppendMapHeader(o, uint32(len(z.ReflectTypeParams)))
+	for za0005, za0006 := range z.ReflectTypeParams {
+		o = msgp.AppendString(o, za0005)
+		o = msgp.AppendMapHeader(o, uint32(len(za0006)))
+		for za0007, za0008 := range za0006 {
+			o = msgp.AppendInt(o, za0007)
+			o = msgp.AppendBool(o, za0008)
+		}
+	}
 	// string "ReflectCallEdges"
 	o = append(o, 0xb0, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x43, 0x61, 0x6c, 0x6c, 0x45, 0x64, 0x67, 0x65, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.ReflectCallEdges)))
-	for za0005 := range z.ReflectCallEdges {
-		o, err = z.ReflectCallEdges[za0005].MarshalMsg(o)
+	for za0009 := range z.ReflectCallEdges {
+		o, err = z.ReflectCallEdges[za0009].MarshalMsg(o)
 		if err != nil {
-			err = msgp.WrapError(err, "ReflectCallEdges", za0005)
+			err = msgp.WrapError(err, "ReflectCallEdges", za0009)
 			return
 		}
 	}
 	// string "ReflectObjectNames"
 	o = append(o, 0xb2, 0x52, 0x65, 0x66, 0x6c, 0x65, 0x63, 0x74, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x4e, 0x61, 0x6d, 0x65, 0x73)
 	o = msgp.AppendMapHeader(o, uint32(len(z.ReflectObjectNames)))
-	for za0006, za0007 := range z.ReflectObjectNames {
-		o = msgp.AppendString(o, za0006)
-		o = msgp.AppendString(o, za0007)
+	for za0010, za0011 := range z.ReflectObjectNames {
+		o = msgp.AppendString(o, za0010)
+		o = msgp.AppendString(o, za0011)
 	}
 	// string "PureConstructors"
 	o = append(o, 0xb0, 0x50, 0x75, 0x72, 0x65, 0x43, 0x6f, 0x6e, 0x73, 0x74, 0x72, 0x75, 0x63, 0x74, 0x6f, 0x72, 0x73)
 	o = msgp.AppendMapHeader(o, uint32(len(z.PureConstructors)))
-	for za0008, za0009 := range z.PureConstructors {
-		o = msgp.AppendString(o, za0008)
-		o = msgp.AppendBool(o, za0009)
+	for za0012, za0013 := range z.PureConstructors {
+		o = msgp.AppendString(o, za0012)
+		o = msgp.AppendBool(o, za0013)
 	}
 	return
 }
@@ -300,80 +311,130 @@ func (z *pkgCache) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				}
 				z.ReflectAPIs[za0001] = za0002
 			}
-		case "ReflectCallEdges":
+		case "ReflectTypeParams":
 			var zb0004 uint32
-			zb0004, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			zb0004, bts, err = msgp.ReadMapHeaderBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "ReflectTypeParams")
+				return
+			}
+			if z.ReflectTypeParams == nil {
+				z.ReflectTypeParams = make(map[string]map[int]bool, zb0004)
+			} else if len(z.ReflectTypeParams) > 0 {
+				clear(z.ReflectTypeParams)
+			}
+			for zb0004 > 0 {
+				var za0006 map[int]bool
+				zb0004--
+				var za0005 string
+				za0005, bts, err = msgp.ReadStringBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "ReflectTypeParams")
+					return
+				}
+				var zb0005 uint32
+				zb0005, bts, err = msgp.ReadMapHeaderBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "ReflectTypeParams", za0005)
+					return
+				}
+				if za0006 == nil {
+					za0006 = make(map[int]bool, zb0005)
+				} else if len(za0006) > 0 {
+					clear(za0006)
+				}
+				for zb0005 > 0 {
+					var za0008 bool
+					zb0005--
+					var za0007 int
+					za0007, bts, err = msgp.ReadIntBytes(bts)
+					if err != nil {
+						err = msgp.WrapError(err, "ReflectTypeParams", za0005, za0007)
+						return
+					}
+					za0008, bts, err = msgp.ReadBoolBytes(bts)
+					if err != nil {
+						err = msgp.WrapError(err, "ReflectTypeParams", za0005, za0007)
+						return
+					}
+					za0006[za0007] = za0008
+				}
+				z.ReflectTypeParams[za0005] = za0006
+			}
+		case "ReflectCallEdges":
+			var zb0006 uint32
+			zb0006, bts, err = msgp.ReadArrayHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "ReflectCallEdges")
 				return
 			}
-			if cap(z.ReflectCallEdges) >= int(zb0004) {
-				z.ReflectCallEdges = (z.ReflectCallEdges)[:zb0004]
+			if cap(z.ReflectCallEdges) >= int(zb0006) {
+				z.ReflectCallEdges = (z.ReflectCallEdges)[:zb0006]
 			} else {
-				z.ReflectCallEdges = make([]reflectCallEdge, zb0004)
+				z.ReflectCallEdges = make([]reflectCallEdge, zb0006)
 			}
-			for za0005 := range z.ReflectCallEdges {
-				bts, err = z.ReflectCallEdges[za0005].UnmarshalMsg(bts)
+			for za0009 := range z.ReflectCallEdges {
+				bts, err = z.ReflectCallEdges[za0009].UnmarshalMsg(bts)
 				if err != nil {
-					err = msgp.WrapError(err, "ReflectCallEdges", za0005)
+					err = msgp.WrapError(err, "ReflectCallEdges", za0009)
 					return
 				}
 			}
 		case "ReflectObjectNames":
-			var zb0005 uint32
-			zb0005, bts, err = msgp.ReadMapHeaderBytes(bts)
+			var zb0007 uint32
+			zb0007, bts, err = msgp.ReadMapHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "ReflectObjectNames")
 				return
 			}
 			if z.ReflectObjectNames == nil {
-				z.ReflectObjectNames = make(map[string]string, zb0005)
+				z.ReflectObjectNames = make(map[string]string, zb0007)
 			} else if len(z.ReflectObjectNames) > 0 {
 				clear(z.ReflectObjectNames)
 			}
-			for zb0005 > 0 {
-				var za0007 string
-				zb0005--
-				var za0006 string
-				za0006, bts, err = msgp.ReadStringBytes(bts)
+			for zb0007 > 0 {
+				var za0011 string
+				zb0007--
+				var za0010 string
+				za0010, bts, err = msgp.ReadStringBytes(bts)
 				if err != nil {
 					err = msgp.WrapError(err, "ReflectObjectNames")
 					return
 				}
-				za0007, bts, err = msgp.ReadStringBytes(bts)
+				za0011, bts, err = msgp.ReadStringBytes(bts)
 				if err != nil {
-					err = msgp.WrapError(err, "ReflectObjectNames", za0006)
+					err = msgp.WrapError(err, "ReflectObjectNames", za0010)
 					return
 				}
-				z.ReflectObjectNames[za0006] = za0007
+				z.ReflectObjectNames[za0010] = za0011
 			}
 		case "PureConstructors":
-			var zb0006 uint32
-			zb0006, bts, err = msgp.ReadMapHeaderBytes(bts)
+			var zb0008 uint32
+			zb0008, bts, err = msgp.ReadMapHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "PureConstructors")
 				return
 			}
 			if z.PureConstructors == nil {
-				z.PureConstructors = make(map[string]bool, zb0006)
+				z.PureConstructors = make(map[string]bool, zb0008)
 			} else if len(z.PureConstructors) > 0 {
 				clear(z.PureConstructors)
 			}
-			for zb0006 > 0 {
-				var za0009 bool
-				zb0006--
-				var za0008 string
-				za0008, bts, err = msgp.ReadStringBytes(bts)
+			for zb0008 > 0 {
+				var za0013 bool
+				zb0008--
+				var za0012 string
+				za0012, bts, err = msgp.ReadStringBytes(bts)
 				if err != nil {
 					err = msgp.WrapError(err, "PureConstructors")
 					return
 				}
-				za0009, bts, err = msgp.ReadBoolBytes(bts)
+				za0013, bts, err = msgp.ReadBoolBytes(bts)
 				if err != nil {
-					err = msgp.WrapError(err, "PureConstructors", za0008)
+					err = msgp.WrapError(err, "PureConstructors", za0012)
 					return
 				}
-				z.PureConstructors[za0008] = za0009
+				z.PureConstructors[za0012] = za0013
 			}
 		default:
 			bts, err = msgp.Skip(bts)
@@ -403,22 +464,36 @@ func (z *pkgCache) Msgsize() (s int) {
 			}
 		}
 	}
+	s += 18 + msgp.MapHeaderSize
+	if z.ReflectTypeParams != nil {
+		for za0005, za0006 := range z.ReflectTypeParams {
+			_ = za0006
+			s += msgp.StringPrefixSize + len(za0005) + msgp.MapHeaderSize
+			if za0006 != nil {
+				for za0007, za0008 := range za0006 {
+					_ = za0008
+					_ = za0007
+					s += msgp.IntSize + msgp.BoolSize
+				}
+			}
+		}
+	}
 	s += 17 + msgp.ArrayHeaderSize
-	for za0005 := range z.ReflectCallEdges {
-		s += z.ReflectCallEdges[za0005].Msgsize()
+	for za0009 := range z.ReflectCallEdges {
+		s += z.ReflectCallEdges[za0009].Msgsize()
 	}
 	s += 19 + msgp.MapHeaderSize
 	if z.ReflectObjectNames != nil {
-		for za0006, za0007 := range z.ReflectObjectNames {
-			_ = za0007
-			s += msgp.StringPrefixSize + len(za0006) + msgp.StringPrefixSize + len(za0007)
+		for za0010, za0011 := range z.ReflectObjectNames {
+			_ = za0011
+			s += msgp.StringPrefixSize + len(za0010) + msgp.StringPrefixSize + len(za0011)
 		}
 	}
 	s += 17 + msgp.MapHeaderSize
 	if z.PureConstructors != nil {
-		for za0008, za0009 := range z.PureConstructors {
-			_ = za0009
-			s += msgp.StringPrefixSize + len(za0008) + msgp.BoolSize
+		for za0012, za0013 := range z.PureConstructors {
+			_ = za0013
+			s += msgp.StringPrefixSize + len(za0012) + msgp.BoolSize
 		}
 	}
 	return

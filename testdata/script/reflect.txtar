@@ -113,6 +113,37 @@ type FuncArgReflect struct {
 	ArgName string
 }
 
+// reflect.TypeFor exposes a type which no value carries, so its type argument
+// has to be recorded on its own: directly, through a generic wrapper in this
+// package, in another package, and from a closure inside a generic function.
+// Each shape uses its own struct type, since reflection records a field by the
+// identity of its struct, not by the name of the type that embeds it.
+type TypeForDirect struct{ DirectField int }
+type TypeForWrapped struct{ WrappedField int }
+type TypeForForeign struct{ ForeignField int }
+type TypeForClosure struct{ ClosureField int }
+type TypeForSlice struct{ SliceField int }
+type TypeForPairArg struct{ PairArgField int }
+type TypeForPair[A, B any] struct {
+	PairFirst  A
+	PairSecond B
+}
+
+func typeForWrapped[T any]() reflect.Type { return reflect.TypeFor[T]() }
+func typeForSlice[T any]() reflect.Type   { return reflect.TypeFor[[]T]() }
+func typeForPair[A, B any]() reflect.Type { return reflect.TypeFor[TypeForPair[A, B]]() }
+
+func typeForClosure[T any]() reflect.Type {
+	return func() reflect.Type { return reflect.TypeFor[T]() }()
+}
+
+func typeForField(t reflect.Type, name string) string {
+	if field, ok := t.FieldByName(name); ok {
+		return t.Name() + " " + field.Name
+	}
+	return "missing " + name
+}
+
 // Likewise for the parameter and result types of a method whose receiver type
 // is reflected: Type.Method and Type.MethodByName expose that signature, but it
 // only exists in the method set, not in the type's underlying struct.
@@ -210,6 +241,19 @@ func main() {
 	printfWithoutPackage("%T\n", importedpkg.ReflectTypeOfIndirect(4))
 	fmt.Println(reflect.TypeOf(importedpkg2.ForeignNamedType{}).Name())
 
+	for _, check := range []struct{ label, got string }{
+		{"typefor direct", typeForField(reflect.TypeFor[TypeForDirect](), "DirectField")},
+		{"typefor wrapper", typeForField(typeForWrapped[TypeForWrapped](), "WrappedField")},
+		{"typefor closure", typeForField(typeForClosure[TypeForClosure](), "ClosureField")},
+		{"typefor slice", typeForField(typeForSlice[TypeForSlice]().Elem(), "SliceField")},
+		{"typefor foreign", typeForField(importedpkg.TypeForForeign[TypeForForeign](), "ForeignField")},
+		{"typefor foreign struct", typeForField(importedpkg.TypeForForeignWrapped[TypeForPairArg](), "ForeignField")},
+		{"typefor foreign arg", typeForField(importedpkg.TypeForForeignWrapped[TypeForPairArg]().Field(0).Type, "PairArgField")},
+		{"typefor pair", typeForField(typeForPair[TypeForPairArg, TypeForWrapped](), "PairFirst")},
+		{"typefor pair arg", typeForField(typeForPair[TypeForPairArg, TypeForWrapped]().Field(0).Type, "PairArgField")},
+	} {
+		fmt.Println(check.label+":", check.got)
+	}
 	keyType := reflect.TypeOf(map[MapKeyReflect]bool{}).Key()
 	if field, ok := keyType.FieldByName("KeyName"); ok {
 		fmt.Println("map key:", keyType.Name(), field.Name)
@@ -994,6 +1038,20 @@ type ReflectInDefined struct {
 	importedpkg2.ReflectInSiblingImport
 }
 
+// TypeForForeign reflects a type which this package never names, so only the
+// call site that instantiates it knows which type must survive.
+func TypeForForeign[T any]() reflect.Type { return reflect.TypeFor[T]() }
+
+// TypeForForeignStruct wraps its type parameter in a named type of this
+// package, so both the wrapper's field and the substituted type are exposed.
+type TypeForForeignStruct[T any] struct {
+	ForeignField T
+}
+
+func TypeForForeignWrapped[T any]() reflect.Type {
+	return reflect.TypeFor[TypeForForeignStruct[T]]()
+}
+
 var ReflectInDefinedVar = ReflectInDefined{ExportedField2: 9000}
 
 var _ = reflect.TypeOf(ReflectInDefinedVar)
@@ -1320,6 +1378,15 @@ ok Method
 ReflectTypeOf
 ReflectTypeOfIndirect
 ForeignNamedType
+typefor direct: TypeForDirect DirectField
+typefor wrapper: TypeForWrapped WrappedField
+typefor closure: TypeForClosure ClosureField
+typefor slice: TypeForSlice SliceField
+typefor foreign: TypeForForeign ForeignField
+typefor foreign struct: TypeForForeignStruct[main.TypeForPairArg] ForeignField
+typefor foreign arg: TypeForPairArg PairArgField
+typefor pair: TypeForPair[main.TypeForPairArg,main.TypeForWrapped] PairFirst
+typefor pair arg: TypeForPairArg PairArgField
 map key: MapKeyReflect KeyName
 func arg: FuncArgReflect ArgName
 method arg: MethodArgReflect MethodArgName
