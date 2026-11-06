@@ -170,6 +170,22 @@ type MethodIfaceReflect interface {
 	Serve(arg MethodIfaceArgReflect)
 }
 
+// A defined interface reaches its method signatures through its type object.
+// An unnamed interface type has none: it only exists where it is spelled out,
+// such as this field, so its signature components are reachable only by
+// walking the interface type itself. Both a named and an anonymous struct
+// result must keep their field names.
+type UnnamedIfaceResultReflect struct {
+	UnnamedIfaceResultName string
+}
+
+type UnnamedIfaceHolder struct {
+	Anon interface {
+		UnnamedIface() UnnamedIfaceResultReflect
+		UnnamedStruct() struct{ UnnamedIfaceAnonName int }
+	}
+}
+
 // A generic method's signature is substituted with the type arguments of each
 // instantiation, so one generic type exposes different named types through the
 // same method. Every instantiation needs its own recording, not just the first
@@ -291,6 +307,27 @@ func main() {
 		}
 	} else {
 		fmt.Println("method iface arg: method missing")
+	}
+	anonIface := reflect.TypeOf(UnnamedIfaceHolder{}).Field(0).Type
+	if m, ok := anonIface.MethodByName("UnnamedIface"); ok {
+		result := m.Type.Out(0)
+		if field, ok := result.FieldByName("UnnamedIfaceResultName"); ok {
+			fmt.Println("unnamed iface result:", result.Name(), field.Name)
+		} else {
+			fmt.Println("unnamed iface result: missing")
+		}
+	} else {
+		fmt.Println("unnamed iface result: method missing")
+	}
+	if m, ok := anonIface.MethodByName("UnnamedStruct"); ok {
+		result := m.Type.Out(0)
+		if field, ok := result.FieldByName("UnnamedIfaceAnonName"); ok {
+			fmt.Println("unnamed iface struct:", field.Name)
+		} else {
+			fmt.Println("unnamed iface struct: missing")
+		}
+	} else {
+		fmt.Println("unnamed iface struct: method missing")
 	}
 	for _, typ := range []reflect.Type{
 		reflect.TypeOf(GenericMethodSignatureReflect[GenericMethodArgReflect]{}),
@@ -1392,6 +1429,8 @@ func arg: FuncArgReflect ArgName
 method arg: MethodArgReflect MethodArgName
 method result: MethodResultReflect MethodResultName
 method iface arg: MethodIfaceArgReflect MethodIfaceArgName
+unnamed iface result: UnnamedIfaceResultReflect UnnamedIfaceResultName
+unnamed iface struct: UnnamedIfaceAnonName
 generic method: GenericMethodArgReflect [GenericMethodArgName]
 generic method: GenericMethodOtherArgReflect [GenericMethodOtherArgName]
 generic field: GenericFieldArgReflect [GenericFieldArgName]
