@@ -32,12 +32,22 @@ func main() {
 	println(repeated)
 	println("eight-by")
 	println(string([]byte("byte-slice-literal")))
+	values()
 }
 `
 
 func TestSharedShortLiteralDecoder(t *testing.T) {
+	var input, output strings.Builder
+	input.WriteString(sharedSource + "\nfunc values() {\n")
+	output.WriteString("short-literal-1\nshort-literal-2\nshort-literal-1\neight-by\nbyte-slice-literal\n")
+	for i := range 60 {
+		text := fmt.Sprintf("short-%02d%s", i, strings.Repeat("x", i%12))
+		fmt.Fprintf(&input, "println(%q)\n", text)
+		fmt.Fprintln(&output, text)
+	}
+	input.WriteString("}\n")
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "shared.go", sharedSource, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(fset, "shared.go", input.String(), parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,17 +60,35 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 		return fmt.Sprintf("%s%d", base, r.Uint64())
 	})
 
-	shared := 0
+	shared, individual := 0, 0
+	starts := make(map[string]bool)
 	for _, decl := range file.Decls[originalCount:] {
-		if fn, ok := decl.(*ast.FuncDecl); ok && strings.HasPrefix(fn.Name.Name, "literalSharedDecoder") {
-			shared++
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			if strings.HasPrefix(fn.Name.Name, "literalDecoder") {
+				name := fn.Body.List[0].(*ast.AssignStmt).Lhs[0].(*ast.Ident).Name
+				starts[strings.TrimRight(name, "0123456789")] = true
+			}
+			var first *ast.Ident
+			if fn.Type.Params.NumFields() == 5 {
+				first, _ = fn.Type.Params.List[0].Type.(*ast.Ident)
+			}
+			if first != nil && first.Name == "string" {
+				shared++
+			} else if strings.HasPrefix(fn.Name.Name, "literalDecoder") {
+				individual++
+			}
 		}
+	}
+	if individual == 0 {
+		t.Fatal("short literals bypassed the randomized obfuscator selection")
 	}
 	if shared == 0 {
 		t.Fatal("no shared decoder was generated for short literals")
 	}
-	if shared > len(literals.Obfuscators) {
-		t.Fatalf("generated %d shared decoders, want at most one per operator (%d)", shared, len(literals.Obfuscators))
+	// Only main and values contain multiple short literals; the three global
+	// factories can each contribute at most one more shared decoder.
+	if shared > 3*2+3 || individual >= 60 {
+		t.Fatalf("short decoders were not shared: %d shared, %d individual", shared, individual)
 	}
 
 	var text strings.Builder
@@ -68,6 +96,16 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := text.String()
+	// The standard families start with key (simple), data (swap), fullData
+	// (shuffle), or payload (seed/split); offsets distinguishes split from seed.
+	for _, name := range []string{"key", "data", "fullData", "payload"} {
+		if !starts["literalLocal"+name] {
+			t.Errorf("no standard decoder starting with %s was selected", name)
+		}
+	}
+	if !strings.Contains(source, "literalLocaloffsets") {
+		t.Error("the split decoder was not selected")
+	}
 	for _, plain := range []string{"short-literal-1", "short-literal-2", "eight-by", "byte-slice-literal"} {
 		if strings.Contains(source, plain) {
 			t.Fatalf("literal %q survived in the generated source", plain)
@@ -86,7 +124,7 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v\n%s", err, out)
 	}
-	want := "short-literal-1\nshort-literal-2\nshort-literal-1\neight-by\nbyte-slice-literal\n"
+	want := output.String()
 	if got := string(out); got != want {
 		t.Fatalf("decoded output mismatch:\n got %q\nwant %q", got, want)
 	}

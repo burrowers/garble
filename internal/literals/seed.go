@@ -23,26 +23,35 @@ var _ obfuscator = seed{}
 func (seed) obfuscate(obfRand *mathrand.Rand, names *generatedNames, data []byte, extKeys []*externalKey) *ast.BlockStmt {
 	mask := byte(obfRand.Uint32())
 	seed := byte(obfRand.Uint32())
-	originalSeed := seed
 
 	op := randOperator(obfRand)
+	payload := encryptSeed(data, op, mask, seed)
+	return seedBody(names, op, ah.StringLit(string(payload)),
+		ah.CallExprByName("byte", byteLitWithExtKey(obfRand, mask, extKeys, highProb)),
+		ah.CallExprByName("byte", byteLitWithExtKey(obfRand, seed, extKeys, highProb)))
+}
+
+func encryptSeed(data []byte, op token.Token, mask, seed byte) []byte {
 	payload := make([]byte, len(data))
 	for i, b := range data {
 		encB := evalOperator(op, b, seed)
 		seed += encB
-
 		payload[i] = encB ^ mask
 	}
+	return payload
+}
 
+// seedBody serves both per-literal decoders and owner-shared short decoders.
+// Its inputs can be constants or parameters without changing the algorithm.
+func seedBody(names *generatedNames, op token.Token, payload, mask, seed ast.Expr) *ast.BlockStmt {
 	return ah.BlockStmt(
-		ah.AssignDefineStmt(names.ident("payload"), ah.StringLit(string(payload))),
-		ah.AssignDefineStmt(names.ident("data"),
-			ah.CallExprByName("make", ah.ByteSliceType(), ah.IntLit(len(data)))),
-		ah.AssignDefineStmt(names.ident("mask"), ah.CallExprByName("byte", byteLitWithExtKey(obfRand, mask, extKeys, highProb))),
-		ah.AssignDefineStmt(names.ident("seed"), ah.CallExprByName("byte", byteLitWithExtKey(obfRand, originalSeed, extKeys, highProb))),
+		ah.AssignDefineStmt(names.ident("payload"), payload),
+		ah.AssignDefineStmt(names.ident("data"), ah.CallExprByName("make", ah.ByteSliceType(), ah.CallExprByName("len", names.ident("payload")))),
+		ah.AssignDefineStmt(names.ident("mask"), mask),
+		ah.AssignDefineStmt(names.ident("seed"), seed),
 		&ast.ForStmt{
 			Init: ah.AssignDefineStmt(names.ident("i"), ah.IntLit(0)),
-			Cond: ah.BinaryExpr(names.ident("i"), token.LSS, ah.IntLit(len(data))),
+			Cond: ah.BinaryExpr(names.ident("i"), token.LSS, ah.CallExprByName("len", names.ident("payload"))),
 			Post: &ast.IncDecStmt{X: names.ident("i"), Tok: token.INC},
 			Body: ah.BlockStmt(
 				ah.AssignDefineStmt(names.ident("b"),
