@@ -20,7 +20,7 @@ func (simple) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte,
 	key := make([]byte, len(data))
 	rand.Read(key)
 
-	op := randOperator(rand)
+	op := randOperator(names.codeRand(rand))
 	for i, b := range key {
 		data[i] = evalOperator(op, data[i], b)
 	}

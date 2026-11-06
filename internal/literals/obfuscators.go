@@ -208,6 +208,9 @@ func (key *externalKey) ToExpr(b int) ast.Expr {
 //		return data
 //	}()
 func dataToByteSliceWithExtKeys(rand *mathrand.Rand, names *generatedNames, data []byte, extKeys []*externalKey) ast.Expr {
+	if names.inputs != nil {
+		return ah.CallExpr(ah.ByteSliceType(), names.input(ah.StringLit(string(data)), ast.NewIdent("string")))
+	}
 	extKeyOpCount := minByteSliceExtKeyOps + rand.Intn(maxByteSliceExtKeyOps-minByteSliceExtKeyOps)
 
 	var stmts []ast.Stmt

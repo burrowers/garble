@@ -94,7 +94,9 @@ func TestSharedStringAdapterBehavior(t *testing.T) {
   }
  }
  `
-	for _, obf := range append(append([]obfuscator{}, Obfuscators...), blob{}) {
+	// A nil override exercises owner-selected sharing as well as the forced
+	// per-literal families, using the same generated-program assertions.
+	for _, obf := range append(append([]obfuscator{nil}, Obfuscators...), blob{}) {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
 			fset := token.NewFileSet()
 			file, err := parser.ParseFile(fset, "adapter.go", source, parser.SkipObjectResolution)

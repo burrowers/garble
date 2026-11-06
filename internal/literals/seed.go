@@ -24,11 +24,11 @@ func (seed) obfuscate(obfRand *mathrand.Rand, names *generatedNames, data []byte
 	mask := byte(obfRand.Uint32())
 	seed := byte(obfRand.Uint32())
 
-	op := randOperator(obfRand)
+	op := randOperator(names.codeRand(obfRand))
 	payload := encryptSeed(data, op, mask, seed)
-	return seedBody(names, op, ah.StringLit(string(payload)),
-		ah.CallExprByName("byte", byteLitWithExtKey(obfRand, mask, extKeys, highProb)),
-		ah.CallExprByName("byte", byteLitWithExtKey(obfRand, seed, extKeys, highProb)))
+	return seedBody(names, op, names.input(ah.StringLit(string(payload)), ast.NewIdent("string")),
+		ah.CallExprByName("byte", names.byteLit(obfRand, mask, extKeys, highProb)),
+		ah.CallExprByName("byte", names.byteLit(obfRand, seed, extKeys, highProb)))
 }
 
 func encryptSeed(data []byte, op token.Token, mask, seed byte) []byte {

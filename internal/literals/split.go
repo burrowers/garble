@@ -62,7 +62,7 @@ func (split) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, 
 
 	key := byte(rand.Uint32())
 	operators := []token.Token{token.XOR, token.ADD, token.SUB}
-	opcodes := rand.Perm(len(operators))
+	opcodes := names.codeRand(rand).Perm(len(operators))
 
 	// Destination offsets follow the original data order; the payload and the
 	// record order are shuffled independently.
@@ -112,14 +112,14 @@ func (split) obfuscate(rand *mathrand.Rand, names *generatedNames, data []byte, 
 	}
 
 	return ah.BlockStmt(
-		ah.AssignDefineStmt(names.ident("payload"), ah.StringLit(string(payload))),
-		ah.AssignDefineStmt(names.ident("offsets"), recordOffsets),
-		ah.AssignDefineStmt(names.ident("lens"), recordLens),
-		ah.AssignDefineStmt(names.ident("ops"), recordOps),
+		ah.AssignDefineStmt(names.ident("payload"), names.input(ah.StringLit(string(payload)), ast.NewIdent("string"))),
+		ah.AssignDefineStmt(names.ident("offsets"), names.input(recordOffsets, ah.ArrayType(nil, ast.NewIdent("uint16")))),
+		ah.AssignDefineStmt(names.ident("lens"), names.input(recordLens, ah.ArrayType(nil, ast.NewIdent("uint8")))),
+		ah.AssignDefineStmt(names.ident("ops"), names.input(recordOps, ah.ArrayType(nil, ast.NewIdent("uint8")))),
 		ah.AssignDefineStmt(names.ident("handlers"), handlers),
-		ah.AssignDefineStmt(names.ident("key"), ah.CallExprByName("byte", byteLitWithExtKey(rand, key, extKeys, normalProb))),
+		ah.AssignDefineStmt(names.ident("key"), ah.CallExprByName("byte", names.byteLit(rand, key, extKeys, normalProb))),
 		ah.AssignDefineStmt(names.ident("data"),
-			ah.CallExprByName("make", ah.ByteSliceType(), ah.IntLit(len(data)))),
+			ah.CallExprByName("make", ah.ByteSliceType(), names.inputInt(len(data)))),
 		ah.AssignDefineStmt(names.ident("src"), ah.IntLit(0)),
 		&ast.ForStmt{
 			Init: ah.AssignDefineStmt(names.ident("r"), ah.IntLit(0)),

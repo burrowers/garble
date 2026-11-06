@@ -45,7 +45,16 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 		fmt.Fprintf(&input, "println(%q)\n", text)
 		fmt.Fprintln(&output, text)
 	}
+	for i := range 40 {
+		fmt.Fprintf(&input, "owner%d()\n", i)
+		fmt.Fprint(&output, "eight-by\n", strings.Repeat("x", 24), "\neight-by\n")
+	}
 	input.WriteString("}\n")
+	// Many independent owners exercise every randomly selected family. Each
+	// owner mixes lengths and repeats a value inside its nested closure.
+	for i := range 40 {
+		fmt.Fprintf(&input, "func owner%d() { println(%q); println(%q); func() { println(%q) }() }\n", i, "eight-by", strings.Repeat("x", 24), "eight-by")
+	}
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "shared.go", input.String(), parser.SkipObjectResolution)
 	if err != nil {
@@ -60,35 +69,56 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 		return fmt.Sprintf("%s%d", base, r.Uint64())
 	})
 
-	shared, individual := 0, 0
-	starts := make(map[string]bool)
-	for _, decl := range file.Decls[originalCount:] {
-		if fn, ok := decl.(*ast.FuncDecl); ok {
-			if strings.HasPrefix(fn.Name.Name, "literalDecoder") {
-				name := fn.Body.List[0].(*ast.AssignStmt).Lhs[0].(*ast.Ident).Name
-				starts[strings.TrimRight(name, "0123456789")] = true
+	owners := make(map[string]string)
+	for _, decl := range file.Decls[:originalCount] {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || (fn.Name.Name != "values" && !strings.HasPrefix(fn.Name.Name, "owner")) {
+			continue
+		}
+		targets := make(map[string]bool)
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
 			}
-			var first *ast.Ident
-			if fn.Type.Params.NumFields() == 5 {
-				first, _ = fn.Type.Params.List[0].Type.(*ast.Ident)
+			id, ok := call.Fun.(*ast.Ident)
+			if !ok || id.Name != "println" {
+				return true
 			}
-			if first != nil && first.Name == "string" {
-				shared++
-			} else if strings.HasPrefix(fn.Name.Name, "literalDecoder") {
-				individual++
+			decoder, ok := call.Args[0].(*ast.CallExpr)
+			if !ok {
+				t.Fatal("short literal was not decoded")
 			}
+			var target strings.Builder
+			if err := printer.Fprint(&target, fset, decoder.Fun); err != nil {
+				t.Fatal(err)
+			}
+			targets[target.String()] = true
+			return true
+		})
+		if len(targets) != 1 {
+			t.Fatalf("owner %s uses %d short decoders; want one", fn.Name.Name, len(targets))
+		}
+		for target := range targets {
+			if owner := owners[target]; owner != "" {
+				t.Fatalf("owners %s and %s share a decoder", owner, fn.Name.Name)
+			}
+			owners[target] = fn.Name.Name
 		}
 	}
-	if individual == 0 {
-		t.Fatal("short literals bypassed the randomized obfuscator selection")
+
+	starts := make(map[string]bool)
+	decoders := 0
+	for _, decl := range file.Decls[originalCount:] {
+		if fn, ok := decl.(*ast.FuncDecl); ok && strings.HasPrefix(fn.Name.Name, "literalDecoder") {
+			decoders++
+			name := fn.Body.List[0].(*ast.AssignStmt).Lhs[0].(*ast.Ident).Name
+			starts[strings.TrimRight(name, "0123456789")] = true
+		}
 	}
-	if shared == 0 {
-		t.Fatal("no shared decoder was generated for short literals")
-	}
-	// Only main and values contain multiple short literals; the three global
-	// factories can each contribute at most one more shared decoder.
-	if shared > 3*2+3 || individual >= 60 {
-		t.Fatalf("short decoders were not shared: %d shared, %d individual", shared, individual)
+	// Three global factories, main, values and forty other owners.
+	if decoders != 45 {
+		t.Fatalf("got %d decoders; want 45", decoders)
 	}
 
 	var text strings.Builder
@@ -105,6 +135,9 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 	}
 	if !strings.Contains(source, "literalLocaloffsets") {
 		t.Error("the split decoder was not selected")
+	}
+	if !strings.Contains(source, "literalLocalseed") {
+		t.Error("the seed decoder was not selected")
 	}
 	for _, plain := range []string{"short-literal-1", "short-literal-2", "eight-by", "byte-slice-literal"} {
 		if strings.Contains(source, plain) {
