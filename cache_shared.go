@@ -722,9 +722,19 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		var plainMissing []string
 		for _, pkg := range sharedCache.ListedPackages.all() {
 			base := pkg.baseImportPath()
-			if base != pkg.ImportPath && !sharedCache.ListedPackages.has(base) {
-				plainMissing = append(plainMissing, base)
+			if base == pkg.ImportPath || sharedCache.ListedPackages.has(base) {
+				continue
 			}
+			if pkg.ForTest != "" && base == pkg.ForTest+"_test" {
+				// An external test package has no plain counterpart: its test
+				// files live in the tested package's directory, so the go
+				// command cannot load "pkg_test" as a package. Asking for it
+				// fails the whole run for every module path which cmd/go does
+				// not read as a standard-library path, and namingPackage falls
+				// back to the variant itself when it is absent.
+				continue
+			}
+			plainMissing = append(plainMissing, base)
 		}
 		slices.Sort(plainMissing)
 		plainMissing = slices.Compact(plainMissing)

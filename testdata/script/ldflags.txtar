@@ -168,6 +168,17 @@ func TestLinkerValues(t *testing.T) {
 	}
 }
 
+-- main_ext_test.go --
+// An external test package gives this module a test variant whose plain path,
+// domain.test/main_test, is not an importable package. Garble must not ask the
+// go command to load it while it collects the plain counterparts of the test
+// variants, which failed for every module path not spelled like a std path.
+package main_test
+
+import "testing"
+
+func TestExternalPackageBuilds(t *testing.T) {}
+
 -- imported/imported.go --
 package imported
 
