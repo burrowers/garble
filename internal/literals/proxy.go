@@ -65,6 +65,7 @@ type proxyDispatcher struct {
 	// Keep the conversion helper within the same retention boundary as its decoders.
 	stringAdapter     ast.Expr
 	stringAdapterType *ast.FuncType
+	sharedDecoders    map[token.Token]ast.Expr
 }
 
 func (d *proxyDispatcher) initialize(proxyRoot *proxyRoot, index int) {
