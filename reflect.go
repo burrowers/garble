@@ -1057,6 +1057,16 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 			}
 		}
 
+	case *types.Interface:
+		// reflect.Type.Method and MethodByName expose the method set of an
+		// interface type, including the methods it embeds, so the types their
+		// signatures mention are reachable too. A defined interface reaches
+		// this walk through [reflectInspector.recordMethodSignatures], but an
+		// unnamed one has no type object to record and only appears here.
+		for method := range t.Methods() {
+			ri.recursivelyRecordUsedForReflectImpl(method.Type(), visited)
+		}
+
 	case interface{ Elem() types.Type }:
 		// Get past pointers, slices, etc.
 		ri.recursivelyRecordUsedForReflectImpl(t.Elem(), visited)
