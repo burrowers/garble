@@ -407,6 +407,18 @@ func (fc *funcConverter) ssaValue(ssaValue ssa.Value, explicitNil bool) (expr as
 				return &ast.CompositeLit{Type: typExpr}, nil
 			}
 
+			// A type parameter's type admits no nil conversion either, and its
+			// constraint is not a type that could be written as a composite
+			// literal. A fresh allocation of T type-checks for every type
+			// parameter and produces the same zero value.
+			if _, ok := types.Unalias(val.Type()).(*types.TypeParam); ok {
+				typExpr, err := fc.tc.Convert(val.Type())
+				if err != nil {
+					return nil, err
+				}
+				return &ast.StarExpr{X: ah.CallExprByName("new", typExpr)}, nil
+			}
+
 			constExpr = ast.NewIdent("nil")
 			if !explicitNil {
 				return constExpr, nil
