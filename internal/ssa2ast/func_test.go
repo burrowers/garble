@@ -432,6 +432,7 @@ func genericFunc() {
 
 	sprintf(genericConvert(int64(34)))
 	sprintf(genericConvert(float64(12.5)))
+	sprintf(zeroOf[int](true), zeroOf[string](false))
 
 	box := genericBox[int]{val: 42}
 	getVal := box.get
@@ -440,6 +441,14 @@ func genericFunc() {
 
 func genericConvert[T ~int64 | ~float64](x T) float64 {
 	return float64(x)
+}
+
+func zeroOf[T any](use bool) T {
+	var value T
+	if use {
+		return value
+	}
+	return value
 }
 `
 

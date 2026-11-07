@@ -250,6 +250,19 @@ func zeroArrayResult() [2]int {
 	return [2]int{}
 }
 
+// zeroTypeParam returns the zero value of a type parameter. A type parameter
+// admits no nil literal and has no composite literal form, so the generated
+// zero value has to name an allocation of T.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func zeroTypeParam[T any](use bool) T {
+	var value T
+	if use {
+		return value
+	}
+	return value
+}
+
 // charSum keeps its running sum in a loop phi. Trash blocks used to leave a
 // stale predecessor behind, so block splitting could move the phi assignment
 // before the addition and the loop silently lost its updates.
@@ -332,6 +345,15 @@ func main() {
 	}
 	if got := zeroArrayResult(); got != ([2]int{}) {
 		panic("zero array result changed")
+	}
+	if got := zeroTypeParam[int](true); got != 0 {
+		panic("int type parameter zero value changed")
+	}
+	if got := zeroTypeParam[string](false); got != "" {
+		panic("string type parameter zero value changed")
+	}
+	if got := zeroTypeParam[zeroValues](true); got != (zeroValues{}) {
+		panic("struct type parameter zero value changed")
 	}
 
 	// A float constant must keep its exact value when it is rendered back into
