@@ -35,6 +35,8 @@ func main() {
 
 ### Parameter explanation
 
+An opt-in [live integer experiment](CONTROLFLOW_INTEGER_EXPERIMENT.md) is available via `live_integers=1`. It is disabled by default and currently substitutes only fixed-width unsigned addition.
+
 > Unlike other garble features (which just work), we recommend that you understand how parameters affect control flow obfuscation and which caveats exist.
 
 > Code snippets below without name obfuscation, for better readability.
