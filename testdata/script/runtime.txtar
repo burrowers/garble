@@ -23,6 +23,10 @@ stderr '^main\.main\('
 # This ordinary Go implementation detail should be renamed. It is neither a
 # compiler intrinsic nor an assembly or linker ABI dependency.
 ! binsubstr main$exe 'internal/runtime/maps.(*Map).getWithKey'
+# Numbered allocation helpers must not keep their original declaration names.
+! binsubstr main$exe 'mallocgcSmallNoScanSC2'
+! binsubstr main$exe 'mallocgcSmallScanNoHeaderSC1'
+! binsubstr main$exe 'mallocgcTinySC2'
 
 # Compiler and assembler optimizations that match runtime symbols by name must
 # keep working once those names are obfuscated. The std build above is cached,
