@@ -62,6 +62,44 @@ func TestConstructorSummarySafety(t *testing.T) {
 	}
 }
 
+func TestConstructorResultTypes(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "results.go", `package results
+	type String string
+	type Array [1]string
+	type Struct struct { Text string }
+	type Map map[string]string
+	type Interface interface { Apply() }
+	type EmptyInterface interface{}
+	type Slice []string
+	type Pointer *string
+	type Func func() string
+	type Chan chan string
+	type Bool bool
+	type Int int
+	type Float float64
+	type Complex complex128
+	type InterfaceAlias = Interface
+	type StringAlias = String
+	`, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := &types.Info{Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
+	pkg, err := new(types.Config).Check("results", fset, []*ast.File{file}, info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range pkg.Scope().Names() {
+		t.Run(name, func(t *testing.T) {
+			want := name == "String" || name == "StringAlias" || name == "Array" || name == "Struct" || name == "Map"
+			if got := constructorResult(file, info, pkg.Scope().Lookup(name).Type()); (got != nil) != want {
+				t.Fatalf("constructor result %s: got %v, supported = %v", name, got, want)
+			}
+		})
+	}
+}
+
 func TestGlobalLiteralProxyOwnership(t *testing.T) {
 	for _, obf := range Obfuscators {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
