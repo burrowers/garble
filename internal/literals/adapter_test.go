@@ -110,7 +110,7 @@ func TestSharedStringAdapterBehavior(t *testing.T) {
 			previous := testPkgToObfuscatorMap
 			testPkgToObfuscatorMap = map[string]obfuscator{"main": obf}
 			defer func() { testPkgToObfuscatorMap = previous }()
-			Obfuscate(rand.New(rand.NewSource(7)), file, info, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
+			Obfuscate(rand.New(rand.NewSource(7)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
 			if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, nil); err != nil {
 				t.Fatal(err)
 			}

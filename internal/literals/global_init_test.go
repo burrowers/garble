@@ -159,7 +159,7 @@ func effect() string { return "a user call is not pure" }
 			old := testPkgToObfuscatorMap
 			testPkgToObfuscatorMap = map[string]obfuscator{"globals": obf}
 			defer func() { testPkgToObfuscatorMap = old }()
-			file, inits := ObfuscateWithGlobalInits(rand.New(rand.NewSource(1)), file, info, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%x", base, r.Uint64()) })
+			file, inits := ObfuscateWithGlobalInits(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%x", base, r.Uint64()) })
 			want := []string{"late", "scalarDead", "scalarLive", "dead", "live", "oversized", "deadMap", "liveMap", "constructor"}
 			if len(inits) != len(want) {
 				t.Fatalf("unexpected certificates: %v", inits)

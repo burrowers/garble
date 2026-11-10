@@ -65,7 +65,7 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 	if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
 		t.Fatal(err)
 	}
-	literals.Obfuscate(mathrand.New(mathrand.NewSource(7)), file, info, nil, nil, func(r *mathrand.Rand, base string) string {
+	literals.Obfuscate(mathrand.New(mathrand.NewSource(7)), file, info, nil, nil, nil, func(r *mathrand.Rand, base string) string {
 		return fmt.Sprintf("%s%d", base, r.Uint64())
 	})
 

@@ -53,12 +53,14 @@ type GlobalInit struct {
 }
 
 // Obfuscate replaces literals with obfuscated anonymous functions.
-func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, embeds map[ast.Expr]EmbeddedValue, nameFunc NameProviderFunc) *ast.File {
-	file, _ = ObfuscateWithGlobalInits(rand, file, info, linkStrings, embeds, nameFunc)
+func Obfuscate(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, embeds map[ast.Expr]EmbeddedValue, staticInits map[*types.Var]bool, nameFunc NameProviderFunc) *ast.File {
+	file, _ = ObfuscateWithGlobalInits(rand, file, info, linkStrings, embeds, staticInits, nameFunc)
 	return file
 }
 
-func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, embeds map[ast.Expr]EmbeddedValue, nameFunc NameProviderFunc, summaries ...map[string]bool) (*ast.File, []GlobalInit) {
+// staticInits holds variables whose initializer must stay a compile-time
+// constant, such as the compiler's read-only coverage metadata variable.
+func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.Info, linkStrings map[*types.Var]string, embeds map[ast.Expr]EmbeddedValue, staticInits map[*types.Var]bool, nameFunc NameProviderFunc, summaries ...map[string]bool) (*ast.File, []GlobalInit) {
 	var constructors map[string]bool
 	if len(summaries) != 0 {
 		constructors = summaries[0]
@@ -100,6 +102,11 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 				return false
 			}
 		case *ast.ValueSpec:
+			if skipLiteralInit(node, info, staticInits) {
+				// Keep the initializer static and do not descend into it,
+				// as any decoded expression would run at initialization time.
+				return false
+			}
 			hadValues := len(node.Values) > 0
 			for i, name := range node.Names {
 				obj := info.Defs[name].(*types.Var)
@@ -298,6 +305,22 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 		dispatcher.AddToFile(newFile)
 	}
 	return newFile, globalInits
+}
+
+// skipLiteralInit reports whether any name declared by spec must keep a static
+// initializer. The compiler marks its coverage metadata variable read-only and
+// passes that symbol's address to the runtime, so a decoded initializer would
+// be stored into read-only data and fault at startup.
+func skipLiteralInit(spec *ast.ValueSpec, info *types.Info, staticInits map[*types.Var]bool) bool {
+	if len(staticInits) == 0 {
+		return false
+	}
+	for _, name := range spec.Names {
+		if obj, ok := info.Defs[name].(*types.Var); ok && staticInits[obj] {
+			return true
+		}
+	}
+	return false
 }
 
 // pureStringInit admits strings and aggregates with constant leaves.
