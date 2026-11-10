@@ -208,13 +208,19 @@ func (b *genericBox[T]) set(value T) {
 	b.value = value
 }
 
-// genericBoxCheck is not flattened; it calls the generated generic methods as
-// plain Go code.
+// genericBoxCheck calls the generated generic methods from a flattened
+// function. A method call cannot carry type arguments, because a method is not
+// indexable; the receiver's type already fixes them.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0
 func genericBoxCheck() {
 	boxed := genericBox[int]{value: 5}
 	println(boxed.pick(9, true), boxed.pick(9, false))
 	boxed.set(6)
 	println(boxed.value)
+	// A method of an instantiated type from another package takes the same
+	// shape: the receiver value carries the type arguments.
+	println(named.Box[string]{Value: "cross"}.Get())
 }
 
 // zeroValues is an array type, so its zero value has to be written as an empty
@@ -374,6 +380,14 @@ func (s Scores) Total() int {
 	}
 	return total
 }
+
+// Box is a generic type of another package, so a flattened caller selects a
+// method of an instantiated foreign type.
+type Box[T any] struct{ Value T }
+
+func (b Box[T]) Get() T {
+	return b.Value
+}
 -- main.stderr --
 LittleEndian
 binary.LittleEndian
@@ -393,4 +407,5 @@ pair 0 pair
 pair 1 pair
 5 9
 6
+cross
 4599676419421066581 4593560413433027186 1039980254 4611686018427387904

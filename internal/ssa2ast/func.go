@@ -268,21 +268,27 @@ func (fc *funcConverter) convertFunction(val *ssa.Function, call *ssa.CallCommon
 		}
 	}
 	if typeArgs := val.TypeArgs(); len(typeArgs) > 0 {
-		// Generic methods are called in a monomorphic view (e.g. "someMethod[int string]"),
-		// so to get the original name, delete everything starting from "[" inclusive.
+		// Generic functions and methods are called in a monomorphic view (e.g.
+		// "someMethod[int string]"), so to get the original name, delete
+		// everything starting from "[" inclusive.
 		name.Name, _, _ = strings.Cut(name.Name, "[")
-		indexed := &ast.IndexListExpr{X: funcExpr}
-
-		// For better readability of generated code and to avoid ambiguities,
-		// we explicitly specify generic method types (e.g. "someMethod[int, string](0, "str")")
-		for _, typArg := range typeArgs {
-			typeExpr, err := fc.tc.Convert(typArg)
-			if err != nil {
-				return nil, 0, err
+		if val.Signature.Recv() == nil {
+			// For better readability of generated code and to avoid ambiguities,
+			// we explicitly specify generic function types (e.g.
+			// "someFunc[int, string](0, "str")"). A method call cannot be
+			// instantiated and does not need the list: the receiver's type
+			// already determines the type arguments, and indexing a selected
+			// method is invalid Go.
+			indexed := &ast.IndexListExpr{X: funcExpr}
+			for _, typArg := range typeArgs {
+				typeExpr, err := fc.tc.Convert(typArg)
+				if err != nil {
+					return nil, 0, err
+				}
+				indexed.Indices = append(indexed.Indices, typeExpr)
 			}
-			indexed.Indices = append(indexed.Indices, typeExpr)
+			funcExpr = indexed
 		}
-		funcExpr = indexed
 	}
 	return funcExpr, argsOffset, nil
 }
