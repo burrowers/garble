@@ -9,7 +9,7 @@ cmp stderr main.stderr
 binsubstr main$exe 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const' 'sz<min'
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret' 'parens!!'
 ! binsubstr main$exe 'initialized owner of linked string'
-! binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz'
+! binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz' 'local option key' 'local option value'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -110,7 +110,11 @@ import (
 	"test/main/a"
 	_ "test/main/b"
 	"test/main/global_ref"
+	"test/main/opt"
 )
+
+var interfaceOption = opt.Param("local option key", "local option value")
+var unusedInterfaceOption = opt.Param("unused local option key", "unused local option value")
 
 var initEvents int
 
@@ -161,6 +165,9 @@ func literalGlobalFactory() string {
 }
 
 func init() {
+	if opt.Value(interfaceOption, "local option key") != "local option value" || opt.Value(opt.AccessTypeOnline, "access_type") != "online" {
+		panic("interface constructor initialization changed")
+	}
 	// Sibling aliases must keep the initialized owner's eager init alive.
 	if a.Value != "initialized owner of linked string" || a.Aggregate[1] != "initialized owner of linked aggregate" {
 		panic("linknamed initializer removed")
@@ -190,6 +197,28 @@ func init() {
 		panic("literal global mutation changed")
 	}
 	global_ref.Check()
+}
+
+-- opt/opt.go --
+package opt
+
+type Option interface {
+	setValue(map[string]string)
+}
+
+type setParam struct{ key, value string }
+
+func (p setParam) setValue(m map[string]string) { m[p.key] = p.value }
+
+func Param(key, value string) Option { return setParam{key, value} }
+
+var AccessTypeOnline Option = Param("access_type", "online")
+var unusedOption = Param("unused option key", "unused option value")
+
+func Value(option Option, key string) string {
+	m := make(map[string]string)
+	option.setValue(m)
+	return m[key]
 }
 
 -- global_ref/ref.go --

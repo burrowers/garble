@@ -184,6 +184,17 @@ func constructorExpr(expr ast.Expr, info *types.Info, params map[types.Object]bo
 // constructorResult names only non-generic value types already in file scope.
 // Unknown or inaccessible result types leave the initializer strong.
 func constructorResult(file *ast.File, info *types.Info, typ types.Type) ast.Expr {
+	// Match the result kinds accepted by the compiler's certifiedLiteralInit.
+	// Other constructors keep ordinary eager initialization and literal decoding.
+	switch underlying := typ.Underlying().(type) {
+	case *types.Basic:
+		if underlying.Kind() != types.String {
+			return nil
+		}
+	case *types.Array, *types.Struct, *types.Map:
+	default:
+		return nil
+	}
 	named, ok := types.Unalias(typ).(*types.Named)
 	if !ok || named.TypeArgs().Len() != 0 || named.Obj().Pkg() == nil {
 		return nil
