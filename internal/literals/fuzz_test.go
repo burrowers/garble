@@ -57,7 +57,7 @@ func dead() string { return func() string { return "live literal secret" }() }
 	if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
 		t.Fatal(err)
 	}
-	literals.Obfuscate(mathrand.New(mathrand.NewSource(1)), file, info, nil, nil, func(r *mathrand.Rand, base string) string {
+	literals.Obfuscate(mathrand.New(mathrand.NewSource(1)), file, info, nil, nil, nil, func(r *mathrand.Rand, base string) string {
 		return fmt.Sprintf("%s%d", base, r.Uint64())
 	})
 	generated := make(map[string]ast.Node)
@@ -159,7 +159,7 @@ func FuzzObfuscate(f *testing.F) {
 
 		// Obfuscate the literals and print the source back.
 		rand := mathrand.New(mathrand.NewSource(randSeed))
-		srcSyntax = literals.Obfuscate(rand, srcSyntax, &info, nil, nil, func(rand *mathrand.Rand, baseName string) string {
+		srcSyntax = literals.Obfuscate(rand, srcSyntax, &info, nil, nil, nil, func(rand *mathrand.Rand, baseName string) string {
 			return fmt.Sprintf("%s%d", baseName, rand.Uint64())
 		})
 		count := tdirCounter.Add(1)

@@ -27,7 +27,7 @@ func TestLargeLiteral(t *testing.T) {
 	if _, err := new(types.Config).Check("p", fset, []*ast.File{file}, info); err != nil {
 		t.Fatal(err)
 	}
-	file = Obfuscate(mathrand.New(mathrand.NewSource(123)), file, info, nil, nil, func(r *mathrand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
+	file = Obfuscate(mathrand.New(mathrand.NewSource(123)), file, info, nil, nil, nil, func(r *mathrand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
 	var src bytes.Buffer
 	if err := printer.Fprint(&src, fset, file); err != nil {
 		t.Fatal(err)

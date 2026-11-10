@@ -147,7 +147,7 @@ func main() {
 	previous := testPkgToObfuscatorMap
 	testPkgToObfuscatorMap = map[string]obfuscator{"main": shuffle{}}
 	defer func() { testPkgToObfuscatorMap = previous }()
-	Obfuscate(rand.New(rand.NewSource(123)), file, info, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%d", base, r.Uint64()) })
+	Obfuscate(rand.New(rand.NewSource(123)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%d", base, r.Uint64()) })
 	var source bytes.Buffer
 	if err := printer.Fprint(&source, fset, file); err != nil {
 		t.Fatal(err)

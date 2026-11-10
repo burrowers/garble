@@ -64,6 +64,18 @@ exec go tool covdata percent -i=$WORK/coverdir
 stdout 'coverage: 100.0% of statements'
 env GOCOVERDIR=
 
+# The compiler marks its coverage metadata variable read-only and passes it to
+# the runtime by address, so literal obfuscation must leave that initializer
+# static. A decoded one would be stored into the read-only symbol at startup.
+exec garble -literals build -cover -o=covered_literals$exe garble_main.go
+mkdir coverdir_literals
+env GOCOVERDIR=$WORK/coverdir_literals
+exec ./covered_literals$exe
+cmp stderr main.stderr
+exec go tool covdata percent -i=$WORK/coverdir_literals
+stdout 'coverage: 100.0% of statements'
+env GOCOVERDIR=
+
 # Test binaries keep their coverage instrumentation, and listing the
 # synthesized test main package must not fail.
 exec garble test -cover -v -run TestGlobalVar -count=1 .

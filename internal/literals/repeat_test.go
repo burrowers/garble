@@ -44,7 +44,7 @@ var callback = func() string { return "repeated literal secret" }
 				t.Fatal(err)
 			}
 			originalCount := len(file.Decls)
-			Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
+			Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
 			decoders, helpers := 0, 0
 			for _, decl := range file.Decls[originalCount:] {
 				if fn, ok := decl.(*ast.FuncDecl); ok {

@@ -1666,6 +1666,23 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 	return newName, true
 }
 
+// staticLiteralInits returns the package-scope variables whose initializer must
+// keep its compile-time constant value. The compiler names the coverage
+// metadata variable in the -coveragecfg file, marks it read-only, and hands its
+// address to runtime.addCovMeta, so decoding that array at initialization time
+// would store into read-only data.
+func (tf *transformer) staticLiteralInits() map[*types.Var]bool {
+	name := tf.coverageNames.MetaVar
+	if name == "" {
+		return nil
+	}
+	obj, ok := tf.pkg.Scope().Lookup(name).(*types.Var)
+	if !ok {
+		return nil
+	}
+	return map[*types.Var]bool{obj: true}
+}
+
 // transformGoFile obfuscates the provided Go syntax file.
 func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// Only obfuscate the literals here if the flag is on
@@ -1676,7 +1693,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.ImportPath) {
 		var inits []literals.GlobalInit
-		file, inits = literals.ObfuscateWithGlobalInits(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, randomName, tf.curPkgCache.PureConstructors)
+		file, inits = literals.ObfuscateWithGlobalInits(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, tf.staticLiteralInits(), randomName, tf.curPkgCache.PureConstructors)
 		tf.literalGlobalInits = append(tf.literalGlobalInits, inits...)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports
