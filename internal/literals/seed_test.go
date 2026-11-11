@@ -8,7 +8,7 @@ import (
 )
 
 func TestSeedRoundTrip(t *testing.T) {
-	testDecoderRoundTrip(t, seed{})
+	testDecoderRoundTrip(t, seed{}, decoderProbeSizes)
 }
 
 func TestSeedPayloadLoop(t *testing.T) {

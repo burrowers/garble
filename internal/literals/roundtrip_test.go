@@ -15,12 +15,16 @@ import (
 	ah "mvdan.cc/garble/internal/asthelper"
 )
 
-func testDecoderRoundTrip(t *testing.T, obf obfuscator) {
+// decoderProbeSizes covers a one-byte literal, a size that forces several
+// record chunks, and the largest size the per-byte obfuscators accept.
+var decoderProbeSizes = []int{1, 17, 257}
+
+func testDecoderRoundTrip(t *testing.T, obf obfuscator, sizes []int) {
 	t.Helper()
 	var source bytes.Buffer
 	source.WriteString("package main\nfunc main() {\n")
 	for _, randSeed := range []int64{1, 2, 3} {
-		for _, size := range []int{1, 17, 257} {
+		for _, size := range sizes {
 			data := make([]byte, size)
 			for i := range data {
 				data[i] = byte(i)
@@ -47,15 +51,22 @@ func testDecoderRoundTrip(t *testing.T, obf obfuscator) {
 		}
 	}
 	source.WriteString("}\n")
+	buildAndRunProbe(t, source.Bytes(), "")
+}
+
+// buildAndRunProbe compiles a probe program and runs it, failing on a build
+// error or on output other than want.
+func buildAndRunProbe(t *testing.T, source []byte, want string) {
+	t.Helper()
 	dir := t.TempDir()
 	srcPath, binPath := filepath.Join(dir, "main.go"), filepath.Join(dir, "probe.exe")
-	if err := os.WriteFile(srcPath, source.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(srcPath, source, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command("go", "build", "-p=1", "-o", binPath, srcPath).CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	if out, err := exec.Command(binPath).CombinedOutput(); err != nil {
+	if out, err := exec.Command(binPath).CombinedOutput(); err != nil || string(out) != want {
 		t.Fatalf("run: %v\n%s", err, out)
 	}
 }
