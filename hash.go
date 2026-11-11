@@ -169,6 +169,9 @@ func appendFlags(w io.Writer, forBuildHash bool) {
 
 func buildidOf(path string) (string, error) {
 	cmd := exec.Command("go", "tool", "buildid", path)
+	// "go tool" may build cmd/buildid on demand for the host. Do not let
+	// the target's cgo compiler, experiments, or flags affect that build.
+	cmd.Env = append(cmd.Environ(), "GOOS=", "GOARCH=", "GOEXPERIMENT=", "GOFLAGS=", "CGO_ENABLED=", "CC=", "CXX=")
 	out, err := cmd.Output()
 	if err != nil {
 		if err, _ := err.(*exec.ExitError); err != nil {

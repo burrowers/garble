@@ -44,6 +44,26 @@ exec $NAME/garble$exe build
 [!windows] sleep $CP_EXEC_SLEEP
 [!windows] ! exec $NAME/garble$exe build
 [!windows] stderr 'cannot be quoted'
+
+# Reading a build ID must use the host environment, not the target's cgo
+# compiler. Use the real Go tool, which may build cmd/buildid on demand.
+# boringcrypto makes that host build use cgo on Linux; -race also exercises
+# this on macOS and Windows. Neither should affect the ID being read.
+go tool buildid $EXEC_PATH
+cp stdout buildid.stdout
+env GOOS=linux
+[!arm64] env GOARCH=arm64
+[arm64] env GOARCH=amd64
+env CGO_ENABLED=1
+env CC=target-cc-must-not-run
+env CXX=target-cxx-must-not-run
+env GOEXPERIMENT=boringcrypto
+exec buildid $EXEC_PATH
+cmp stdout buildid.stdout
+env GOFLAGS=-race
+exec buildid $EXEC_PATH
+cmp stdout buildid.stdout
+
 -- go.mod --
 module test/main
 
