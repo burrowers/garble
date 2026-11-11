@@ -11,7 +11,7 @@ import (
 )
 
 func TestSplitRoundTrip(t *testing.T) {
-	testDecoderRoundTrip(t, split{})
+	testDecoderRoundTrip(t, split{}, decoderProbeSizes)
 }
 
 func TestSplitRecordDecoder(t *testing.T) {
