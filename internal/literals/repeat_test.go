@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"go/types"
 	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -43,10 +44,11 @@ var callback = func() string { return "repeated literal secret" }
 			if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
 				t.Fatal(err)
 			}
-			originalCount := len(file.Decls)
+			before := slices.Clone(file.Decls)
 			Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
+			orig, generated := SplitDecls(file, before)
 			decoders, helpers := 0, 0
-			for _, decl := range file.Decls[originalCount:] {
+			for _, decl := range generated {
 				if fn, ok := decl.(*ast.FuncDecl); ok {
 					if strings.HasPrefix(fn.Name.Name, "literalDecoder") {
 						decoders++
@@ -65,7 +67,7 @@ var callback = func() string { return "repeated literal secret" }
 				t.Fatal(err)
 			}
 			claimed := make(map[string]string)
-			for _, decl := range file.Decls[:originalCount] {
+			for _, decl := range orig {
 				if gen, ok := decl.(*ast.GenDecl); ok {
 					if spec := gen.Specs[0].(*ast.ValueSpec); spec.Names[0].Name == "global" {
 						continue // The certified global calls its own factory directly.

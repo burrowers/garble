@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -52,7 +53,7 @@ func dead() string { return func() string { return "live literal secret" }() }
 		t.Fatal(err)
 	}
 	dead := file.Decls[1].(*ast.FuncDecl)
-	originalCount := len(file.Decls)
+	before := slices.Clone(file.Decls)
 	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
 	if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
 		t.Fatal(err)
@@ -60,16 +61,17 @@ func dead() string { return func() string { return "live literal secret" }() }
 	literals.Obfuscate(mathrand.New(mathrand.NewSource(1)), file, info, nil, nil, nil, func(r *mathrand.Rand, base string) string {
 		return fmt.Sprintf("%s%d", base, r.Uint64())
 	})
-	generated := make(map[string]ast.Node)
-	for _, decl := range file.Decls[originalCount:] {
+	decls := make(map[string]ast.Node)
+	_, generated := literals.SplitDecls(file, before)
+	for _, decl := range generated {
 		switch decl := decl.(type) {
 		case *ast.FuncDecl:
-			generated[decl.Name.Name] = decl
+			decls[decl.Name.Name] = decl
 		case *ast.GenDecl:
 			if decl.Tok == token.VAR {
 				for _, spec := range decl.Specs {
 					spec := spec.(*ast.ValueSpec)
-					generated[spec.Names[0].Name] = spec
+					decls[spec.Names[0].Name] = spec
 				}
 			}
 		}
@@ -81,7 +83,7 @@ func dead() string { return func() string { return "live literal secret" }() }
 	visit = func(node ast.Node) {
 		ast.Inspect(node, func(node ast.Node) bool {
 			if id, ok := node.(*ast.Ident); ok && !seen[id.Name] {
-				if decl := generated[id.Name]; decl != nil {
+				if decl := decls[id.Name]; decl != nil {
 					seen[id.Name] = true
 					if _, ok := decl.(*ast.FuncDecl); ok {
 						decoders = append(decoders, id.Name)

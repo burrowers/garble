@@ -10,6 +10,55 @@ import (
 	"testing"
 )
 
+func TestPackageRootsPrecedeInitializers(t *testing.T) {
+	// The first variable decodes a literal, the second only reads state the
+	// first one writes. Package initialization runs the earliest declared
+	// variable whose dependencies are ready, so a generated proxy root declared
+	// after the second variable would silently put the second one first and it
+	// would read the state before the first initializer wrote it.
+	const source = `package order
+var log []string
+var first = pick("an obfuscated literal payload")
+var second = len(log)
+func pick(v string) string { return v + log[0] }
+`
+	for _, obf := range Obfuscators {
+		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "order.go", source, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
+			if _, err := new(types.Config).Check("order", fset, []*ast.File{file}, info); err != nil {
+				t.Fatal(err)
+			}
+			old := testPkgToObfuscatorMap
+			testPkgToObfuscatorMap = map[string]obfuscator{"order": obf}
+			defer func() { testPkgToObfuscatorMap = old }()
+			file = Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string {
+				return fmt.Sprintf("hidden_%s_%x", base, r.Uint64())
+			})
+
+			transformed := &types.Info{}
+			if _, err := new(types.Config).Check("order", fset, []*ast.File{file}, transformed); err != nil {
+				t.Fatal(err)
+			}
+			var order []string
+			for _, init := range transformed.InitOrder {
+				name := init.Lhs[0].Name()
+				if name == "first" || name == "second" {
+					order = append(order, name)
+				}
+			}
+			want := []string{"first", "second"}
+			if fmt.Sprint(order) != fmt.Sprint(want) {
+				t.Fatalf("initialization order = %v, want %v", order, want)
+			}
+		})
+	}
+}
+
 func TestConstructorSummarySafety(t *testing.T) {
 	fs := token.NewFileSet()
 	file, err := parser.ParseFile(fs, "safety.go", `package safety
@@ -186,7 +235,14 @@ func effect() string { return "a user call is not pure" }
 				t.Fatal(err)
 			}
 			// len does not evaluate its operand, but late must still precede early.
-			if len(transformed.InitOrder) < 2 || transformed.InitOrder[0].Lhs[0].Name() != "late" || transformed.InitOrder[1].Lhs[0].Name() != "early" {
+			var userOrder []string
+			for _, init := range transformed.InitOrder {
+				name := init.Lhs[0].Name()
+				if name == "late" || name == "early" {
+					userOrder = append(userOrder, name)
+				}
+			}
+			if len(userOrder) != 2 || userOrder[0] != "late" || userOrder[1] != "early" {
 				t.Fatalf("unevaluated operand lost its init dependency: %v", transformed.InitOrder)
 			}
 			ast.Inspect(file, func(node ast.Node) bool {
