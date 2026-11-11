@@ -110,6 +110,8 @@ func addGarbleToHash(inputHash []byte) [sha256.Size]byte {
 		panic("missing binary content ID")
 	}
 	hasher.Write(sharedCache.BinaryContentID)
+	io.WriteString(hasher, " linkname-actions=")
+	hasher.Write(sharedCache.LinknameActionID[:])
 
 	// Include options which affect the build output in the hash.
 	appendFlags(hasher, true)

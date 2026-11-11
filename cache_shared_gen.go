@@ -590,9 +590,9 @@ func (z pkgRange) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 7
+	// map header, size 8
 	// string "ForwardBuildFlags"
-	o = append(o, 0x87, 0xb1, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x46, 0x6c, 0x61, 0x67, 0x73)
+	o = append(o, 0x88, 0xb1, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x46, 0x6c, 0x61, 0x67, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.ForwardBuildFlags)))
 	for za0001 := range z.ForwardBuildFlags {
 		o = msgp.AppendString(o, z.ForwardBuildFlags[za0001])
@@ -617,6 +617,9 @@ func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "BinaryContentID"
 	o = append(o, 0xaf, 0x42, 0x69, 0x6e, 0x61, 0x72, 0x79, 0x43, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x49, 0x44)
 	o = msgp.AppendBytes(o, z.BinaryContentID)
+	// string "LinknameActionID"
+	o = append(o, 0xb0, 0x4c, 0x69, 0x6e, 0x6b, 0x6e, 0x61, 0x6d, 0x65, 0x41, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x44)
+	o = msgp.AppendBytes(o, (z.LinknameActionID)[:])
 	// string "GoCmd"
 	o = append(o, 0xa5, 0x47, 0x6f, 0x43, 0x6d, 0x64)
 	o = msgp.AppendString(o, z.GoCmd)
@@ -713,6 +716,12 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "BinaryContentID")
 				return
 			}
+		case "LinknameActionID":
+			bts, err = msgp.ReadExactBytes(bts, (z.LinknameActionID)[:])
+			if err != nil {
+				err = msgp.WrapError(err, "LinknameActionID")
+				return
+			}
 		case "GoCmd":
 			z.GoCmd, bts, err = msgp.ReadStringBytes(bts)
 			if err != nil {
@@ -796,6 +805,6 @@ func (z *sharedCacheType) Msgsize() (s int) {
 	} else {
 		s += z.ListedPackages.Msgsize()
 	}
-	s += 16 + msgp.BytesPrefixSize + len(z.BinaryContentID) + 6 + msgp.StringPrefixSize + len(z.GoCmd) + 6 + 1 + 5 + msgp.StringPrefixSize + len(z.GoEnv.GOOS) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOARCH) + 10 + msgp.StringPrefixSize + len(z.GoEnv.GOVERSION) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOROOT) + 8 + msgp.StringPrefixSize + len(z.GoEnv.GOFLAGS)
+	s += 16 + msgp.BytesPrefixSize + len(z.BinaryContentID) + 17 + msgp.ArrayHeaderSize + (sha256.Size * (msgp.ByteSize)) + 6 + msgp.StringPrefixSize + len(z.GoCmd) + 6 + 1 + 5 + msgp.StringPrefixSize + len(z.GoEnv.GOOS) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOARCH) + 10 + msgp.StringPrefixSize + len(z.GoEnv.GOVERSION) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOROOT) + 8 + msgp.StringPrefixSize + len(z.GoEnv.GOFLAGS)
 	return
 }

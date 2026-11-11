@@ -16,9 +16,7 @@ exec garble build ./level1c
 
 # A foreign package's compiler flags must also invalidate the runtime's
 # outgoing linknames, even though it does not import that package.
-! exec garble build -gcflags=internal/godebug=-l
-stderr 'relocation target'
-stop # TODO: enable the successful build after fixing foreign naming dependencies
+exec garble build -gcflags=internal/godebug=-l
 exec ./main
 cmp stderr main.stderr
 
