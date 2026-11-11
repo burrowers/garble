@@ -248,3 +248,22 @@ func TestProxyOccupancy(t *testing.T) {
 		})
 	}
 }
+
+// SplitDecls separates the declarations the source had before obfuscation from
+// the ones generated into it, so a test does not depend on where the generated
+// declarations are placed in the file. It is exported for the external test
+// package.
+func SplitDecls(file *ast.File, before []ast.Decl) (orig, generated []ast.Decl) {
+	src := make(map[ast.Decl]bool, len(before))
+	for _, decl := range before {
+		src[decl] = true
+	}
+	for _, decl := range file.Decls {
+		if src[decl] {
+			orig = append(orig, decl)
+		} else {
+			generated = append(generated, decl)
+		}
+	}
+	return orig, generated
+}

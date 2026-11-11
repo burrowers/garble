@@ -243,6 +243,28 @@ func (d *proxyDispatcher) AddToFile(file *ast.File) {
 	d.addToFile(file, false)
 }
 
+// pinGenerated positions generated code at pos so the printer cannot flush a
+// pending directive comment into it, and cannot read a position from a node
+// which has none.
+func pinGenerated(node ast.Node, pos token.Pos) {
+	if pos == token.NoPos {
+		return
+	}
+	withPos(node, pos)
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.StructType:
+			n.Fields.Opening, n.Fields.Closing = pos, pos
+		case *ast.KeyValueExpr:
+			n.Colon = pos
+		case *ast.FuncLit:
+			n.Type.Func = pos
+			n.Body.Lbrace, n.Body.Rbrace = pos, pos
+		}
+		return true
+	})
+}
+
 func (d *proxyDispatcher) addToFile(file *ast.File, local bool) {
 	if len(d.roots) == 0 {
 		return

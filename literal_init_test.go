@@ -25,6 +25,11 @@ import (
 )
 
 // Check both the global and its factory; normal Garble binaries have no nm symbols.
+// checkLiteralInitReachability reports whether the given globals, by position
+// among the initializers that call a factory, are reachable in the linker's
+// dependency dump. Generated proxy roots are package-level variables too, but
+// their initializer is a composite literal, so they are skipped rather than
+// shifting the positions of the source globals.
 func checkLiteralInitReachability(t interface{ Fatalf(string, ...any) }, source string, output []byte, indices []int, retained func(int) bool) {
 	symbols := make(map[string]bool)
 	for line := range strings.SplitSeq(string(output), "\n") {
@@ -44,7 +49,13 @@ func checkLiteralInitReachability(t interface{ Fatalf(string, ...any) }, source 
 	for _, decl := range file.Decls {
 		if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == token.VAR {
 			for _, spec := range decl.Specs {
-				globals = append(globals, spec.(*ast.ValueSpec))
+				spec := spec.(*ast.ValueSpec)
+				if len(spec.Values) == 1 {
+					if _, generated := ast.Unparen(spec.Values[0]).(*ast.CompositeLit); generated {
+						continue
+					}
+				}
+				globals = append(globals, spec)
 			}
 		}
 	}

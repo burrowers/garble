@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"go/types"
 	mathrand "math/rand"
+	"slices"
 	"strconv"
 	"unicode/utf8"
 
@@ -301,10 +302,42 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 
 	newFile := astutil.Apply(file, pre, post).(*ast.File)
 	newFile.Decls = append(newFile.Decls, or.liftedFuncs...)
+	// A proxy root declares package-level state, and a package-level
+	// initializer that decodes a literal depends on it. Initialization runs
+	// the earliest declared variable whose dependencies are ready, so a root
+	// declared after the user variables defers the initializer that needs it
+	// behind the later variables which read the side effect it writes. All
+	// roots are therefore declared ahead of the first variable of this file.
+	roots := &ast.File{}
 	for _, dispatcher := range dispatchers {
-		dispatcher.AddToFile(newFile)
+		dispatcher.AddToFile(roots)
+	}
+	if len(roots.Decls) > 0 {
+		pos := declGapPos(newFile)
+		for _, decl := range roots.Decls {
+			pinGenerated(decl, pos)
+		}
+		first := 0
+		for first < len(newFile.Decls) {
+			if decl, ok := newFile.Decls[first].(*ast.GenDecl); ok && decl.Tok == token.IMPORT {
+				first++
+				continue
+			}
+			break
+		}
+		newFile.Decls = slices.Insert(newFile.Decls, first, roots.Decls...)
 	}
 	return newFile, globalInits
+}
+
+// declGapPos reports a position between the last import and the first
+// declaration, so a generated declaration pinned to it is printed after the
+// imports and before any declaration of the original source.
+func declGapPos(file *ast.File) token.Pos {
+	if n := len(file.Imports); n > 0 {
+		return file.Imports[n-1].End()
+	}
+	return file.Name.End()
 }
 
 // skipLiteralInit reports whether any name declared by spec must keep a static

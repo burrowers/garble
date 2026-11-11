@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	originalCount := len(file.Decls)
+	before := slices.Clone(file.Decls)
 	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
 	if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
 		t.Fatal(err)
@@ -70,7 +71,8 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 	})
 
 	owners := make(map[string]string)
-	for _, decl := range file.Decls[:originalCount] {
+	orig, generated := literals.SplitDecls(file, before)
+	for _, decl := range orig {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || (fn.Name.Name != "values" && !strings.HasPrefix(fn.Name.Name, "owner")) {
 			continue
@@ -109,7 +111,7 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 
 	starts := make(map[string]bool)
 	decoders := 0
-	for _, decl := range file.Decls[originalCount:] {
+	for _, decl := range generated {
 		if fn, ok := decl.(*ast.FuncDecl); ok && strings.HasPrefix(fn.Name.Name, "literalDecoder") {
 			decoders++
 			name := fn.Body.List[0].(*ast.AssignStmt).Lhs[0].(*ast.Ident).Name

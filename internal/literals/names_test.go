@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -77,7 +78,7 @@ func init() { global += "init literal secret" }
 				t.Fatal(err)
 			}
 			liftedNames := make(map[string]bool)
-			originalCount := len(file.Decls)
+			before := slices.Clone(file.Decls)
 			Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string {
 				if strings.HasPrefix(base, "literalDecoder") || strings.HasPrefix(base, "literalHelper") {
 					if liftedNames[base] {
@@ -92,23 +93,26 @@ func init() { global += "init literal secret" }
 			if _, err := new(types.Config).Check("owners", fset, []*ast.File{file}, nil); err != nil {
 				t.Fatal(err)
 			}
+			orig, generated := SplitDecls(file, before)
 			decls := make(map[string]ast.Node)
 			var owners []*ast.FuncDecl
-			for i, decl := range file.Decls {
+			for _, decl := range orig {
+				if fn, ok := decl.(*ast.FuncDecl); ok {
+					owners = append(owners, fn)
+				}
+			}
+			for _, decl := range generated {
 				switch decl := decl.(type) {
 				case *ast.FuncDecl:
-					if i < originalCount {
-						owners = append(owners, decl)
-					} else {
-						decls[decl.Name.Name] = decl
-					}
+					decls[decl.Name.Name] = decl
 				case *ast.GenDecl:
-					if i >= originalCount && decl.Tok == token.VAR {
-						for _, spec := range decl.Specs {
-							spec := spec.(*ast.ValueSpec)
-							for _, name := range spec.Names {
-								decls[name.Name] = spec
-							}
+					if decl.Tok != token.VAR {
+						continue
+					}
+					for _, spec := range decl.Specs {
+						spec := spec.(*ast.ValueSpec)
+						for _, name := range spec.Names {
+							decls[name.Name] = spec
 						}
 					}
 				}

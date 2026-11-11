@@ -144,6 +144,17 @@ var unusedEffect = literalGlobalFactory()
 var mixedConstant, mixedEffect = "a mixed constant initializer", literalGlobalFactory()
 var _ = literalGlobalFactory()
 
+// A decoder root declared after this variable would defer its initializer
+// behind the reader below, which would then observe an unwritten slice.
+var orderLog []string
+var orderFirst = recordOrder("first initializer literal payload")
+var orderSecond = len(orderLog) == 1
+
+func recordOrder(v string) string {
+	orderLog = append(orderLog, v)
+	return v
+}
+
 func observeScheduled() string {
 	if dependency != "initialized before its dependent" {
 		panic("literal dependency scheduling changed")
@@ -181,6 +192,9 @@ func init() {
 	}
 	if initEvents != 7 || scheduled != dependency || mixedConstant != "a mixed constant initializer" || mixedEffect != userFactory {
 		panic("literal initializer side effects changed")
+	}
+	if !orderSecond || orderFirst != "first initializer literal payload" || len(orderLog) != 1 {
+		panic("literal initializer order changed")
 	}
 	if !mapScheduled || literalMapAddress != &literalMap || (*literalMapAddress)["an eagerly initialized map key"] != 'x' {
 		panic("map address or eager initialization changed")
