@@ -602,6 +602,10 @@ This command wraps "go %s". Below is its help:
 		return nil, listErr
 	}
 
+	// Foreign linkname targets are naming dependencies even when Go does not
+	// import them. Hash their original identities before computing ours.
+	sharedCache.LinknameActionID = linknameActionID()
+
 	// Now that we have both halves, hash each package's action ID with ours.
 	for _, lpkg := range sharedCache.ListedPackages.all() {
 		if lpkg.BuildID != "" {

@@ -58,6 +58,10 @@ type sharedCacheType struct {
 	// or committed is to use its content ID from the build cache.
 	BinaryContentID []byte
 
+	// LinknameActionID covers naming dependencies absent from Go's import graph,
+	// such as the packages whose runtime hooks are defined by outgoing linknames.
+	LinknameActionID [sha256.Size]byte
+
 	// GoCmd is [GoEnv.GOROOT]/bin/go, so that we run exactly the same version
 	// of the Go tool that the original "go build" invocation did.
 	GoCmd string
@@ -580,6 +584,39 @@ func linknamedToList() []string {
 // go list generates for a test binary, rather than a package on disk.
 func isSynthesizedTestMain(lpkg listedPackage) bool {
 	return lpkg.Name == "main" && lpkg.ForTest == "" && strings.HasSuffix(lpkg.ImportPath, ".test")
+}
+
+// linknameActionID hashes original Go action IDs, before Garble adds its own
+// inputs. A runtime object can name foreign packages without importing them;
+// their compile flags must invalidate that object even when Go reuses runtime's
+// ordinary action ID. Restrict this to the registry so application edits do not
+// invalidate unrelated standard-library objects.
+func linknameActionID() [sha256.Size]byte {
+	h := sha256.New()
+	for _, path := range slices.Sorted(maps.Keys(runtimeAndLinknamed)) {
+		pkg, _ := sharedCache.ListedPackages.get(path)
+		if strings.HasSuffix(path, "_test") {
+			pkg = listedTestVariant(path)
+			if pkg != nil {
+				// Presence changes runtime's linkname output even if namingPackage
+				// selects an empty plain-path placeholder. The variant's own action
+				// ID does not name symbols; hash only its presence before canonicalizing.
+				fmt.Fprintf(h, "external-test=%q\n", path)
+			}
+		}
+		if pkg == nil {
+			continue
+		}
+		pkg = pkg.namingPackage()
+		if pkg.BuildID == "" {
+			continue // unavailable or build-constrained package
+		}
+		fmt.Fprintf(h, "%q ", pkg.ImportPath)
+		h.Write(decodeBuildIDHash(splitActionID(pkg.BuildID)))
+	}
+	var sum [sha256.Size]byte
+	h.Sum(sum[:0])
+	return sum
 }
 
 // appendListedPackages gets information about the current package
