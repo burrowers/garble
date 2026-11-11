@@ -14,7 +14,11 @@ rm garble-cache
 # level1c has the garble build cached with all files available.
 exec garble build ./level1c
 
-exec garble build
+# A foreign package's compiler flags must also invalidate the runtime's
+# outgoing linknames, even though it does not import that package.
+! exec garble build -gcflags=internal/godebug=-l
+stderr 'relocation target'
+stop # TODO: enable the successful build after fixing foreign naming dependencies
 exec ./main
 cmp stderr main.stderr
 
@@ -65,11 +69,17 @@ var Value = "1a/2y"
 package level1b
 
 import (
+	"crypto/rand"
+
 	"test/main/level1b/level2x"
 	"test/main/level1b/level2y"
 )
 
-func Print() { println(level2x.Value, level2y.Value) }
+func Print() {
+	var b [1]byte
+	rand.Read(b[:])
+	println(level2x.Value, level2y.Value)
+}
 
 -- level1b/level2x/pkg.go --
 package level2x
