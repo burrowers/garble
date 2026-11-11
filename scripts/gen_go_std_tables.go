@@ -31,19 +31,6 @@ type goPlatform struct {
 	Priority     int // smaller wins when deduplicating
 }
 
-func (p goPlatform) String() string {
-	return fmt.Sprintf("%s/%s", p.GOOS, p.GOARCH)
-}
-
-// Cover the three main OSes, WASI, and a variety of x86/Arm and 64/32 bit
-// platforms when calling `go list` commands to ensure we find all relevant
-// packages.
-var goPlatforms = []goPlatform{
-	{"linux", "amd64", 1},
-	{"darwin", "arm64", 2},
-	{"windows", "386", 3},
-	{"wasip1", "wasm", 4},
-}
 var goVersions = []string{"go1.27.0"}
 
 var tmplTables = template.Must(template.New("").Parse(`
@@ -168,19 +155,6 @@ func readFile(path string) string {
 		panic(err)
 	}
 	return string(data)
-}
-
-func lines(vs versionedString) []versionedString {
-	split := strings.Split(vs.String, "\n")
-	var versioned []versionedString
-	for _, s := range split {
-		versioned = append(versioned, versionedString{
-			String:        s,
-			GoVersionLang: vs.GoVersionLang,
-			Platform:      vs.Platform,
-		})
-	}
-	return versioned
 }
 
 var rxLinkname = regexp.MustCompile(`^//go:linkname .* ([^.]*)\.[^.]*$`)
