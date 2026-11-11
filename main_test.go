@@ -49,6 +49,18 @@ func TestMain(m *testing.M) {
 	}
 	testscript.Main(garbleMain{m}, map[string]func(){
 		"garble": main,
+		"buildid": func() {
+			if len(os.Args) != 2 {
+				fmt.Fprintln(os.Stderr, "usage: buildid path")
+				os.Exit(2)
+			}
+			id, err := buildidOf(os.Args[1])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			fmt.Print(id)
+		},
 	})
 }
 
