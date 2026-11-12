@@ -1,0 +1,37 @@
+name: imports cache trace
+on:
+  push:
+    branches: [ci/imports-cache-trace]
+permissions:
+  contents: read
+jobs:
+  trace:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [namespace-profile-linux, namespace-profile-macos]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: namespacelabs/nscloud-checkout-action@v9
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.x
+          cache: false
+      - uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          cache: go
+      - name: trace cache identities without removing cache assertions
+        shell: bash
+        run: |
+          export CACHE_TRACE_BIN="$GITHUB_WORKSPACE/.github/scripts/cache-trace"
+          export CACHE_TRACE_REAL_GO="$(command -v go)"
+          export CACHE_TRACE_DIR="$RUNNER_TEMP/cache-trace"
+          go test -count=3 -timeout=20m ./...
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cache-trace-${{ matrix.os }}
+          path: ${{ runner.temp }}/cache-trace
+          if-no-files-found: error
+          retention-days: 7

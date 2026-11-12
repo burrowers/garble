@@ -134,6 +134,12 @@ func TestScript(t *testing.T) {
 				// GOCACHE is initialized by gotooltest to use the host's cache.
 				env.Setenv("GARBLE_CACHE", filepath.Join(hostCacheDir, "garble"))
 			}
+			if bin := os.Getenv("CACHE_TRACE_BIN"); bin != "" {
+				env.Setenv("PATH", bin+string(os.PathListSeparator)+env.Getenv("PATH"))
+				for _, name := range []string{"CACHE_TRACE_REAL_GO", "CACHE_TRACE_DIR"} {
+					env.Setenv(name, os.Getenv(name))
+				}
+			}
 			return nil
 		},
 		// TODO: this condition should probably be supported by gotooltest

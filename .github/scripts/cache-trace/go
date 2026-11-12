@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+
+args = sys.argv[1:]
+real_go = os.environ["CACHE_TRACE_REAL_GO"]
+if not args or args[0] != "build" or not any(a.startswith("-toolexec=") for a in args):
+    os.execv(real_go, [real_go, *args])
+
+directory = Path(os.environ["CACHE_TRACE_DIR"])
+directory.mkdir(parents=True, exist_ok=True)
+identity = str(os.getpid())
+cache = Path(os.environ["GOCACHE"])
+env = os.environ.copy()
+env["GODEBUG"] = env.get("GODEBUG", "") + ",gocachehash=1"
+pattern = re.compile(rb"HASH\[build (.+)\]: ([0-9a-f]{64})\s*$")
+seen = []
+
+def entry(action):
+    path = cache / action[:2] / (action + "-a")
+    result = {"path": str(path)}
+    try:
+        text = path.read_text()
+        result["index"] = text
+        fields = text.split()
+        output = fields[2]
+        output_path = cache / output[:2] / (output + "-d")
+        result["output_path"] = str(output_path)
+        result["output_size"] = output_path.stat().st_size
+    except (OSError, IndexError, UnicodeError) as error:
+        result["error"] = repr(error)
+    return result
+
+with (directory / (identity + ".events")).open("w") as events, (directory / (identity + ".trace")).open("wb") as trace:
+    def event(value):
+        events.write(json.dumps({"time_ns": time.time_ns(), **value}) + "\n")
+        events.flush()
+
+    event({"cwd": os.getcwd(), "args": args, "cache": str(cache)})
+    process = subprocess.Popen([real_go, *args], env=env, stderr=subprocess.PIPE)
+    for line in process.stderr:
+        trace.write(line)
+        match = pattern.match(line)
+        if match:
+            package, action = (part.decode() for part in match.groups())
+            seen.append((package, action))
+            event({"phase": "lookup", "package": package, "action": action, **entry(action)})
+        if not line.startswith(b"HASH"):
+            sys.stderr.buffer.write(line)
+            sys.stderr.buffer.flush()
+    result = process.wait()
+    for package, action in seen:
+        event({"phase": "after", "package": package, "action": action, **entry(action)})
+    event({"exit_code": result})
+sys.exit(result)
