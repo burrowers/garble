@@ -602,6 +602,15 @@ This command wraps "go %s". Below is its help:
 		return nil, listErr
 	}
 
+	// A //go:linkname target which names the main package cannot be hashed with
+	// that package's identity, as main never imports the referring package.
+	// Find those names before the build so main keeps them plaintext.
+	targets, err := mainLinknameTargets()
+	if err != nil {
+		return nil, err
+	}
+	sharedCache.MainLinknameTargets = targets
+
 	// Foreign linkname targets are naming dependencies even when Go does not
 	// import them. Hash their original identities before computing ours.
 	sharedCache.LinknameActionID = linknameActionID()
