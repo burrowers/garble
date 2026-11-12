@@ -146,45 +146,33 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	}
 	printedFile := fset.File(printed.Pos())
 	callPositions := make(map[int]token.Position, len(origCallPositions))
-	callIndex := 0
-	for node := range ast.Preorder(printed) {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			continue
-		}
-		if callIndex < len(origCallPositions) && call.Lparen.IsValid() {
-			if origPos := origCallPositions[callIndex]; origPos.IsValid() {
-				callPositions[printedFile.Offset(call.Lparen)] = origPos
-			}
-		}
-		callIndex++
-	}
 	stmtPositions := make(map[int]token.Position, len(origStmtPositions))
-	stmtIndex := 0
-	for node := range ast.Preorder(printed) {
-		stmt, ok := node.(ast.Stmt)
-		if !ok {
-			continue
+	// record maps the printed position of the node visited at index back to
+	// its original position, when both are known.
+	record := func(dst map[int]token.Position, orig []token.Position, index int, printedPos token.Pos) {
+		if index >= len(orig) || !printedPos.IsValid() {
+			return
 		}
-		if stmtIndex < len(origStmtPositions) && stmt.Pos().IsValid() {
-			if origPos := origStmtPositions[stmtIndex]; origPos.IsValid() {
-				stmtPositions[printedFile.Offset(stmt.Pos())] = origPos
-			}
+		if origPos := orig[index]; origPos.IsValid() {
+			dst[printedFile.Offset(printedPos)] = origPos
 		}
-		stmtIndex++
 	}
-	blockIndex := 0
+	callIndex, stmtIndex, blockIndex := 0, 0, 0
 	for node := range ast.Preorder(printed) {
-		block, ok := node.(*ast.BlockStmt)
-		if !ok {
-			continue
-		}
-		if blockIndex < len(origBlockEnds) && block.Rbrace.IsValid() {
-			if origPos := origBlockEnds[blockIndex]; origPos.IsValid() {
-				stmtPositions[printedFile.Offset(block.Rbrace)] = origPos
+		switch node := node.(type) {
+		case *ast.CallExpr:
+			record(callPositions, origCallPositions, callIndex, node.Lparen)
+			callIndex++
+		case ast.Stmt:
+			record(stmtPositions, origStmtPositions, stmtIndex, node.Pos())
+			stmtIndex++
+			// A block's closing brace belongs to the block's own statement
+			// visit, so it keeps its own index alongside the statement one.
+			if block, ok := node.(*ast.BlockStmt); ok {
+				record(stmtPositions, origBlockEnds, blockIndex, block.Rbrace)
+				blockIndex++
 			}
 		}
-		blockIndex++
 	}
 
 	copied := 0
