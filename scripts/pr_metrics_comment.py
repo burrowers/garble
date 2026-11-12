@@ -9,6 +9,8 @@ import math
 import zipfile
 import re
 import statistics
+import sys
+from decimal import Decimal
 import os
 from pathlib import Path
 import subprocess
@@ -35,9 +37,11 @@ def validate(data):
         if not isinstance(value, dict) or set(value) != set(expected):
             raise ValueError("unexpected metrics fields")
 
-    keys(data, ("schema", "base_sha", "head_sha", "go_version", "seed", "samples", "modes"))
-    if type(data["schema"]) is not int or data["schema"] != 1:
+    keys(data, ("schema", "base_sha", "head_sha", "go_version", "seed", "samples", "workload", "modes"))
+    if type(data["schema"]) is not int or data["schema"] != 2:
         raise ValueError("unsupported schema")
+    if data["workload"] != "mvdan.cc/sh/v3/cmd/shfmt@v3.11.0":
+        raise ValueError("unexpected workload")
     for field in ("base_sha", "head_sha"):
         if not isinstance(data[field], str) or not re.fullmatch(r"[0-9a-f]{40}", data[field]):
             raise ValueError("invalid revision")
@@ -49,32 +53,60 @@ def validate(data):
     for mode in MODES:
         keys(data["modes"][mode], ("base", "head"))
         for measurements in data["modes"][mode].values():
-            keys(measurements, ("seconds", "bytes"))
+            keys(measurements, ("seconds", "cpu_seconds", "bytes",
+                                "garble_allocs", "garble_alloc_bytes", "compiler_allocs",
+                                "compiler_alloc_bytes", "linker_allocs", "linker_alloc_bytes",
+                                "garble_processes", "compiler_processes", "linker_processes"))
             for metric, values in measurements.items():
                 if not isinstance(values, list) or len(values) != data["samples"]:
                     raise ValueError("incomplete samples")
+                timing = metric in ("seconds", "cpu_seconds")
+                limit = (sys.float_info.max if timing else 1_000_000_000 if metric == "bytes"
+                         else 100_000 if metric.endswith("_processes") else 10**15)
                 for value in values:
-                    valid_type = type(value) in (int, float) if metric == "seconds" else type(value) is int
-                    limit = 3600 if metric == "seconds" else 1_000_000_000
-                    minimum = 0.000001 if metric == "seconds" else 1
+                    valid_type = type(value) in (int, float) if timing else type(value) is int
+                    minimum = 0.000001 if timing else 1
                     if not valid_type or not minimum <= value <= limit or not math.isfinite(value):
                         raise ValueError("invalid metric")
 
 
+def format_cost(value, *, cpu=False, signed=False):
+    sign = "+" if signed else ""
+    if cpu:
+        return f"{value:{sign},.2f}"
+    for scale, suffix in ((10**15, "P"), (10**12, "T"), (10**9, "G"), (10**6, "M")):
+        if abs(value) >= scale:
+            return f"{value / scale:{sign}.2f}{suffix}"
+    precision = 0 if value == int(value) else 1
+    return f"{value:{sign},.{precision}f}"
+
+
 def render(data, run_url):
     validate(data)
-    lines = [MARKER, "### Build cost", "",
-             "| Mode | Binary B (base → PR) | Δ B | Cold build (base → PR) | Δ |",
+    lines = [MARKER, "### Build cost · shfmt v3.11.0 · PR (Δ vs base)", "",
+             "| Mode | Binary B | CPU s | Allocs (G+C+L) | Alloc B (G+C+L) |",
              "|---|---:|---:|---:|---:|"]
     for mode in MODES:
-        base, head = (data["modes"][mode][rev] for rev in ("base", "head"))
-        before, after = (statistics.median(item["bytes"]) for item in (base, head))
-        old_time, new_time = (statistics.median(item["seconds"]) for item in (base, head))
-        lines.append(
-            f"| {mode} | {before:,.0f} → {after:,.0f} | {after-before:+.0f} ({(after/before-1)*100:+.2f}%) "
-            f"| {old_time:.2f} → {new_time:.2f} s | {new_time-old_time:+.2f} s ({(new_time/old_time-1)*100:+.2f}%) |")
+        costs = []
+        for rev in ("base", "head"):
+            measurements = data["modes"][mode][rev]
+            # Decimal keeps even-sample medians and percentage deltas finite at the timing bounds.
+            cpu = [Decimal(str(value)) for value in measurements["cpu_seconds"]]
+            values = [statistics.median(measurements["bytes"]), statistics.median(cpu)]
+            for metric in ("allocs", "alloc_bytes"):
+                totals = [sum(measurements[f"{group}_{metric}"][sample]
+                              for group in ("garble", "compiler", "linker"))
+                          for sample in range(data["samples"])]
+                values.append(statistics.median(totals))
+            costs.append(values)
+        cells = []
+        for before, after, cpu in zip(*costs, (False, True, False, False)):
+            value = format_cost(after, cpu=cpu)
+            delta = format_cost(after-before, cpu=cpu, signed=True)
+            cells.append(f"{value} ({delta}; {(after-before)/before*100:+.2f}%)")
+        lines.append(f"| {mode} | " + " | ".join(cells) + " |")
     samples = "1 cold sample/mode" if data["samples"] == 1 else f"median of {data['samples']} cold samples/mode"
-    lines += ["", f"*Informational · {samples} · noisy timings · [Details]({run_url})*"]
+    lines += ["", f"*Informational · {samples} · allocations: Garble+compiler+linker · [Details]({run_url})*"]
     return "\n".join(lines)
 
 

@@ -27,14 +27,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class ProbeTests(unittest.TestCase):
-    def test_trusted_http_json_probe(self):
+    def test_trusted_pinned_shfmt_workload(self):
         probe = ROOT / "testdata/pr-metrics"
-        self.assertTrue((probe / "go.mod").is_file(), "missing trusted probe module")
-        self.assertEqual((probe / "go.mod").read_text(), "module example.com/sizeprobe\n\ngo 1.27\n")
-        source = (probe / "main.go").read_text()
-        for text in ('"encoding/json"', '"net/http"', '"net/http/httptest"',
-                     '"literal-obfuscation-http-probe"', 'println('):
-            self.assertIn(text, source)
+        self.assertIn("mvdan.cc/sh/v3 v3.11.0", (probe / "go.mod").read_text())
+        self.assertIn("mvdan.cc/sh/v3 v3.11.0 h1:", (probe / "go.sum").read_text())
+        self.assertTrue((probe / "input.sh").read_bytes())
+        self.assertTrue((probe / "expected.sh").read_bytes())
+        self.assertEqual(load_collector().WORKLOAD, "mvdan.cc/sh/v3/cmd/shfmt@v3.11.0")
 
 
 class EnvironmentTests(unittest.TestCase):
@@ -56,100 +55,90 @@ class EnvironmentTests(unittest.TestCase):
 
 
 class MeasurementTests(unittest.TestCase):
-    def test_command_failures_propagate_without_leaving_caches(self):
+    def test_times_only_workload_and_counts_all_three_process_groups(self):
         metrics = load_collector()
-        for fail_build in (True, False):
-            with self.subTest(fail_build=fail_build), tempfile.TemporaryDirectory() as directory:
-                root = pathlib.Path(directory)
-                probe = root / "probe"
-                probe.mkdir()
-                shared = root / "shared"
-                shared.mkdir()
-                sentinel = shared / "keep"
-                sentinel.write_text("shared cache")
-                caches = []
-                ticks = iter([1.0, 2.0])
-                def runner(command, *, cwd, env):
-                    if len(command) > 1:
-                        caches.extend(pathlib.Path(env[key]) for key in ("GOCACHE", "GARBLE_CACHE"))
-                        for cache in caches:
-                            (cache / "entry").write_text("sample cache")
-                        (probe / "program").write_bytes(b"test executable")
-                        if not fail_build:
-                            return b""
-                    raise RuntimeError("command failed")
-                with self.assertRaisesRegex(RuntimeError, "command failed"):
-                    metrics.measure("/tools/garble", [], probe, root,
-                                    {"GOCACHE": str(shared)}, runner, lambda: next(ticks))
-                self.assertTrue(all(not path.exists() for path in caches))
-                self.assertFalse((probe / "program").exists())
-                self.assertEqual(sentinel.read_text(), "shared cache")
-
-    def test_rejects_invalid_sample_data_and_cleans_up(self):
-        metrics = load_collector()
-        for output, size, elapsed in ((b"wrong output", 1, 1.0),
-                                      (metrics.EXPECTED, 0, 1.0),
-                                      (metrics.EXPECTED, 1, 0.0),
-                                      (metrics.EXPECTED, 1, float("inf")),
-                                      (metrics.EXPECTED, 1, float("nan"))):
-            with self.subTest(output=output, size=size, elapsed=elapsed):
-                with tempfile.TemporaryDirectory() as directory:
-                    root = pathlib.Path(directory)
-                    probe = root / "probe"
-                    probe.mkdir()
-                    ticks = iter([0.0, elapsed])
-                    def runner(command, *, cwd, env):
-                        if len(command) > 1:
-                            (probe / "program").write_bytes(b"x" * size)
-                            return b""
-                        return output
-                    with self.assertRaisesRegex(ValueError, "output|size|elapsed"):
-                        metrics.measure("/tools/garble", [], probe, root, {}, runner,
-                                        lambda: next(ticks))
-                    self.assertEqual(list(root.iterdir()), [probe])
-                    self.assertEqual(list(probe.iterdir()), [])
-
-    def test_times_only_build_with_private_caches_and_checks_executable(self):
-        metrics = load_collector()
-        self.assertTrue(hasattr(metrics, "measure"), "missing sample measurement")
-        calls = []
-        ticks = iter([10.0, 12.5])
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             probe = root / "probe"
             probe.mkdir()
+            tools = root / "prepared"
+            tools.mkdir()
+            (tools / "compile-test").write_text("prepared instrumented tool")
+            calls = []
             def runner(command, *, cwd, env):
-                calls.append((command, cwd, env.copy()))
-                for key in ("GOCACHE", "GARBLE_CACHE", "TMPDIR"):
-                    self.assertTrue(pathlib.Path(env[key]).is_dir())
-                    self.assertTrue(pathlib.Path(env[key]).is_relative_to(root))
-                    self.assertFalse(list(pathlib.Path(env[key]).iterdir()))
-                if len(calls) == 1:
-                    self.assertEqual(command, ["/tools/garble", "-tiny", "-literals",
-                                               "-seed=YWJjZGVmZ2g=", "build", "-trimpath",
-                                               "-o", str(probe / "program"), "."])
+                calls.append((command, env.copy()))
+                if "build" in command:
+                    self.assertEqual(command[-1], metrics.PACKAGE)
+                    self.assertIn("-mod=readonly", command)
+                    self.assertEqual(env["GOPROXY"], "off")
+                    self.assertEqual(env["GOSUMDB"], "off")
+                    self.assertEqual(list(pathlib.Path(env["GOCACHE"]).iterdir()), [])
+                    copied = pathlib.Path(env["GARBLE_CACHE"]) / "tool/compile-test"
+                    self.assertEqual(copied.read_text(), "prepared instrumented tool")
+                    self.assertFalse((pathlib.Path(env["GARBLE_CACHE"]) / "build").exists())
+                    for kind in ("garble", "compile", "link"):
+                        (pathlib.Path(env["GARBLE_WRITE_ALLOCS"]) / f"{kind}-allocs-1.txt").write_text("10 100\n")
                     (probe / "program").write_bytes(b"test executable")
                     return b""
-                self.assertEqual(command, [str(probe / "program")])
-                return b'200 application/json {"message":"literal-obfuscation-http-probe"}\n\n'
-            result = metrics.measure("/tools/garble", ["-tiny", "-literals"], probe,
-                                     root, {"GOCACHE": "/shared"}, runner, lambda: next(ticks))
-            self.assertEqual(result, (2.5, 15))
+                self.assertEqual(command, [str(probe / "program"), "input.sh"])
+                self.assertNotIn("GARBLE_WRITE_ALLOCS", env)
+                return metrics.EXPECTED
+            ticks = iter([10.0, 12.5])
+            usage = iter([(1.0, 2.0), (4.0, 3.0)])
+            result = metrics.measure("/tools/garble", ["-literals"], probe, root, {}, runner,
+                                     lambda: next(ticks), tool_cache=tools, usage=lambda: next(usage))
+            self.assertEqual(result["seconds"], 2.5)
+            self.assertEqual(result["cpu_seconds"], 4.0)
+            self.assertEqual(result["bytes"], len(b"test executable"))
+            for group in ("garble", "compiler", "linker"):
+                self.assertEqual(result[f"{group}_allocs"], 10)
+                self.assertEqual(result[f"{group}_alloc_bytes"], 100)
+                self.assertEqual(result[f"{group}_processes"], 1)
             self.assertEqual(len(calls), 2)
-            self.assertEqual(calls[0][1], probe)
-            self.assertEqual(calls[1][1], probe)
-            self.assertNotEqual(calls[0][2]["GOCACHE"], "/shared")
-            self.assertNotEqual(calls[0][2]["GOCACHE"], calls[0][2]["GARBLE_CACHE"])
-            for key in ("GOCACHE", "GARBLE_CACHE", "TMPDIR"):
-                self.assertFalse(pathlib.Path(calls[0][2][key]).exists())
             self.assertFalse((probe / "program").exists())
+            self.assertEqual(sorted(p.name for p in root.iterdir()), ["prepared", "probe"])
+            self.assertEqual((tools / "compile-test").read_text(), "prepared instrumented tool")
+
+    def test_failed_or_incomplete_measurements_clean_up_without_a_result(self):
+        metrics = load_collector()
+        for failure in ("build", "execute", "output", "records", "time", "cpu", "size"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                probe = root / "probe"
+                probe.mkdir()
+                def runner(command, *, cwd, env):
+                    if "build" in command:
+                        if failure == "build":
+                            raise RuntimeError("build failed")
+                        (probe / "program").write_bytes(b"" if failure == "size" else b"exe")
+                        for kind in ("garble", "compile", "link"):
+                            if failure != "records" or kind != "link":
+                                (pathlib.Path(env["GARBLE_WRITE_ALLOCS"]) / f"{kind}-allocs-1.txt").write_text("10 100\n")
+                        return b""
+                    if failure == "execute":
+                        raise RuntimeError("execution failed")
+                    return b"wrong" if failure == "output" else metrics.EXPECTED
+                ticks = iter([0.0, float("nan") if failure == "time" else 1.0])
+                values = iter([(0, 0), (float("inf") if failure == "cpu" else 1.0, 0)])
+                with self.assertRaises((RuntimeError, ValueError)):
+                    metrics.measure("/tools/garble", [], probe, root, {}, runner,
+                                    lambda: next(ticks), usage=lambda: next(values))
+                self.assertEqual(list(root.iterdir()), [probe])
+                self.assertEqual(list(probe.iterdir()), [])
 
 
 class CollectorTests(unittest.TestCase):
+    def test_rejects_invalid_sample_count_before_building(self):
+        metrics = load_collector()
+        def unexpected(*args, **kwargs):
+            self.fail("invalid sample count invoked a command")
+        for samples in (0, -1, True, 1.5, "3"):
+            with self.subTest(samples=samples), self.assertRaisesRegex(ValueError, "samples"):
+                metrics.collect(ROOT, ROOT, samples, runner=unexpected, clock=unexpected)
+
     def test_rejects_invalid_revision_or_go_metadata_before_building(self):
         metrics = load_collector()
-        for sha, version in ((b"not-a-sha", b"go1.27.2"),
-                             (b"a" * 40, b"devel go1.28")):
+        for sha, version in ((b"not-a-sha", b"go1.27.2"), (b"a" * 40, b"devel go1.28")):
             with self.subTest(sha=sha, version=version), tempfile.TemporaryDirectory() as directory:
                 def runner(command, *, cwd, env):
                     if command[0] == "git":
@@ -159,86 +148,102 @@ class CollectorTests(unittest.TestCase):
                     self.fail("invalid metadata reached a build")
                 with self.assertRaisesRegex(ValueError, "SHA|Go version"):
                     metrics.collect(ROOT, ROOT, runner=runner, clock=lambda: 1,
-                                    work_root=pathlib.Path(directory))
+                                    work_root=pathlib.Path(directory), tool_builder=lambda *a: self.fail("prepared tools"))
                 self.assertEqual(list(pathlib.Path(directory).iterdir()), [])
 
-    def test_rejects_invalid_sample_count_before_building(self):
+    def test_real_workload_schema_prepared_tools_and_alternating_cold_samples(self):
         metrics = load_collector()
-        def unexpected(*args, **kwargs):
-            self.fail("invalid sample count invoked a command")
-        for samples in (0, -1, True, 1.5, "3"):
-            with self.subTest(samples=samples), self.assertRaisesRegex(ValueError, "samples"):
-                metrics.collect(ROOT, ROOT, samples, runner=unexpected, clock=unexpected)
+        for samples in (1, 3):
+            with self.subTest(samples=samples), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                base, head = root / "base", root / "head"
+                base.mkdir()
+                head.mkdir()
+                prepared, builds, caches, events = [], [], [], []
+                def builder(revision, output, workspace, env, runner):
+                    prepared.append(revision)
+                    events.append("prepare")
+                    cache = workspace / "tool"
+                    cache.mkdir(parents=True)
+                    (cache / "compile-test").write_text("tool")
+                    return {"env": dict(env, GARBLE_GO_SRC="/instrumentation"), "tool_cache": cache}
+                def runner(command, *, cwd, env):
+                    if command[:2] == ["git", "rev-parse"]:
+                        return (b"a" if cwd == base else b"b") * 40 + b"\n"
+                    if command == ["go", "env", "GOVERSION"]:
+                        return b"go1.27.2\n"
+                    if command == ["go", "mod", "download"]:
+                        events.append("download")
+                        self.assertEqual((cwd / "go.mod").read_bytes(), (ROOT / "testdata/pr-metrics/go.mod").read_bytes())
+                        return b""
+                    if "build" in command:
+                        events.append("measure")
+                        self.assertEqual(command[-1], metrics.PACKAGE)
+                        self.assertEqual(env["GARBLE_GO_SRC"], "/instrumentation")
+                        self.assertTrue(all(not path.exists() for path in caches))
+                        caches.append(pathlib.Path(env["GOCACHE"]))
+                        self.assertTrue((pathlib.Path(env["GARBLE_CACHE"]) / "tool/compile-test").exists())
+                        builds.append(pathlib.Path(command[0]).parent.name)
+                        pathlib.Path(command[command.index("-o") + 1]).write_bytes(b"x" * len(builds))
+                        for kind in ("garble", "compile", "link"):
+                            (pathlib.Path(env["GARBLE_WRITE_ALLOCS"]) / f"{kind}-allocs-1.txt").write_text("10 100\n")
+                        return b""
+                    self.assertEqual(command[-1], "input.sh")
+                    return metrics.EXPECTED
+                ticks = iter(range(12 * samples))
+                usage = iter([(0.0, 0.0), (1.0, 1.0)] * (6 * samples))
+                result = metrics.collect(base, head, samples, runner=runner, clock=lambda: next(ticks),
+                                         work_root=root / "scratch", tool_builder=builder, usage=lambda: next(usage))
+                self.assertEqual(result["schema"], 2)
+                self.assertEqual(result["workload"], metrics.WORKLOAD)
+                self.assertEqual(result["base_sha"], "a" * 40)
+                self.assertEqual(result["head_sha"], "b" * 40)
+                self.assertEqual(result["samples"], samples)
+                self.assertEqual(prepared, [base, head])
+                self.assertEqual(len(builds), 6 * samples)
+                self.assertEqual(builds, (["base", "head"] if samples == 1 else ["base", "head", "head", "base", "base", "head"]) * 3)
+                self.assertNotIn("measure", events[:3])
+                for mode in result["modes"].values():
+                    for side in mode.values():
+                        self.assertEqual(set(side), set(metrics.METRICS))
+                        self.assertEqual(side["seconds"], [1] * samples)
+                        self.assertEqual(side["cpu_seconds"], [2] * samples)
+                        self.assertEqual(side["compiler_allocs"], [10] * samples)
+                        self.assertTrue(all(len(v) == samples for v in side.values()))
+                self.assertEqual(list((root / "scratch").iterdir()), [])
 
-    def test_collects_exact_schema_with_alternating_serial_cold_samples(self):
+
+class AllocationTests(unittest.TestCase):
+    def test_sums_separate_garble_compiler_and_linker_processes(self):
         metrics = load_collector()
-        self.assertTrue(hasattr(metrics, "collect"), "missing revision collector")
-        calls, application_builds, caches = [], [], []
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            base, head = root / "base", root / "head"
-            base.mkdir()
-            head.mkdir()
-            # Revision fixtures must not become the trusted benchmark source.
-            for revision in (base, head):
-                fixture = revision / "testdata/pr-metrics"
-                fixture.mkdir(parents=True)
-                (fixture / "main.go").write_text("untrusted probe")
-            def runner(command, *, cwd, env):
-                calls.append((command, cwd, env.copy()))
-                if command == ["git", "rev-parse", "HEAD"]:
-                    return (b"a" if cwd == base else b"b") * 40 + b"\n"
-                if command == ["go", "env", "GOVERSION"]:
-                    return b"go1.27.2\n"
-                if command[:2] == ["go", "build"]:
-                    self.assertEqual(command[2:4], ["-trimpath", "-o"])
-                    self.assertEqual(command[-1], ".")
-                    self.assertIn(cwd, (base, head))
-                    self.assertFalse(any(key.startswith("GARBLE_") for key in env))
-                    self.assertEqual(env["GOCACHE"], "/shared/tool-cache")
-                    return b""
-                if "build" in command:
-                    self.assertEqual((cwd / "main.go").read_bytes(),
-                                     (ROOT / "testdata/pr-metrics/main.go").read_bytes())
-                    self.assertEqual((cwd / "go.mod").read_bytes(),
-                                     (ROOT / "testdata/pr-metrics/go.mod").read_bytes())
-                    self.assertFalse(any(path.exists() for path in caches))
-                    caches.extend(pathlib.Path(env[key]) for key in ("GOCACHE", "GARBLE_CACHE"))
-                    side = pathlib.Path(command[0]).parent.name
-                    flags = command[1:command.index("-seed=YWJjZGVmZ2g=")]
-                    application_builds.append((side, flags, cwd, env.copy()))
-                    size = len(application_builds)
-                    pathlib.Path(command[command.index("-o") + 1]).write_bytes(b"x" * size)
-                    return b""
-                return metrics.EXPECTED
-            ticks = iter(range(36))
-            result = metrics.collect(base, head, samples=3, runner=runner, clock=lambda: next(ticks),
-                                     environ={"GOCACHE": "/shared/tool-cache", "GARBLE_CACHE": "old"},
-                                     work_root=root / "scratch")
-            self.assertEqual(set(result), {"schema", "base_sha", "head_sha", "go_version",
-                                           "seed", "samples", "modes"})
-            self.assertEqual({key: result[key] for key in result if key != "modes"},
-                             {"schema": 1, "base_sha": "a" * 40, "head_sha": "b" * 40,
-                              "go_version": "go1.27.2", "seed": "YWJjZGVmZ2g=", "samples": 3})
-            self.assertEqual(list(result["modes"]), ["default", "literals", "tiny-literals"])
-            self.assertEqual(len(application_builds), 18)
-            for index, (name, flags) in enumerate((("default", []), ("literals", ["-literals"]),
-                                                   ("tiny-literals", ["-tiny", "-literals"]))):
-                builds = application_builds[index * 6:(index + 1) * 6]
-                self.assertEqual([entry[0] for entry in builds],
-                                 ["base", "head", "head", "base", "base", "head"])
-                self.assertTrue(all(entry[1] == flags for entry in builds))
-                for side in ("base", "head"):
-                    self.assertEqual(result["modes"][name][side],
-                                     {"seconds": [1, 1, 1],
-                                      "bytes": [index * 6 + n + 1 for n, item in enumerate(builds)
-                                                if item[0] == side]})
-            self.assertEqual(len({item[2] for item in application_builds}), 1)
-            self.assertEqual(len(set(caches)), 36)
-            self.assertTrue(all(not path.exists() for path in caches))
-            self.assertEqual(list((root / "scratch").iterdir()), [])
-            first_build = next(i for i, call in enumerate(calls) if "-seed=YWJjZGVmZ2g=" in call[0])
-            self.assertEqual(sum(call[0][:2] == ["go", "build"] for call in calls[:first_build]), 2)
+            for name, text in {"garble-allocs-1.txt": "10 100\n", "garble-allocs-2.txt": "20 200\n",
+                               "compile-allocs-1.txt": "30 300\n", "compile-allocs-2.txt": "40 400\n",
+                               "link-allocs-1.txt": "50 500\n"}.items():
+                (root / name).write_text(text)
+            self.assertEqual(metrics.read_allocations(root), {
+                "garble_allocs": 30, "garble_alloc_bytes": 300, "garble_processes": 2,
+                "compiler_allocs": 70, "compiler_alloc_bytes": 700, "compiler_processes": 2,
+                "linker_allocs": 50, "linker_alloc_bytes": 500, "linker_processes": 1,
+            })
+
+    def test_missing_or_malformed_tool_records_never_become_zero_counts(self):
+        metrics = load_collector()
+        for missing in ("compile", "link"):
+            with tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                for kind in ("garble", "compile", "link"):
+                    if kind != missing:
+                        (root / f"{kind}-allocs-1.txt").write_text("1 10\n")
+                with self.assertRaisesRegex(ValueError, "missing"):
+                    metrics.read_allocations(root)
+        for bad in ("0 0", "1", "1 -2", "not numbers", "1 2 3", "9" * 600):
+            with tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                (root / "garble-allocs-1.txt").write_text(bad)
+                with self.assertRaises(ValueError):
+                    metrics.read_allocations(root)
 
 
 class CommandTests(unittest.TestCase):

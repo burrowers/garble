@@ -17,8 +17,14 @@ import tempfile
 import time
 
 SEED = "YWJjZGVmZ2g="
-EXPECTED = b'200 application/json {"message":"literal-obfuscation-http-probe"}\n\n'
+WORKLOAD = "mvdan.cc/sh/v3/cmd/shfmt@v3.11.0"
+PACKAGE = "mvdan.cc/sh/v3/cmd/shfmt"
+EXPECTED = (pathlib.Path(__file__).resolve().parents[1] / "testdata/pr-metrics/expected.sh").read_bytes()
 MODES = {"default": [], "literals": ["-literals"], "tiny-literals": ["-tiny", "-literals"]}
+METRICS = ("seconds", "cpu_seconds", "bytes",
+           "garble_allocs", "garble_alloc_bytes", "garble_processes",
+           "compiler_allocs", "compiler_alloc_bytes", "compiler_processes",
+           "linker_allocs", "linker_alloc_bytes", "linker_processes")
 
 
 def run(command, *, cwd, env):
@@ -29,9 +35,10 @@ def run(command, *, cwd, env):
     return result.stdout
 
 
-def collect(base, head, samples=1, *, runner, clock, environ=None, work_root=None):
-    if type(samples) is not int or samples < 1:
-        raise ValueError("samples must be a positive integer")
+def collect(base, head, samples=1, *, runner, clock, environ=None, work_root=None,
+            tool_builder=None, usage=None):
+    if type(samples) is not int or not 1 <= samples <= 5:
+        raise ValueError("samples must be a positive integer between 1 and 5")
     base, head = pathlib.Path(base).resolve(), pathlib.Path(head).resolve()
     work_root = pathlib.Path(work_root) if work_root is not None else pathlib.Path.home() / ".cache/pr-metrics"
     work_root.mkdir(parents=True, exist_ok=True)
@@ -41,7 +48,7 @@ def collect(base, head, samples=1, *, runner, clock, environ=None, work_root=Non
         tmpdir.mkdir()
         env = build_environment(os.environ if environ is None else environ, tmpdir)
         revisions = {"base": base, "head": head}
-        result = {"schema": 1}
+        result = {"schema": 2}
         for side, revision in revisions.items():
             sha = runner(["git", "rev-parse", "HEAD"], cwd=revision, env=env).decode().strip()
             if not re.fullmatch(r"[0-9a-f]{40}", sha):
@@ -50,54 +57,99 @@ def collect(base, head, samples=1, *, runner, clock, environ=None, work_root=Non
         version = runner(["go", "env", "GOVERSION"], cwd=root, env=env).decode().strip()
         if not re.fullmatch(r"go[0-9]+\.[0-9]+\.[0-9]+", version):
             raise ValueError(f"invalid Go version: {version!r}")
-        result.update(go_version=version, seed=SEED, samples=samples, modes={})
+        result.update(go_version=version, seed=SEED, samples=samples, workload=WORKLOAD, modes={})
         probe = root / "probe"
         trusted = pathlib.Path(__file__).resolve().parents[1] / "testdata/pr-metrics"
         probe.mkdir()
-        for name in ("main.go", "go.mod"):
+        for name in ("go.mod", "go.sum", "input.sh", "expected.sh"):
             shutil.copyfile(trusted / name, probe / name)
-        tools = {}
+        runner(["go", "mod", "download"], cwd=probe, env=env)
+        if tool_builder is None:
+            from metrics_toolchain import build_tools
+            tool_builder = build_tools
+        tools, prepared = {}, {}
         for side, revision in revisions.items():
             tools[side] = root / "tools" / side / "garble"
             tools[side].parent.mkdir(parents=True)
-            runner(["go", "build", "-trimpath", "-o", str(tools[side]), "."], cwd=revision, env=env)
+            prepared[side] = tool_builder(revision, tools[side], root / "tooling" / side, env, runner)
         for mode, flags in MODES.items():
-            values = {side: {"seconds": [], "bytes": []} for side in revisions}
+            values = {side: {metric: [] for metric in METRICS} for side in revisions}
             for sample in range(samples):
                 order = ("base", "head") if sample % 2 == 0 else ("head", "base")
                 for side in order:
-                    seconds, size = measure(tools[side], flags, probe, root, env, runner, clock)
-                    values[side]["seconds"].append(seconds)
-                    values[side]["bytes"].append(size)
+                    print(f"measuring {side} {mode} sample {sample + 1}/{samples}", file=sys.stderr, flush=True)
+                    measured = measure(tools[side], flags, probe, root, prepared[side]["env"], runner, clock,
+                                       tool_cache=prepared[side]["tool_cache"], usage=usage)
+                    for metric, value in measured.items():
+                        values[side][metric].append(value)
             result["modes"][mode] = values
         return result
 
 
-def measure(garble, flags, probe, root, env, runner, clock):
+def read_allocations(directory):
+    totals = {}
+    for prefix, group in (("garble", "garble"), ("compile", "compiler"), ("link", "linker")):
+        records = list(pathlib.Path(directory).glob(f"{prefix}-allocs-*.txt"))
+        if not records:
+            raise ValueError(f"missing {group} allocation records")
+        allocations = allocated = 0
+        for path in records:
+            if path.stat().st_size > 100:
+                raise ValueError("oversized allocation record")
+            fields = path.read_text().split()
+            if len(fields) != 2 or any(not value.isascii() or not value.isdecimal() for value in fields):
+                raise ValueError("malformed allocation record")
+            count, size = map(int, fields)
+            if not 0 < count <= 10**15 or not 0 < size <= 10**15:
+                raise ValueError("invalid allocation record")
+            allocations += count
+            allocated += size
+        totals.update({f"{group}_allocs": allocations, f"{group}_alloc_bytes": allocated,
+                       f"{group}_processes": len(records)})
+    return totals
+
+
+def child_usage():
+    import resource
+    current = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return current.ru_utime, current.ru_stime
+
+
+def measure(garble, flags, probe, root, env, runner, clock, *, tool_cache=None, usage=None):
     output = probe / "program"
+    usage = usage or child_usage
     try:
         with tempfile.TemporaryDirectory(prefix="sample-", dir=root) as directory:
             sample = pathlib.Path(directory)
             env = env.copy()
             for key, name in (("GOCACHE", "go-cache"), ("GARBLE_CACHE", "garble-cache"),
-                              ("TMPDIR", "tmp")):
+                              ("TMPDIR", "tmp"), ("GARBLE_WRITE_ALLOCS", "allocs")):
                 path = sample / name
                 path.mkdir()
                 env[key] = str(path)
-            command = [str(garble), *flags, f"-seed={SEED}", "build", "-trimpath",
-                       "-o", str(output), "."]
+            if tool_cache is not None:
+                shutil.copytree(tool_cache, pathlib.Path(env["GARBLE_CACHE"]) / "tool")
+            env.update(GOPROXY="off", GOSUMDB="off")
+            command = [str(garble), *flags, f"-seed={SEED}", "build", "-trimpath", "-mod=readonly",
+                       "-o", str(output), PACKAGE]
+            before = usage()
             start = clock()
             runner(command, cwd=probe, env=env)
             seconds = clock() - start
+            after = usage()
+            cpu = sum(after) - sum(before)
             size = output.stat().st_size
-            if not math.isfinite(seconds) or seconds <= 0:
-                raise ValueError(f"invalid build elapsed time: {seconds}")
+            if not math.isfinite(seconds) or seconds <= 0 or not math.isfinite(cpu) or cpu <= 0:
+                raise ValueError("invalid build time or CPU accounting")
             if size <= 0:
                 raise ValueError(f"invalid executable size: {size}")
-            actual = runner([str(output)], cwd=probe, env=env)
+            totals = read_allocations(env["GARBLE_WRITE_ALLOCS"])
+            verification_env = env.copy()
+            verification_env.pop("GARBLE_WRITE_ALLOCS")
+            actual = runner([str(output), "input.sh"], cwd=probe, env=verification_env)
             if actual != EXPECTED:
-                raise ValueError(f"unexpected probe output: {actual!r}")
-            return seconds, size
+                raise ValueError(f"unexpected shfmt output: {actual!r}")
+            return {"seconds": seconds, "cpu_seconds": cpu, "bytes": size, **totals}
     finally:
         output.unlink(missing_ok=True)
 

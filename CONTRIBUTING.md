@@ -112,16 +112,24 @@ GitHub Actions maintains one informational comment per PR with two independent
 sections. Increases never fail a check; failed builds or tests still fail their
 usual jobs.
 
-* **Build cost:** the same HTTP/JSON executable is built with the base and head
-  Garble binaries on one ephemeral Linux runner, in default, `-literals`, and
-  `-tiny -literals` modes. Each mode uses one sample per revision and a fixed
-  seed: six cold builds per PR, not eighteen. Every sample starts with empty Go
-  and Garble caches, so elapsed time includes patched-tool preparation but not
-  building Garble itself. The comment shows compact size/time tables with signed
-  deltas; raw metadata and samples are linked as artifacts. The collector still
-  accepts `--samples=3` for a more detailed investigation, reporting medians for
-  repeated samples. Each executable is run and its output checked. Single-sample
-  timings are a rough signal, not a statistical regression verdict.
+* **Build cost:** the same pinned real application, `shfmt` v3.11.0, is built
+  with base and head Garble in default, `-literals`, and `-tiny -literals` modes.
+  One fixed-seed sample per revision/mode keeps the default to six measured
+  builds. Every sample has fresh Go and Garble package caches; only prepared
+  tool binaries are reused. Module downloads and toolchain preparation happen
+  before measurement, not inside build CPU/time/allocation totals. Each produced
+  CLI formats the same shell input and must match the committed expected output.
+  Identical measurement-only instrumentation on both sides records cumulative
+  Go heap allocations and allocated bytes in Garble, the compiler, and the
+  linker, including stock compiler processes used by preliminary package listing.
+  The compact comment shows binary size, process-tree CPU time and combined
+  allocation deltas. Raw artifacts retain elapsed time, separate process-group
+  allocation totals/counts, exact revisions, toolchain, workload, and samples.
+  Allocation totals are not peak memory and do not include `cmd/go`, assembler,
+  native/mmap storage, direct-exit tool-version probes, or toolchain bootstrap.
+  Counters are less sensitive to scheduling than elapsed time, not perfectly
+  deterministic or instruction counts. Explicit `--samples=3` remains available
+  for deeper investigation.
 * **Test cost:** the existing full Linux test job records elapsed time and OS
   user/system CPU seconds for `go test -count=1 -timeout=15m ./...`, including
   waited-for descendants and the builds performed by integration tests. It does

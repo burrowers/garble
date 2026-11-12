@@ -6,6 +6,7 @@ import zipfile
 import copy
 import importlib.util
 import pathlib
+import sys
 import unittest
 
 SPEC = importlib.util.spec_from_file_location(
@@ -17,18 +18,30 @@ if SPEC.loader:
 
 
 def result():
+    def metrics(head):
+        factor = 1.1 if head else 1
+        return {
+            "seconds": [11, 12, 13] if head else [10, 11, 12],
+            "cpu_seconds": [22, 24, 26] if head else [20, 22, 24],
+            "bytes": [1100 if head else 1000] * 3,
+            **{f"{group}_{metric}": [int(value * factor)] * 3
+               for group, count in (("garble", 100), ("compiler", 200), ("linker", 300))
+               for metric, value in (("allocs", count), ("alloc_bytes", count * 10))},
+            "garble_processes": [10] * 3,
+            "compiler_processes": [8] * 3,
+            "linker_processes": [1] * 3,
+        }
+
     return {
-        "schema": 1,
+        "schema": 2,
         "base_sha": "a" * 40,
         "head_sha": "b" * 40,
         "go_version": "go1.27.2",
         "seed": "YWJjZGVmZ2g=",
         "samples": 3,
+        "workload": "mvdan.cc/sh/v3/cmd/shfmt@v3.11.0",
         "modes": {
-            mode: {
-                "base": {"seconds": [10, 11, 12], "bytes": [1000] * 3},
-                "head": {"seconds": [11, 12, 13], "bytes": [1100] * 3},
-            }
+            mode: {"base": metrics(False), "head": metrics(True)}
             for mode in ("default", "literals", "tiny-literals")
         },
     }
@@ -52,6 +65,7 @@ class ReportTests(unittest.TestCase):
         body = comment.render_test_cost(head, base, "https://github.com/o/r/actions/runs/1")
         self.assertIn("| CPU | 50.00 s | 100.00 s | +50.00 s (+100.00%) |", body)
         self.assertIn("| Elapsed | 15.00 s | 20.00 s | +5.00 s (+33.33%) |", body)
+        self.assertEqual(sum(line.startswith("| ") for line in body.splitlines()), 3)
         self.assertIn("cache", body)
         for field, value in (("cpu_model", "another CPU"), ("cpu_count", 8),
                              ("go_version", "go1.27.3"), ("exit_code", 1)):
@@ -69,12 +83,18 @@ class ReportTests(unittest.TestCase):
 
     def test_report_shows_increases_without_a_failure_verdict(self):
         body = comment.render(result(), "https://github.com/burrowers/garble/actions/runs/1")
-        self.assertIn("| default | 1,000 → 1,100 | +100 (+10.00%) |", body)
-        self.assertIn("11.00 → 12.00 s | +1.00 s (+9.09%) |", body)
+        self.assertIn("| Mode | Binary B | CPU s | Allocs (G+C+L) | Alloc B (G+C+L) |", body)
+        self.assertIn("| default | 1,100 (+100; +10.00%) | 24.00 (+2.00; +9.09%) "
+                      "| 660 (+60; +10.00%) | 6,600 (+600; +10.00%) |", body)
+        self.assertIn("shfmt v3.11.0", body)
         self.assertIn("median of 3 cold samples/mode", body)
         self.assertLess(len(body), 900)
+        self.assertEqual(sum(line.startswith("| ") for line in body.splitlines()), 4)
+        self.assertIn("allocations: Garble+compiler+linker", body)
         self.assertIn("Informational", body)
-        self.assertIn("Cold build", body)
+        self.assertIn("[Details](https://github.com/burrowers/garble/actions/runs/1)", body)
+        for raw_only in ("Cold build", "noisy timings", "12.00", "go1.27.2", "a" * 40):
+            self.assertNotIn(raw_only, body)
         self.assertNotIn("FAIL", body)
 
     def test_failed_suite_table_is_marked_partial_without_a_delta(self):
@@ -117,6 +137,127 @@ class ReportTests(unittest.TestCase):
             mutation(data)
             with self.subTest(data=data), self.assertRaises(ValueError):
                 comment.validate(data)
+
+    def test_all_sample_counts_and_allocation_totals_are_rendered_per_sample(self):
+        for samples in range(1, 6):
+            data = result()
+            data["samples"] = samples
+            for mode in data["modes"].values():
+                for side in mode.values():
+                    for metric, values in side.items():
+                        side[metric] = [values[0]] * samples
+            with self.subTest(samples=samples):
+                comment.validate(data)
+                self.assertNotIn("inf", comment.render(data, "https://example.com/run"))
+        data = result()
+        for mode in data["modes"].values():
+            for group, values in (("garble", [100, 1, 1]), ("compiler", [1, 100, 1]),
+                                  ("linker", [1, 1, 100])):
+                mode["base"][f"{group}_allocs"] = values
+                mode["head"][f"{group}_allocs"] = [50] * 3
+        self.assertIn("150 (+48; +47.06%)", comment.render(data, "https://example.com/run"))
+
+    def test_decreases_zero_deltas_and_even_sample_medians(self):
+        data = result()
+        data["samples"] = 2
+        for mode in data["modes"].values():
+            for side in mode.values():
+                for values in side.values():
+                    del values[2:]
+            mode["head"]["bytes"] = [900, 901]
+            mode["head"]["cpu_seconds"] = [18, 20]
+            for group, count in (("garble", 90), ("compiler", 180), ("linker", 270)):
+                mode["head"][f"{group}_allocs"] = [count] * 2
+                mode["head"][f"{group}_alloc_bytes"] = mode["base"][f"{group}_alloc_bytes"][:]
+        for group, count in (("garble", 900), ("compiler", 1800), ("linker", 2700)):
+            data["modes"]["literals"]["head"][f"{group}_alloc_bytes"] = [count] * 2
+        body = comment.render(data, "https://example.com/run")
+        self.assertIn("900.5 (-99.5; -9.95%)", body)
+        self.assertIn("19.00 (-2.00; -9.52%)", body)
+        self.assertIn("540 (-60; -10.00%)", body)
+        self.assertIn("6,000 (+0; +0.00%)", body)
+        self.assertIn("5,400 (-600; -10.00%)", body)
+
+    def test_realistic_large_values_stay_compact_without_changing_raw_samples(self):
+        data = result()
+        for mode in data["modes"].values():
+            for rev, factor in (("base", 1), ("head", 2)):
+                mode[rev]["bytes"] = [5_000_000 * factor] * 3
+                for group in ("garble", "compiler", "linker"):
+                    mode[rev][f"{group}_allocs"] = [10_000_000 * factor] * 3
+                    mode[rev][f"{group}_alloc_bytes"] = [1_000_000_000 * factor] * 3
+        original = copy.deepcopy(data)
+        body = comment.render(data, "https://example.com/run")
+        self.assertIn("10.00M (+5.00M; +100.00%)", body)
+        self.assertIn("60.00M (+30.00M; +100.00%)", body)
+        self.assertIn("6.00G (+3.00G; +100.00%)", body)
+        self.assertIn("PR (Δ vs base)", body)
+        self.assertLess(len(body), 1000)
+        self.assertEqual(data, original)
+
+    def test_schema2_requires_exact_workload_and_metric_fields(self):
+        for field, value in (("schema", 1), ("schema", True), ("samples", 0), ("samples", 6),
+                             ("workload", "mvdan.cc/sh/v3/cmd/shfmt@latest"),
+                             ("workload", "@everyone"), ("modes", {})):
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                comment.validate(dict(result(), **{field: value}))
+        for field in result():
+            data = result()
+            del data[field]
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                comment.validate(data)
+        for field in result()["modes"]["default"]["base"]:
+            data = result()
+            del data["modes"]["default"]["base"][field]
+            with self.subTest(missing_metric=field), self.assertRaises(ValueError):
+                comment.validate(data)
+        data = result()
+        data["modes"]["default"]["base"]["payload"] = [1] * 3
+        with self.assertRaises(ValueError):
+            comment.validate(data)
+
+    def test_finite_cpu_above_one_wall_hour_and_extreme_medians_remain_finite(self):
+        data = result()
+        data["samples"] = 2
+        for mode in data["modes"].values():
+            for side in mode.values():
+                for metric, values in side.items():
+                    side[metric] = values[:2]
+                side["seconds"] = [4000, 4000]
+                side["cpu_seconds"] = [1.7e308, 1.7e308]
+            mode["base"]["cpu_seconds"] = [0.000001, 0.000001]
+        comment.validate(data)
+        body = comment.render(data, "https://example.com/run")
+        self.assertNotIn("inf", body)
+        self.assertNotIn("nan", body)
+
+    def test_each_metric_rejects_invalid_types_nonfinite_values_and_out_of_bounds(self):
+        for metric in result()["modes"]["default"]["base"]:
+            timing = metric in ("seconds", "cpu_seconds")
+            limit = (sys.float_info.max if timing else 1_000_000_000 if metric == "bytes"
+                     else 100_000 if metric.endswith("_processes") else 10**15)
+            invalid = [True, None, "1", {}, 0, -1, float("nan"), float("inf"),
+                       float("-inf"), 10**400, limit * 2, 5e-324]
+            if not timing:
+                invalid += [1.0, 1.5, limit + 1]
+            for value in invalid:
+                data = result()
+                data["modes"]["default"]["head"][metric][0] = value
+                with self.subTest(metric=metric, value=value), self.assertRaises(ValueError):
+                    comment.render(data, "https://example.com/run")
+            for values in ([1], (1, 1, 1), "123", None):
+                data = result()
+                data["modes"]["default"]["head"][metric] = values
+                with self.subTest(metric=metric, values=values), self.assertRaises(ValueError):
+                    comment.validate(data)
+            for value in ((0.000001, limit) if timing else (1, limit)):
+                data = result()
+                data["modes"]["default"]["head"][metric] = [value] * 3
+                with self.subTest(metric=metric, boundary=value):
+                    comment.validate(data)
+                    body = comment.render(data, "https://example.com/run")
+                    self.assertNotIn("inf", body)
+                    self.assertNotIn("nan", body)
 
     def test_archive_never_extracts_paths_or_accepts_extra_files(self):
         import json
@@ -187,10 +328,20 @@ class ReportTests(unittest.TestCase):
                 stored[:] = [{"id": 11, "body": payload["body"], "user": {"login": "github-actions[bot]"}}]
             return stored[0]
         comment.publish(api, lambda path: archive.getvalue(), 7, "o/r")
-        self.assertIn("+100 (+10.00%)", stored[0]["body"])
+        self.assertIn("1,100 (+100; +10.00%)", stored[0]["body"])
+        self.assertIn("660 (+60; +10.00%)", stored[0]["body"])
         old_body = stored[0]["body"]
         pr["head"]["sha"] = "c" * 40
         comment.publish(api, lambda path: archive.getvalue(), 7, "o/r")
+        self.assertEqual(stored[0]["body"], old_body)
+        pr["head"]["sha"] = "b" * 40
+        invalid = result()
+        invalid["modes"]["default"]["head"]["compiler_allocs"][0] = 10**400
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as z:
+            z.writestr("result.json", json.dumps(invalid))
+        with self.assertRaises(ValueError):
+            comment.publish(api, lambda path: archive.getvalue(), 7, "o/r")
         self.assertEqual(stored[0]["body"], old_body)
 
     def test_test_run_publishes_real_head_cost_without_inventing_baseline(self):
