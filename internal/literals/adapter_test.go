@@ -11,9 +11,6 @@ import (
 	"go/token"
 	"go/types"
 	"math/rand"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -118,18 +115,8 @@ func TestSharedStringAdapterBehavior(t *testing.T) {
 			if err := printer.Fprint(&text, fset, file); err != nil {
 				t.Fatal(err)
 			}
-			dir := t.TempDir()
-			src, bin := filepath.Join(dir, "main.go"), filepath.Join(dir, "main.exe")
-			if err := os.WriteFile(src, []byte(text.String()), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if out, err := exec.Command("go", "build", "-o", bin, src).CombinedOutput(); err != nil {
-				t.Fatalf("build: %v\n%s", err, out)
-			}
 			want := strings.Repeat("first literal second longer literal named literal mutable bytes literal 日本語のliteral global literal secret\n", 3)
-			if out, err := exec.Command(bin).CombinedOutput(); err != nil || string(out) != want {
-				t.Fatalf("run: %v\n%s", err, out)
-			}
+			buildAndRunProbe(t, []byte(text.String()), want)
 		})
 	}
 }
