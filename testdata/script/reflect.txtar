@@ -4,7 +4,7 @@ exec ./main
 cmp stdout main.stdout
 
 ! binsubstr main$exe 'garble_main.go' 'test/main' 'importedpkg.','IndirectObfuscated' 'IndirectNamedWithoutReflect' 'AliasIndirectNamedWithReflect' 'AliasIndirectNamedWithoutReflect' 'FmtTypeField' 'LocalObfuscated' 'CallResultObfuscated'
-binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect' 'ForeignNamedType' 'DownstreamField' 'SiblingField'
+binsubstr main$exe 'ReflectInDefined' 'ExportedField2' 'unexportedField2' 'IndirectUnobfuscated' 'IndirectNamedWithReflect' 'ForeignNamedType' 'DownstreamField' 'SiblingField' 'anyTableRow'
 stderr '^\*main\.StoredEarly$'
 stderr '^\*main\.TaintedLate$'
 stderr '^\*main\.FirstParam$'
@@ -604,6 +604,10 @@ func main() {
 	for i := range rangeFuncSequence {
 		defer fmt.Println("range defer", i)
 	}
+
+	// A table of interface values exposes the field names of the concrete
+	// types it holds even though no concretely typed call site mentions them.
+	checkAnyTable()
 }
 
 func rangeFuncSequence(yield func(int) bool) {
@@ -1036,6 +1040,35 @@ func closure() {
 	alias.Security = outer()
 }
 
+-- anytable.go --
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// anyTableRow is only ever used through the interface values below, so the
+// encoders see it as an interface{} argument and never as a static type.
+type anyTableRow struct {
+	Alpha string
+	Beta  int
+}
+
+var anyTable = []struct {
+	label string
+	value any
+}{
+	{"pointer", &anyTableRow{Alpha: "a", Beta: 1}},
+}
+
+func checkAnyTable() {
+	for _, entry := range anyTable {
+		out, err := json.Marshal(entry.value)
+		fmt.Printf("any table %s: %s %v\n", entry.label, out, err)
+	}
+}
+
 -- importedpkg/imported.go --
 package importedpkg
 
@@ -1464,6 +1497,7 @@ main.Connection
 {"CallArgPtrField":"ptr"}
 {"CallArgValField":"val"}
 goroutine reflect: goroutine-call
+any table pointer: {"Alpha":"a","Beta":1} <nil>
 range defer 2
 range defer 1
 range defer 0

@@ -121,6 +121,10 @@ type reflectInspector struct {
 	// walkedInstantiations holds the instantiations whose members were already
 	// walked, so repeated passes over the package do not repeat that work.
 	walkedInstantiations map[types.Type]bool
+	// globalStores holds the values written into each package-level variable.
+	// SSA does not track referrers of a global, so the initializing writes are
+	// indexed up front; a reflected global exposes whatever was stored in it.
+	globalStores map[*ssa.Global][]ssa.Value
 
 	result pkgCache
 }
@@ -134,6 +138,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 	// One pass only propagates reflection use to the functions analyzed after
 	// the ones it learns from, so a chain of reflect-tainted calls can need one
 	// pass per link. Repeat until a pass records nothing new.
+	ri.indexGlobalStores(ssaPkg)
 	for {
 		prev := ri.recordedCount()
 		ri.ignoreReflectedTypes(ssaPkg)
@@ -159,6 +164,54 @@ func (ri *reflectInspector) recordedCount() int {
 		n += 1 + len(params)
 	}
 	return n
+}
+
+// indexGlobalStores records the values written into package-level variables.
+// SSA does not maintain referrers for a *ssa.Global, so the writes have to be
+// collected by walking the package's functions once.
+func (ri *reflectInspector) indexGlobalStores(ssaPkg *ssa.Package) {
+	if ri.globalStores != nil {
+		return
+	}
+	ri.globalStores = make(map[*ssa.Global][]ssa.Value)
+	var scan func(fn *ssa.Function)
+	scan = func(fn *ssa.Function) {
+		for _, anon := range fn.AnonFuncs {
+			scan(anon)
+		}
+		for _, block := range fn.Blocks {
+			for _, inst := range block.Instrs {
+				store, ok := inst.(*ssa.Store)
+				if !ok {
+					continue
+				}
+				if global := globalOfAddr(store.Addr); global != nil {
+					ri.globalStores[global] = append(ri.globalStores[global], store.Val)
+				}
+			}
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(ssaPkg.Members)) {
+		if fn, ok := ssaPkg.Members[name].(*ssa.Function); ok {
+			scan(fn)
+		}
+	}
+}
+
+// globalOfAddr returns the package-level variable an address belongs to,
+// looking through the field and element selections which address its content.
+func globalOfAddr(addr ssa.Value) *ssa.Global {
+	switch addr := addr.(type) {
+	case *ssa.Global:
+		return addr
+	case *ssa.FieldAddr:
+		return globalOfAddr(addr.X)
+	case *ssa.IndexAddr:
+		return globalOfAddr(addr.X)
+	case *ssa.ChangeType:
+		return globalOfAddr(addr.X)
+	}
+	return nil
 }
 
 // find all functions, methods and interface declarations of a package and record their
@@ -614,6 +667,8 @@ func forwardedParameter(v ssa.Value) *ssa.Parameter {
 		return forwardedParameter(v.X)
 	case *ssa.ChangeType:
 		return forwardedParameter(v.X)
+	case *ssa.ChangeInterface:
+		return forwardedParameter(v.X)
 	case *ssa.UnOp:
 		return forwardedParameter(v.X)
 	}
@@ -880,6 +935,11 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		ri.recordReferrersReflected(val, visited)
 		return ri.recordArgReflected(val.X, visited)
 	case *ssa.FieldAddr:
+		// The field of a reflected value is part of that value, so a value
+		// stored into the field is reachable through reflection. This is the
+		// route a concrete type takes into an interface-typed field, which
+		// the field's own static type does not spell out.
+		ri.recordReferrersReflected(val, visited)
 		return ri.recordArgReflected(val.X, visited)
 
 	case *ssa.Alloc:
@@ -896,14 +956,22 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 	case *ssa.ChangeType:
 		ri.recursivelyRecordUsedForReflect(val.X.Type())
 		return ri.recordArgReflected(val.X, visited)
+	case *ssa.ChangeInterface:
+		// Converting a value to a wider interface keeps the same concrete
+		// value, so a caller which marks this parameter reflected reaches it.
+		ri.recursivelyRecordUsedForReflect(val.X.Type())
+		return ri.recordArgReflected(val.X, visited)
 	case *ssa.MakeSlice, *ssa.MakeMap, *ssa.MakeChan, *ssa.Const:
 		ri.recursivelyRecordUsedForReflect(val.Type())
 	case *ssa.Global:
 		ri.recursivelyRecordUsedForReflect(val.Type())
 
-		// TODO: this might need similar logic to *ssa.Alloc, however
-		// reassigning a function param to a global variable and then reflecting
-		// it is probably unlikely to occur
+		// A global's content is what reflection sees. SSA has no referrers for
+		// a global, so follow the values the package's initialization writes
+		// into it; a table of interface values is only reachable this way.
+		for _, stored := range ri.globalStores[val] {
+			ri.recordArgReflected(stored, visited)
+		}
 	case *ssa.Parameter:
 		// this only finds the parameters who want to be found,
 		// otherwise relatedParam is used for more in depth analysis
@@ -916,14 +984,25 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 }
 
 // recordReferrersReflected records the values derived from a reflected value,
-// such as its fields or elements. Other referrers, like calls taking the value
-// as an argument, produce values which are not part of the reflected one.
+// such as its fields or elements, and the values stored into it. Other
+// referrers, like calls taking the value as an argument, produce values which
+// are not part of the reflected one.
 func (ri *reflectInspector) recordReferrersReflected(val ssa.Value, visited map[ssa.Value]bool) {
-	for _, ref := range *val.Referrers() {
-		switch ref.(type) {
+	refs := val.Referrers()
+	if refs == nil {
+		return
+	}
+	for _, ref := range *refs {
+		switch ref := ref.(type) {
 		case *ssa.FieldAddr, *ssa.IndexAddr, *ssa.Slice, *ssa.UnOp,
-			*ssa.Phi, *ssa.ChangeType, *ssa.MakeInterface:
+			*ssa.Phi, *ssa.ChangeType, *ssa.ChangeInterface, *ssa.MakeInterface:
 			ri.recordArgReflected(ref.(ssa.Value), visited)
+		case *ssa.Store:
+			// Writing into the value writes part of what reflection can see.
+			// The stored value's static type may be an interface while its
+			// concrete type is what reflection exposes, as in a table of
+			// any values.
+			ri.recordArgReflected(ref.Val, visited)
 		}
 	}
 }
