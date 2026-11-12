@@ -50,8 +50,8 @@ class ReportTests(unittest.TestCase):
         base = dict(head, revision="a" * 40, head_sha="a" * 40, base_sha=None,
                     user_seconds=45, system_seconds=5, elapsed_seconds=15)
         body = comment.render_test_cost(head, base, "https://github.com/o/r/actions/runs/1")
-        self.assertIn("50.000 → 100.000 CPU s (+100.00%)", body)
-        self.assertIn("15.000 → 20.000 s (+33.33%)", body)
+        self.assertIn("| CPU | 50.00 s | 100.00 s | +50.00 s (+100.00%) |", body)
+        self.assertIn("| Elapsed | 15.00 s | 20.00 s | +5.00 s (+33.33%) |", body)
         self.assertIn("cache", body)
         for field, value in (("cpu_model", "another CPU"), ("cpu_count", 8),
                              ("go_version", "go1.27.3"), ("exit_code", 1)):
@@ -69,12 +69,33 @@ class ReportTests(unittest.TestCase):
 
     def test_report_shows_increases_without_a_failure_verdict(self):
         body = comment.render(result(), "https://github.com/burrowers/garble/actions/runs/1")
-        self.assertIn("+100 bytes (+10.00%)", body)
-        self.assertIn("11.000 s → 12.000 s (+1.000 s; +9.09%)", body)
-        self.assertIn("10.000–12.000", body)
-        self.assertIn("Informational only", body)
-        self.assertIn("Cold", body)
+        self.assertIn("| default | 1,000 → 1,100 | +100 (+10.00%) |", body)
+        self.assertIn("11.00 → 12.00 s | +1.00 s (+9.09%) |", body)
+        self.assertIn("median of 3 cold samples/mode", body)
+        self.assertLess(len(body), 900)
+        self.assertIn("Informational", body)
+        self.assertIn("Cold build", body)
         self.assertNotIn("FAIL", body)
+
+    def test_failed_suite_table_is_marked_partial_without_a_delta(self):
+        head = dict(test_cost(), exit_code=7)
+        body = comment.render_test_cost(head, None, "https://github.com/o/r/actions/runs/1")
+        self.assertIn("| CPU | — | 100.00 s | — |", body)
+        self.assertIn("partial run, exit 7", body)
+        self.assertNotIn("%", body)
+        self.assertLess(len(body), 500)
+
+    def test_single_sample_table_does_not_claim_repeated_measurements(self):
+        data = result()
+        data["samples"] = 1
+        for mode in data["modes"].values():
+            for side in mode.values():
+                for values in side.values():
+                    del values[1:]
+        body = comment.render(data, "https://github.com/o/r/actions/runs/1")
+        self.assertIn("1 cold sample/mode", body)
+        self.assertNotIn("median", body)
+        self.assertLess(len(body), 900)
 
     def test_artifact_validation_rejects_untrusted_text_and_invalid_numbers(self):
         comment.validate(result())
@@ -166,7 +187,7 @@ class ReportTests(unittest.TestCase):
                 stored[:] = [{"id": 11, "body": payload["body"], "user": {"login": "github-actions[bot]"}}]
             return stored[0]
         comment.publish(api, lambda path: archive.getvalue(), 7, "o/r")
-        self.assertIn("+100 bytes", stored[0]["body"])
+        self.assertIn("+100 (+10.00%)", stored[0]["body"])
         old_body = stored[0]["body"]
         pr["head"]["sha"] = "c" * 40
         comment.publish(api, lambda path: archive.getvalue(), 7, "o/r")
@@ -202,7 +223,7 @@ class ReportTests(unittest.TestCase):
                 stored[:] = [{"id": 11, "body": payload["body"], "user": {"login": "github-actions[bot]"}}]
             return stored[0]
         comment.publish(api, lambda path: archive.getvalue(), 7, "o/r")
-        self.assertIn("100.000 CPU s", stored[0]["body"])
+        self.assertIn("| CPU | — | 100.00 s | — |", stored[0]["body"])
         self.assertIn("No comparable base", stored[0]["body"])
 
     def test_baseline_lookup_never_uses_a_different_commit(self):

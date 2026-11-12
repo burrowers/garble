@@ -29,7 +29,7 @@ def run(command, *, cwd, env):
     return result.stdout
 
 
-def collect(base, head, samples=3, *, runner, clock, environ=None, work_root=None):
+def collect(base, head, samples=1, *, runner, clock, environ=None, work_root=None):
     if type(samples) is not int or samples < 1:
         raise ValueError("samples must be a positive integer")
     base, head = pathlib.Path(base).resolve(), pathlib.Path(head).resolve()
@@ -114,7 +114,7 @@ def main(argv=None, *, collector=collect):
     parser.add_argument("--base", type=pathlib.Path, required=True)
     parser.add_argument("--head", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
-    parser.add_argument("--samples", type=int, default=3)
+    parser.add_argument("--samples", type=int, default=1)
     args = parser.parse_args(argv)
     try:
         result = collector(args.base, args.head, args.samples, runner=run, clock=time.perf_counter)

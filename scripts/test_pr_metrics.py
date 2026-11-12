@@ -212,7 +212,7 @@ class CollectorTests(unittest.TestCase):
                     return b""
                 return metrics.EXPECTED
             ticks = iter(range(36))
-            result = metrics.collect(base, head, runner=runner, clock=lambda: next(ticks),
+            result = metrics.collect(base, head, samples=3, runner=runner, clock=lambda: next(ticks),
                                      environ={"GOCACHE": "/shared/tool-cache", "GARBLE_CACHE": "old"},
                                      work_root=root / "scratch")
             self.assertEqual(set(result), {"schema", "base_sha", "head_sha", "go_version",
@@ -255,6 +255,11 @@ class CommandTests(unittest.TestCase):
 
 
 class CLITests(unittest.TestCase):
+    def test_ci_uses_one_sample_per_revision_and_mode(self):
+        workflow = (ROOT / ".github/workflows/pr-build-metrics.yml").read_text()
+        self.assertIn("--samples 1", workflow)
+        self.assertNotIn("--samples 3", workflow)
+
     def test_cli_help_and_invalid_inputs_do_not_build(self):
         script = str(ROOT / "scripts/pr_metrics.py")
         result = subprocess.run([sys.executable, script, "--help"], capture_output=True, check=False)
@@ -290,7 +295,7 @@ class CLITests(unittest.TestCase):
     def test_writes_collected_json_with_default_or_explicit_samples(self):
         metrics = load_collector()
         self.assertTrue(hasattr(metrics, "main"), "missing collector CLI")
-        for extra, samples in (([], 3), (["--samples", "1"], 1)):
+        for extra, samples in (([], 1), (["--samples", "3"], 3)):
             with self.subTest(samples=samples), tempfile.TemporaryDirectory() as directory:
                 output = pathlib.Path(directory) / "results/metrics.json"
                 expected = {"schema": 1, "samples": samples}

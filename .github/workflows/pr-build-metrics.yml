@@ -46,7 +46,7 @@ jobs:
             echo '::notice::Bootstrapping the proposed PR harness; subsequent PRs use the base harness.'
             collector=head/scripts/pr_metrics.py
           fi
-          python3 -B "$collector" --base base --head head --samples 3 --output result.json
+          python3 -B "$collector" --base base --head head --samples 1 --output result.json
       - uses: actions/upload-artifact@v4
         with:
           name: pr-build-metrics

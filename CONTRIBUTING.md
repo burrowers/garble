@@ -114,12 +114,14 @@ usual jobs.
 
 * **Build cost:** the same HTTP/JSON executable is built with the base and head
   Garble binaries on one ephemeral Linux runner, in default, `-literals`, and
-  `-tiny -literals` modes. Each mode uses three samples per revision, a fixed seed,
-  and alternating revision order. Every sample starts with empty Go and Garble
-  caches, so elapsed time includes patched-tool preparation but not building
-  Garble itself. The report shows executable bytes, elapsed medians and sample
-  ranges. Each executable is run and its output checked. This is one workload
-  and seed, not a statistical regression test or an application runtime benchmark.
+  `-tiny -literals` modes. Each mode uses one sample per revision and a fixed
+  seed: six cold builds per PR, not eighteen. Every sample starts with empty Go
+  and Garble caches, so elapsed time includes patched-tool preparation but not
+  building Garble itself. The comment shows compact size/time tables with signed
+  deltas; raw metadata and samples are linked as artifacts. The collector still
+  accepts `--samples=3` for a more detailed investigation, reporting medians for
+  repeated samples. Each executable is run and its output checked. Single-sample
+  timings are a rough signal, not a statistical regression verdict.
 * **Test cost:** the existing full Linux test job records elapsed time and OS
   user/system CPU seconds for `go test -count=1 -timeout=15m ./...`, including
   waited-for descendants and the builds performed by integration tests. It does

@@ -63,33 +63,18 @@ def validate(data):
 
 def render(data, run_url):
     validate(data)
-    lines = [
-        MARKER,
-        "## Build cost comparison",
-        "",
-        "Informational only — increases do not fail CI. Timings are noisy signals, not a statistical regression verdict.",
-        "",
-        f"Base `{data['base_sha']}` → PR `{data['head_sha']}` · {data['go_version']} · linux/amd64 · CGO disabled",
-        f"Fixed seed `{data['seed']}`; {data['samples']} samples per revision/mode, alternating base/head order on the same runner.",
-        "",
-    ]
+    lines = [MARKER, "### Build cost", "",
+             "| Mode | Binary B (base → PR) | Δ B | Cold build (base → PR) | Δ |",
+             "|---|---:|---:|---:|---:|"]
     for mode in MODES:
         base, head = (data["modes"][mode][rev] for rev in ("base", "head"))
         before, after = (statistics.median(item["bytes"]) for item in (base, head))
-        seconds_before, seconds_after = (statistics.median(item["seconds"]) for item in (base, head))
-        lines += [
-            f"### {mode}",
-            f"- Executable size (median): {before:,.0f} → {after:,.0f} bytes; {after-before:+.0f} bytes ({(after/before-1)*100:+.2f}%).",
-            f"- Cold build elapsed (median): {seconds_before:.3f} s → {seconds_after:.3f} s ({seconds_after-seconds_before:+.3f} s; {(seconds_after/seconds_before-1)*100:+.2f}%).",
-            f"- Elapsed sample ranges: base {min(base['seconds']):.3f}–{max(base['seconds']):.3f} s; PR {min(head['seconds']):.3f}–{max(head['seconds']):.3f} s.",
-            f"- Size sample ranges: base {min(base['bytes']):,}–{max(base['bytes']):,} bytes; PR {min(head['bytes']):,}–{max(head['bytes']):,} bytes.",
-            "",
-        ]
-    lines += [
-        "Cold builds start with empty Go and Garble caches, including patched-tool preparation; Garble's own binary build and module downloads are excluded. Each produced executable is run and checked. This measures one HTTP/JSON workload, not all applications or application runtime performance.",
-        "",
-        f"[Run and raw samples]({run_url})",
-    ]
+        old_time, new_time = (statistics.median(item["seconds"]) for item in (base, head))
+        lines.append(
+            f"| {mode} | {before:,.0f} → {after:,.0f} | {after-before:+.0f} ({(after/before-1)*100:+.2f}%) "
+            f"| {old_time:.2f} → {new_time:.2f} s | {new_time-old_time:+.2f} s ({(new_time/old_time-1)*100:+.2f}%) |")
+    samples = "1 cold sample/mode" if data["samples"] == 1 else f"median of {data['samples']} cold samples/mode"
+    lines += ["", f"*Informational · {samples} · noisy timings · [Details]({run_url})*"]
     return "\n".join(lines)
 
 
@@ -130,25 +115,23 @@ def render_test_cost(head, base, run_url):
     if base is not None:
         validate_test_cost(base)
     cpu = head["user_seconds"] + head["system_seconds"]
-    lines = ["## Full Linux test-suite cost", "",
-             f"PR `{head['head_sha']}`, tested merge `{head['revision']}` · {head['go_version']}",
-             f"`{' '.join(TEST_COMMAND)}`", ""]
+    lines = ["### Linux tests", "",
+             "| Cost | Base | PR | Δ |", "|---|---:|---:|---:|"]
     comparable = (base is not None and head["exit_code"] == base["exit_code"] == 0
                   and base["revision"] == base["head_sha"] == head["base_sha"]
                   and base["base_sha"] is None
                   and all(head[k] == base[k] for k in ("go_version", "runner", "cpu_model", "cpu_count", "command"))
                   and base["user_seconds"] + base["system_seconds"] > 0)
-    if comparable:
-        previous = base["user_seconds"] + base["system_seconds"]
-        lines += [f"- Total CPU: {previous:.3f} → {cpu:.3f} CPU s ({(cpu/previous-1)*100:+.2f}%).",
-                  f"- Elapsed: {base['elapsed_seconds']:.3f} → {head['elapsed_seconds']:.3f} s ({(head['elapsed_seconds']/base['elapsed_seconds']-1)*100:+.2f}%)."]
-    else:
-        lines += [f"- PR total CPU: {cpu:.3f} CPU s; elapsed: {head['elapsed_seconds']:.3f} s.",
-                  "- No comparable base measurement is available; no increase/decrease is inferred."]
-    lines += [f"- PR CPU breakdown: user {head['user_seconds']:.3f} s; system {head['system_seconds']:.3f} s.",
-              f"- Test command exit status: {head['exit_code']}.", "",
-              "Informational only. OS CPU accounting includes waited-for child processes and test-internal builds, without profiling or another suite run. This compares the existing CI jobs under their normal shared-cache conditions, not controlled cold-cache experiments; cache state and runner noise can affect the difference. Failed/incomplete suites are not compared.",
-              "", f"[Test run and raw measurement]({run_url})"]
+    for label, value, previous in (
+            ("CPU", cpu, base["user_seconds"] + base["system_seconds"] if comparable else None),
+            ("Elapsed", head["elapsed_seconds"], base["elapsed_seconds"] if comparable else None)):
+        old = f"{previous:.2f} s" if comparable else "—"
+        delta = f"{value-previous:+.2f} s ({(value/previous-1)*100:+.2f}%)" if comparable else "—"
+        lines.append(f"| {label} | {old} | {value:.2f} s | {delta} |")
+    note = "" if comparable else "No comparable base · "
+    if head["exit_code"]:
+        note += f"partial run, exit {head['exit_code']} · "
+    lines += ["", f"*Informational · {note}normal CI caches · [Details]({run_url})*"]
     return "\n".join(lines)
 
 
@@ -165,7 +148,7 @@ def report_for(run, pr, data, repository):
         return None
     url = f"https://github.com/{repository}/actions/runs/{run['id']}"
     if data is None:
-        return f"{MARKER}\n## Build cost comparison\n\nMeasurements unavailable for `{run['head_sha']}`; no performance verdict. [Inspect the run]({url})."
+        return f"{MARKER}\n**Build cost:** unavailable · [Details]({url})"
     return render(data, url)
 
 
@@ -270,7 +253,7 @@ def publish(api, raw_api, run_id, repository):
         if not build:
             url = f"https://github.com/{repository}/actions/runs/{run_id}"
             if data is None:
-                body = f"## Full Linux test-suite cost\n\nMeasurement unavailable for `{run['head_sha']}`; no performance verdict. [Inspect the run]({url})."
+                body = f"**Linux tests:** unavailable · [Details]({url})"
             else:
                 base = base_test_cost(api, raw_api, pr["base"]["sha"])
                 body = render_test_cost(data, base, url)
