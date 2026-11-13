@@ -6,6 +6,6 @@ exec garble bug
 stderr 'Opening bug report in your browser'
 stdout '^https://github\.com/burrowers/garble/issues/new\?'
 stdout 'template=00-bug\.yml'
-stdout 'garble-version=.*mvdan\.cc%2Fgarble'
+stdout 'garble-version=github\.com%2Fburrowers%2Fgarble'
 stdout 'go-version=go\+version'
 stdout 'go-env='

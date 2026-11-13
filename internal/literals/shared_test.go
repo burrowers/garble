@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"mvdan.cc/garble/internal/literals"
+	"github.com/burrowers/garble/internal/literals"
 )
 
 const sharedSource = `package main

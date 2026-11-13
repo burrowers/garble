@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	ah "mvdan.cc/garble/internal/asthelper"
+	ah "github.com/burrowers/garble/internal/asthelper"
 )
 
 // updateMagicValue updates the global constant

@@ -17,8 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/burrowers/garble/internal/literals"
 	"github.com/go-quicktest/qt"
-	"mvdan.cc/garble/internal/literals"
 )
 
 // The fuzzing string is passed in as a string and []byte literal.

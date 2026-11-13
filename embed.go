@@ -12,7 +12,7 @@ import (
 	"os"
 	"strings"
 
-	"mvdan.cc/garble/internal/literals"
+	"github.com/burrowers/garble/internal/literals"
 )
 
 // The compiler's embedcfg resolves each pattern to filenames and filenames to

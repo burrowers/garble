@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strconv"
 
-	ah "mvdan.cc/garble/internal/asthelper"
+	ah "github.com/burrowers/garble/internal/asthelper"
 )
 
 // externalKeyProbability probability of using an external key.

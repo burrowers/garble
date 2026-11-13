@@ -7,8 +7,8 @@ import (
 	mathrand "math/rand"
 	"strconv"
 
+	"github.com/burrowers/garble/internal/ssa2ast"
 	"golang.org/x/tools/go/ssa"
-	"mvdan.cc/garble/internal/ssa2ast"
 )
 
 type blockMapping struct {

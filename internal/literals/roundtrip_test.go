@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	ah "mvdan.cc/garble/internal/asthelper"
+	ah "github.com/burrowers/garble/internal/asthelper"
 )
 
 // decoderProbeSizes covers a one-byte literal, a size that forces several

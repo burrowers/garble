@@ -31,7 +31,7 @@ import (
 	"strings"
 	"time"
 
-	"mvdan.cc/garble/internal/patcher"
+	"github.com/burrowers/garble/internal/patcher"
 )
 
 const actionGraphFileName = "action-graph.json"
@@ -834,7 +834,7 @@ func goVersionOK() bool {
 	if version.Compare(builtVersion, toolchainVersion) < 0 {
 		fmt.Fprintf(os.Stderr, `
 garble was built with %q and can't be used with the newer %q; rebuild it with a command like:
-    go install mvdan.cc/garble@latest
+    go install github.com/burrowers/garble@latest
 `[1:], builtVersion, toolchainVersion)
 		return false
 	}

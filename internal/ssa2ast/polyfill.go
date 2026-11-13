@@ -5,7 +5,7 @@ import (
 	"go/token"
 	"go/types"
 
-	ah "mvdan.cc/garble/internal/asthelper"
+	ah "github.com/burrowers/garble/internal/asthelper"
 )
 
 func makeMapIteratorPolyfill(tc *TypeConverter, mapType *types.Map) (ast.Expr, types.Type, error) {

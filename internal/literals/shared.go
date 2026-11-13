@@ -8,7 +8,7 @@ import (
 	mathrand "math/rand"
 	"strconv"
 
-	ah "mvdan.cc/garble/internal/asthelper"
+	ah "github.com/burrowers/garble/internal/asthelper"
 )
 
 // Share one randomly selected decoder within an owner: an original function or

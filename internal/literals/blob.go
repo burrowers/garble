@@ -10,7 +10,7 @@ import (
 	mathrand "math/rand"
 	"strconv"
 
-	ah "mvdan.cc/garble/internal/asthelper"
+	ah "github.com/burrowers/garble/internal/asthelper"
 )
 
 // BlobMagic distinguishes encoded embed.FS assets from unselected dependencies.

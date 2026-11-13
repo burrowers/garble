@@ -21,7 +21,7 @@ import (
 
 	"github.com/go-quicktest/qt"
 
-	"mvdan.cc/garble/internal/patcher"
+	"github.com/burrowers/garble/internal/patcher"
 )
 
 // Check both the global and its factory; normal Garble binaries have no nm symbols.

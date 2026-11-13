@@ -13,10 +13,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/burrowers/garble/internal/literals"
 	"github.com/rogpeppe/go-internal/cache"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
-	"mvdan.cc/garble/internal/literals"
 )
 
 // "maps binkeys" lets pkgCache.ReflectAPIs use its int-keyed inner map.
