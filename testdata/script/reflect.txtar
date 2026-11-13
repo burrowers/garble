@@ -137,6 +137,33 @@ func typeForClosure[T any]() reflect.Type {
 	return func() reflect.Type { return reflect.TypeFor[T]() }()
 }
 
+// A method of a generic type reflects on its receiver's type parameter. go/ssa
+// hands out no body for such a method through MethodValue, and the type
+// argument is unknown where the method is declared, so both the body and the
+// call sites have to contribute for the names to survive. Each shape uses its
+// own struct type, since a field name is recorded per struct identity: a shape
+// that kept the name would hide the others.
+type TypeForMethodField struct{ MethodValueField int }
+type TypeOfMethodField struct{ MethodValueField int }
+type TypeForMethodPointerField struct{ MethodValueField int }
+type TypeOfMethodTwoField struct{ MethodArgField int }
+type TypeForMethodForeignField struct{ MethodValueField int }
+type TypeOfMethodForeignField struct{ MethodArgField int }
+
+type TypeForMethod[T any] struct{ MethodV T }
+type TypeForMethodTwo[K, V any] struct {
+	MethodFirst  K
+	MethodSecond V
+}
+
+func (h TypeForMethod[T]) TypeFor() reflect.Type { return reflect.TypeFor[T]() }
+
+func (h TypeForMethod[T]) TypeOf() reflect.Type { return reflect.TypeOf(h.MethodV) }
+
+func (h *TypeForMethod[T]) TypeForPointer() reflect.Type { return reflect.TypeFor[T]() }
+
+func (p TypeForMethodTwo[K, V]) TypeOfSecond() reflect.Type { return reflect.TypeOf(p.MethodSecond) }
+
 func typeForField(t reflect.Type, name string) string {
 	if field, ok := t.FieldByName(name); ok {
 		return t.Name() + " " + field.Name
@@ -267,6 +294,12 @@ func main() {
 		{"typefor foreign arg", typeForField(importedpkg.TypeForForeignWrapped[TypeForPairArg]().Field(0).Type, "PairArgField")},
 		{"typefor pair", typeForField(typeForPair[TypeForPairArg, TypeForWrapped](), "PairFirst")},
 		{"typefor pair arg", typeForField(typeForPair[TypeForPairArg, TypeForWrapped]().Field(0).Type, "PairArgField")},
+		{"typefor generic method", typeForField(TypeForMethod[TypeForMethodField]{}.TypeFor(), "MethodValueField")},
+		{"typeof generic method", typeForField(TypeForMethod[TypeOfMethodField]{}.TypeOf(), "MethodValueField")},
+		{"typefor generic method pointer", typeForField((&TypeForMethod[TypeForMethodPointerField]{}).TypeForPointer(), "MethodValueField")},
+		{"typeof generic method two params", typeForField(TypeForMethodTwo[TypeForPairArg, TypeOfMethodTwoField]{}.TypeOfSecond(), "MethodArgField")},
+		{"typefor generic method foreign", typeForField(importedpkg.TypeForMethod[TypeForMethodForeignField]{}.TypeFor(), "MethodValueField")},
+		{"typeof generic method foreign", typeForField(importedpkg.TypeForMethod[TypeOfMethodForeignField]{}.TypeOf(), "MethodArgField")},
 	} {
 		fmt.Println(check.label+":", check.got)
 	}
@@ -1122,6 +1155,15 @@ func TypeForForeignWrapped[T any]() reflect.Type {
 	return reflect.TypeFor[TypeForForeignStruct[T]]()
 }
 
+// TypeForMethod reflects on its receiver's type parameter from inside a method,
+// in a package that never instantiates it, so the method's call sites are the
+// only place where the type argument is known.
+type TypeForMethod[T any] struct{ MethodV T }
+
+func (h TypeForMethod[T]) TypeFor() reflect.Type { return reflect.TypeFor[T]() }
+
+func (h TypeForMethod[T]) TypeOf() reflect.Type { return reflect.TypeOf(h.MethodV) }
+
 var ReflectInDefinedVar = ReflectInDefined{ExportedField2: 9000}
 
 var _ = reflect.TypeOf(ReflectInDefinedVar)
@@ -1457,6 +1499,12 @@ typefor foreign struct: TypeForForeignStruct[main.TypeForPairArg] ForeignField
 typefor foreign arg: TypeForPairArg PairArgField
 typefor pair: TypeForPair[main.TypeForPairArg,main.TypeForWrapped] PairFirst
 typefor pair arg: TypeForPairArg PairArgField
+typefor generic method: TypeForMethodField MethodValueField
+typeof generic method: TypeOfMethodField MethodValueField
+typefor generic method pointer: TypeForMethodPointerField MethodValueField
+typeof generic method two params: TypeOfMethodTwoField MethodArgField
+typefor generic method foreign: TypeForMethodForeignField MethodValueField
+typeof generic method foreign: TypeOfMethodForeignField MethodArgField
 map key: MapKeyReflect KeyName
 func arg: FuncArgReflect ArgName
 method arg: MethodArgReflect MethodArgName
