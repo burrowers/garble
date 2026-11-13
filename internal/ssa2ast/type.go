@@ -31,6 +31,113 @@ func (tc *TypeConverter) canName(typ types.Type) bool {
 	return tc.resolver(obj.Pkg()) == nil || token.IsExported(obj.Name())
 }
 
+// ConvertVar converts the type of a variable declared by the converted
+// function body, rather than the type of an expression inside it.
+//
+// A cross-block variable holds every operation its SSA value supports, not
+// only method calls. A named type of another package that is not exported
+// cannot be written, and the interface that stands in for it keeps only the
+// exported methods, so len, indexing, slicing, ranging and passing the value as
+// an argument stop typechecking once the value crosses a block boundary. When
+// that interface would carry no method at all, the underlying type is the
+// better substitute: an unexported method cannot be called from another
+// package anyway, and a value of the named type stays assignable to its
+// underlying type.
+//
+// The substitute has to be an unnamed type, so a named basic type keeps the
+// emulated interface: every predeclared basic type is a named type as well, and
+// a value of a named basic type is not assignable to its underlying type.
+func (tc *TypeConverter) ConvertVar(typ types.Type) (ast.Expr, error) {
+	if underlying, ok := tc.varUnderlying(typ); ok {
+		return tc.Convert(underlying)
+	}
+	return tc.Convert(typ)
+}
+
+// varUnderlying reports the type to declare for a variable of typ when the
+// emulated interface would drop operations the value still has.
+func (tc *TypeConverter) varUnderlying(typ types.Type) (types.Type, bool) {
+	named, ok := types.Unalias(typ).(*types.Named)
+	if !ok || tc.canName(typ) {
+		return nil, false
+	}
+	for i := range named.NumMethods() {
+		if token.IsExported(named.Method(i).Name()) {
+			// The interface exists to keep these method calls.
+			return nil, false
+		}
+	}
+	underlying := named.Underlying()
+	if _, basic := underlying.(*types.Basic); basic {
+		// A predeclared basic type is a named type too, so the value is not
+		// assignable to its underlying type either; that declaration would
+		// need a conversion the generated file cannot write.
+		return nil, false
+	}
+	// A value is assignable to the declared variable only when both share an
+	// identical underlying type, so every named type inside it has to be
+	// written as itself as well.
+	if !tc.spellable(underlying) {
+		return nil, false
+	}
+	return underlying, true
+}
+
+// spellable reports whether Convert writes typ as itself, without substituting
+// an underlying type or an emulated interface anywhere inside it.
+func (tc *TypeConverter) spellable(typ types.Type) bool {
+	switch typ := types.Unalias(typ).(type) {
+	case *types.Basic:
+		return true
+	case *types.Named:
+		return tc.canName(typ)
+	case *types.Array:
+		return tc.spellable(typ.Elem())
+	case *types.Chan:
+		return tc.spellable(typ.Elem())
+	case *types.Interface:
+		for i := range typ.NumEmbeddeds() {
+			if !tc.spellable(typ.EmbeddedType(i)) {
+				return false
+			}
+		}
+		for i := range typ.NumExplicitMethods() {
+			if !tc.spellable(typ.ExplicitMethod(i).Type()) {
+				return false
+			}
+		}
+		return true
+	case *types.Map:
+		return tc.spellable(typ.Key()) && tc.spellable(typ.Elem())
+	case *types.Pointer:
+		return tc.spellable(typ.Elem())
+	case *types.Signature:
+		return tc.spellableTuple(typ.Params()) && tc.spellableTuple(typ.Results())
+	case *types.Slice:
+		return tc.spellable(typ.Elem())
+	case *types.Struct:
+		for i := range typ.NumFields() {
+			if !tc.spellable(typ.Field(i).Type()) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func (tc *TypeConverter) spellableTuple(tuple *types.Tuple) bool {
+	if tuple == nil {
+		return true
+	}
+	for i := range tuple.Len() {
+		if !tc.spellable(tuple.At(i).Type()) {
+			return false
+		}
+	}
+	return true
+}
+
 func (tc *TypeConverter) Convert(typ types.Type) (ast.Expr, error) {
 	switch typ := types.Unalias(typ).(type) {
 	case *types.Array:

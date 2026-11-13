@@ -1,7 +1,10 @@
 package ssa2ast
 
 import (
+	"bytes"
 	"go/ast"
+	"go/format"
+	"go/token"
 	"go/types"
 	"testing"
 
@@ -137,6 +140,62 @@ func f() {
 	}
 	qt.Assert(t, qt.Equals(len(structAst.Fields.List), 1))
 	qt.Assert(t, qt.Equals(structAst.Fields.List[0].Names[0].Name, "X"))
+}
+
+func TestConvertVar(t *testing.T) {
+	other := types.NewPackage("example.com/other", "other")
+	newNamed := func(name string, underlying types.Type) *types.Named {
+		obj := types.NewTypeName(token.NoPos, other, name, nil)
+		other.Scope().Insert(obj)
+		return types.NewNamed(obj, underlying, nil)
+	}
+
+	byteSlice := types.NewSlice(types.Typ[types.Uint8])
+	blob := newNamed("blob", byteSlice)
+	cell := newNamed("cell", types.NewStruct([]*types.Var{
+		types.NewVar(token.NoPos, other, "N", types.Typ[types.Int]),
+	}, nil))
+	// holds has a field of a type that cannot be written either, so its whole
+	// underlying type cannot be written.
+	holds := newNamed("holds", types.NewStruct([]*types.Var{
+		types.NewVar(token.NoPos, other, "B", blob),
+	}, nil))
+	methoded := newNamed("methoded", byteSlice)
+	methoded.AddMethod(types.NewFunc(token.NoPos, other, "Size", types.NewSignatureType(
+		types.NewVar(token.NoPos, other, "", types.NewPointer(methoded)),
+		nil, nil, nil,
+		types.NewTuple(types.NewVar(token.NoPos, other, "", types.Typ[types.Int])),
+		false,
+	)))
+	exported := newNamed("Exported", byteSlice)
+	basicRank := newNamed("rank", types.Typ[types.Int])
+
+	tc := &TypeConverter{resolver: defaultImportNameResolver}
+	for _, test := range []struct {
+		name string
+		typ  types.Type
+		want string
+	}{
+		{"unexported slice without methods", blob, "[]uint8"},
+		{"unexported struct of writable fields", cell, "struct {\n\tN int\n}"},
+		{"unexported type with an exported method", methoded, "interface {\n\tSize() int\n}"},
+		{"unexported struct holding an unexported type", holds, "interface {\n}"},
+		{"unexported basic type", basicRank, "interface {\n}"},
+		{"exported type", exported, "other.Exported"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			expr, err := tc.ConvertVar(test.typ)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Assert(t, qt.Equals(exprString(t, expr), test.want))
+		})
+	}
+}
+
+func exprString(t *testing.T, expr ast.Expr) string {
+	t.Helper()
+	var buf bytes.Buffer
+	qt.Assert(t, qt.IsNil(format.Node(&buf, token.NewFileSet(), expr)))
+	return buf.String()
 }
 
 func TestConvertLocalGenericType(t *testing.T) {

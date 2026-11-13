@@ -1193,7 +1193,7 @@ func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, erro
 	}
 	var specs []ast.Spec
 	for varType, varNames := range groupedVar {
-		typeExpr, err := fc.tc.Convert(varType)
+		typeExpr, err := fc.tc.ConvertVar(varType)
 		if err != nil {
 			return nil, err
 		}
