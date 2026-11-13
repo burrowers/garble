@@ -95,7 +95,7 @@ var booleanFlags = map[string]bool{
 	"-work":       true,
 	"-x":          true,
 
-	// Test flags (TODO: support its special -args flag)
+	// Test flags.
 	"-artifacts": true,
 	"-benchmem":  true,
 	"-c":         true,
@@ -445,6 +445,10 @@ func waitForPatchedLinker() {
 // Note that it uses and modifies global state; in general, it should only be
 // called once from mainErr in the top-level garble process.
 func toolexecCmd(command string, args []string) (*exec.Cmd, error) {
+	var testArgs []string
+	if command == "test" {
+		args, testArgs = splitTestArgs(args)
+	}
 	// Split the flags from the package arguments, since we'll need
 	// to run 'go list' on the same set of packages.
 	flags, args := splitFlagsFromArgs(args)
@@ -689,8 +693,50 @@ This command wraps "go %s". Below is its help:
 	}
 	goArgs = append(goArgs, flags...)
 	goArgs = append(goArgs, args...)
+	goArgs = append(goArgs, testArgs...)
 
 	return exec.Command("go", goArgs...), nil
+}
+
+// splitTestArgs separates the explicit pass-through arguments, keeping the
+// separator so cmd/go can pass the rest to the test binary verbatim.
+func splitTestArgs(args []string) (goArgs, testArgs []string) {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-args", "--args", "--":
+			return args[:i:i], args[i:]
+		}
+		name := args[i]
+		if strings.HasPrefix(name, "--") {
+			name = name[1:]
+		}
+		if strings.Contains(name, "=") || booleanFlags[name] {
+			continue
+		}
+		// A known flag can take a value that looks like a separator.
+		if _, ok := forwardBuildFlags[name]; ok {
+			i++
+			continue
+		}
+		switch name {
+		case "-exec", "-o", "-vet", "-debug-actiongraph", "-debug-runtime-trace", "-debug-trace":
+			i++
+			continue
+		}
+		testName, isFlag := strings.CutPrefix(name, "-")
+		if !isFlag {
+			continue
+		}
+		testName = strings.TrimPrefix(testName, "test.")
+		switch testName {
+		case "bench", "benchtime", "blockprofile", "blockprofilerate", "count", "coverprofile",
+			"cpu", "cpuprofile", "fuzz", "fuzzminimizetime", "fuzztime", "list", "memprofile",
+			"memprofilerate", "mutexprofile", "mutexprofilefraction", "outputdir", "parallel",
+			"run", "shuffle", "skip", "timeout", "trace":
+			i++
+		}
+	}
+	return args, nil
 }
 
 type seedFlag struct {

@@ -20,11 +20,13 @@ stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
 ! stdout 'OriginalFuncName'
 
-# TODO: -args should pass the rest of the command line to the test binary.
-! exec garble test -v -run=^TestArgs$ . -args payload -overlay=missing.json
-stderr 'reading overlay:.*missing\.json'
-! exec garble test -v -run=^TestArgs$ --args payload -overlay=missing.json
-stderr 'reading overlay:.*missing\.json'
+# Build-like arguments after a separator belong to the test binary.
+exec garble test -v -run=^TestArgs$ . -args payload -overlay=missing.json
+stdout 'PASS.*TestArgs'
+exec garble test -v -run=^TestArgs$ --args payload -overlay=missing.json
+stdout 'PASS.*TestArgs'
+exec garble test -v -run=^TestArgs$ . -- payload -overlay=missing.json
+stdout 'PASS.*TestArgs'
 
 [short] stop # no need to verify this with -short
 
