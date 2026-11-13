@@ -238,11 +238,21 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 			// method sets to include all methods of this type.
 			for _, typ := range []types.Type{x.Type(), types.NewPointer(x.Type())} {
 				for method := range ssaPkg.Prog.MethodSets.MethodSet(typ).Methods() {
-					if m := ssaPkg.Prog.MethodValue(method); m != nil {
+					obj := method.Obj().(*types.Func)
+					// MethodValue returns nil for a method of a generic type,
+					// even though its body was built with the receiver's type
+					// parameters as the method's own. Such a method is not a
+					// member, but FuncValue still finds it, and analyzing it is
+					// the only way to learn what it reflects on.
+					m := ssaPkg.Prog.MethodValue(method)
+					if m == nil {
+						m = ssaPkg.Prog.FuncValue(obj)
+					}
+					if m != nil {
 						ri.checkFunction(m)
 					} else {
 						// Handle interface declarations.
-						ri.checkInterfaceMethod(method.Obj().(*types.Func))
+						ri.checkInterfaceMethod(obj)
 					}
 				}
 			}
@@ -361,14 +371,14 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 				if reflectedReceiver {
 					for _, result := range inst.Results {
 						if _, ok := result.Type().Underlying().(*types.Interface); ok {
-							ri.recordArgReflected(result, make(map[ssa.Value]bool))
+							ri.recordArgReflected(fun, result, make(map[ssa.Value]bool))
 						}
 					}
 				}
 			case *ssa.Store:
 				obj := typeToObj(inst.Addr.Type())
 				if obj != nil && ri.usedForReflect(obj) {
-					ri.recordArgReflected(inst.Val, make(map[ssa.Value]bool))
+					ri.recordArgReflected(fun, inst.Val, make(map[ssa.Value]bool))
 					ri.propagatedInstr[inst] = true
 				}
 			case *ssa.ChangeType:
@@ -456,7 +466,7 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 					arg := call.Args[argPos]
 					/* fmt.Printf("flagging arg: %v\n", arg) */
 
-					reflectedParam := ri.recordArgReflected(arg, make(map[ssa.Value]bool))
+					reflectedParam := ri.recordArgReflected(fun, arg, make(map[ssa.Value]bool))
 					if reflectedParam == nil {
 						continue
 					}
@@ -885,7 +895,7 @@ func declaringGenericFunction(fun *ssa.Function, tp *types.TypeParam) (string, i
 // recordArgReflected finds the type(s) of a function argument, which is being used in reflection
 // and excludes these types from obfuscation
 // It also checks if this argument has any relation to a function parameter and returns it if found.
-func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
+func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 	// make sure we visit every val only once, otherwise there will be infinite recursion
 	if visited[val] {
 		return nil
@@ -896,13 +906,17 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 
 	// The static type is reflected even when the value's SSA origin is not
 	// traceable (for example, indexing a slice returned by append).
-	ri.recursivelyRecordUsedForReflect(val.Type())
+	//
+	// A type parameter is not a type anything can be recorded for: only a call
+	// site knows what instantiates it, so record the positions the callers have
+	// to complete instead, as for the type argument of reflect.TypeFor.
+	ri.recordReflectType(fun, val.Type())
 
 	switch val := val.(type) {
 	case *ssa.Phi:
 		var param *ssa.Parameter
 		for _, edge := range val.Edges {
-			p := ri.recordArgReflected(edge, visited)
+			p := ri.recordArgReflected(fun, edge, visited)
 			if param == nil {
 				param = p
 			}
@@ -911,41 +925,41 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 	case *ssa.IndexAddr:
 		for _, ref := range *val.Referrers() {
 			if store, ok := ref.(*ssa.Store); ok {
-				ri.recordArgReflected(store.Val, visited)
+				ri.recordArgReflected(fun, store.Val, visited)
 			}
 		}
-		return ri.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(fun, val.X, visited)
 	case *ssa.Slice:
-		return ri.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(fun, val.X, visited)
 	case *ssa.Call:
 		// A returned slice can contain the input models after reordering.
 		// Only follow same-typed arguments rather than tainting every input.
 		if _, ok := val.Type().(*types.Slice); ok {
 			for _, arg := range val.Call.Args {
 				if types.Identical(arg.Type(), val.Type()) {
-					if param := ri.recordArgReflected(arg, visited); param != nil {
+					if param := ri.recordArgReflected(fun, arg, visited); param != nil {
 						return param
 					}
 				}
 			}
 		}
 	case *ssa.MakeInterface:
-		return ri.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(fun, val.X, visited)
 	case *ssa.UnOp:
-		ri.recordReferrersReflected(val, visited)
-		return ri.recordArgReflected(val.X, visited)
+		ri.recordReferrersReflected(fun, val, visited)
+		return ri.recordArgReflected(fun, val.X, visited)
 	case *ssa.FieldAddr:
 		// The field of a reflected value is part of that value, so a value
 		// stored into the field is reachable through reflection. This is the
 		// route a concrete type takes into an interface-typed field, which
 		// the field's own static type does not spell out.
-		ri.recordReferrersReflected(val, visited)
-		return ri.recordArgReflected(val.X, visited)
+		ri.recordReferrersReflected(fun, val, visited)
+		return ri.recordArgReflected(fun, val.X, visited)
 
 	case *ssa.Alloc:
 		/* fmt.Printf("recording val %v \n", *val.Referrers()) */
 		ri.recursivelyRecordUsedForReflect(val.Type())
-		ri.recordReferrersReflected(val, visited)
+		ri.recordReferrersReflected(fun, val, visited)
 
 		// relatedParam needs to revisit nodes so create an empty map
 		visited := make(map[ssa.Value]bool)
@@ -955,12 +969,12 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 
 	case *ssa.ChangeType:
 		ri.recursivelyRecordUsedForReflect(val.X.Type())
-		return ri.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(fun, val.X, visited)
 	case *ssa.ChangeInterface:
 		// Converting a value to a wider interface keeps the same concrete
 		// value, so a caller which marks this parameter reflected reaches it.
 		ri.recursivelyRecordUsedForReflect(val.X.Type())
-		return ri.recordArgReflected(val.X, visited)
+		return ri.recordArgReflected(fun, val.X, visited)
 	case *ssa.MakeSlice, *ssa.MakeMap, *ssa.MakeChan, *ssa.Const:
 		ri.recursivelyRecordUsedForReflect(val.Type())
 	case *ssa.Global:
@@ -970,7 +984,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 		// a global, so follow the values the package's initialization writes
 		// into it; a table of interface values is only reachable this way.
 		for _, stored := range ri.globalStores[val] {
-			ri.recordArgReflected(stored, visited)
+			ri.recordArgReflected(fun, stored, visited)
 		}
 	case *ssa.Parameter:
 		// this only finds the parameters who want to be found,
@@ -987,7 +1001,7 @@ func (ri *reflectInspector) recordArgReflected(val ssa.Value, visited map[ssa.Va
 // such as its fields or elements, and the values stored into it. Other
 // referrers, like calls taking the value as an argument, produce values which
 // are not part of the reflected one.
-func (ri *reflectInspector) recordReferrersReflected(val ssa.Value, visited map[ssa.Value]bool) {
+func (ri *reflectInspector) recordReferrersReflected(fun *ssa.Function, val ssa.Value, visited map[ssa.Value]bool) {
 	refs := val.Referrers()
 	if refs == nil {
 		return
@@ -996,13 +1010,13 @@ func (ri *reflectInspector) recordReferrersReflected(val ssa.Value, visited map[
 		switch ref := ref.(type) {
 		case *ssa.FieldAddr, *ssa.IndexAddr, *ssa.Slice, *ssa.UnOp,
 			*ssa.Phi, *ssa.ChangeType, *ssa.ChangeInterface, *ssa.MakeInterface:
-			ri.recordArgReflected(ref.(ssa.Value), visited)
+			ri.recordArgReflected(fun, ref.(ssa.Value), visited)
 		case *ssa.Store:
 			// Writing into the value writes part of what reflection can see.
 			// The stored value's static type may be an interface while its
 			// concrete type is what reflection exposes, as in a table of
 			// any values.
-			ri.recordArgReflected(ref.Val, visited)
+			ri.recordArgReflected(fun, ref.Val, visited)
 		}
 	}
 }
