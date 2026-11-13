@@ -5,7 +5,7 @@ Thank you for your interest in contributing! Here are some ground rules:
 1. The tool's design decisions are in the [README](README.md)
 2. All contributions are done in PRs with at least one review and CI
 3. All changes that alter behavior (features, flags, bugs) need a test
-4. We use the `#obfuscation` channel over at the [Gophers Slack](https://invite.slack.golangbridge.org/) to chat
+4. We use the [Garble Discord](https://discord.gg/pKxTR6gCYX) to chat
 
 ### Testing
 

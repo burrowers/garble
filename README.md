@@ -217,6 +217,11 @@ to document the current shortcomings of this tool.
   will not work in obfuscated binaries. This can affect
   [loading timezones](https://github.com/golang/go/issues/51473#issuecomment-2490564684), for example.
 
+### Community
+
+Join the [Garble Discord](https://discord.gg/pKxTR6gCYX) to chat about using and
+developing Garble.
+
 ### Contributing
 
 We welcome new contributors. If you would like to contribute, see
