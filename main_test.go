@@ -510,6 +510,13 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 	}
 }
 
+func TestSplitTestArgs(t *testing.T) {
+	args := []string{"--tags", "-args", "-test.run", "--args", ".", "-custom", "--args", "-race"}
+	goArgs, testArgs := splitTestArgs(args)
+	qt.Assert(t, qt.DeepEquals(goArgs, args[:6]))
+	qt.Assert(t, qt.DeepEquals(testArgs, args[6:]))
+}
+
 func TestTestBooleanFlags(t *testing.T) {
 	for _, name := range []string{"artifacts", "benchmem", "failfast", "fullpath", "short", "v"} {
 		for _, prefix := range []string{"-", "-test.", "--test."} {
