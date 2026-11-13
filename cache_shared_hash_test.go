@@ -4,6 +4,8 @@
 package main
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -64,6 +66,70 @@ func TestLinknameActionIDExternalTestPresence(t *testing.T) {
 				t.Fatal("the variant's action ID must not replace the canonical original naming identity")
 			}
 		})
+	}
+}
+
+func TestMainLinknameTargetNaming(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"none", "package p\n", ""},
+		{"variable", "package p\n\n//go:linkname counter main.counter\nvar counter int\n", "counter"},
+		{"function", "package p\n\n//go:linkname marker main.mainMarker\nfunc marker() string\n", "mainMarker"},
+		{"linknamestd", "package p\n//go:linknamestd marker main.mainMarker\nfunc marker() string\n", "mainMarker"},
+		{"pointer method", "package p\n//go:linkname inc main.(*T).inc\nfunc inc(*T, int) int\n", "T,inc"},
+		{"value method", "package p\n//go:linkname inc main.T.inc\nfunc inc(T, int) int\n", "T,inc"},
+		{"indented and tabs", "package p\n	//go:linkname	counter	main.counter\n", "counter"},
+		{"other package", "package p\n//go:linkname marker other.Marker\nfunc marker() string\n", ""},
+		{"local only", "package p\n//go:linkname marker\nfunc marker() string\n", ""},
+		{"main subpackage", "package p\n//go:linkname value main/sub.Value\nvar value int\n", ""},
+		{"inside a string literal line", "package p\nvar s = \"//go:linkname counter main.counter\"\n", ""},
+		{"three arguments", "package p\n//go:linkname counter main.counter extra\n", ""},
+		{"raw string", "package p\nvar s = `\n//go:linkname counter main.counter\n`\n", ""},
+		{"block comment", "package p\n/*\n//go:linkname counter main.counter\n*/\n", ""},
+	} {
+		targets := make(map[string]bool)
+		collectMainLinknameTargets([]byte(test.src), targets)
+		got := strings.Join(slices.Sorted(maps.Keys(targets)), ",")
+		if got != test.want {
+			t.Errorf("%s: got %q, want %q", test.name, got, test.want)
+		}
+	}
+
+	old := sharedCache
+	t.Cleanup(func() { sharedCache = old })
+	sharedCache = &sharedCacheType{
+		ListedPackages:      newListedPackages(),
+		MainLinknameTargets: []string{"counter"},
+	}
+	mainPkg := &listedPackage{ImportPath: "example.com/app", Name: "main", CompiledGoFiles: []string{"main.go"}}
+	if obfuscatedPackageObjectName(mainPkg, "counter") != "counter" {
+		t.Fatal("a linkname target of the main package must keep its name")
+	}
+	if obfuscatedPackageObjectName(mainPkg, "other") == "other" {
+		t.Fatal("unrelated main-package names must stay obfuscated")
+	}
+	library := &listedPackage{ImportPath: "example.com/app/lib", Name: "lib", CompiledGoFiles: []string{"lib.go"}}
+	if obfuscatedPackageObjectName(library, "counter") == "counter" {
+		t.Fatal("the exemption must only cover the main package")
+	}
+	testMain := &listedPackage{ImportPath: "example.com/app.test", Name: "main", ForTest: "example.com/app", CompiledGoFiles: []string{"main_test.go"}}
+	if obfuscatedPackageObjectName(testMain, "counter") == "counter" {
+		t.Fatal("a package rebuilt for a test binary is not the linked main package")
+	}
+
+	data, err := sharedCache.MarshalMsg(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded sharedCacheType
+	if rest, err := decoded.UnmarshalMsg(data); err != nil || len(rest) != 0 {
+		t.Fatalf("shared cache decode: remaining=%d, error=%v", len(rest), err)
+	}
+	if got := strings.Join(decoded.MainLinknameTargets, ","); got != "counter" {
+		t.Fatalf("shared cache lost the main linkname targets: %q", got)
 	}
 }
 

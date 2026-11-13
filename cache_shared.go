@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/scanner"
+	"go/token"
 	"log"
 	"maps"
 	"os"
@@ -61,6 +63,11 @@ type sharedCacheType struct {
 	// LinknameActionID covers naming dependencies absent from Go's import graph,
 	// such as the packages whose runtime hooks are defined by outgoing linknames.
 	LinknameActionID [sha256.Size]byte
+
+	// MainLinknameTargets stay plaintext: a referrer cannot import main, so a
+	// hash of main's identity would go stale when only main changes. Changes to
+	// the directives already invalidate main through its import graph.
+	MainLinknameTargets []string
 
 	// GoCmd is [GoEnv.GOROOT]/bin/go, so that we run exactly the same version
 	// of the Go tool that the original "go build" invocation did.
@@ -614,6 +621,61 @@ func linknameActionID() [sha256.Size]byte {
 	var sum [sha256.Size]byte
 	h.Sum(sum[:0])
 	return sum
+}
+
+// mainLinknameTargets scans before compilation: with multiple mains, a referrer
+// need not compile before the main whose names it pins.
+func mainLinknameTargets() ([]string, error) {
+	targets := make(map[string]bool)
+	for _, lpkg := range sharedCache.ListedPackages.all() {
+		for _, path := range lpkg.CompiledGoFiles {
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(lpkg.Dir, path)
+			}
+			src, err := os.ReadFile(path)
+			if errors.Is(err, os.ErrNotExist) {
+				continue // generated file no longer retained by go list
+			}
+			if err != nil {
+				return nil, err
+			}
+			collectMainLinknameTargets(src, targets)
+		}
+	}
+	return slices.Sorted(maps.Keys(targets)), nil
+}
+
+func collectMainLinknameTargets(src []byte, targets map[string]bool) {
+	if !bytes.Contains(src, []byte("//go:linkname")) {
+		return
+	}
+	// Scan comments rather than lines so raw strings and block comments cannot
+	// accidentally disable obfuscation. The compiler diagnoses invalid source.
+	var scan scanner.Scanner
+	scan.Init(token.NewFileSet().AddFile("", -1, len(src)), src, nil, scanner.ScanComments)
+	for {
+		_, tok, text := scan.Scan()
+		if tok == token.EOF {
+			return
+		}
+		if tok != token.COMMENT {
+			continue
+		}
+		fields := strings.Fields(text)
+		if len(fields) != 3 || (fields[0] != "//go:linkname" && fields[0] != "//go:linknamestd") {
+			continue
+		}
+		name, ok := strings.CutPrefix(fields[2], "main.")
+		if !ok {
+			continue
+		}
+		if receiver, method, ok := strings.Cut(name, "."); ok {
+			// Both T.M and (*T).M require the receiver's name as well.
+			targets[strings.Trim(receiver, "(*)")] = true
+			name = method
+		}
+		targets[name] = true
+	}
 }
 
 // appendListedPackages gets information about the current package

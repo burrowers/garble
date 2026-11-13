@@ -96,6 +96,17 @@ func nanotimeLinked() int64
 //go:linkname renamedFunc madeup.newName
 func renamedFunc() string
 
+// counter, mainMarker and counterT are addressed by //go:linkname directives in
+// the imported package. That package cannot depend on main, so main has to keep
+// these names plaintext for the two sides to agree.
+var counter int
+
+type counterT struct{ n int }
+
+func (t *counterT) inc(d int) int { t.n += d; return t.n }
+
+func mainMarker() string { return "main marker" }
+
 // A linkname to an external non-obfuscated func in another
 // module whose package path has a dot in it.
 //
@@ -142,6 +153,10 @@ func main() {
 	changeThing(val.UnsafePointer(), "to this")
 	println(a.DoThing())
 
+	counter = 41
+	t := &counterT{n: 1}
+	println("main targets", imported.MainCounter(), imported.MainMarker(),
+		imported.MainInc(unsafe.Pointer(t), 4), t.n)
 }
 
 -- imported/imported.go --
@@ -149,7 +164,7 @@ package imported
 
 import (
 	_ "strings"
-	_ "unsafe"
+	"unsafe"
 
 	"reflect"
 )
@@ -207,6 +222,25 @@ func renamedFunc() string {
 //go:linkname ByteIndex strings.IndexByte
 func ByteIndex(s string, c byte) int
 
+// A linkname into the main package, which imports this one and can therefore
+// never be imported back. The target names cannot carry a hash of main's
+// identity, so main keeps them plaintext instead.
+//
+//go:linkname mainCounter main.counter
+var mainCounter int
+
+//go:linkname mainMarker main.mainMarker
+func mainMarker() string
+
+//go:linkname mainInc main.(*counterT).inc
+func mainInc(t unsafe.Pointer, d int) int
+
+func MainCounter() int { return mainCounter }
+
+func MainMarker() string { return mainMarker() }
+
+func MainInc(t unsafe.Pointer, d int) int { return mainInc(t, d) }
+
 -- big.chungus/meme/go.mod --
 module test/main
 
@@ -231,3 +265,4 @@ featuring Dante from the Devil May Cry series
 3
 obfuscated func
 to this
+main targets 41 main marker 5 5

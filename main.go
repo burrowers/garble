@@ -606,6 +606,10 @@ This command wraps "go %s". Below is its help:
 		return nil, listErr
 	}
 
+	if sharedCache.MainLinknameTargets, err = mainLinknameTargets(); err != nil {
+		return nil, err
+	}
+
 	// Foreign linkname targets are naming dependencies even when Go does not
 	// import them. Hash their original identities before computing ours.
 	sharedCache.LinknameActionID = linknameActionID()

@@ -710,7 +710,8 @@ func isToolchainNameDependency(path, name string) bool {
 // obfuscatedPackageObjectName is the shared package-level naming rule used by
 // source transformation and the symbol map consumed by patched tools.
 func obfuscatedPackageObjectName(lpkg *listedPackage, name string) string {
-	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.baseImportPath(), name) {
+	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.baseImportPath(), name) ||
+		(lpkg.Name == "main" && lpkg.ForTest == "" && slices.Contains(sharedCache.MainLinknameTargets, name)) {
 		return name
 	}
 	return hashWithPackage(lpkg, name)
