@@ -20,13 +20,16 @@ stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
 ! stdout 'OriginalFuncName'
 
-# Build-like arguments after a separator belong to the test binary.
-exec garble test -v -run=^TestArgs$ . -args payload -overlay=missing.json
-stdout 'PASS.*TestArgs'
-exec garble test -v -run=^TestArgs$ --args payload -overlay=missing.json
-stdout 'PASS.*TestArgs'
-exec garble test -v -run=^TestArgs$ . -- payload -overlay=missing.json
-stdout 'PASS.*TestArgs'
+# Compare argument forwarding with plain Go using the same payload.
+exec garble test -v . -args payload -overlay=missing.json
+stdout '^--- PASS: TestArgs \('
+
+go test -v . -args payload -overlay=missing.json
+stdout '^--- PASS: TestArgs \('
+stdout 'PASS.*TestFoo'
+stdout 'PASS.*TestSeparateFoo'
+stdout 'package bar, func name: test/bar\.OriginalFuncName'
+stdout 'package bar_test, func name: test/bar\.OriginalFuncName'
 
 [short] stop # no need to verify this with -short
 
@@ -69,12 +72,6 @@ stdout 'gathering baseline coverage:'
 go test -fuzz=FuzzGuided -fuzztime=1x -run='^$' .
 stdout 'gathering baseline coverage:'
 
-# verify with regular cmd/go; OriginalFuncName should appear
-go test -v
-stdout 'PASS.*TestFoo'
-stdout 'PASS.*TestSeparateFoo'
-stdout 'package bar, func name: test/bar\.OriginalFuncName'
-stdout 'package bar_test, func name: test/bar\.OriginalFuncName'
 -- go.mod --
 module test/bar
 

@@ -511,10 +511,23 @@ func TestSplitFlagsFromArgs(t *testing.T) {
 }
 
 func TestSplitTestArgs(t *testing.T) {
-	args := []string{"--tags", "-args", "-test.run", "--args", ".", "-custom", "--args", "-race"}
-	goArgs, testArgs := splitTestArgs(args)
-	qt.Assert(t, qt.DeepEquals(goArgs, args[:6]))
-	qt.Assert(t, qt.DeepEquals(testArgs, args[6:]))
+	for _, test := range []struct {
+		name     string
+		goArgs   []string
+		testArgs []string
+	}{
+		{"Args", []string{"."}, []string{"-args", "payload", "-race"}},
+		{"LongArgs", []string{"-v"}, []string{"--args", "payload", "-race"}},
+		{"Terminator", []string{"."}, []string{"--", "payload", "-race"}},
+		{"FlagValues", []string{"--tags", "-args", "-test.run", "--args", ".", "-custom"}, []string{"--args", "-race"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := append(slices.Clone(test.goArgs), test.testArgs...)
+			goArgs, testArgs := splitTestArgs(args)
+			qt.Assert(t, qt.DeepEquals(goArgs, test.goArgs))
+			qt.Assert(t, qt.DeepEquals(testArgs, test.testArgs))
+		})
+	}
 }
 
 func TestTestBooleanFlags(t *testing.T) {
