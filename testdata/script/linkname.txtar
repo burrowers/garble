@@ -4,7 +4,7 @@ cmp stderr main.stderr
 
 # TODO: why is 'obfuscatedMethod' present?
 ! binsubstr main$exe 'obfuscatedFunc' 'ObfuscatedFunc'
-binsubstr main$exe 'UnobfuscatedMethod'
+! binsubstr main$exe 'ObfuscatedMethod'
 
 [short] stop # no need to verify this with -short
 
@@ -62,10 +62,10 @@ func obfuscatedFunc() string
 //go:linkname obfuscatedMethod test/main/imported.Receiver.obfuscatedMethod
 func obfuscatedMethod(imported.Receiver) string
 
-// A linkname to an external unobfuscated method.
+// A linkname to an external exported method.
 //
-//go:linkname unobfuscatedMethod test/main/imported.Receiver.UnobfuscatedMethod
-func unobfuscatedMethod(imported.Receiver) string
+//go:linkname exportedMethod test/main/imported.Receiver.ObfuscatedMethod
+func exportedMethod(imported.Receiver) string
 
 // A linkname to an external obfuscated pointer method, with an extra parameter.
 //
@@ -115,7 +115,7 @@ func main() {
 
 	r := imported.Receiver{Field: "field value"}
 	println(obfuscatedMethod(r))
-	println(unobfuscatedMethod(r))
+	println(exportedMethod(r))
 	println(obfuscatedPointerMethod(&r, "another value"))
 
 	typ := reflect.TypeOf(new(error)).Elem()
@@ -192,8 +192,8 @@ func (r *Receiver) obfuscatedPointerMethod(extra string) string {
 	return "obfuscated pointer method: " + r.Field + " plus " + extra
 }
 
-func (r Receiver) UnobfuscatedMethod() string {
-	return "unobfuscated method: " + r.Field
+func (r Receiver) ObfuscatedMethod() string {
+	return "exported method: " + r.Field
 }
 
 //go:linkname renamedFunc madeup.newName
@@ -221,7 +221,7 @@ func chungify() string {
 -- main.stderr --
 obfuscated func
 obfuscated method: field value
-unobfuscated method: field value
+exported method: field value
 obfuscated pointer method: field value plus another value
 rtype_ptrTo non-nil true
 rtype_NumMethod 1
