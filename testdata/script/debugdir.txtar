@@ -12,6 +12,8 @@ grep ImportedFunc $WORK/debug1/source/test/main/main.go
 grep 'some comment' $WORK/debug1/source/test/main/main.go
 ! grep ImportedFunc $WORK/debug1/garbled/test/main/imported/imported.go
 ! grep ImportedFunc $WORK/debug1/garbled/test/main/main.go
+! grep ImportedMethod $WORK/debug1/garbled/test/main/imported/imported.go
+! grep ImportedMethod $WORK/debug1/garbled/test/main/main.go
 ! grep 'some comment' $WORK/debug1/garbled/test/main/main.go
 
 # Each garbled file must hold its own transformed source. Printing reuses a
@@ -60,6 +62,8 @@ import (
 )
 
 type someType int // some comment
+type methodInterface interface{ ImportedMethod() }
+
 var someVar = 0
 
 type someStruct struct {
@@ -68,13 +72,18 @@ type someStruct struct {
 
 func main() {
 	imported.ImportedFunc()
+	var value methodInterface = imported.Type{}
+	value.ImportedMethod()
 	reflect.TypeOf(123)
 }
-
 -- imported/imported.go --
 package imported
 
 func ImportedFunc() {}
+
+type Type struct{}
+
+func (Type) ImportedMethod() {}
 -- alpha.go --
 package main
 

@@ -199,10 +199,6 @@ if a `-seed` value used in a build is lost, `garble reverse` will not work.
 Most of these can improve with time and effort. The purpose of this section is
 to document the current shortcomings of this tool.
 
-* Exported methods are never obfuscated at the moment, since they could
-  be required by interfaces. This area is a work in progress; see
-  [#3](https://github.com/burrowers/garble/issues/3).
-
 * There is no supported way to exclude obfuscating a selection of files or packages.
   More often than not, a user would want to do this to work around a bug; please file the bug instead.
 
