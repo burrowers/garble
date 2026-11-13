@@ -544,22 +544,6 @@ func foldsExactly(op token.Token) bool {
 	return false
 }
 
-// basicWidth returns the width in bytes of a basic type, or 0 when the type
-// does not have one.
-func basicWidth(basic *types.Basic) int {
-	switch basic.Kind() {
-	case types.Int8, types.Uint8:
-		return 1
-	case types.Int16, types.Uint16:
-		return 2
-	case types.Int32, types.Uint32, types.Float32:
-		return 4
-	case types.Int64, types.Uint64, types.Float64:
-		return 8
-	}
-	return 0
-}
-
 // integerRange returns the inclusive bounds of an integer type. The
 // platform-sized int and uint types use the narrower 32-bit range, so a value
 // which only fits on a 64-bit target is quoted as well.
@@ -602,7 +586,7 @@ func conversionRejects(val constant.Value, to types.Type) bool {
 	case basic.Info()&types.IsFloat != 0:
 		// Widening to float64 keeps the value of every integer and float32;
 		// a float32 destination rounds a float again or overflows.
-		return basicWidth(basic) < 8
+		return basic.Kind() != types.Float64
 	case basic.Info()&types.IsInteger != 0:
 		if val.Kind() == constant.Float {
 			// A fractional value never reaches here in valid source, and an
