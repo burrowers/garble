@@ -42,7 +42,7 @@ const (
 	GoSrcEnv = "GARBLE_GO_SRC"
 
 	// Bump when tool patch/build semantics change to invalidate cached binaries.
-	toolchainBuildVersion = "v5"
+	toolchainBuildVersion = "v6"
 )
 
 var goOverlayFiles = []string{"cmd/go/internal/work/exec.go"}
@@ -483,6 +483,22 @@ func buildTool(goRoot, workingDir string, overlay map[string]string, outputPath,
 		"GOPROXY=off",
 	)
 	cmd.Dir = workingDir
+	if toolPkg == "cmd/go" {
+		// The driver locates tools using its compiled-in host architecture.
+		// A 386 Garble can run on an amd64 Go installation, which need not
+		// contain pkg/tool/*_386; match the selected Go driver, not Garble.
+		host := exec.Command(goCmd, "env", "GOHOSTOS", "GOHOSTARCH")
+		host.Env, host.Dir = cmd.Env, cmd.Dir
+		out, err := host.Output()
+		if err != nil {
+			return fmt.Errorf("cannot determine Go driver host: %w", err)
+		}
+		platform := strings.Fields(string(out))
+		if len(platform) != 2 {
+			return fmt.Errorf("unexpected Go driver host: %q", out)
+		}
+		cmd.Env = append(cmd.Env, "GOOS="+platform[0], "GOARCH="+platform[1])
+	}
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
