@@ -219,8 +219,7 @@ to document the current shortcomings of this tool.
 
 ### Community
 
-Join the [Garble Discord](https://discord.gg/pKxTR6gCYX) to chat about using and
-developing Garble.
+We use the `#garble` channel on the [zeitgeist Discord](https://discord.gg/pKxTR6gCYX) to chat.
 
 ### Contributing
 
