@@ -282,6 +282,30 @@ func charSum(s string) int {
 	return sum
 }
 
+// crossBlockForeignValue keeps values of unexported foreign named types across
+// a block boundary. The generated declaration has to name a type the value is
+// assignable to, and an empty emulated interface would keep nothing but method
+// calls, so len, indexing and field access have to survive.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func crossBlockForeignValue(pick bool) (int, byte, int) {
+	blob := named.MakeBlob(1)
+	cell := named.MakeCell(3)
+	bag := named.MakeCounts(4)
+	if pick {
+		blob = named.MakeBlob(7)
+		cell = named.MakeCell(9)
+		bag = named.MakeCounts(6)
+	}
+	// len, indexing, ranging and field access all need the real type, and so
+	// does passing the value back to a function of its own package.
+	total := 0
+	for _, n := range bag {
+		total += n
+	}
+	return len(blob), blob[0], named.CellSum(cell) + total
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
 	if got := charSum("abcd"); got != 394 {
@@ -334,6 +358,13 @@ func main() {
 
 	genericBoxCheck()
 
+	if n, first, sum := crossBlockForeignValue(true); n != 3 || first != 7 || sum != 16 {
+		panic("cross-block foreign value changed")
+	}
+	if n, first, sum := crossBlockForeignValue(false); n != 3 || first != 1 || sum != 8 {
+		panic("cross-block foreign value changed")
+	}
+
 	if got := (scoreList{3, 4}).Total(); got != 7 {
 		panic("named slice method call changed")
 	}
@@ -380,6 +411,25 @@ func (s Scores) Total() int {
 	}
 	return total
 }
+
+// Blob is an unexported named slice type without exported methods, so a
+// flattened caller cannot write the type itself.
+type blob []byte
+
+func MakeBlob(first byte) blob { return blob{first, 2, 3} }
+
+// cell is an unexported named struct type whose fields are all writable types.
+type cell struct{ N int }
+
+func MakeCell(n int) cell { return cell{N: n} }
+
+func CellSum(c cell) int { return c.N }
+
+// counts is an unexported named map type, so ranging over a cross-block value
+// needs its underlying type as well.
+type counts map[string]int
+
+func MakeCounts(n int) counts { return counts{"a": n, "b": 1} }
 
 // Box is a generic type of another package, so a flattened caller selects a
 // method of an instantiated foreign type.
