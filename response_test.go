@@ -8,13 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 )
 
 func TestToolResponseFile(t *testing.T) {
-	t.Skip("TODO: accept response files from the Go driver")
 	// The Go driver keeps Garble's flags and command outside the response file.
 	// A harmless untransformed tool lets us exercise the real subprocess entry.
 	goTool, err := exec.LookPath("go")
@@ -37,6 +37,78 @@ func TestToolResponseFile(t *testing.T) {
 	cmd.Env = append(os.Environ(), "RUN_GARBLE_MAIN=true")
 	if out, err := cmd.CombinedOutput(); err != nil || !strings.HasPrefix(string(out), "go version ") {
 		t.Fatalf("response invocation: %v\n%s", err, out)
+	}
+}
+
+func TestReadToolArgs(t *testing.T) {
+	want := []string{"compile", "", `C:\directory with spaces\`, "quotes'\"$`", "line\nbreak", "日本語", "@literal"}
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "args.json")
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readToolArgs([]string{"@" + file})
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("arguments: %q, %v; want %q", got, err, want)
+	}
+	for _, invalid := range []string{`[]`, `null`, `[""]`, `{}`, `not json`} {
+		if err := os.WriteFile(file, []byte(invalid), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readToolArgs([]string{"@" + file}); err == nil {
+			t.Errorf("accepted invalid tool arguments %s", invalid)
+		}
+	}
+	if _, err := readToolArgs([]string{"@" + file + ".missing"}); err == nil {
+		t.Error("accepted missing response file")
+	}
+	if _, err := readToolArgs(nil); err == nil {
+		t.Error("accepted missing tool")
+	}
+}
+
+func TestOutgoingToolResponseFile(t *testing.T) {
+	out, err := exec.Command("go", "env", "GOTOOLDIR").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	asm := filepath.Join(strings.TrimSpace(string(out)), "asm")
+	// The assembler accepts arbitrary include directories; -V exits without
+	// assembling source, but only after the preceding flags have been parsed.
+	cmd := exec.Command(asm, "-I", strings.Repeat("long", 5000), "-I", `C:\with spaces\`, "-I", "quotes'\"$`\n日本語", "-V=full")
+	cleanup, err := toolResponseFile(cmd, "asm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if len(cmd.Args) != 2 || !strings.HasPrefix(cmd.Args[1], "@") {
+		t.Fatalf("oversized arguments not replaced: %d arguments", len(cmd.Args))
+	}
+	file := cmd.Args[1][1:]
+	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "version go") {
+		t.Fatalf("assembler response file: %v\n%s", err, out)
+	}
+	cleanup()
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("response file not cleaned up: %v", err)
+	}
+	for _, tool := range []string{"asm", "unknown"} {
+		args := []string{"tool", "-V=full"}
+		if tool == "unknown" {
+			args = append(args, strings.Repeat("x", 40000))
+		}
+		cmd := exec.Command(args[0], args[1:]...)
+		cleanup, err := toolResponseFile(cmd, tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cleanup()
+		if !slices.Equal(cmd.Args, args) {
+			t.Errorf("rewrote arguments for %s", tool)
+		}
 	}
 }
 

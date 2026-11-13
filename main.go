@@ -286,6 +286,10 @@ func mainErr(args []string) error {
 		return restoreDebugDirFromCache()
 
 	case "toolexec":
+		args, err := readToolArgs(args)
+		if err != nil {
+			return err
+		}
 		methodNamesFile := ""
 		_, tool := filepath.Split(args[0])
 		if runtime.GOOS == "windows" {
@@ -408,6 +412,11 @@ func mainErr(args []string) error {
 
 		cmd := exec.Command(executablePath, transformed...)
 		cmd.Env = append(cmd.Environ(), patcher.MethodMapEnv+"="+methodNamesFile)
+		cleanup, err := toolResponseFile(cmd, tool)
+		if err != nil {
+			return fmt.Errorf("cannot write tool arguments: %w", err)
+		}
+		defer cleanup()
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
@@ -714,7 +723,14 @@ This command wraps "go %s". Below is its help:
 	goArgs = append(goArgs, args...)
 	goArgs = append(goArgs, testArgs...)
 
-	return exec.Command("go", goArgs...), nil
+	goCmd, err := patcher.PatchGo(sharedCache.GoEnv.GOROOT, sharedCache.GoEnv.GOVERSION, sharedCache.CacheDir, sharedTempDir)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get modified Go driver: %w", err)
+	}
+	cmd := exec.Command(goCmd, goArgs...)
+	// The cached driver is outside GOROOT; keep the selected toolchain root.
+	cmd.Env = append(os.Environ(), "GOROOT="+sharedCache.GoEnv.GOROOT)
+	return cmd, nil
 }
 
 // splitTestArgs separates the explicit pass-through arguments, keeping the

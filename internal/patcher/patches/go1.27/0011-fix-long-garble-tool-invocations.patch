@@ -1,0 +1,73 @@
+From 40d56ebcd4f9bc3abb7d0e56db995db6c87b53b1 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Fri, 13 Nov 2026 17:04:49 +0000
+Subject: [PATCH] fix: pass long Garble tool invocations through response files
+
+The stock driver only recognizes tool basenames as response-file
+consumers, so -toolexec wrappers can exceed the OS command-line limit
+before they start. Recognize the active Garble wrapper when GARBLE_SHARED
+is set and encode its tool invocation as JSON, retaining the wrapper
+flags and subcommand in argv.
+
+Refs burrowers/garble#572
+---
+ cmd/go/internal/work/exec.go | 25 +++++++++++++++++++++----
+ 1 file changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/cmd/go/internal/work/exec.go b/cmd/go/internal/work/exec.go
+index 3ed01c0..0daead0 100644
+--- a/cmd/go/internal/work/exec.go
++++ b/cmd/go/internal/work/exec.go
+@@ -3646,14 +3646,19 @@ func actualFiles(files []string) []string {
+ func passLongArgsInResponseFiles(cmd *exec.Cmd) (cleanup func()) {
+ 	cleanup = func() {} // no cleanup by default
+ 
++	garbleWrapper := os.Getenv("GARBLE_SHARED") != "" && len(cfg.BuildToolexec) > 0 && cmd.Path == cfg.BuildToolexec[0]
+ 	var argLen int
+ 	for _, arg := range cmd.Args {
+ 		argLen += len(arg)
++		if garbleWrapper {
++			// Include a conservative allowance for Windows quoting and spaces.
++			argLen += len(arg) + 3
++		}
+ 	}
+ 
+ 	// If we're not approaching 32KB of args, just pass args normally.
+ 	// (use 30KB instead to be conservative; not sure how accounting is done)
+-	if !useResponseFile(cmd.Path, argLen) {
++	if !useResponseFile(cmd.Path, argLen) && !(garbleWrapper && argLen > sys.ExecArgLengthLimit) {
+ 		return
+ 	}
+ 
+@@ -3663,8 +3668,16 @@ func passLongArgsInResponseFiles(cmd *exec.Cmd) (cleanup func()) {
+ 	}
+ 	cleanup = func() { os.Remove(tf.Name()) }
+ 	var buf bytes.Buffer
+-	for _, arg := range cmd.Args[1:] {
+-		fmt.Fprintf(&buf, "%s\n", encodeArg(arg))
++	if garbleWrapper {
++		// Garble understands a private JSON response file. Keep its own flags
++		// and subcommand in argv, and encode only the tool invocation.
++		if err := json.NewEncoder(&buf).Encode(cmd.Args[len(cfg.BuildToolexec):]); err != nil {
++			log.Fatalf("error encoding tool arguments: %v", err)
++		}
++	} else {
++		for _, arg := range cmd.Args[1:] {
++			fmt.Fprintf(&buf, "%s\n", encodeArg(arg))
++		}
+ 	}
+ 	if _, err := tf.Write(buf.Bytes()); err != nil {
+ 		tf.Close()
+@@ -3675,7 +3688,11 @@ func passLongArgsInResponseFiles(cmd *exec.Cmd) (cleanup func()) {
+ 		cleanup()
+ 		log.Fatalf("error writing long arguments to response file: %v", err)
+ 	}
+-	cmd.Args = []string{cmd.Args[0], "@" + tf.Name()}
++	if garbleWrapper {
++		cmd.Args = append(cmd.Args[:len(cfg.BuildToolexec):len(cfg.BuildToolexec)], "@"+tf.Name())
++	} else {
++		cmd.Args = []string{cmd.Args[0], "@" + tf.Name()}
++	}
+ 	return cleanup
+ }
+ 

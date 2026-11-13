@@ -45,6 +45,8 @@ const (
 	toolchainBuildVersion = "v5"
 )
 
+var goOverlayFiles = []string{"cmd/go/internal/work/exec.go"}
+
 // Files that we may need to overlay from the modified source while building
 // cmd/compile and cmd/asm.
 var compilerOverlayFiles = []string{
@@ -582,6 +584,10 @@ func patchAndBuildTool(toolName, toolPkg, goSrcRoot, goRoot, goVersion, cacheDir
 	// upgraded, so it is a good time to remove unused tools.
 	trimToolCache(filepath.Dir(outputPath), time.Now())
 	return outputPath, nil
+}
+
+func PatchGo(goRoot, goVersion, cacheDir, tempDir string) (string, error) {
+	return patchAndBuildTool("go", "cmd/go", os.Getenv(GoSrcEnv), goRoot, goVersion, cacheDir, tempDir, goOverlayFiles)
 }
 
 func PatchCompiler(goSrcRoot, goRoot, goVersion, cacheDir, tempDir string) (string, error) {

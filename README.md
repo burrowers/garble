@@ -171,6 +171,9 @@ as it has to obfuscate each package for the first time. This is akin to clearing
 Garble also makes use of its own cache to reuse work, akin to Go's `GOCACHE`.
 It defaults to a directory under your user's cache directory,
 such as `~/.cache/garble`, and can be placed elsewhere by setting `GARBLE_CACHE`.
+It also stores patched copies of the Go driver, compiler, assembler, and linker
+there; the installed Go toolchain is left unchanged. The patched driver and
+Garble use response files for long tool invocations, including on Windows.
 
 ### Determinism and seeds
 
