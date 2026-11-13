@@ -23,11 +23,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/burrowers/garble/internal/ctrlflow"
+	"github.com/burrowers/garble/internal/literals"
+	"github.com/burrowers/garble/internal/patcher"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
-	"mvdan.cc/garble/internal/ctrlflow"
-	"mvdan.cc/garble/internal/literals"
-	"mvdan.cc/garble/internal/patcher"
 )
 
 // cmd/bundle will include a go:generate directive in its output by default.

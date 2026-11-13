@@ -7,7 +7,7 @@ body:
     attributes:
       label: "Output of `garble version`:"
       placeholder: |
-        mvdan.cc/garble v0.14.2
+        github.com/burrowers/garble v0.14.2
 
         Build settings:
               -buildmode exe

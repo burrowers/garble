@@ -14,8 +14,8 @@ import (
 	"strconv"
 	"unicode/utf8"
 
+	ah "github.com/burrowers/garble/internal/asthelper"
 	"golang.org/x/tools/go/ast/astutil"
-	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 // MinSize is the lower bound limit, of the size of string-like literals

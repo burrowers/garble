@@ -1,4 +1,4 @@
-module mvdan.cc/garble
+module github.com/burrowers/garble
 
 go 1.27
 
