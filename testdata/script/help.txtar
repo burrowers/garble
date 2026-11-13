@@ -7,15 +7,11 @@ stderr 'garble \[garble flags\] command'
 exec garble -h
 stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
-stderr -count=1 'We use the #garble channel on the zeitgeist Discord to chat:'
-stderr -count=1 'https://discord\.gg/pKxTR6gCYX'
 ! stdout .
 
 exec garble help
 stderr 'Garble obfuscates Go code'
 stderr 'garble \[garble flags\] command'
-stderr -count=1 'We use the #garble channel on the zeitgeist Discord to chat:'
-stderr -count=1 'https://discord\.gg/pKxTR6gCYX'
 ! stdout .
 
 exec garble help foo bar
