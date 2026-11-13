@@ -87,6 +87,8 @@ func TestMainLinknameTargetNaming(t *testing.T) {
 		{"main subpackage", "package p\n//go:linkname value main/sub.Value\nvar value int\n", ""},
 		{"inside a string literal line", "package p\nvar s = \"//go:linkname counter main.counter\"\n", ""},
 		{"three arguments", "package p\n//go:linkname counter main.counter extra\n", ""},
+		{"raw string", "package p\nvar s = `\n//go:linkname counter main.counter\n`\n", ""},
+		{"block comment", "package p\n/*\n//go:linkname counter main.counter\n*/\n", ""},
 	} {
 		targets := make(map[string]bool)
 		collectMainLinknameTargets([]byte(test.src), targets)
@@ -102,19 +104,19 @@ func TestMainLinknameTargetNaming(t *testing.T) {
 		ListedPackages:      newListedPackages(),
 		MainLinknameTargets: []string{"counter"},
 	}
-	mainPkg := &listedPackage{ImportPath: "example.com/app", Name: "main"}
-	if !isMainLinknameTarget(mainPkg, "counter") {
+	mainPkg := &listedPackage{ImportPath: "example.com/app", Name: "main", CompiledGoFiles: []string{"main.go"}}
+	if obfuscatedPackageObjectName(mainPkg, "counter") != "counter" {
 		t.Fatal("a linkname target of the main package must keep its name")
 	}
-	if isMainLinknameTarget(mainPkg, "other") {
+	if obfuscatedPackageObjectName(mainPkg, "other") == "other" {
 		t.Fatal("unrelated main-package names must stay obfuscated")
 	}
-	library := &listedPackage{ImportPath: "example.com/app/lib", Name: "lib"}
-	if isMainLinknameTarget(library, "counter") {
+	library := &listedPackage{ImportPath: "example.com/app/lib", Name: "lib", CompiledGoFiles: []string{"lib.go"}}
+	if obfuscatedPackageObjectName(library, "counter") == "counter" {
 		t.Fatal("the exemption must only cover the main package")
 	}
-	testMain := &listedPackage{ImportPath: "example.com/app.test", Name: "main", ForTest: "example.com/app"}
-	if isMainLinknameTarget(testMain, "counter") {
+	testMain := &listedPackage{ImportPath: "example.com/app.test", Name: "main", ForTest: "example.com/app", CompiledGoFiles: []string{"main_test.go"}}
+	if obfuscatedPackageObjectName(testMain, "counter") == "counter" {
 		t.Fatal("a package rebuilt for a test binary is not the linked main package")
 	}
 

@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/scanner"
+	"go/token"
 	"log"
 	"maps"
 	"os"
@@ -62,15 +64,9 @@ type sharedCacheType struct {
 	// such as the packages whose runtime hooks are defined by outgoing linknames.
 	LinknameActionID [sha256.Size]byte
 
-	// MainLinknameTargets holds names which a main package must keep plaintext,
-	// because other packages in the same build address them through
-	// //go:linkname. Such a target names a linker symbol such as "main.counter",
-	// and the referring package cannot depend on main in Go's action graph, so a
-	// content-derived target hash could not be kept in sync with main's names.
-	//
-	// This needs no hash input of its own: a directive which refers to the main
-	// package lives in a package that the main package imports, so Go already
-	// invalidates the main package's compile when that directive changes.
+	// MainLinknameTargets stay plaintext: a referrer cannot import main, so a
+	// hash of main's identity would go stale when only main changes. Changes to
+	// the directives already invalidate main through its import graph.
 	MainLinknameTargets []string
 
 	// GoCmd is [GoEnv.GOROOT]/bin/go, so that we run exactly the same version
@@ -630,46 +626,18 @@ func linknameActionID() [sha256.Size]byte {
 	return sum
 }
 
-// mainLinknameTargets returns the names which a main package in this build must
-// leave unobfuscated, because another package addresses them through
-// //go:linkname. The directive names a linker symbol such as "main.counter", and
-// the referring package never imports main, so main cannot be made part of its
-// Go action. Hashing the target with main's identity, as every other linkname
-// target is hashed, would leave a stale reference behind as soon as main's own
-// names changed, because nothing invalidates the referring object. Keeping both
-// sides plaintext is the only naming that a package without a build-graph edge
-// to main can reproduce.
-//
-// The names are read from the listed sources rather than recorded during the
-// compile of the referring package, because a package which linknames into main
-// is not guaranteed to be compiled before main in a build with several main
-// packages.
+// mainLinknameTargets scans before compilation: with multiple mains, a referrer
+// need not compile before the main whose names it pins.
 func mainLinknameTargets() ([]string, error) {
-	if sharedCache.ListedPackages == nil {
-		return nil, nil
-	}
-	var renamesMain bool
-	for _, lpkg := range sharedCache.ListedPackages.all() {
-		if lpkg.toObfuscate() && lpkg.obfuscatedImportPath() == "main" {
-			renamesMain = true
-			break
-		}
-	}
-	if !renamesMain {
-		// Without renamed main symbols, the directives already agree.
-		return nil, nil
-	}
 	targets := make(map[string]bool)
 	for _, lpkg := range sharedCache.ListedPackages.all() {
-		for _, name := range lpkg.CompiledGoFiles {
-			path := name
+		for _, path := range lpkg.CompiledGoFiles {
 			if !filepath.IsAbs(path) {
-				path = filepath.Join(lpkg.Dir, name)
+				path = filepath.Join(lpkg.Dir, path)
 			}
 			src, err := os.ReadFile(path)
 			if errors.Is(err, os.ErrNotExist) {
-				// A generated file which the listing no longer keeps on disk.
-				continue
+				continue // generated file no longer retained by go list
 			}
 			if err != nil {
 				return nil, err
@@ -677,73 +645,40 @@ func mainLinknameTargets() ([]string, error) {
 			collectMainLinknameTargets(src, targets)
 		}
 	}
-	if len(targets) == 0 {
-		return nil, nil
-	}
 	return slices.Sorted(maps.Keys(targets)), nil
 }
 
-// linknameMarkers start the directives which can name a foreign package.
-var (
-	linknameMarker    = []byte("//go:linkname")
-	linknamestdMarker = []byte("//go:linknamestd")
-)
-
-// collectMainLinknameTargets adds the main-package names named by the
-// //go:linkname and //go:linknamestd directives of one source file.
 func collectMainLinknameTargets(src []byte, targets map[string]bool) {
-	for line := range bytes.Lines(src) {
-		line = bytes.TrimSpace(line)
-		end := bytes.IndexAny(line, " 	")
-		if end <= 0 {
+	if !bytes.Contains(src, []byte("//go:linkname")) {
+		return
+	}
+	// Scan comments rather than lines so raw strings and block comments cannot
+	// accidentally disable obfuscation. The compiler diagnoses invalid source.
+	var scan scanner.Scanner
+	scan.Init(token.NewFileSet().AddFile("", -1, len(src)), src, nil, scanner.ScanComments)
+	for {
+		_, tok, text := scan.Scan()
+		if tok == token.EOF {
+			return
+		}
+		if tok != token.COMMENT {
 			continue
 		}
-		// Matching the complete directive name keeps //go:linknamestd from
-		// being read as a //go:linkname whose local name is "std".
-		if name := line[:end]; !bytes.Equal(name, linknameMarker) && !bytes.Equal(name, linknamestdMarker) {
+		fields := strings.Fields(text)
+		if len(fields) != 3 || (fields[0] != "//go:linkname" && fields[0] != "//go:linknamestd") {
 			continue
 		}
-		fields := bytes.Fields(line[end:])
-		if len(fields) != 2 {
-			// A one-argument directive has no foreign target.
-			continue
-		}
-		foreignName, ok := strings.CutPrefix(string(fields[1]), "main.")
+		name, ok := strings.CutPrefix(fields[2], "main.")
 		if !ok {
 			continue
 		}
-		// A method target names the receiver's type as part of the linker
-		// symbol, so the exemption has to cover the receiver as well.
-		if receiver, method, ok := cutLinknameMethod(foreignName); ok {
-			targets[receiver] = true
-			targets[method] = true
-			continue
+		if receiver, method, ok := strings.Cut(name, "."); ok {
+			// Both T.M and (*T).M require the receiver's name as well.
+			targets[strings.Trim(receiver, "(*)")] = true
+			name = method
 		}
-		targets[foreignName] = true
+		targets[name] = true
 	}
-}
-
-// cutLinknameMethod splits a linkname target naming a method into its receiver
-// type name and its method name, for both "T.M" and "(*T).M" spellings.
-func cutLinknameMethod(name string) (receiver, method string, ok bool) {
-	if rest, isPointer := strings.CutPrefix(name, "(*"); isPointer {
-		receiver, method, ok = strings.Cut(rest, ").")
-		return receiver, method, ok && receiver != "" && method != ""
-	}
-	receiver, method, ok = strings.Cut(name, ".")
-	return receiver, method, ok && receiver != "" && method != ""
-}
-
-// isMainLinknameTarget reports whether name is a symbol of lpkg which another
-// package in this build addresses by //go:linkname. The exemption is by name
-// within the main package, so a method or local variable sharing the name of a
-// target is left alone too; the set only exists for builds which linkname into
-// main at all.
-func isMainLinknameTarget(lpkg *listedPackage, name string) bool {
-	if len(sharedCache.MainLinknameTargets) == 0 || lpkg.obfuscatedImportPath() != "main" {
-		return false
-	}
-	return slices.Contains(sharedCache.MainLinknameTargets, name)
 }
 
 // appendListedPackages gets information about the current package
