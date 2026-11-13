@@ -128,21 +128,8 @@ func main() {
 	_ = compute(10)
 }
 `
-	run := func() string {
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
-		qt.Assert(t, qt.IsNil(err))
-		ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{file}, 0)
-		qt.Assert(t, qt.IsNil(err))
-		_, newFile, _, err := Obfuscate(fset, ssaPkg, []*ast.File{file}, mathrand.New(mathrand.NewSource(seed)))
-		qt.Assert(t, qt.IsNil(err))
-		var buf bytes.Buffer
-		qt.Assert(t, qt.IsNil(printer.Fprint(&buf, fset, newFile)))
-		return buf.String()
-	}
-
-	first := run()
-	second := run()
+	_, _, first := obfuscateSource(t, src, seed)
+	_, _, second := obfuscateSource(t, src, seed)
 	qt.Assert(t, qt.Equals(second, first))
 }
 
@@ -166,19 +153,10 @@ func main() {
 	println(compute(10))
 }
 `
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
-	qt.Assert(t, qt.IsNil(err))
-	ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{file}, 0)
-	qt.Assert(t, qt.IsNil(err))
-	_, newFile, _, err := Obfuscate(fset, ssaPkg, []*ast.File{file}, mathrand.New(mathrand.NewSource(1)))
-	qt.Assert(t, qt.IsNil(err))
-
-	var buf bytes.Buffer
-	qt.Assert(t, qt.IsNil(printer.Fprint(&buf, fset, newFile)))
+	_, _, printed := obfuscateSource(t, src, 1)
 	// The generated source must still be valid Go even though no trash calls
 	// could be added.
-	_, err = parser.ParseFile(token.NewFileSet(), "garbled.go", buf.String(), 0)
+	_, err := parser.ParseFile(token.NewFileSet(), "garbled.go", printed, 0)
 	qt.Assert(t, qt.IsNil(err))
 }
 
@@ -238,4 +216,20 @@ func main() {}
 			qt.Assert(t, qt.HasLen(stale, 0))
 		})
 	}
+}
+
+// obfuscateSource parses src, builds its SSA package and returns the
+// control-flow-obfuscated file together with its printed source for seed.
+func obfuscateSource(t *testing.T, src string, seed int64) (*token.FileSet, *ast.File, string) {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
+	qt.Assert(t, qt.IsNil(err))
+	ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{file}, 0)
+	qt.Assert(t, qt.IsNil(err))
+	_, newFile, _, err := Obfuscate(fset, ssaPkg, []*ast.File{file}, mathrand.New(mathrand.NewSource(seed)))
+	qt.Assert(t, qt.IsNil(err))
+	var buf bytes.Buffer
+	qt.Assert(t, qt.IsNil(printer.Fprint(&buf, fset, newFile)))
+	return fset, newFile, buf.String()
 }

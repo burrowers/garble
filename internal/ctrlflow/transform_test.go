@@ -4,16 +4,9 @@
 package ctrlflow
 
 import (
-	"go/ast"
-	"go/importer"
-	"go/parser"
-	"go/token"
-	"go/types"
-	mathrand "math/rand"
 	"testing"
 
 	qt "github.com/go-quicktest/qt"
-	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 // TestBlockSplittingPhiBoundary checks that splitting never separates a block's
@@ -40,20 +33,13 @@ func main() {
 `
 
 	for seed := int64(0); seed < 64; seed++ {
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
-		qt.Assert(t, qt.IsNil(err))
-		ssaPkg, _, err := ssautil.BuildPackage(&types.Config{Importer: importer.Default()}, fset, types.NewPackage("test/main", ""), []*ast.File{file}, 0)
-		qt.Assert(t, qt.IsNil(err))
-
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
 					t.Fatalf("seed %d: Obfuscate panicked: %v", seed, r)
 				}
 			}()
-			_, newFile, _, err := Obfuscate(fset, ssaPkg, []*ast.File{file}, mathrand.New(mathrand.NewSource(seed)))
-			qt.Assert(t, qt.IsNil(err))
+			_, newFile, _ := obfuscateSource(t, src, seed)
 			qt.Assert(t, qt.IsNotNil(newFile))
 		}()
 	}
