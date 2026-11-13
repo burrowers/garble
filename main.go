@@ -876,6 +876,9 @@ garble accepts the following flags before a command:
 	fmt.Fprint(os.Stderr, `
 
 For more information, see https://github.com/burrowers/garble.
+
+We use the #garble channel on the zeitgeist Discord to chat:
+	https://discord.gg/pKxTR6gCYX
 `[1:])
 }
 
