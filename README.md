@@ -1,5 +1,8 @@
 # garble
 
+[![Join Discord](https://img.shields.io/badge/Join-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/pKxTR6gCYX)
+[![CI](https://github.com/burrowers/garble/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/burrowers/garble/actions/workflows/test.yml?query=branch%3Amaster)
+
 	go install mvdan.cc/garble@latest # or @master
 
 Obfuscate Go code by wrapping the Go toolchain. Requires Go 1.27 or later.
