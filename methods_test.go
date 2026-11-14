@@ -32,7 +32,7 @@ func TestExportedMethodNamesAcrossPackages(t *testing.T) {
 		if methodName(one, "sealed") == methodName(two, "sealed") {
 			t.Fatal("unexported method package identity lost")
 		}
-		for _, name := range []string{"Error", "Method", "MethodByName", "Write", "Sum"} {
+		for _, name := range []string{"Error"} {
 			if methodName(one, name) != name || methodName(two, name) != name {
 				t.Fatalf("required method %q was renamed", name)
 			}
@@ -54,6 +54,17 @@ func TestCompilerMethodNames(t *testing.T) {
 	if _, err := new(types.Config).Check("p", fset, []*ast.File{file}, info); err != nil {
 		t.Fatal(err)
 	}
+	names := compilerMethodNames(t, info)
+	if names["CrossPackageMethod"] != obfuscatedMethodName("CrossPackageMethod") {
+		t.Fatalf("missing evaluated method constant: %v", names)
+	}
+	if _, exists := names["not a method"]; exists {
+		t.Fatal("invalid method name recorded")
+	}
+}
+
+func compilerMethodNames(t *testing.T, info *types.Info) map[string]string {
+	t.Helper()
 	path, err := writeCompilerMethodNames(info)
 	if err != nil {
 		t.Fatal(err)
@@ -66,12 +77,7 @@ func TestCompilerMethodNames(t *testing.T) {
 	if err := json.Unmarshal(data, &names); err != nil {
 		t.Fatal(err)
 	}
-	if names["CrossPackageMethod"] != obfuscatedMethodName("CrossPackageMethod") {
-		t.Fatalf("missing evaluated method constant: %v", names)
-	}
-	if _, exists := names["not a method"]; exists {
-		t.Fatal("invalid method name recorded")
-	}
+	return names
 }
 
 func TestReflectMethodsPatchRejectsChangedSource(t *testing.T) {

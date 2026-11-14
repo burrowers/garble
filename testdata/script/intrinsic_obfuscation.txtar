@@ -1,13 +1,36 @@
-# An intrinsic declaration is renamed even when its caller is compiled as an
-# intrinsic. The compiler must recover the original name via the symbol map.
+# Intrinsic and toolchain-sensitive declarations are renamed while their
+# compiler, assembler, and runtime contracts keep their original semantics.
 [short] skip 'runtime obfuscation is an integration test'
 exec garble -debugdir=debug build -o=main$exe .
 exec ./main$exe
 stdout '^intrinsic-ok$'
-# Inspect the transformed declaration, not just the final linked binary.
+# Inspect transformed declarations, not just the final linked binary.
 grep 'func [A-Za-z0-9_]+\([^)]*uint64\) \([^)]*int\)' $WORK/debug/garbled/math/bits/bits.go
 ! grep 'func Len64\(' $WORK/debug/garbled/math/bits/bits.go
 ! binsubstr main$exe 'math/bits.Len64' 'Len64'
+! binsubstr main$exe 'runtime.goexit' 'runtime.gopanic' 'reflect.makeFuncStub' 'reflect.methodValueCall'
+grep -count=2 '^func (getg|publicationBarrier)\(' $WORK/debug/source/runtime/stubs.go
+! grep '^func (getg|publicationBarrier)\(' $WORK/debug/garbled/runtime/stubs.go
+grep '^func KeepAlive\(' $WORK/debug/source/runtime/mfinal.go
+! grep '^func KeepAlive\(' $WORK/debug/garbled/runtime/mfinal.go
+grep '^func goexit\(' $WORK/debug/source/runtime/stubs.go
+! grep '^func goexit\(' $WORK/debug/garbled/runtime/stubs.go
+grep -count=2 '^func (NoEscape|EscapeNonString)(\[|\()' $WORK/debug/source/internal/abi/escape.go
+! grep '^func (NoEscape|EscapeNonString)(\[|\()' $WORK/debug/garbled/internal/abi/escape.go
+grep -count=2 '^func FuncPCABI(0|Internal)\(' $WORK/debug/source/internal/abi/funcpc.go
+! grep '^func FuncPCABI(0|Internal)\(' $WORK/debug/garbled/internal/abi/funcpc.go
+grep '^type align64 ' $WORK/debug/source/sync/atomic/type.go
+! grep '^type align64 ' $WORK/debug/garbled/sync/atomic/type.go
+grep -count=3 '^type (Method|rtype|interfaceType) ' $WORK/debug/source/reflect/type.go
+! grep '^type (Method|rtype|interfaceType) ' $WORK/debug/garbled/reflect/type.go
+grep -count=3 '(^type Value |^func (callMethod|callReflect)\()' $WORK/debug/source/reflect/value.go
+! grep '(^type Value |^func (callMethod|callReflect)\()' $WORK/debug/garbled/reflect/value.go
+grep -count=2 '^func (makeFuncStub|methodValueCall)\(' $WORK/debug/source/reflect/makefunc.go
+! grep '^func (makeFuncStub|methodValueCall)\(' $WORK/debug/garbled/reflect/makefunc.go
+grep '^type FS ' $WORK/debug/source/embed/embed.go
+! grep '^type FS ' $WORK/debug/garbled/embed/embed.go
+grep '^type HostLayout ' $WORK/debug/source/structs/hostlayout.go
+! grep '^type HostLayout ' $WORK/debug/garbled/structs/hostlayout.go
 -- go.mod --
 module test/intrinsic
 
@@ -16,11 +39,73 @@ go 1.27
 package main
 
 import (
- "fmt"
- "math/bits"
+	"embed"
+	"fmt"
+	"hash/maphash"
+	"math/bits"
+	"reflect"
+	"runtime"
+	"structs"
+	"sync/atomic"
+	"unique"
 )
 
+//go:embed go.mod
+var files embed.FS
+
+type hostValue struct {
+	_     structs.HostLayout
+	value int
+}
+
 func main() {
- if bits.Len64(1 << 55) != 56 { panic("wrong intrinsic result") }
- fmt.Println("intrinsic-ok")
+	if data, err := files.ReadFile("go.mod"); err != nil || len(data) == 0 {
+		panic("embedded file lost")
+	}
+	if bits.Len64(1<<55) != 56 {
+		panic("wrong intrinsic result")
+	}
+	var counter atomic.Int64
+	if counter.Add(7) != 7 {
+		panic("wrong atomic result")
+	}
+	seed := maphash.MakeSeed()
+	value := hostValue{value: 42}
+	checkHash(64, seed, &value.value, maphash.Comparable(seed, &value.value))
+	if unique.Make("canonical") != unique.Make("canonical") {
+		panic("wrong generic escape helper result")
+	}
+	fn := reflect.MakeFunc(reflect.TypeFor[func(int) int](), func(args []reflect.Value) []reflect.Value {
+		runtime.GC()
+		return []reflect.Value{reflect.ValueOf(args[0].Int() + 1).Convert(reflect.TypeFor[int]())}
+	}).Interface().(func(int) int)
+	if fn(9) != 10 {
+		panic("wrong reflected function result")
+	}
+	method := reflect.ValueOf(stepper{}).MethodByName("Step").Interface().(func(int) int)
+	if method(11) != 12 {
+		panic("wrong reflected method result")
+	}
+	runtime.KeepAlive(fn)
+	fmt.Println("intrinsic-ok")
+}
+
+type stepper struct{}
+
+func (stepper) Step(value int) int {
+	runtime.GC()
+	return value + 1
+}
+
+//go:noinline
+func checkHash(depth int, seed maphash.Seed, pointer *int, expected uint64) {
+	var stack [1024]byte
+	stack[depth] = byte(depth)
+	if maphash.Comparable(seed, pointer) != expected {
+		panic("pointer hash changed after stack growth")
+	}
+	if depth > 0 {
+		checkHash(depth-1, seed, pointer, expected)
+	}
+	runtime.KeepAlive(&stack)
 }

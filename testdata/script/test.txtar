@@ -12,6 +12,8 @@ exec garble test -c -ldflags=-X=main.unused=changed
 
 # run the tests; OriginalFuncName should be obfuscated
 exec ./bar.test -test.v
+stdout 'test declaration:'
+! stdout 'test declaration: .*\.Test(Foo|Main)$'
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
 stdout 'PASS.*TestLinkedFromTestVariant'
@@ -19,6 +21,11 @@ stdout 'PASS.*TestMockedFoo'
 stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
 ! stdout 'OriginalFuncName'
+
+# A deferred helper must skip the panic implementation and report its caller.
+cp stdout test.stdout
+exec garble reverse -test . test.stdout
+stdout 'panic_helper_test.go:6: recovered-helper'
 
 # Compare argument forwarding with plain Go using the same payload.
 exec garble test -v . -args payload -overlay=missing.json
@@ -99,6 +106,8 @@ package bar
 
 import (
 	"encoding/xml"
+	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -108,6 +117,10 @@ type Book struct {
 }
 
 func TestFoo(t *testing.T) {
+	for _, fn := range []any{TestFoo, TestMain} {
+		name := runtime.FuncForPC(reflect.ValueOf(fn).Pointer()).Name()
+		t.Logf("test declaration: %s", name)
+	}
 	data, err := xml.Marshal(&Book{Title: "My book"})
 	if err != nil || string(data) != "<book>My book</book>" {
 		t.Fatalf("XML reflection: %s, %v", data, err)
@@ -126,6 +139,60 @@ func FuzzGuided(f *testing.F) {
 			t.Log("seed-ok")
 		}
 	})
+}
+
+-- reflect_error_test.go --
+package bar
+
+import (
+	"reflect"
+	"runtime"
+	"testing"
+)
+
+func TestReflectValueErrorMethod(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		method any
+		call   func()
+	}{
+		{"Bool", reflect.Value.Bool, func() { reflect.ValueOf(1).Bool() }},
+		{"SetInt", reflect.Value.SetInt, func() { reflect.Value{}.SetInt(1) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := runtime.FuncForPC(reflect.ValueOf(tc.method).Pointer()).Name()
+			defer func() {
+				value, ok := recover().(*reflect.ValueError)
+				if !ok {
+					t.Fatal("expected ValueError")
+				}
+				if value.Method != want {
+					t.Errorf("ValueError.Method = %q, want calling method %q", value.Method, want)
+				}
+			}()
+			tc.call()
+		})
+	}
+}
+
+-- panic_helper_test.go --
+package bar
+
+import "testing"
+
+func TestPanicHelper(t *testing.T) {
+	panicHelper(t)
+}
+
+func panicHelper(t *testing.T) {
+	t.Helper()
+	defer func() {
+		t.Helper()
+		if recover() != nil {
+			t.Log("recovered-helper")
+		}
+	}()
+	panic("helper panic")
 }
 
 -- tagged_test.go --

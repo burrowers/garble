@@ -51,6 +51,7 @@ var compilerOverlayFiles = []string{
 	"cmd/compile/internal/staticinit/sched.go",
 	"cmd/compile/internal/ssagen/intrinsics.go",
 	"cmd/compile/internal/ssagen/ssa.go",
+	"cmd/compile/internal/ssagen/abi.go",
 	"cmd/compile/internal/ssa/rewrite.go",
 	"cmd/compile/internal/ssa/writebarrier.go",
 	"cmd/compile/internal/ssa/pair.go",
@@ -60,17 +61,22 @@ var compilerOverlayFiles = []string{
 	"cmd/compile/internal/types2/sizes.go",
 	"cmd/compile/internal/ir/abi.go",
 	"cmd/compile/internal/ir/func.go",
+	"cmd/compile/internal/ir/expr.go",
 	"cmd/compile/internal/base/flag.go",
 	"cmd/compile/internal/base/garble.go",
 	"cmd/compile/internal/escape/call.go",
 	"cmd/compile/internal/inline/inl.go",
+	"cmd/compile/internal/liveness/plive.go",
 	"cmd/compile/internal/walk/expr.go",
 	"cmd/compile/internal/noder/helpers.go",
 	"cmd/compile/internal/noder/reader.go",
+	"cmd/compile/internal/noder/writer.go",
+	"cmd/compile/internal/staticdata/embed.go",
 	"cmd/compile/internal/ssagen/nowb.go",
 	"cmd/compile/internal/typecheck/syms.go",
 	"cmd/compile/internal/reflectdata/reflect.go",
 	"cmd/internal/obj/plist.go",
+	"cmd/internal/obj/fips140.go",
 	"cmd/internal/obj/x86/asm6.go",
 	"cmd/internal/obj/x86/obj6.go",
 	"cmd/internal/obj/x86/seh.go",
@@ -140,7 +146,7 @@ func loadToolchainPatches(majorGoVersion string) (version string, sourceFiles, p
 			if file.IsCopy || file.IsRename {
 				return fmt.Errorf("unsupported patch operation (copy/rename) for %q", file.OldName)
 			}
-			if !file.IsNew {
+			if !file.IsNew && !patchFiles[file.OldName] {
 				sourceFiles[file.OldName] = true
 			}
 			if file.IsDelete {

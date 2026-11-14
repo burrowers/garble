@@ -89,11 +89,7 @@ func TestTestVariantNamesLikePlainPackage(t *testing.T) {
 	}
 }
 
-func TestTestVariantsKeepUnsupportedPackagesReadable(t *testing.T) {
-	// A dependency rebuilt for a test binary gets an ImportPath such as
-	// "crypto/internal/fips140 [strings.test]" while ForTest names the
-	// package under test. The packages we cannot obfuscate must stay
-	// readable in that variant too.
+func TestTestVariantsAreObfuscatable(t *testing.T) {
 	for _, path := range []string{
 		"crypto/internal/fips140",
 		"crypto/internal/fips140/sha256",
@@ -104,11 +100,11 @@ func TestTestVariantsKeepUnsupportedPackagesReadable(t *testing.T) {
 			ForTest:         "example/p",
 			CompiledGoFiles: []string{"file.go"},
 		}
-		if variant.toObfuscate() {
-			t.Errorf("%s must not be obfuscated when rebuilt for a test binary", path)
+		if !variant.toObfuscate() {
+			t.Errorf("%s must be obfuscatable when rebuilt for a test binary", path)
 		}
-		if got, want := variant.obfuscatedImportPath(), path; got != want {
-			t.Errorf("obfuscated import path = %q, want the readable path %q", got, want)
+		if got := variant.obfuscatedImportPath(); got == path {
+			t.Errorf("obfuscated import path = %q, want a hashed path", got)
 		}
 	}
 
@@ -163,7 +159,7 @@ func TestNoRaceFuncPkgPathsAreMapped(t *testing.T) {
 // TestLinkerLoadedPkgPathsAreMapped covers the packages cmd/link opens by a
 // literal import path rather than through a package's Imports. Their obfuscated
 // paths only resolve if the toolchain path map contains them, so a missing entry
-// silently drops the race, memory or address sanitizer runtime from the link.
+// silently drops cgo or the race, memory or address sanitizer runtime from the link.
 func TestLinkerLoadedPkgPathsAreMapped(t *testing.T) {
 	oldCache, oldSeed := sharedCache, flagSeed
 	defer func() { sharedCache, flagSeed = oldCache, oldSeed }()
@@ -172,7 +168,7 @@ func TestLinkerLoadedPkgPathsAreMapped(t *testing.T) {
 
 	// runtime is the control: it is listed by the toolchain's own runtime
 	// package table and must stay mapped.
-	paths := []string{"runtime", "runtime/race", "runtime/msan", "runtime/asan"}
+	paths := []string{"runtime", "runtime/cgo", "runtime/race", "runtime/msan", "runtime/asan", "runtime/pprof"}
 	for _, path := range paths {
 		sharedCache.ListedPackages.set(path, &listedPackage{
 			Name:            "synthetic",

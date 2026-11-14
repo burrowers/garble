@@ -56,8 +56,8 @@ func TestIntrinsicAndBuiltinSymbolProducersAgree(t *testing.T) {
 	}
 }
 
-func TestRuntimeSentinelRemainsReadable(t *testing.T) {
-	if !isToolchainNameDependency("runtime", "goexit") {
-		t.Fatal("runtime sentinel must retain its spelling")
+func TestRuntimeSentinelUsesMappedDeclaration(t *testing.T) {
+	if isToolchainNameDependency("runtime", "goexit") {
+		t.Fatal("runtime sentinel declaration must be eligible for renaming")
 	}
 }

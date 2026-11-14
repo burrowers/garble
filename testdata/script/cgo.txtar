@@ -1,5 +1,10 @@
 [!cgo] skip 'this test requires cgo to be enabled'
 
+# runtime/cgo's host objects alone must not force automatic external linking.
+[linux] [amd64] exec garble build -ldflags=-extld=missing-external-linker -o=autocgobin$exe ./autocgo
+[linux] [amd64] exec ./autocgobin$exe
+[linux] [amd64] stderr 'auto-cgo-ok'
+
 exec garble build
 ! stderr 'warning' # check that the C toolchain is happy
 exec ./main
@@ -13,6 +18,7 @@ cmp stdout main.stdout
 # Linking externally pulls in runtime/cgo even for a main package which does
 # not use cgo at all, so garble must accept it as a dependency.
 exec garble build -ldflags=-linkmode=external -o=nocgobin$exe ./nocgo
+! stderr 'loadinternal: cannot find runtime/cgo'
 exec ./nocgobin$exe
 stderr 'hello from nocgo'
 
@@ -27,7 +33,7 @@ exec garble reverse .
 cmp stdout reversed.stdout
 env GARBLE_TEST_REVERSING=false
 
-exec garble -tiny build
+exec garble -tiny -literals build
 exec ./main
 cmp stdout main.stdout
 
@@ -59,6 +65,17 @@ package main
 
 func main() { println("hello from nocgo") }
 
+-- autocgo/main.go --
+package main
+
+import "runtime/cgo"
+
+func main() {
+	h := cgo.NewHandle("auto-cgo-ok")
+	defer h.Delete()
+	println(h.Value().(string))
+}
+
 -- imported/imported_regular.go --
 package imported
 
@@ -83,6 +100,7 @@ import (
 	"os"
 	"os/user"
 	"runtime"
+	"runtime/cgo"
 )
 
 /*
@@ -113,6 +131,33 @@ func cgoFunc() {
 	fmt.Println(st.PortedField == nil)
 
 	C.callGoCallbacks()
+
+	data := &callbackData{text: "foreign thread"}
+	h := cgo.NewHandle(data)
+	defer h.Delete()
+	if C.threadCallback(C.uintptr_t(h)) != 0 {
+		panic("cannot start C thread")
+	}
+	if data.calls != 3 {
+		panic("missing C thread callbacks")
+	}
+}
+
+type callbackData struct {
+	text  string
+	calls int
+}
+
+//export goThreadCallback
+func goThreadCallback(value C.uintptr_t) {
+	data := cgo.Handle(value).Value().(*callbackData)
+	for range 3 {
+		runtime.GC()
+		if data.text != "foreign thread" {
+			panic("lost callback data")
+		}
+		data.calls++
+	}
 }
 
 //export goCallback
@@ -132,10 +177,43 @@ func printString(cs *C.char) {
 }
 
 -- separate.h --
+#include <stdint.h>
+
 void separateFunction();
+int threadCallback(uintptr_t value);
 -- separate.c --
 #include "_cgo_export.h"
 #include <stdio.h>
+
+#ifdef _WIN32
+#include <windows.h>
+
+static DWORD WINAPI threadMain(void *arg) {
+	goThreadCallback((uintptr_t)arg);
+	return 0;
+}
+
+int threadCallback(uintptr_t value) {
+	HANDLE thread = CreateThread(NULL, 0, threadMain, (void *)value, 0, NULL);
+	if (thread == NULL) return 1;
+	DWORD result = WaitForSingleObject(thread, INFINITE);
+	CloseHandle(thread);
+	return result != WAIT_OBJECT_0;
+}
+#else
+#include <pthread.h>
+
+static void *threadMain(void *arg) {
+	goThreadCallback((uintptr_t)arg);
+	return NULL;
+}
+
+int threadCallback(uintptr_t value) {
+	pthread_t thread;
+	if (pthread_create(&thread, NULL, threadMain, (void *)value) != 0) return 1;
+	return pthread_join(thread, NULL);
+}
+#endif
 
 void separateFunction() {
 	goCallback();

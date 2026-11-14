@@ -21,16 +21,15 @@ stderr '^recovered: ya like jazz?'
 stderr '^panic: [0-9a-f]{16}$'
 stderr 'funcExported false funcUnexported true'
 stderr 'funcStructExported false funcStructUnexported true'
-# The runtime consumes a handful of function names as data even in -tiny:
-# reflect's call stubs keep their exact names so runtime.stkframe.argMapInternal
-# can select their dynamic GC argument maps, value-method wrappers keep a
-# panicwrap-parseable name, and the goroutine and sentinel names feed other
-# runtime predicates.
+# Runtime consumers use the same hashed sentinel/stub names as the linker.
+# Dynamic GC argument maps, wrapper recovery, and goroutine classification
+# remain valid without exposing the original declaration names.
 stderr '^systemgoroutines.count 1$'
-stderr '^makefunc.name reflect\.makeFuncStub value 107$'
-stderr '^methodvalue.name reflect\.methodValueCall value 213$'
+stderr '^makefunc.name reflect\.[[:alnum:]_]+ value 107$'
+stderr '^methodvalue.name reflect\.[[:alnum:]_]+ value 213$'
+! stderr 'makefunc.name reflect\.makeFuncStub|methodvalue.name reflect\.methodValueCall'
 stderr '^wrapper.name _\.\(\*_\)\._ recovered true$'
-stderr '^runtime.sentinels.goexit true gopanic true$'
+stderr '^runtime.sentinels.goexit false gopanic false$'
 # GOTRACEBACK controls more than traceback output, which tiny mode hides:
 # "crash" must still crash the process rather than exit with status 2.
 stderr '^single aborts: false crash aborts: true$'
@@ -87,13 +86,14 @@ stderr '^recovered: ya like jazz?'
 stderr 'panic: oh noes'
 stderr 'funcExported false funcUnexported false'
 stderr 'funcStructExported false funcStructUnexported false'
-# The reflect stub names are kept in every mode, not just -tiny; the wrapper
-# name is obfuscated here, so only its recoverability is checked.
+# Default mode also hides the stub and sentinel names. The wrapper name is
+# obfuscated here, so only its recoverability is checked.
 stderr '^systemgoroutines.count 1$'
-stderr '^makefunc.name reflect\.makeFuncStub value 107$'
-stderr '^methodvalue.name reflect\.methodValueCall value 213$'
+stderr '^makefunc.name reflect\.[[:alnum:]_]+ value 107$'
+stderr '^methodvalue.name reflect\.[[:alnum:]_]+ value 213$'
+! stderr 'makefunc.name reflect\.makeFuncStub|methodvalue.name reflect\.methodValueCall'
 stderr '^wrapper.name .* recovered true$'
-stderr '^runtime.sentinels.goexit true gopanic true$'
+stderr '^runtime.sentinels.goexit false gopanic false$'
 stderr '^single aborts: false crash aborts: true$'
 -- go.mod --
 module test/main

@@ -1,15 +1,17 @@
 # Runtime and profiling code classify these package families by canonical
 # metadata prefixes. Keep package identity and per-function uniqueness while
-# hiding declaration names, except where the runtime requires an exact name.
+# hiding declaration names, including runtime and reflection sentinels.
 [short] skip 'runtime obfuscation is an integration test'
 
-exec garble build -o=metadata$exe .
+# Literal decoders must use rewritten typed constants, not their old values.
+exec garble -literals build -o=metadata$exe .
 ! binsubstr metadata$exe 'runtime.?'
 ! binsubstr metadata$exe 'internal/runtime/maps.?'
 ! binsubstr metadata$exe 'reflect.?'
 binsubstr metadata$exe 'internal/runtime/maps.'
 exec ./metadata$exe
 stdout '^runtime-metadata-ok$'
+stdout '^runtime\.goexit runtime\.gopanic reflect\.makeFuncStub reflect\.methodValueCall reflect\.Value\. unrelated$'
 
 -- go.mod --
 module test/runtimemetadata
@@ -19,9 +21,11 @@ go 1.27
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 	"runtime"
+	"runtime/pprof"
 	"strings"
 )
 
@@ -36,13 +40,78 @@ func main() {
 	}
 
 	typ := reflect.TypeOf(func(*int) *int { return nil })
-	fn := reflect.MakeFunc(typ, func(args []reflect.Value) []reflect.Value { return args })
+	fn := reflect.MakeFunc(typ, func(args []reflect.Value) []reflect.Value {
+		runtime.GC()
+		return args
+	})
 	stubName := runtime.FuncForPC(reflect.ValueOf(fn.Interface()).Pointer()).Name()
-	if stubName != "reflect.makeFuncStub" {
-		panic("reflect stub identity was not preserved: " + stubName)
+	if !strings.HasPrefix(stubName, "reflect.") || stubName == "reflect.makeFuncStub" {
+		panic("reflect stub name was not obfuscated: " + stubName)
+	}
+	value := new(int)
+	if fn.Interface().(func(*int) *int)(value) != value {
+		panic("MakeFunc lost its pointer across GC")
+	}
+	method := reflect.ValueOf(holder{}).Method(0).Interface().(func(*int) *int)
+	methodName := runtime.FuncForPC(reflect.ValueOf(method).Pointer()).Name()
+	if !strings.HasPrefix(methodName, "reflect.") || methodName == "reflect.methodValueCall" || method(value) != value {
+		panic("reflected method metadata: " + methodName)
 	}
 
+	checkValueError(reflect.Value.Bool, func() { reflect.ValueOf(1).Bool() })
+	checkValueError(reflect.Value.SetInt, func() { reflect.Value{}.SetInt(1) })
+
+	// A profile captured in a goroutine must omit its hashed goexit frame.
+	profile := pprof.NewProfile("metadata")
+	exit := make(chan string, 1)
+	go func() {
+		profile.Add(1, 0)
+		var pcs [16]uintptr
+		frames := runtime.CallersFrames(pcs[:runtime.Callers(0, pcs[:])])
+		for {
+			frame, more := frames.Next()
+			if !more {
+				exit <- frame.Function
+				return
+			}
+		}
+	}()
+	exitName := <-exit
+	var output bytes.Buffer
+	if err := profile.WriteTo(&output, 1); err != nil {
+		panic(err)
+	}
+	if !strings.HasPrefix(exitName, "runtime.") || exitName == "runtime.goexit" ||
+		!strings.Contains(output.String(), "+0x") || strings.Contains(output.String(), exitName) {
+		panic("profile did not filter goexit: " + output.String())
+	}
+
+	// Compare against script text, which cannot be rewritten with this package.
+	fmt.Println("runtime.goexit", "runtime.gopanic", "reflect.makeFuncStub", "reflect.methodValueCall", "reflect.Value.", "unrelated")
 	m := make(map[int]int)
 	m[1] = 1
 	fmt.Println("runtime-metadata-ok")
+}
+
+type holder struct{}
+
+func (holder) Hold(p *int) *int {
+	runtime.GC()
+	return p
+}
+
+// valueMethodName uses both a const prefix and folded len(prefix) expressions.
+func checkValueError(method any, call func()) {
+	want := runtime.FuncForPC(reflect.ValueOf(method).Pointer()).Name()
+	if !strings.HasPrefix(want, "reflect.") || strings.HasPrefix(want, "reflect.Value.") {
+		panic("reflect Value receiver metadata was not obfuscated: " + want)
+	}
+	defer func() {
+		value, ok := recover().(*reflect.ValueError)
+		if !ok || value.Method != want {
+			panic("ValueError.Method did not identify " + want)
+		}
+	}()
+	call()
+	panic("reflect call did not panic")
 }
