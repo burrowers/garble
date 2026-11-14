@@ -1,0 +1,55 @@
+name: PR build metrics
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-build-metrics-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    # Use the sponsored ephemeral Linux runner without attaching cache volumes.
+    runs-on: namespace-profile-linux
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.x
+          cache: false
+      - name: Test metrics tools
+        run: python3 -B -m unittest discover -s head/scripts -p 'test_*.py'
+      - name: Compare the same workload on base and PR
+        run: |
+          collector=harness/scripts/pr_metrics.py
+          # The infrastructure-introducing PR has no collector on its base yet.
+          if [ ! -f "$collector" ]; then
+            echo '::notice::Bootstrapping the proposed PR harness; subsequent PRs use the base harness.'
+            collector=head/scripts/pr_metrics.py
+          fi
+          python3 -B "$collector" --base base --head head --samples 1 --output result.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-build-metrics
+          path: result.json
+          if-no-files-found: error
+          retention-days: 14
