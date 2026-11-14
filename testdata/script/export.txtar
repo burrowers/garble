@@ -64,7 +64,8 @@ stdout 'THE SOFTWARE IS PROVIDED WITHOUT WARRANTY'
 stdout '//go:embed data/message.txt'
 ! stdout '\b(privateOffset|privateOrder|privatePayload|privateEmbedded|privateField|privateMethod|privateResult|privateResultField|privateIdentity|selectedValue|InternalValue|InternalAdjust)\b'
 ! stdout 'IMPLEMENTATION_COMMENT_MUST_DISAPPEAR|PRIVATE_DECLARATION_COMMENT_MUST_DISAPPEAR|INTERNAL_IMPLEMENTATION_SECRET_COMMENT|privateLicenseInternal'
-! stdout 'original-source\.go|//line |/\*line |go:build|missingWithoutTag'
+stdout '^//go:build exporttag$'
+! stdout 'original-source\.go|//line |/\*line |missingWithoutTag'
 # Do not retain the original blank lines between implementation statements.
 ! stdout '\n\n\treturn\b'
 

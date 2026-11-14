@@ -10,7 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/parser"
+	"go/build/constraint"
 	"go/printer"
 	"go/scanner"
 	"go/token"
@@ -34,7 +34,7 @@ func commandExport(args []string) error {
 	tags := flags.String("tags", "", "Build tags selecting the source to export")
 	flags.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: garble [garble flags] export [-tags=tags] directory packages")
-		fmt.Fprintln(os.Stderr, "\nExport a single-configuration, pure-Go module for use with the normal Go toolchain.")
+		fmt.Fprintln(os.Stderr, "\nExport a pure-Go module, including its platform-specific source variants.")
 	}
 	if err := flags.Parse(args); err != nil {
 		return errJustExit(2)
@@ -73,103 +73,9 @@ func commandExport(args []string) error {
 	if *tags != "" {
 		buildFlags = append(buildFlags, "-tags="+*tags)
 	}
-	config := &packages.Config{
-		Mode:       packages.NeedName | packages.NeedFiles | packages.NeedModule | packages.NeedImports | packages.NeedDeps,
-		BuildFlags: buildFlags,
-	}
-	roots, err := packages.Load(config, flags.Args()[1:]...)
+	module, builds, plan, err := loadExportPlan(flags.Args()[1:], buildFlags)
 	if err != nil {
 		return err
-	}
-	if err := exportPackageErrors(roots); err != nil {
-		return err
-	}
-	if len(roots) == 0 {
-		return fmt.Errorf("export: no packages matched")
-	}
-	module := roots[0].Module
-	if module == nil {
-		return fmt.Errorf("export requires packages in a Go module")
-	}
-	for _, pkg := range roots {
-		if pkg.Module == nil || pkg.Module.Path != module.Path || pkg.Module.Dir != module.Dir {
-			return fmt.Errorf("export requires packages from one module")
-		}
-	}
-	// Build a module dependency closure without including third-party or runtime source.
-	selected := make(map[string]bool)
-	packages.Visit(roots, func(pkg *packages.Package) bool {
-		if pkg.Module == nil || pkg.Module.Path != module.Path || pkg.Module.Dir != module.Dir {
-			return false
-		}
-		selected[pkg.PkgPath] = true
-		return true
-	}, nil)
-	paths := make([]string, 0, len(selected))
-	for pkgPath := range selected {
-		paths = append(paths, pkgPath)
-	}
-	slices.Sort(paths)
-	config.Mode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedModule |
-		packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax | packages.NeedImports | packages.NeedEmbedFiles
-	config.ParseFile = func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
-		return parser.ParseFile(fset, filename, src, parser.ParseComments)
-	}
-	pkgs, err := packages.Load(config, paths...)
-	if err != nil {
-		return err
-	}
-	if err := exportPackageErrors(pkgs); err != nil {
-		return err
-	}
-	slices.SortFunc(pkgs, func(a, b *packages.Package) int {
-		return strings.Compare(a.PkgPath, b.PkgPath)
-	})
-	plan := &sourceExporter{module: module.Path, paths: make(map[string]string), embedded: make(map[*types.TypeName]bool)}
-	for i, pkg := range pkgs {
-		if pkg.Name == "main" {
-			return fmt.Errorf("export requires libraries, not main package %s", pkg.PkgPath)
-		}
-		if len(pkg.OtherFiles) > 0 || !slices.Equal(pkg.GoFiles, pkg.CompiledGoFiles) {
-			return fmt.Errorf("export: cgo and assembly are not supported in %s", pkg.PkgPath)
-		}
-		newPath := pkg.PkgPath
-		rel := strings.TrimPrefix(pkg.PkgPath, module.Path)
-		internalBoundaries := 0
-		for _, part := range strings.Split(rel, "/") {
-			if part == "internal" {
-				internalBoundaries++
-			}
-		}
-		if internalBoundaries > 1 {
-			return fmt.Errorf("export does not support nested internal packages: %s", pkg.PkgPath)
-		}
-		if before, _, internal := strings.Cut(rel, "/internal/"); internal {
-			// Keep the internal visibility boundary and the lexical package init order.
-			newPath = fmt.Sprintf("%s%s/internal/p%06d_%s", module.Path, before, i, hashWithCustomSalt([]byte("export path"), pkg.PkgPath))
-		}
-		plan.paths[pkg.PkgPath] = newPath
-		for _, file := range pkg.Syntax {
-			for _, group := range file.Comments {
-				for _, comment := range group.List {
-					directive := strings.Fields(comment.Text)
-					if len(directive) > 0 && (directive[0] == "//go:linkname" || directive[0] == "//go:linknamestd") {
-						return fmt.Errorf("export does not support %s directives in %s", strings.TrimPrefix(directive[0], "//"), pkg.PkgPath)
-					}
-				}
-			}
-			for node := range ast.Preorder(file) {
-				if field, ok := node.(*ast.Field); ok && len(field.Names) == 0 {
-					typ := pkg.TypesInfo.TypeOf(field.Type)
-					if ptr, ok := typ.(*types.Pointer); ok {
-						typ = ptr.Elem()
-					}
-					if named := namedType(typ); named != nil && named.Exported() {
-						plan.embedded[named] = true
-					}
-				}
-			}
-		}
 	}
 	goMod, err := os.ReadFile(module.GoMod)
 	if err != nil {
@@ -206,30 +112,18 @@ func commandExport(args []string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	for _, pkg := range pkgs {
-		if err := plan.writePackage(stage, pkg); err != nil {
-			return err
-		}
-		// A package may carry a license in any ancestor directory inside its module.
-		for dir := pkg.Dir; ; dir = filepath.Dir(dir) {
-			rel, err := filepath.Rel(module.Dir, dir)
-			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return fmt.Errorf("export: package outside module: %s", pkg.Dir)
-			}
-			if err := exportLicenses(dir, filepath.Join(moduleDir, rel)); err != nil {
-				return err
-			}
-			if dir == module.Dir {
-				break
-			}
-		}
+	if err := writeExportBuilds(stage, module, builds, plan); err != nil {
+		return err
 	}
-	cmd := exec.Command("go", append(append([]string{"build"}, buildFlags...), "./...")...)
-	cmd.Dir = moduleDir
-	cmd.Env = append(cmd.Environ(), "GOWORK=off", "GOFLAGS=")
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("building exported source: %w", err)
+	for _, build := range builds {
+		cmd := exec.Command("go", append(append([]string{"build"}, buildFlags...), "./...")...)
+		cmd.Dir = moduleDir
+		cmd.Env = build.targets[0].env()
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		if err := cmd.Run(); err != nil {
+			target := build.targets[0]
+			return fmt.Errorf("building exported source for %s/%s: %w", target.GOOS, target.GOARCH, err)
+		}
 	}
 	// Never merge with or overwrite a tree created while the export was running.
 	if _, err := os.Lstat(out); err == nil {
@@ -257,7 +151,7 @@ func exportPackageErrors(pkgs []*packages.Package) error {
 type sourceExporter struct {
 	module   string
 	paths    map[string]string
-	embedded map[*types.TypeName]bool
+	embedded map[string]bool
 }
 
 func (e *sourceExporter) name(obj types.Object) string {
@@ -283,7 +177,7 @@ func (e *sourceExporter) name(obj types.Object) string {
 	if field, ok := obj.(*types.Var); ok && field.IsField() && obj.Exported() {
 		return ""
 	}
-	if named, ok := obj.(*types.TypeName); ok && e.embedded[named] {
+	if named, ok := obj.(*types.TypeName); ok && e.embedded[exportTypeIdentity(named)] {
 		return ""
 	}
 	rel := strings.TrimPrefix(pkgPath, e.module)
@@ -300,13 +194,20 @@ func (e *sourceExporter) writePackage(root string, pkg *packages.Package) error 
 		return err
 	}
 	for i, file := range pkg.Syntax {
-		exportComments(file)
+		source, err := os.ReadFile(pkg.CompiledGoFiles[i])
+		if err != nil {
+			return err
+		}
+		header, _, err := exportFileHeader(source)
+		if err != nil {
+			return err
+		}
+		exportComments(file, pkg.Fset, len(header))
 		if flagLiterals {
 			seed := sha256.Sum256(append([]byte(pkg.PkgPath+"|"+filepath.Base(pkg.CompiledGoFiles[i])), flagSeed.bytes...))
 			rand := mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(seed[:]))))
-			file = literals.Obfuscate(rand, file, pkg.TypesInfo, nil, nil, nil, randomName)
-			tf := transformer{pkg: pkg.Types, info: pkg.TypesInfo}
-			tf.useAllImports(file)
+			info := portableExportInfo(file, pkg.TypesInfo)
+			file = literals.Obfuscate(rand, file, info, nil, nil, nil, randomName)
 		}
 		for node := range ast.Preorder(file) {
 			id, ok := node.(*ast.Ident)
@@ -339,11 +240,26 @@ func (e *sourceExporter) writePackage(root string, pkg *packages.Package) error 
 				imp.Path.Value = strconv.Quote(newPath)
 			}
 		}
-		var printed bytes.Buffer
-		if err := printer.Fprint(&printed, pkg.Fset, file); err != nil {
-			return err
+		// go/printer promotes even misplaced legacy tags. Shield their '+' byte
+		// until printing is done; a NUL cannot occur in valid original Go source.
+		var legacyDocs []*ast.Comment
+		for _, group := range file.Comments {
+			for _, comment := range group.List {
+				if constraint.IsPlusBuild(comment.Text) {
+					comment.Text = strings.Replace(comment.Text, "+build", "\x00build", 1)
+					legacyDocs = append(legacyDocs, comment)
+				}
+			}
 		}
-		data, err := compactExportSource(printed.Bytes())
+		var printed bytes.Buffer
+		printErr := printer.Fprint(&printed, pkg.Fset, file)
+		for _, comment := range legacyDocs {
+			comment.Text = strings.Replace(comment.Text, "\x00build", "+build", 1)
+		}
+		if printErr != nil {
+			return printErr
+		}
+		data, err := compactExportSource(bytes.ReplaceAll(printed.Bytes(), []byte("\x00build"), []byte("+build")))
 		if err != nil {
 			return err
 		}
@@ -367,7 +283,9 @@ func (e *sourceExporter) writePackage(root string, pkg *packages.Package) error 
 	return nil
 }
 
-func exportComments(file *ast.File) {
+func exportComments(file *ast.File, fset *token.FileSet, legacyEnd int) {
+	tokenFile := fset.File(file.Pos())
+	removedDocLines := make(map[int]bool)
 	docs := make(map[*ast.CommentGroup]bool)
 	docs[file.Doc] = true
 	for node := range ast.Preorder(file) {
@@ -419,20 +337,45 @@ func exportComments(file *ast.File) {
 		var comments []*ast.Comment
 		for _, comment := range group.List {
 			text := comment.Text
-			// Export is a snapshot of the selected build, not a set of alternative files.
-			if strings.HasPrefix(text, "//go:build") || strings.HasPrefix(text, "// +build") ||
-				strings.HasPrefix(text, "//line ") || strings.HasPrefix(text, "/*line ") {
+			// Only leading legacy constraints are tags; misplaced ones may be godoc.
+			buildTag := constraint.IsGoBuild(text) ||
+				(constraint.IsPlusBuild(text) && tokenFile.Offset(comment.Pos()) < legacyEnd)
+			if buildTag {
+				if group == file.Doc {
+					removedDocLines[tokenFile.Line(comment.Pos())] = true
+				}
+				continue
+			}
+			if strings.HasPrefix(text, "//line ") || strings.HasPrefix(text, "/*line ") {
 				continue
 			}
 			if header || docs[group] || legal || isGoDirective(text) {
 				comments = append(comments, comment)
 			}
 		}
+		if group == file.Doc {
+			for _, comment := range comments {
+				for line := tokenFile.Line(comment.Pos()); line <= tokenFile.Line(comment.End()); line++ {
+					delete(removedDocLines, line)
+				}
+			}
+		}
 		if len(comments) > 0 {
-			kept = append(kept, &ast.CommentGroup{List: comments})
+			group.List = comments
+			kept = append(kept, group)
 		}
 	}
 	file.Comments = kept
+	if len(removedDocLines) > 0 {
+		// Deleted directives must not leave blank lines that split package godoc.
+		lines := make([]int, 0, tokenFile.LineCount())
+		for i, offset := range tokenFile.Lines() {
+			if !removedDocLines[i+1] || i == 0 {
+				lines = append(lines, offset)
+			}
+		}
+		tokenFile.SetLines(lines)
+	}
 }
 
 func exportEmbeddedName(expr ast.Expr) *ast.Ident {
@@ -483,7 +426,7 @@ func compactExportSource(src []byte) ([]byte, error) {
 			out.WriteByte('\n')
 		}
 		offset := file.Offset(pos)
-		if tok == token.COMMENT && previous == token.COMMENT && bytes.Count(src[previousEnd:offset], []byte("\n")) > 1 {
+		if previous == token.COMMENT && (tok == token.COMMENT || tok == token.PACKAGE) && bytes.Count(src[previousEnd:offset], []byte("\n")) > 1 {
 			out.WriteByte('\n')
 		}
 		previous, previousEnd = tok, offset+len(lit)

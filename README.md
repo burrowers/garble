@@ -88,26 +88,42 @@ methods remain unchanged even in internal packages, since their identities can
 be required by consumers' struct conversions and interfaces. Embedded exported
 type names also remain unchanged to preserve their promoted field names.
 
-Export currently handles pure-Go libraries from one module, including their
-same-module dependencies. It exports only files selected by the current `GOOS`,
-`GOARCH` and optional `-tags` argument, not every platform or build-tag variant:
+Export handles pure-Go libraries from one module, including their same-module
+dependencies. It discovers platform variants automatically across the selected
+Go toolchain's supported `GOOS`/`GOARCH` pairs. Filename suffixes such as
+`_windows.go` and build constraints such as `//go:build unix` are retained in
+one output tree; no target list or separate export per platform is needed.
+Targets selecting the same module and nonstandard dependency source files with
+the same Go type sizes share an obfuscation and validation pass.
+
+Custom tags remain an explicit choice, rather than enumerating every possible
+combination. Architecture feature levels are also fixed for an export, not
+enumerated:
 
 ```sh
-GOOS=linux GOARCH=amd64 garble -seed=o9WDTZ4CN4w export -tags=purego out ./...
+garble -seed=o9WDTZ4CN4w export -tags=purego out ./...
 ```
 
-Keep the same target and tags when building the output. Clear `GOFLAGS` and
-pass tags explicitly. Assembly, cgo, local module replacements, workspace-only
-dependencies, nested internal packages and `//go:linkname` directives are not
-supported. Export does not support `-tiny`, `-debugdir` or experimental
-control-flow obfuscation.
+Keep those custom tags when building the output. Discovery and validation use
+`CGO_ENABLED=0`. Original package constraints still determine platform support;
+targets with no active packages or platform-excluded dependencies are skipped.
+Other package-loading and representative-build failures abort the export.
 
-Use `-literals` before `export` to obfuscate ordinary source literals. Embedded
-assets are copied unchanged, even with `-literals`; export does not patch the
-`embed` package. Unlike binary builds, export does not transform dependencies
-outside the module or the Go runtime. Renaming still changes private reflection
-names; obfuscation is not encryption and does not prevent determined reverse
-engineering.
+Clear `GOFLAGS` and pass tags explicitly. Assembly, cgo, local module replacements,
+workspace-only dependencies, nested internal packages and `//go:linkname`
+directives are not supported. Export does not support `-tiny`, `-debugdir` or
+experimental control-flow obfuscation.
+
+Use `-literals` before `export` to obfuscate ordinary source literals.
+Platform-dependent constant references and expressions, such as `runtime.GOOS`
+and `unsafe.Sizeof`, remain expressions instead of being baked into decoders
+for the exporting machine. Constant-dependent string-to-slice conversions stay
+as constant expressions to preserve their capacity, leaving any literal prefixes
+readable too. Embedded assets are copied unchanged, even with `-literals`;
+export does not patch the `embed` package. Unlike binary builds,
+export does not transform dependencies outside the module or the Go runtime.
+Renaming still changes private reflection names; obfuscation is not encryption
+and does not prevent determined reverse engineering.
 
 ### Word-list naming
 
