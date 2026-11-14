@@ -150,6 +150,88 @@ func setReceiverPos(expr ast.Expr, pos token.Pos) {
 	}
 }
 
+// setStmtPos gives a generated statement the position of the SSA instruction it
+// was built from. Those positions are what the source printer turns into
+// reversible line markers; without them a converted function has no position
+// anywhere, so runtime frames, panics and garble reverse all report line 1 of
+// no file. Only the nodes which carry a statement's leading token are set, so
+// the printed source keeps the original line of the instruction.
+func setStmtPos(stmt ast.Stmt, pos token.Pos) {
+	if stmt == nil || !pos.IsValid() {
+		return
+	}
+	switch stmt := stmt.(type) {
+	case *ast.AssignStmt:
+		stmt.TokPos = pos
+		if len(stmt.Lhs) > 0 {
+			setExprPos(stmt.Lhs[0], pos)
+		} else if len(stmt.Rhs) > 0 {
+			setExprPos(stmt.Rhs[0], pos)
+		}
+	case *ast.ExprStmt:
+		setExprPos(stmt.X, pos)
+	case *ast.SendStmt:
+		setExprPos(stmt.Chan, pos)
+	case *ast.IncDecStmt:
+		stmt.TokPos = pos
+		setExprPos(stmt.X, pos)
+	case *ast.ReturnStmt:
+		stmt.Return = pos
+	case *ast.BranchStmt:
+		stmt.TokPos = pos
+	case *ast.DeferStmt:
+		stmt.Defer = pos
+	case *ast.GoStmt:
+		stmt.Go = pos
+	case *ast.IfStmt:
+		stmt.If = pos
+	case *ast.RangeStmt:
+		stmt.For = pos
+	case *ast.LabeledStmt:
+		setExprPos(stmt.Label, pos)
+	case *ast.BlockStmt:
+		stmt.Lbrace = pos
+	}
+}
+
+// setExprPos sets the position of the leading token of expr.
+func setExprPos(expr ast.Expr, pos token.Pos) bool {
+	if expr == nil || !pos.IsValid() {
+		return false
+	}
+	switch expr := expr.(type) {
+	case *ast.Ident:
+		expr.NamePos = pos
+	case *ast.SelectorExpr:
+		return setExprPos(expr.X, pos)
+	case *ast.IndexExpr:
+		return setExprPos(expr.X, pos)
+	case *ast.IndexListExpr:
+		return setExprPos(expr.X, pos)
+	case *ast.SliceExpr:
+		return setExprPos(expr.X, pos)
+	case *ast.TypeAssertExpr:
+		return setExprPos(expr.X, pos)
+	case *ast.StarExpr:
+		expr.Star = pos
+	case *ast.UnaryExpr:
+		expr.OpPos = pos
+	case *ast.BinaryExpr:
+		return setExprPos(expr.X, pos)
+	case *ast.ParenExpr:
+		expr.Lparen = pos
+	case *ast.CallExpr:
+		expr.Lparen = pos
+	case *ast.CompositeLit:
+		expr.Lbrace = pos
+	case *ast.FuncLit:
+		expr.Type.Func = pos
+	default:
+		return false
+	}
+	return true
+}
+
 func (fc *funcConverter) convertSignatureToFuncLit(signature *types.Signature) (*ast.FuncLit, error) {
 	funcTypeDecl, err := fc.tc.Convert(signature)
 	if err != nil {
@@ -299,6 +381,9 @@ func (fc *funcConverter) convertFunction(val *ssa.Function, call *ssa.CallCommon
 func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, error) {
 	callExpr := &ast.CallExpr{}
 	argsOffset := 0
+	// A call's frame reports the opening parenthesis, so keep the original
+	// call position there for the source printer's line markers.
+	callExpr.Lparen = callCommon.Pos()
 
 	if !callCommon.IsInvoke() {
 		switch val := callCommon.Value.(type) {
@@ -344,6 +429,10 @@ func (fc *funcConverter) convertCall(callCommon ssa.CallCommon) (*ast.CallExpr, 
 	if callCommon.Signature().Variadic() {
 		callExpr.Ellipsis = 1
 	}
+	// The compiler reports a call at the position of the callee expression,
+	// so the callee needs the original position as well. A function literal
+	// has no identifier of its own; setExprPos gives it its leading token.
+	setExprPos(callExpr.Fun, callCommon.Pos())
 	return callExpr, nil
 }
 
@@ -1277,6 +1366,7 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 		}
 
 		if stmt != nil {
+			setStmtPos(stmt, instr.Pos())
 			if len(fc.preStmts) > 0 {
 				astBlock.Body = append(astBlock.Body, fc.preStmts...)
 				fc.preStmts = nil
@@ -1304,12 +1394,13 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 		}
 
 		astBlock.Exit = &ast.IfStmt{
+			If:   exit.Pos(),
 			Cond: condExpr,
 			Body: ah.BlockStmt(fc.gotoStmt(tblock)),
 			Else: ah.BlockStmt(fc.gotoStmt(fblock)),
 		}
 	case *ssa.Return:
-		exitStmt := &ast.ReturnStmt{}
+		exitStmt := &ast.ReturnStmt{Return: exit.Pos()}
 		for _, result := range exit.Results {
 			resultExpr, err := fc.convertSsaValue(result)
 			if err != nil {
@@ -1323,7 +1414,9 @@ func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock
 		if err != nil {
 			return err
 		}
-		astBlock.Exit = &ast.ExprStmt{X: ah.CallExprByName("panic", panicArgExpr)}
+		panicStmt := &ast.ExprStmt{X: ah.CallExprByName("panic", panicArgExpr)}
+		setStmtPos(panicStmt, exit.Pos())
+		astBlock.Exit = panicStmt
 	default:
 		return fmt.Errorf("exit instruction %v: %w", exit, ErrUnsupported)
 	}

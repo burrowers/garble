@@ -17,6 +17,13 @@ import (
 
 var printBuf1, printBuf2 bytes.Buffer
 
+// origPosition is an original source position and the file name its marker
+// carries when the position belongs to a file other than the one being printed.
+type origPosition struct {
+	pos  token.Position
+	file string
+}
+
 // printFile prints a Go file to a buffer, while also removing non-directive
 // comments and adding extra compiler directives to obfuscate position information.
 func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
@@ -103,39 +110,30 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	// Match calls and statements in AST order before and after printing.
 	// Re-parsing identifies their actual parentheses even for nested or
 	// generated callee expressions.
-	var origCallPositions []token.Position
+	var origCallPositions []token.Pos
 	var generatedIdent []bool
-	var origStmtPositions []token.Position
+	var origStmtPositions []token.Pos
 	// A block's closing brace is its own position in the runtime: the
 	// compiler places the return instruction and a deferred call's return
 	// site there. It is not a statement, so it needs its own positions.
-	var origBlockEnds []token.Position
+	var origBlockEnds []token.Pos
 	for node := range ast.Preorder(file) {
 		if block, ok := node.(*ast.BlockStmt); ok {
-			var origPos token.Position
-			if block.Rbrace.IsValid() {
-				origPos = fset.Position(block.Rbrace)
-			}
-			origBlockEnds = append(origBlockEnds, origPos)
+			origBlockEnds = append(origBlockEnds, block.Rbrace)
 		}
 		switch node := node.(type) {
 		case *ast.CallExpr:
-			var origPos token.Position
-			if node.Lparen.IsValid() {
-				origPos = fsetFile.Position(node.Lparen)
-			}
-			origCallPositions = append(origCallPositions, origPos)
+			// A converted function can carry positions from the file it was
+			// moved out of, so resolve them through the whole file set rather
+			// than through the one file being printed.
+			origCallPositions = append(origCallPositions, node.Lparen)
 		case ast.Stmt:
 			// Statement positions are user visible: a panic that the runtime
 			// raises at a statement without a call expression, and a
 			// goroutine's creation site, are both reported at the statement
 			// itself. Keep them so that below we can both correct line drift
 			// and mark the first statement of a file.
-			var origPos token.Position
-			if node.Pos().IsValid() {
-				origPos = fset.Position(node.Pos())
-			}
-			origStmtPositions = append(origStmtPositions, origPos)
+			origStmtPositions = append(origStmtPositions, node.Pos())
 		case *ast.Ident:
 			generatedIdent = append(generatedIdent, generatedIdents[node])
 		}
@@ -145,17 +143,28 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		return nil, err
 	}
 	printedFile := fset.File(printed.Pos())
-	callPositions := make(map[int]token.Position, len(origCallPositions))
-	stmtPositions := make(map[int]token.Position, len(origStmtPositions))
+	callPositions := make(map[int]origPosition, len(origCallPositions))
+	stmtPositions := make(map[int]origPosition, len(origStmtPositions))
 	// record maps the printed position of the node visited at index back to
 	// its original position, when both are known.
-	record := func(dst map[int]token.Position, orig []token.Position, index int, printedPos token.Pos) {
+	record := func(dst map[int]origPosition, orig []token.Pos, index int, printedPos token.Pos) {
 		if index >= len(orig) || !printedPos.IsValid() {
 			return
 		}
-		if origPos := orig[index]; origPos.IsValid() {
-			dst[printedFile.Offset(printedPos)] = origPos
+		origPos := orig[index]
+		if !origPos.IsValid() {
+			return
 		}
+		pos := fset.Position(origPos)
+		file := ""
+		if physical := fset.PositionFor(origPos, false).Filename; filepath.Base(physical) != filename {
+			// The control-flow output moves functions into a generated file,
+			// so their statements keep positions of the file they came from.
+			// Name their markers after that file to keep the positions of
+			// different source files apart.
+			file = filepath.Base(physical)
+		}
+		dst[printedFile.Offset(printedPos)] = origPosition{pos: pos, file: file}
 	}
 	callIndex, stmtIndex, blockIndex := 0, 0, 0
 	for node := range ast.Preorder(printed) {
@@ -204,15 +213,19 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 
 	// hashedMarkerName returns the filename used to obfuscate the source
 	// position origPos, shared by the call and statement markers.
-	hashedMarkerName := func(origPos token.Position) string {
+	hashedMarkerName := func(orig origPosition) string {
 		if flagTiny {
 			return ""
 		}
-		return hashWithPackage(lpkg, fmt.Sprintf("%s:%d", filename, origPos.Offset)) + ".go"
+		name := filename
+		if orig.file != "" {
+			name = orig.file
+		}
+		return hashWithPackage(lpkg, fmt.Sprintf("%s:%d", name, orig.pos.Offset)) + ".go"
 	}
 	// writeMarker inserts a //line directive for the original position origPos
 	// before the token at offset, which was found at printed line printedLine.
-	writeMarker := func(offset, printedLine int, origPos token.Position) {
+	writeMarker := func(offset, printedLine int, orig origPosition) {
 		printBuf2.Write(src[copied:offset])
 		copied = offset
 
@@ -222,8 +235,8 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		// Otherwise, we could change the syntax of the program.
 		// Inserting "/*text*/" in "a/b" // must be "a/ /*text*/ b",
 		// as "a//*text*/b" is tokenized as a "//" comment.
-		fmt.Fprintf(&printBuf2, " /*line %s%s:%d*/ ", newPrefix, hashedMarkerName(origPos), origPos.Line)
-		markerAtLine, markerLine = printedLine, origPos.Line
+		fmt.Fprintf(&printBuf2, " /*line %s%s:%d*/ ", newPrefix, hashedMarkerName(orig), orig.pos.Line)
+		markerAtLine, markerLine = printedLine, orig.pos.Line
 		haveMarker = true
 	}
 	generated := false
@@ -250,7 +263,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			// block ends only need one when go/printer changed the line
 			// spacing or a transform moved code, as their line would
 			// otherwise drift.
-			if want := markerLine + (line - markerAtLine); !haveMarker || want != origPos.Line {
+			if want := markerLine + (line - markerAtLine); !haveMarker || want != origPos.pos.Line {
 				writeMarker(fsetFile.Position(pos).Offset, line, origPos)
 			}
 		}

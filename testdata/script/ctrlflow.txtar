@@ -41,6 +41,7 @@ import (
 	"encoding/hex"
 	"hash/crc32"
 	"math"
+	"runtime"
 	"slices"
 	"unsafe"
 
@@ -330,6 +331,37 @@ func charSum(s string) int {
 	return sum
 }
 
+// positionTest reports the source position of its own statements. A converted
+// function used to be printed as generated code, so every frame, panic and
+// deferred return site inside it reported line 1 of no file at all.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func positionTest() {
+	_, file, first, ok := runtime.Caller(0)
+	_, _, second, _ := runtime.Caller(0)
+	if !ok || file == "" || first == 1 {
+		panic("flattened frame has no source position")
+	}
+	if second != first+1 {
+		panic("flattened statements lost their line order")
+	}
+	// A deferred call reports its caller at the closing brace of the body,
+	// which is a later line than the defer statement itself.
+	defer func(deferLine int) {
+		_, _, exit, _ := runtime.Caller(1)
+		if exit == 1 || exit <= deferLine {
+			panic("flattened deferred return site has no source position")
+		}
+		println("flattened positions kept")
+	}(callerLine())
+}
+
+// callerLine reports the line of its caller, which is not flattened itself.
+func callerLine() int {
+	_, _, line, _ := runtime.Caller(1)
+	return line
+}
+
 // crossBlockForeignValue keeps values of unexported foreign named types across
 // a block boundary. The generated declaration has to name a type the value is
 // assignable to, and an empty emulated interface would keep nothing but method
@@ -460,6 +492,8 @@ func main() {
 	expectPanic("constant array index", func() { _ = constIndexPanic() })
 	expectPanic("constant slice bound", func() { _ = constSlicePanic() })
 	println("constant bounds panicked")
+
+	positionTest()
 }
 
 -- named/scores.go --
@@ -525,3 +559,4 @@ cross
 4599676419421066581 4593560413433027186 1039980254 4611686018427387904
 0 44 2147483647 -2147483648 -2147483648 -2147483648 -1
 constant bounds panicked
+flattened positions kept
