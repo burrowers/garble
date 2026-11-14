@@ -1,0 +1,21 @@
+example.com/exporttagdep v1.0.0
+written by hand
+
+-- .mod --
+module example.com/exporttagdep
+
+go 1.23
+-- .info --
+{"Version":"v1.0.0","Time":"2026-01-01T00:00:00Z"}
+-- go.mod --
+module example.com/exporttagdep
+
+go 1.23
+-- dep.go --
+package dep
+-- tagged.go --
+//go:build exporttag
+
+package dep
+
+func Tagged() int { return 7 }

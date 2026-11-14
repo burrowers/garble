@@ -1,0 +1,451 @@
+# Export source, not a binary: a separate module must build it with stock Go.
+cd source
+exec go mod download example.com/exporttagdep
+cp LICENSE LICENSE-MIT.md
+cp LICENSE NOTICE.txt
+! exec garble -tiny export $WORK/rejected ./...
+stderr 'export does not support'
+! exists $WORK/rejected
+env GOFLAGS=-race
+! exec garble export $WORK/rejected ./...
+stderr 'empty GOFLAGS'
+env GOFLAGS=
+! exec garble export $WORK/rejected ./...
+stderr 'missingWithoutTag'
+! exists $WORK/rejected
+! exec garble export -tags=exporttag,linkname $WORK/rejected ./...
+stderr 'export does not support go:linkname directives in example.com/exported'
+! exists $WORK/rejected
+! exec garble export -tags=exporttag,linknamestd $WORK/rejected ./...
+stderr 'export does not support go:linknamestd directives in example.com/exported'
+! exists $WORK/rejected
+! exec garble export -tags=exporttag,nestedinternal $WORK/rejected ./...
+stderr 'export does not support nested internal packages: example.com/exported/internal/a/internal/nested'
+! exists $WORK/rejected
+! exec garble export -tags=adjacentinternal $WORK/rejected ./internal/internal/nested
+stderr 'export does not support nested internal packages: example.com/exported/internal/internal/nested'
+! exists $WORK/rejected
+exec garble -seed=AAAAAAAAAAA export -tags=exporttag $WORK/out ./...
+
+# Public paths, source file ordering, module metadata and embedded assets survive.
+cmp go.mod $WORK/out/example.com/exported/go.mod
+cmp go.sum $WORK/out/example.com/exported/go.sum
+! exists $WORK/out/example.com/exporttagdep
+cmp LICENSE $WORK/out/example.com/exported/LICENSE
+cmp LICENSE-MIT.md $WORK/out/example.com/exported/LICENSE-MIT.md
+cmp NOTICE.txt $WORK/out/example.com/exported/NOTICE.txt
+cmp data/message.txt $WORK/out/example.com/exported/data/message.txt
+exists $WORK/out/example.com/exported/api.go
+exists $WORK/out/example.com/exported/a_init.go
+exists $WORK/out/example.com/exported/z_init.go
+exists $WORK/out/example.com/exported/support/types.go
+! grep 'privateLicenseAlgorithm|IMPLEMENTATION_SECRET_COMMENT' $WORK/out/example.com/exported/license.go
+! exists $WORK/out/example.com/exported/NOTICE.GO
+! exists $WORK/out/example.com/exported/internal/helperpath/license.go
+! exists $WORK/out/example.com/exported/internal/helperpath
+! exists $WORK/out/example.com/exported/notag.go
+# The internal boundary must stay in place even though its child is renamed.
+grepfiles $WORK/out/example.com/exported/internal '/internal/[^/]+/helper\.go$'
+
+# Inspect every emitted Go file, including the renamed internal package.
+exec gofmt $WORK/out
+stdout 'Copyright 2026 Export Test Authors'
+stdout 'SPDX-License-Identifier: BSD-3-Clause'
+stdout 'Package library exercises source export\.'
+stdout 'New constructs a Box\.'
+stdout 'EMBEDDED_SELECTOR_DOC'
+stdout 'EMBEDDED_PLAIN_DOC'
+stdout 'EMBEDDED_POINTER_DOC'
+stdout 'EMBEDDED_GENERIC_DOC'
+stdout 'EMBEDDED_MULTI_GENERIC_DOC'
+stdout 'Permission is hereby granted, free of charge'
+stdout 'THE SOFTWARE IS PROVIDED WITHOUT WARRANTY'
+stdout '//go:embed data/message.txt'
+! stdout '\b(privateOffset|privateOrder|privatePayload|privateEmbedded|privateField|privateMethod|privateResult|privateResultField|privateIdentity|selectedValue|InternalValue|InternalAdjust)\b'
+! stdout 'IMPLEMENTATION_COMMENT_MUST_DISAPPEAR|PRIVATE_DECLARATION_COMMENT_MUST_DISAPPEAR|INTERNAL_IMPLEMENTATION_SECRET_COMMENT|privateLicenseInternal'
+! stdout 'original-source\.go|//line |/\*line |go:build|missingWithoutTag'
+# Do not retain the original blank lines between implementation statements.
+! stdout '\n\n\treturn\b'
+
+# Literal decoding must also be ordinary Go source, not patched-toolchain output.
+exec garble -literals -seed=AAAAAAAAAAA export -tags=exporttag $WORK/encoded ./...
+! grep 'privateLicenseAlgorithm|IMPLEMENTATION_SECRET_COMMENT|license source secret' $WORK/encoded/example.com/exported/license.go
+! exists $WORK/encoded/example.com/exported/NOTICE.GO
+! exists $WORK/encoded/example.com/exported/internal/helperpath
+grep 'Copyright 2026 Export Test Authors\n// Permission is hereby granted, free of charge.*\n// THE SOFTWARE IS PROVIDED WITHOUT WARRANTY' $WORK/encoded/example.com/exported/api.go
+grep 'EMBEDDED_SELECTOR_DOC' $WORK/encoded/example.com/exported/api.go
+grep 'EMBEDDED_PLAIN_DOC' $WORK/encoded/example.com/exported/api.go
+grep 'EMBEDDED_POINTER_DOC' $WORK/encoded/example.com/exported/api.go
+grep 'EMBEDDED_GENERIC_DOC' $WORK/encoded/example.com/exported/api.go
+grep 'EMBEDDED_MULTI_GENERIC_DOC' $WORK/encoded/example.com/exported/api.go
+grep 'opaque exported literal' $WORK/out/example.com/exported/literal.go
+! grep 'opaque exported literal' $WORK/encoded/example.com/exported/literal.go
+
+# Multi-line godoc must stay one attached comment group.
+grep 'New constructs a Box\.\n// Its result supports ordinary Go interfaces\.' $WORK/out/example.com/exported/api.go
+
+# Refuse to overwrite an existing export, leaving its metadata intact.
+! exec garble -seed=AAAAAAAAAAA export -tags=exporttag $WORK/out ./...
+stderr 'exist'
+cmp go.mod $WORK/out/example.com/exported/go.mod
+
+cd $WORK
+rm source
+cd consumer
+exec go run -mod=mod -tags=exporttag .
+cmp stdout want.stdout
+cp encoded.mod go.mod
+exec go run -mod=mod -tags=exporttag .
+cmp stdout want.stdout
+
+-- source/go.mod --
+module example.com/exported
+
+go 1.23
+
+require example.com/exporttagdep v1.0.0
+
+-- source/LICENSE --
+Copyright 2026 Export Test Authors
+SPDX-License-Identifier: BSD-3-Clause
+Redistribution and use in source and binary forms are permitted.
+
+-- source/api.go --
+// Copyright 2026 Export Test Authors
+// SPDX-License-Identifier: BSD-3-Clause
+
+// Package library exercises source export.
+package library
+
+import (
+	_ "embed"
+
+	dep "example.com/exporttagdep"
+
+	_ "example.com/exported/internal/a"
+	_ "example.com/exported/internal/b"
+	"example.com/exported/internal/helperpath"
+	labels "example.com/exported/support"
+	"example.com/exported/support/state"
+)
+
+// Dependency exercises a tagged API in an untouched third-party module.
+func Dependency() int { return dep.Tagged() }
+
+// PublicConst remains available to consumers.
+const PublicConst = 7
+
+// PublicVar remains writable by consumers.
+var PublicVar = 11
+
+// Copyright 2026 Export Test Authors
+// Permission is hereby granted, free of charge, to any person obtaining a copy.
+// THE SOFTWARE IS PROVIDED WITHOUT WARRANTY OF ANY KIND.
+const privateOffset = 2
+
+var privateOrder string
+
+//go:embed data/message.txt
+var privatePayload string
+
+type privateEmbedded struct {
+	Visible int
+}
+
+// Box preserves exported and promoted fields across generic instantiations.
+type Box[T ~int] struct {
+	// EMBEDDED_SELECTOR_DOC
+	labels.Embedded
+	privateEmbedded
+	Value        T
+	privateField int
+}
+
+type ExportBase struct{}
+type PointerBase struct{}
+type GenericBase[A, B any] struct{}
+
+// EmbeddedDocs exercises the anonymous-field type shapes.
+type EmbeddedDocs[T any] struct {
+	// EMBEDDED_PLAIN_DOC
+	ExportBase
+	// EMBEDDED_POINTER_DOC
+	*PointerBase
+	// EMBEDDED_GENERIC_DOC
+	*labels.Generic[T]
+	// EMBEDDED_MULTI_GENERIC_DOC
+	GenericBase[T, int]
+}
+
+// New constructs a Box.
+// Its result supports ordinary Go interfaces.
+func New[T ~int](value T) *Box[T] {
+	// IMPLEMENTATION_COMMENT_MUST_DISAPPEAR
+	box := &Box[T]{
+		Embedded:        labels.Embedded{Label: "label"},
+		privateEmbedded: privateEmbedded{Visible: 13},
+		Value:           privateIdentity(value),
+		privateField:    privateOffset,
+	}
+
+	return box
+}
+
+// Sum returns a value computed through the internal package.
+func (box *Box[T]) Sum() T {
+	return box.Value + T(box.privateMethod())
+}
+
+// Write implements io.Writer without importing io in this package.
+func (box *Box[T]) Write(data []byte) (int, error) {
+	box.privateField += len(data)
+	return len(data), nil
+}
+
+// PRIVATE_DECLARATION_COMMENT_MUST_DISAPPEAR
+//
+//line original-source.go:321
+func (box *Box[T]) privateMethod() int {
+	value := arithmetic.InternalValue{Number: box.privateField}
+
+	return arithmetic.InternalAdjust(value) + selectedValue
+}
+
+func privateIdentity[T any](value T) T {
+	return value
+}
+
+type privateResult struct {
+	Value              int
+	privateResultField int
+}
+
+// Result returns a private type whose public surface is still usable.
+func Result() privateResult {
+	return privateResult{Value: 17, privateResultField: 19}
+}
+
+// Total is callable even though its receiver type is private.
+func (result privateResult) Total() int {
+	return result.Value + result.privateResultField
+}
+
+// State reports init order and the embedded asset.
+func State() string {
+	return state.Order + ":" + privateOrder + ":" + privatePayload
+}
+
+-- source/license.go --
+package library
+
+// IMPLEMENTATION_SECRET_COMMENT
+func privateLicenseAlgorithm() string { return "license source secret" }
+
+-- source/NOTICE.GO --
+// UPPERCASE_SOURCE_SECRET
+package library
+
+-- source/internal/helperpath/license.go --
+package arithmetic
+
+// INTERNAL_IMPLEMENTATION_SECRET_COMMENT
+func privateLicenseInternal() int { return 99 }
+
+-- source/literal.go --
+package library
+
+import "unicode"
+
+// Message returns an obfuscated literal and an imported constant.
+func Message() string {
+	return "opaque exported literal:" + unicode.Version
+}
+
+-- source/a_init.go --
+package library
+
+func init() {
+	privateOrder += "a"
+}
+
+-- source/z_init.go --
+package library
+
+func init() {
+	privateOrder += "z"
+}
+
+-- source/tag.go --
+//go:build exporttag
+
+package library
+
+const selectedValue = 3
+
+-- source/linkname.go --
+//go:build linkname
+
+package library
+
+import _ "unsafe"
+
+//go:linkname Alias example.com/exported/internal/helperpath.privateLinked
+var Alias int
+
+-- source/linknamestd.go --
+//go:build linknamestd
+
+package library
+
+import _ "unsafe"
+
+//go:linknamestd Alias runtime.privateLinked
+var Alias int
+
+-- source/notag.go --
+//go:build !exporttag
+
+package library
+
+var _ = missingWithoutTag
+
+-- source/support/types.go --
+// Package support contains public types used in the exported API.
+package support
+
+// Embedded is embedded by a type in another package.
+type Embedded struct {
+	Label string
+}
+
+type Generic[T any] struct{}
+
+// Description is promoted through the embedded field.
+func (value Embedded) Description() string {
+	return value.Label
+}
+
+-- source/internal/helperpath/helper.go --
+package arithmetic
+
+type InternalValue struct {
+	Number int
+}
+
+func InternalAdjust(value InternalValue) int {
+	return value.Number * 2
+}
+
+-- source/internal/internal/nested/nested.go --
+//go:build adjacentinternal
+
+package nested
+
+const Value = 1
+
+-- source/internal/a/internal/nested/nested.go --
+//go:build nestedinternal
+
+package nested
+
+const Value = 1
+
+-- source/internal/a/a.go --
+package a
+
+import (
+	_ "example.com/exported/internal/z"
+	"example.com/exported/support/state"
+)
+
+func init() { state.Order += "a" }
+
+-- source/internal/b/b.go --
+package b
+
+import "example.com/exported/support/state"
+
+func init() { state.Order += "b" }
+
+-- source/internal/z/z.go --
+package z
+
+import "example.com/exported/support/state"
+
+func init() { state.Order += "z" }
+
+-- source/support/state/state.go --
+package state
+
+var Order string
+
+-- source/data/message.txt --
+asset
+
+-- consumer/go.mod --
+module example.com/consumer
+
+go 1.23
+
+require example.com/exported v0.0.0
+
+replace example.com/exported => ../out/example.com/exported
+
+-- consumer/encoded.mod --
+module example.com/consumer
+
+go 1.23
+
+require example.com/exported v0.0.0
+
+replace example.com/exported => ../encoded/example.com/exported
+
+-- consumer/main.go --
+package main
+
+import (
+	"fmt"
+	"io"
+	"strings"
+	"unicode"
+
+	"example.com/exported"
+	"example.com/exported/support"
+)
+
+type count int
+
+func main() {
+	if library.Dependency() != 7 {
+		panic("tagged dependency")
+	}
+	box := library.New(count(5))
+	var writer io.Writer = box
+	n, err := writer.Write([]byte("abc"))
+	if err != nil {
+		panic(err)
+	}
+	box.Embedded = support.Embedded{Label: "changed"}
+	box.Value = 23
+	box.Visible = 29
+	var structural struct{ Label string } = box.Embedded
+	fmt.Println(box.Sum(), n, box.Value, box.Visible, box.Label, box.Description(), structural.Label)
+
+	result := library.Result()
+	var total interface{ Total() int } = result
+	result.Value = 31
+	fmt.Println(result.Value, result.Total(), total.Total())
+
+	library.PublicVar = 41
+	fmt.Println(library.PublicConst, library.PublicVar)
+	if library.Message() != "opaque exported literal:"+unicode.Version {
+		panic(library.Message())
+	}
+	fmt.Print(strings.TrimSuffix(library.State(), "\n"))
+}
+
+-- consumer/want.stdout --
+36 3 23 29 changed changed changed
+31 50 36
+7 41
+bza:az:asset
