@@ -5,21 +5,33 @@ cmpenv stderr stderr.golden
 # Keep the tool's diagnostic and add a version with original names.
 ! exec garble build -o missing$exe ./linker
 stderr 'relocation target main\.[A-Za-z0-9_]+ not defined'
-# TODO: include the original names as requested by #218.
-! stderr 'garble: build errors with original names:'
-! stderr 'relocation target main\.missingFunction not defined'
+stderr 'garble: build errors with original names:'
+stderr 'relocation target main\.missingFunction not defined'
+stderr 'relocation target test/main/linker/lib\.OriginalType\.MissingMethod not defined'
 ! stdout .
 
 -- linker/main.go --
 package main
 
+import "test/main/linker/lib"
+
 func missingFunction()
 
 func main() {
 	missingFunction()
+	lib.OriginalType{}.MissingMethod()
 }
 
 -- linker/empty.s --
+
+-- linker/lib/lib.go --
+package lib
+
+type OriginalType struct{}
+
+func (OriginalType) MissingMethod()
+
+-- linker/lib/empty.s --
 
 -- stderr.golden --
 # test/main/broken
