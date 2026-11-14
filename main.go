@@ -248,6 +248,8 @@ func mainErr(args []string) error {
 		}
 		writeGarbleVersion(os.Stdout)
 		return nil
+	case "export":
+		return commandExport(args)
 	case "reverse":
 		return commandReverse(args)
 	case "map":
@@ -866,6 +868,7 @@ The following commands are supported:
 	install        replace "go install"
 	test           replace "go test"
 	run            replace "go run"
+	export         export obfuscated library source for use with Go
 	reverse        de-obfuscate output such as stack traces
 	map            describe how names are obfuscated, as JSON
 	bug            start a bug report
