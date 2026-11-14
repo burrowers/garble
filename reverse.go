@@ -5,13 +5,16 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/token"
 	"go/types"
 	"io"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -52,6 +55,43 @@ Use -test to reverse frames from a binary built with "garble test":
 		return err
 	}
 
+	repl, positions, err := newReverser()
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		modified, err := reverseContent(os.Stdout, os.Stdin, repl, positions)
+		if err != nil {
+			return err
+		}
+		if !modified {
+			return errJustExit(1)
+		}
+		return nil
+	}
+	// TODO: cover this code in the tests too
+	anyModified := false
+	for _, path := range args {
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		modified, err := reverseContent(os.Stdout, f, repl, positions)
+		if err != nil {
+			return err
+		}
+		anyModified = anyModified || modified
+		f.Close() // since we're in a loop
+	}
+	if !anyModified {
+		return errJustExit(1)
+	}
+	return nil
+}
+
+// newReverser uses the existing listing, without starting another Go command.
+func newReverser() (*strings.Replacer, map[string]string, error) {
 	// A package's names are generally hashed with the action ID of its
 	// obfuscated build. We recorded those action IDs above.
 	// Note that we parse Go files directly to obtain the names, since the
@@ -78,7 +118,7 @@ Use -test to reverse frames from a binary built with "garble test":
 
 		tf, files, err := transformerForListedPackage(lpkg)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		for i, file := range files {
 			goFile := lpkg.CompiledGoFiles[i]
@@ -244,40 +284,44 @@ Use -test to reverse frames from a binary built with "garble test":
 			addHashedWithPackage(lpkg.ImportPath)
 		}
 	}
-	repl := strings.NewReplacer(replaces...)
-
-	if len(args) == 0 {
-		modified, err := reverseContent(os.Stdout, os.Stdin, repl, positions)
-		if err != nil {
-			return err
-		}
-		if !modified {
-			return errJustExit(1)
-		}
-		return nil
-	}
-	// TODO: cover this code in the tests too
-	anyModified := false
-	for _, path := range args {
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		modified, err := reverseContent(os.Stdout, f, repl, positions)
-		if err != nil {
-			return err
-		}
-		anyModified = anyModified || modified
-		f.Close() // since we're in a loop
-	}
-	if !anyModified {
-		return errJustExit(1)
-	}
-	return nil
+	return strings.NewReplacer(replaces...), positions, nil
 }
 
 var obfuscatedPosition = regexp.MustCompile(`[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)?\.go:[1-9][0-9]*`)
+
+// runTool keeps diagnostics live and adds original names only on failure.
+// It must not wrap commands which execute the user's program.
+func runTool(cmd *exec.Cmd) error {
+	// Compiler diagnostics can use stdout as well as stderr.
+	var stdout, stderr bytes.Buffer
+	out := cmd.Stderr
+	cmd.Stdout = io.MultiWriter(cmd.Stdout, &stdout)
+	cmd.Stderr = io.MultiWriter(cmd.Stderr, &stderr)
+	err := cmd.Run()
+	if err != nil && stdout.Len()+stderr.Len() > 0 {
+		if reverseErr := reverseBuildErrors(out, io.MultiReader(&stdout, &stderr)); reverseErr != nil {
+			log.Printf("could not reverse build errors: %v", reverseErr)
+		}
+	}
+	return err
+}
+
+func reverseBuildErrors(w io.Writer, r io.Reader) error {
+	repl, positions, err := newReverser()
+	if err != nil {
+		return err
+	}
+	var reversed bytes.Buffer
+	modified, err := reverseContent(&reversed, r, repl, positions)
+	if err != nil || !modified {
+		return err
+	}
+	if _, err := fmt.Fprintln(w, "\ngarble: build errors with original names:"); err != nil {
+		return err
+	}
+	_, err = reversed.WriteTo(w)
+	return err
+}
 
 func reverseContent(w io.Writer, r io.Reader, repl *strings.Replacer, positions map[string]string) (bool, error) {
 	// Read line by line.

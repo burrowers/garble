@@ -15,6 +15,10 @@ The tool also supports `garble test` to run tests with obfuscated code,
 and `garble bug` to file a pre-filled bug report.
 Run `garble -h` to see all available commands and flags.
 
+Compiler, assembler, and linker failures retain the original diagnostics and add
+an automatically reversed copy when obfuscated names or filenames can be resolved.
+Successful build diagnostics and output from executed programs are left unchanged.
+
 ### Purpose
 
 Produce a binary that works as well as a regular build, but that has as little

@@ -410,7 +410,10 @@ func mainErr(args []string) error {
 		cmd.Env = append(cmd.Environ(), patcher.MethodMapEnv+"="+methodNamesFile)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		if tool != "compile" && tool != "asm" && tool != "link" {
+			return cmd.Run()
+		}
+		return runTool(cmd)
 	default:
 		return fmt.Errorf("unknown command: %q", command)
 	}
