@@ -49,6 +49,7 @@ grepfiles $WORK/out/example.com/exported/internal '[\\/]internal[\\/][^\\/]+[\\/
 
 # Inspect every emitted Go file, including the renamed internal package.
 exec gofmt $WORK/out
+stdout -count=13 '^// DO NOT EDIT: code obfuscated by garble$'
 stdout 'Copyright 2026 Export Test Authors'
 stdout 'SPDX-License-Identifier: BSD-3-Clause'
 stdout 'Package library exercises source export\.'
@@ -69,6 +70,8 @@ stdout '//go:embed data/message.txt'
 
 # Literal decoding must also be ordinary Go source, not patched-toolchain output.
 exec garble -literals -seed=AAAAAAAAAAA export -tags=exporttag $WORK/encoded ./...
+grep -count=1 '^// DO NOT EDIT: code obfuscated by garble$' $WORK/encoded/example.com/exported/api.go
+grep -count=1 '^// DO NOT EDIT: code obfuscated by garble$' $WORK/encoded/example.com/exported/a_init.go
 ! grep 'privateLicenseAlgorithm|IMPLEMENTATION_SECRET_COMMENT|license source secret' $WORK/encoded/example.com/exported/license.go
 ! exists $WORK/encoded/example.com/exported/NOTICE.GO
 ! exists $WORK/encoded/example.com/exported/internal/helperpath

@@ -464,6 +464,7 @@ func compactExportSource(src []byte) ([]byte, error) {
 		}
 	}, scanner.ScanComments)
 	var out bytes.Buffer
+	out.WriteString("// DO NOT EDIT: code obfuscated by garble\n\n")
 	var previous token.Token
 	previousEnd := 0
 	for {
