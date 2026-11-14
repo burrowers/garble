@@ -635,47 +635,44 @@ func TestEffectiveBuildFlags(t *testing.T) {
 	}
 }
 
+// requireBuiltinSymbols asserts that the generated toolchain symbol table lists
+// every name, reporting a missing symbol with the expectation it serves.
+func requireBuiltinSymbols(t *testing.T, pkg, want string, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		if !slices.Contains(builtinSymbols[pkg], name) {
+			t.Errorf("%s.%s %s", pkg, name, want)
+		}
+	}
+}
+
 func TestRuntimeFuncIDBuiltinSymbols(t *testing.T) {
-	for _, name := range []string{
+	requireBuiltinSymbols(t, "runtime", "must be included in the assembler symbol map",
 		"abort", "asmcgocall", "asyncPreempt", "cgocallback", "corostart",
 		"debugCallV2", "deferreturn", "gcBgMarkWorker", "goexit", "gogo",
 		"gopanic", "handleAsyncEvent", "main", "mcall", "morestack", "mstart",
 		"panicwrap", "rt0_go", "runCleanups", "runFinalizers", "sigpanic",
 		"systemstack", "systemstack_switch",
-	} {
-		if !slices.Contains(builtinSymbols["runtime"], name) {
-			t.Errorf("runtime.%s must be included in the assembler symbol map", name)
-		}
-	}
+	)
 }
 
 func TestRuntimeGoexitToolchainDependency(t *testing.T) {
 	if isToolchainNameDependency("runtime", "goexit") {
 		t.Fatal("runtime.goexit must use the translated symbol map")
 	}
-	if !slices.Contains(builtinSymbols["runtime"], "goexit") {
-		t.Fatal("runtime.goexit must be included in the linker symbol map")
-	}
+	requireBuiltinSymbols(t, "runtime", "must be included in the linker symbol map", "goexit")
 }
 
 func TestRuntimeAddmoduledataBuiltinSymbol(t *testing.T) {
-	if !slices.Contains(builtinSymbols["runtime"], "addmoduledata") {
-		t.Fatal("runtime.addmoduledata must be included in the linker symbol map")
-	}
+	requireBuiltinSymbols(t, "runtime", "must be included in the linker symbol map", "addmoduledata")
 }
 
 func TestRuntimeModuledataBuiltinSymbol(t *testing.T) {
-	for _, name := range []string{"moduledata", "modulehash"} {
-		if !slices.Contains(builtinSymbols["runtime"], name) {
-			t.Errorf("runtime.%s must be included in the linker symbol map", name)
-		}
-	}
+	requireBuiltinSymbols(t, "runtime", "must be included in the linker symbol map", "moduledata", "modulehash")
 }
 
 func TestRuntimeAsmcgocallLandingpadBuiltinSymbol(t *testing.T) {
-	if !slices.Contains(builtinSymbols["runtime"], "asmcgocall_landingpad") {
-		t.Fatal("runtime.asmcgocall_landingpad must be included in the assembler symbol map")
-	}
+	requireBuiltinSymbols(t, "runtime", "must be included in the assembler symbol map", "asmcgocall_landingpad")
 }
 
 func TestRuntimeBuiltinSymbolsExcludeNonSymbolLiterals(t *testing.T) {
@@ -687,39 +684,24 @@ func TestRuntimeBuiltinSymbolsExcludeNonSymbolLiterals(t *testing.T) {
 }
 
 func TestFuzzCoverageBoundarySymbols(t *testing.T) {
-	for _, name := range []string{"_counters", "_ecounters"} {
-		if !slices.Contains(builtinSymbols["internal/fuzz"], name) {
-			t.Errorf("internal/fuzz.%s must be included in the linker symbol map", name)
-		}
-	}
+	requireBuiltinSymbols(t, "internal/fuzz", "must be included in the linker symbol map", "_counters", "_ecounters")
 }
 
 func TestRuntimeGeneratedLinkerSymbols(t *testing.T) {
-	for _, name := range []string{"buildVersion", "modinfo", "unreachableMethod"} {
-		if !slices.Contains(builtinSymbols["runtime"], name) {
-			t.Errorf("runtime.%s must be included in the linker symbol map", name)
-		}
-	}
+	requireBuiltinSymbols(t, "runtime", "must be included in the linker symbol map", "buildVersion", "modinfo", "unreachableMethod")
 }
 
 func TestTranslatedNameCheckSymbols(t *testing.T) {
-	for _, name := range []string{"quoted", "throw"} {
-		if !slices.Contains(builtinSymbols["runtime"], name) {
-			t.Errorf("runtime.%s must be in the symbol map so patched tools can translate the obfuscated name", name)
-		}
-	}
-	for _, name := range []string{
+	requireBuiltinSymbols(t, "runtime",
+		"must be in the symbol map so patched tools can translate the obfuscated name", "quoted", "throw")
+	requireBuiltinSymbols(t, "internal/byteorder", "must be in the symbol map so the inliner recognizes it as cheap",
 		"LEUint16", "LEUint32", "LEUint64",
 		"BEUint16", "BEUint32", "BEUint64",
 		"LEPutUint16", "LEPutUint32", "LEPutUint64",
 		"BEPutUint16", "BEPutUint32", "BEPutUint64",
 		"LEAppendUint16", "LEAppendUint32", "LEAppendUint64",
 		"BEAppendUint16", "BEAppendUint32", "BEAppendUint64",
-	} {
-		if !slices.Contains(builtinSymbols["internal/byteorder"], name) {
-			t.Errorf("internal/byteorder.%s must be in the symbol map so the inliner recognizes it as cheap", name)
-		}
-	}
+	)
 	if isToolchainNameDependency("internal/abi", "NoEscape") ||
 		!slices.Contains(mappedToolchainSymbols["internal/abi"], "NoEscape") {
 		t.Error("internal/abi.NoEscape must use the translated symbol map for cheap-call recognition")
