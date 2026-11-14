@@ -703,6 +703,8 @@ func main() {
 	// A table of interface values exposes the field names of the concrete
 	// types it holds even though no concretely typed call site mentions them.
 	checkAnyTable()
+	checkCrossPackageAny()
+	checkMapAndChanAny()
 }
 
 func rangeFuncSequence(yield func(int) bool) {
@@ -1158,6 +1160,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+
+	"test/main/importedpkg"
 )
 
 // anyTableRow is only ever used through the interface values below, so the
@@ -1179,6 +1184,42 @@ func checkAnyTable() {
 		out, err := json.Marshal(entry.value)
 		fmt.Printf("any table %s: %s %v\n", entry.label, out, err)
 	}
+}
+
+// checkCrossPackageAny reflects on a value whose concrete type is boxed into the
+// interface inside another package, so this package never mentions the type.
+func checkCrossPackageAny() {
+	for _, entry := range importedpkg.InterfaceRows() {
+		out, err := json.Marshal(entry)
+		field := reflect.ValueOf(entry).Elem().FieldByName("CrossAlpha")
+		fmt.Printf("cross-package any: %s %v %v %q\n", out, err, field.IsValid(), field.String())
+	}
+}
+
+// mapAnyRow and chanAnyRow only ever travel through a map and a channel of
+// interface values, so reflection never sees either static type.
+type mapAnyRow struct {
+	MapAnyAlpha string
+	MapAnyBeta  int
+}
+
+type chanAnyRow struct {
+	ChanAnyAlpha string
+	ChanAnyBeta  int
+}
+
+func checkMapAndChanAny() {
+	m := map[string]any{"row": &mapAnyRow{MapAnyAlpha: "a", MapAnyBeta: 1}}
+	out, err := json.Marshal(m["row"])
+	field := reflect.ValueOf(m["row"]).Elem().FieldByName("MapAnyAlpha")
+	fmt.Printf("map any: %s %v %v %q\n", out, err, field.IsValid(), field.String())
+
+	c := make(chan any, 1)
+	c <- &chanAnyRow{ChanAnyAlpha: "a", ChanAnyBeta: 1}
+	received := <-c
+	out, err = json.Marshal(received)
+	field = reflect.ValueOf(received).Elem().FieldByName("ChanAnyAlpha")
+	fmt.Printf("chan any: %s %v %v %q\n", out, err, field.IsValid(), field.String())
 }
 
 -- importedpkg/imported.go --
@@ -1293,6 +1334,20 @@ type ReflectUnnamedStruct int
 
 func (ReflectUnnamedStruct) UnnamedStructMethod(s struct{ UnnamedStructField string }) {
 	fmt.Println(reflect.TypeOf(s))
+}
+
+// interfaceRow is only ever boxed into the interface value below, so the
+// package that reflects on InterfaceRows never mentions the type itself. Its
+// field names differ from every other struct in this script, because
+// hashWithStruct gives identical fields of identical struct shapes the same
+// hashed name.
+type interfaceRow struct {
+	CrossAlpha string
+	CrossBeta  int
+}
+
+func InterfaceRows() []any {
+	return []any{&interfaceRow{CrossAlpha: "a", CrossBeta: 1}}
 }
 -- importedpkg2/imported2.go --
 package importedpkg2
@@ -1627,6 +1682,9 @@ main.Connection
 {"CallArgValField":"val"}
 goroutine reflect: goroutine-call
 any table pointer: {"Alpha":"a","Beta":1} <nil>
+cross-package any: {"CrossAlpha":"a","CrossBeta":1} <nil> true "a"
+map any: {"MapAnyAlpha":"a","MapAnyBeta":1} <nil> true "a"
+chan any: {"ChanAnyAlpha":"a","ChanAnyBeta":1} <nil> true "a"
 range defer 2
 range defer 1
 range defer 0
