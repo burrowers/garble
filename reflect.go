@@ -335,15 +335,6 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 	}
 
 	reflectParams := make(map[int]bool)
-	// A template can invoke methods on reflected data. If such a method
-	// returns an interface, its concrete result type is invisible at the
-	// template.Execute call and must be found at the method's return.
-	reflectedReceiver := false
-	if recv := fun.Signature.Recv(); recv != nil && f != nil && f.Exported() {
-		if obj := typeToObj(recv.Type()); obj != nil {
-			reflectedReceiver = ri.usedForReflect(obj)
-		}
-	}
 	if funcName != "" {
 		maps.Copy(reflectParams, ri.result.ReflectAPIs[funcName])
 
@@ -368,12 +359,16 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 			// fmt.Printf("inst: %v, t: %T\n", inst, inst)
 			switch inst := inst.(type) {
 			case *ssa.Return:
-				if reflectedReceiver {
-					for _, result := range inst.Results {
-						if _, ok := result.Type().Underlying().(*types.Interface); ok {
-							ri.recordArgReflected(fun, result, make(map[ssa.Value]bool))
-						}
+				// An interface result hides the concrete value behind it, and
+				// the caller that reflects on the result need not be in this
+				// package: a function returning []any or any other interface
+				// container hands its boxed types to whoever reflects on them.
+				// The boxed types only exist here, so record them here.
+				for _, result := range inst.Results {
+					if !hasInterfaceData(result.Type()) {
+						continue
 					}
+					ri.recordArgReflected(fun, result, make(map[ssa.Value]bool))
 				}
 			case *ssa.Store:
 				obj := typeToObj(inst.Addr.Type())
@@ -975,7 +970,32 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 		// value, so a caller which marks this parameter reflected reaches it.
 		ri.recursivelyRecordUsedForReflect(val.X.Type())
 		return ri.recordArgReflected(fun, val.X, visited)
-	case *ssa.MakeSlice, *ssa.MakeMap, *ssa.MakeChan, *ssa.Const:
+	case *ssa.Lookup:
+		// A map lookup returns the map's element type, so the concrete value
+		// behind an interface element is only reachable through the map.
+		return ri.recordArgReflected(fun, val.X, visited)
+	case *ssa.MakeMap:
+		ri.recursivelyRecordUsedForReflect(val.Type())
+		// The entries of a map are written by MapUpdate, which a reflected
+		// lookup reads back as values of the element type.
+		if refs := val.Referrers(); refs != nil {
+			for _, ref := range *refs {
+				if update, ok := ref.(*ssa.MapUpdate); ok && update.Map == val {
+					ri.recordArgReflected(fun, update.Value, visited)
+				}
+			}
+		}
+	case *ssa.MakeChan:
+		ri.recursivelyRecordUsedForReflect(val.Type())
+		// A receive returns whatever a send put into the channel.
+		if refs := val.Referrers(); refs != nil {
+			for _, ref := range *refs {
+				if send, ok := ref.(*ssa.Send); ok && send.Chan == val {
+					ri.recordArgReflected(fun, send.X, visited)
+				}
+			}
+		}
+	case *ssa.MakeSlice, *ssa.Const:
 		ri.recursivelyRecordUsedForReflect(val.Type())
 	case *ssa.Global:
 		ri.recursivelyRecordUsedForReflect(val.Type())
@@ -1080,6 +1100,48 @@ func relatedParam(val ssa.Value, visited map[ssa.Value]bool) *ssa.Parameter {
 		}
 	}
 	return nil
+}
+
+// hasInterfaceData reports whether typ is an interface type or contains one, so
+// that a value of typ can hold a concrete type which reflection exposes even
+// though the reflecting call site only sees an interface.
+//
+// The walk is structural and bounded by the type graph, so a cyclic type stops
+// at its first repetition.
+func hasInterfaceData(t types.Type) bool {
+	return hasInterfaceDataImpl(t, make(map[types.Type]bool))
+}
+
+func hasInterfaceDataImpl(t types.Type, seen map[types.Type]bool) bool {
+	if t == nil || seen[t] {
+		return false
+	}
+	seen[t] = true
+	switch t := t.(type) {
+	case *types.Interface:
+		return true
+	case *types.Alias:
+		return hasInterfaceDataImpl(t.Rhs(), seen)
+	case *types.Named:
+		return hasInterfaceDataImpl(t.Underlying(), seen)
+	case *types.Pointer:
+		return hasInterfaceDataImpl(t.Elem(), seen)
+	case *types.Slice:
+		return hasInterfaceDataImpl(t.Elem(), seen)
+	case *types.Array:
+		return hasInterfaceDataImpl(t.Elem(), seen)
+	case *types.Chan:
+		return hasInterfaceDataImpl(t.Elem(), seen)
+	case *types.Map:
+		return hasInterfaceDataImpl(t.Key(), seen) || hasInterfaceDataImpl(t.Elem(), seen)
+	case *types.Struct:
+		for i := range t.NumFields() {
+			if hasInterfaceDataImpl(t.Field(i).Type(), seen) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // recursivelyRecordUsedForReflect calls recordUsedForReflect on any named
