@@ -6,6 +6,7 @@ stderr 'flag provided but not defined'
 # Note that we rely on the unix-like TMPDIR env var name.
 [!windows] ! grepfiles ${TMPDIR} 'go-build'
 
+env GARBLE_EXPERIMENTAL_CONTROLFLOW=1
 exec garble build
 exec ./main
 cp stderr main.stderr
@@ -147,6 +148,7 @@ func main() {
 	callSites()
 	statementPanic()
 	deferredWithoutDirective()
+	flattenSites()
 }
 
 type Logger struct{}
@@ -307,6 +309,88 @@ func statementPanic() {
 	_ = buf[idx]
 }
 
+-- flatten_sites.go --
+package main
+
+import (
+	"runtime"
+	"strconv"
+)
+
+// A control-flow converted function rebuilds its statements from SSA, so a
+// runtime-raised panic inside it is positioned at the operator token of the
+// panicking expression rather than at the start of its statement. Those
+// positions must still reverse, or the frame keeps a hashed file name.
+
+// flattenEntry returns the entry PC of the calling function, which the
+// conversion keeps.
+func flattenEntry() uintptr {
+	pc, _, _, _ := runtime.Caller(1)
+	return runtime.FuncForPC(pc).Entry()
+}
+
+func recoverFlattenedPanic(label string, entry uintptr) {
+	if recover() == nil {
+		panic("missing flattened panic")
+	}
+	var pcs [32]uintptr
+	frames := runtime.CallersFrames(pcs[:runtime.Callers(0, pcs[:])])
+	for {
+		frame, more := frames.Next()
+		if frame.Entry == entry {
+			println(label+":", frame.File+":"+strconv.Itoa(frame.Line))
+			return
+		}
+		if !more {
+			panic("missing flattened panic frame")
+		}
+	}
+}
+
+//garble:controlflow
+func flattenedDividePanic() {
+	defer recoverFlattenedPanic("flattened divide", flattenEntry())
+	zero := 0
+	_ = 7 / zero
+}
+
+//garble:controlflow
+func flattenedAssertPanic() {
+	defer recoverFlattenedPanic("flattened assert", flattenEntry())
+	var value any = 1
+	_ = value.(string)
+}
+
+//garble:controlflow
+func flattenedIndexPanic() {
+	defer recoverFlattenedPanic("flattened index", flattenEntry())
+	values := []int{1, 2, 3}
+	i := 5
+	_ = values[i]
+}
+
+//garble:controlflow
+func flattenedSlicePanic() {
+	defer recoverFlattenedPanic("flattened slice", flattenEntry())
+	values := []int{1, 2, 3}
+	_ = values[1:9]
+}
+
+//garble:controlflow
+func flattenedMapPanic() {
+	defer recoverFlattenedPanic("flattened map", flattenEntry())
+	var m map[string]int
+	m["x"] = 1
+}
+
+func flattenSites() {
+	flattenedDividePanic()
+	flattenedAssertPanic()
+	flattenedIndexPanic()
+	flattenedSlicePanic()
+	flattenedMapPanic()
+}
+
 -- case/goroutine/goroutine_site.go --
 package main
 
@@ -370,9 +454,9 @@ test/main/lib.printStackTrace(...)
 test/main/lib.(*ExportedLibType).ExportedLibMethod(...)
 	test/main/lib/long_lib.go:20 +0x??
 main.unexportedMainFunc.func1(...)
-	test/main/long_main.go:35
+	test/main/long_main.go:36
 main.unexportedMainFunc(...)
-	test/main/long_main.go:39 +0x??
+	test/main/long_main.go:40 +0x??
 main.main(...)
 	test/main/long_main.go:12 +0x??
 test/main/long_main.go:17: first
@@ -386,4 +470,9 @@ multiline test/main/call_sites.go:26
 multiline test/main/call_sites.go:19
 before statement panic
 statement panic: test/main/statement_site.go:35
-deferred parent: test/main/long_main.go 50
+deferred parent: test/main/long_main.go 51
+flattened divide: test/main/flatten_sites.go:42
+flattened assert: test/main/flatten_sites.go:49
+flattened index: test/main/flatten_sites.go:57
+flattened slice: test/main/flatten_sites.go:64
+flattened map: test/main/flatten_sites.go:71

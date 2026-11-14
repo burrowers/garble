@@ -123,7 +123,48 @@ Use -test to reverse frames from a binary built with "garble test":
 					replaces = append(replaces, token, msg)
 				}
 			}
+			// A control-flow converted function is rebuilt from SSA and moved
+			// into a generated file, so each of its statements is positioned at
+			// the instruction it was built from. That instruction sits at the
+			// operator token of the expression it computes, which is not the
+			// start of any statement, so its marker needs a position of its own
+			// to be reversible. Only a file declaring the directive can carry
+			// such markers, so every other file keeps the smaller position set.
+			converted := false
+			for _, group := range file.Comments {
+				for _, comment := range group.List {
+					if dir, ok := ast.ParseDirective(token.NoPos, comment.Text); ok && dir.Tool == "garble" && dir.Name == "controlflow" {
+						converted = true
+					}
+				}
+			}
 			for node := range ast.Preorder(file) {
+				if converted {
+					switch node := node.(type) {
+					case *ast.BinaryExpr:
+						addPosition(node.OpPos)
+					case *ast.UnaryExpr:
+						addPosition(node.OpPos)
+					case *ast.StarExpr:
+						addPosition(node.Star)
+					case *ast.ParenExpr:
+						addPosition(node.Lparen)
+					case *ast.IndexExpr:
+						addPosition(node.Lbrack)
+					case *ast.IndexListExpr:
+						addPosition(node.Lbrack)
+					case *ast.SliceExpr:
+						addPosition(node.Lbrack)
+					case *ast.TypeAssertExpr:
+						addPosition(node.Lparen)
+					case *ast.CompositeLit:
+						addPosition(node.Lbrace)
+					case *ast.KeyValueExpr:
+						addPosition(node.Colon)
+					case *ast.Ellipsis:
+						addPosition(node.Ellipsis)
+					}
+				}
 				switch node := node.(type) {
 
 				// Replace names.
