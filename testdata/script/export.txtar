@@ -45,7 +45,7 @@ exists $WORK/out/example.com/exported/support/types.go
 ! exists $WORK/out/example.com/exported/internal/helperpath
 ! exists $WORK/out/example.com/exported/notag.go
 # The internal boundary must stay in place even though its child is renamed.
-grepfiles $WORK/out/example.com/exported/internal '/internal/[^/]+/helper\.go$'
+grepfiles $WORK/out/example.com/exported/internal '[\\/]internal[\\/][^\\/]+[\\/]helper\.go$'
 
 # Inspect every emitted Go file, including the renamed internal package.
 exec gofmt $WORK/out
