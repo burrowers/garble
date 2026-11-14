@@ -45,6 +45,10 @@ type sharedCacheType struct {
 	// UsesPlugins records the actual build graph, excluding packages listed only for linknames.
 	UsesPlugins bool
 
+	// These maps are derived once from the build graph for all patched tools.
+	RuntimePkgPathMap string
+	SymbolMap         string
+
 	CacheDir string // absolute path to the GARBLE_CACHE directory being used
 
 	// ListedPackages contains data obtained via 'go list -json -export -deps'.
