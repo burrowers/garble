@@ -590,9 +590,9 @@ func (z pkgRange) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 10
+	// map header, size 12
 	// string "Words"
-	o = append(o, 0x8a, 0xa5, 0x57, 0x6f, 0x72, 0x64, 0x73)
+	o = append(o, 0x8c, 0xa5, 0x57, 0x6f, 0x72, 0x64, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.Words)))
 	for za0001 := range z.Words {
 		o = msgp.AppendString(o, z.Words[za0001])
@@ -609,6 +609,12 @@ func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "UsesPlugins"
 	o = append(o, 0xab, 0x55, 0x73, 0x65, 0x73, 0x50, 0x6c, 0x75, 0x67, 0x69, 0x6e, 0x73)
 	o = msgp.AppendBool(o, z.UsesPlugins)
+	// string "RuntimePkgPathMap"
+	o = append(o, 0xb1, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x50, 0x6b, 0x67, 0x50, 0x61, 0x74, 0x68, 0x4d, 0x61, 0x70)
+	o = msgp.AppendString(o, z.RuntimePkgPathMap)
+	// string "SymbolMap"
+	o = append(o, 0xa9, 0x53, 0x79, 0x6d, 0x62, 0x6f, 0x6c, 0x4d, 0x61, 0x70)
+	o = msgp.AppendString(o, z.SymbolMap)
 	// string "CacheDir"
 	o = append(o, 0xa8, 0x43, 0x61, 0x63, 0x68, 0x65, 0x44, 0x69, 0x72)
 	o = msgp.AppendString(o, z.CacheDir)
@@ -719,6 +725,18 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			z.UsesPlugins, bts, err = msgp.ReadBoolBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "UsesPlugins")
+				return
+			}
+		case "RuntimePkgPathMap":
+			z.RuntimePkgPathMap, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "RuntimePkgPathMap")
+				return
+			}
+		case "SymbolMap":
+			z.SymbolMap, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "SymbolMap")
 				return
 			}
 		case "CacheDir":
@@ -837,7 +855,7 @@ func (z *sharedCacheType) Msgsize() (s int) {
 	for za0002 := range z.ForwardBuildFlags {
 		s += msgp.StringPrefixSize + len(z.ForwardBuildFlags[za0002])
 	}
-	s += 12 + msgp.BoolSize + 9 + msgp.StringPrefixSize + len(z.CacheDir) + 15
+	s += 12 + msgp.BoolSize + 18 + msgp.StringPrefixSize + len(z.RuntimePkgPathMap) + 10 + msgp.StringPrefixSize + len(z.SymbolMap) + 9 + msgp.StringPrefixSize + len(z.CacheDir) + 15
 	if z.ListedPackages == nil {
 		s += msgp.NilSize
 	} else {

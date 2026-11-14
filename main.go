@@ -370,8 +370,7 @@ func mainErr(args []string) error {
 					return err
 				}
 			}
-			pkgPathMap, symbolMap := buildRuntimePkgPathMap(), buildSymbolMap()
-			if pkgPathMap == "" && symbolMap == "" && len(certificates) == 0 {
+			if sharedCache.RuntimePkgPathMap == "" && sharedCache.SymbolMap == "" && len(certificates) == 0 {
 				break
 			}
 			patch, name := patcher.PatchCompiler, "compiler"
@@ -386,8 +385,8 @@ func mainErr(args []string) error {
 				return fmt.Errorf("cannot get modified %s: %v", name, err)
 			}
 			executablePath = modifiedPath
-			os.Setenv(patcher.PkgPathMapEnv, pkgPathMap)
-			os.Setenv(patcher.SymbolMapEnv, symbolMap)
+			os.Setenv(patcher.PkgPathMapEnv, sharedCache.RuntimePkgPathMap)
+			os.Setenv(patcher.SymbolMapEnv, sharedCache.SymbolMap)
 			log.Printf("replaced %s with: %s", name, executablePath)
 		case "link":
 			modifiedPath, err := patcher.PatchLinker(
@@ -401,8 +400,8 @@ func mainErr(args []string) error {
 			os.Setenv(patcher.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
 			os.Setenv(patcher.EntryOffKeyEnv, strconv.FormatUint(uint64(entryOffKey()), 10))
 			os.Setenv(patcher.TinyEnv, strconv.FormatBool(flagTiny))
-			os.Setenv(patcher.PkgPathMapEnv, buildRuntimePkgPathMap())
-			os.Setenv(patcher.SymbolMapEnv, buildSymbolMap())
+			os.Setenv(patcher.PkgPathMapEnv, sharedCache.RuntimePkgPathMap)
+			os.Setenv(patcher.SymbolMapEnv, sharedCache.SymbolMap)
 			log.Printf("replaced linker with: %s", executablePath)
 		}
 
@@ -634,6 +633,11 @@ This command wraps "go %s". Below is its help:
 		if lpkg.BuildID != "" {
 			lpkg.GarbleActionID = addGarbleToHash(decodeBuildIDHash(splitActionID(lpkg.BuildID)))
 		}
+	}
+
+	if command != "list" {
+		sharedCache.RuntimePkgPathMap = buildRuntimePkgPathMap()
+		sharedCache.SymbolMap = buildSymbolMap()
 	}
 
 	if err := saveSharedCache(); err != nil {
