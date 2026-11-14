@@ -189,7 +189,7 @@ func TestPatchedProductionFilesAreOverlaid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	overlaid := slices.Concat(compilerOverlayFiles, linkerOverlayFiles)
+	overlaid := slices.Concat(goOverlayFiles, compilerOverlayFiles, linkerOverlayFiles)
 	for file := range patchFiles {
 		if strings.HasSuffix(file, "_test.go") {
 			t.Errorf("toolchain patch contains dead test file %q", file)
