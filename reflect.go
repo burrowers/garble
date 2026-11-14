@@ -1279,7 +1279,7 @@ func (ri *reflectInspector) obfuscatedObjectName(obj types.Object, parent *types
 			panic("missing listed package for foreign reflected object: " + pkg.Path())
 		}
 	}
-	return hashWithPackage(lpkg, obj.Name())
+	return obfuscatedPackageObjectName(lpkg, obj.Name())
 }
 
 // recordUsedForReflect records the objects whose names we cannot obfuscate due to reflection.

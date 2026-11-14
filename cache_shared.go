@@ -360,19 +360,9 @@ func (p *listedPackage) namingPackage() *listedPackage {
 	return p
 }
 
-// toObfuscate excludes runtime/cgo (which crashes on Windows), FIPS packages
-// (whose special symbols and no-relocation rule prevent obfuscation), and empty
-// packages such as OS-specific packages with no matching files.
+// toObfuscate excludes empty packages, such as OS-specific packages with no matching files.
 func (p *listedPackage) toObfuscate() bool {
-	// A dependency rebuilt for a test binary has an ImportPath such as
-	// "crypto/internal/fips140 [strings.test]", while ForTest names the package
-	// under test. These exclusions are about the package itself, so they look
-	// at its own path rather than at the package being tested.
-	path := p.baseImportPath()
-	return path != "runtime/cgo" &&
-		path != "crypto/internal/fips140" &&
-		!strings.HasPrefix(path, "crypto/internal/fips140/") &&
-		len(p.CompiledGoFiles) > 0
+	return len(p.CompiledGoFiles) > 0
 }
 
 func (p *listedPackage) hasDep(path string) bool {
@@ -417,9 +407,7 @@ func (p *listedPackage) obfuscatedPackageName() string {
 	if p.Name == "main" || !p.toObfuscate() {
 		return p.Name
 	}
-	// If the import path is not obfuscated, the package name shouldn't be either.
-	// This happens for packages like runtime, reflect, embed, and packages with
-	// compiler intrinsics.
+	// An unchanged import path also keeps its original package name.
 	if p.obfuscatedImportPath() == p.ImportPath {
 		return p.Name
 	}
@@ -453,25 +441,8 @@ func (p *listedPackage) obfuscatedImportPath() string {
 	if !p.toObfuscate() {
 		return path
 	}
-	// Keep import paths whose toolchain contracts are not yet translated.
-	// Runtime package paths and intrinsic paths are translated by the patched
-	// compiler and linker through GARBLE_PKGPATH_MAP and GARBLE_SYMBOL_MAP.
-	switch path {
-	case "reflect", "embed",
-		// WASI host imports recognize structs.HostLayout by exact package path.
-		"structs",
-		// These packages are permitted to use special assembly ABIs by path.
-		"syscall",
-		"internal/bytealg",
-		"internal/chacha8rand",
-		"internal/abi",
-		"internal/runtime/syscall/linux",
-		"internal/runtime/syscall/windows",
-		"internal/runtime/startlinetest",
-		// The compiler identifies NotInHeap through this exact package path.
-		"internal/runtime/sys":
-		return path
-	}
+	// The patched tools translate runtime and other special package paths
+	// through GARBLE_PKGPATH_MAP before applying their semantic checks.
 
 	newPath := hashWithPackage(p, path)
 	log.Printf("import path %q hashed with %x to %q", p.ImportPath, p.GarbleActionID, newPath)
@@ -492,27 +463,39 @@ func isRuntimePkgPath(path string) bool {
 }
 
 // linkerLoadedPkgPaths are packages that cmd/link opens by a literal import
-// path instead of following a package's Imports: it adds the instrumentation
-// runtime for -race, -msan and -asan on behalf of the linker. Obscuring their
-// paths only works while the obfuscated path is mapped back to the original,
-// otherwise loadinternal silently finds no race, msan or asan runtime.
+// path instead of following a package's Imports: it adds runtime/cgo for external
+// linking and the instrumentation runtime for -race, -msan and -asan.
+// Obscuring their paths only works while the obfuscated path is mapped back to
+// the original, otherwise loadinternal silently finds no matching package.
 var linkerLoadedPkgPaths = [...]string{
+	"runtime/cgo",
 	"runtime/race",
 	"runtime/msan",
 	"runtime/asan",
+}
+
+// specialPkgPaths supplements runtimePkgPaths with compiler and assembler
+// identities: reflection metadata, embed directives, host layout, and ABI access.
+var specialPkgPaths = [...]string{
+	"reflect",
+	"embed",
+	"structs",
+	"syscall",
+	"internal/runtime/startlinetest",
 }
 
 // buildRuntimePkgPathMap builds a mapping of obfuscated->original paths for
 // every package whose path the toolchain resolves in a special-package table:
 // runtime packages for write barriers and related checks, packages without race
 // or sanitizer instrumentation, and packages whose assembly may use ABI
-// selectors. The toolchain packages the linker loads by name are included too.
+// selectors. Linker-loaded packages and additional semantic identities such as
+// embed, host layout, and runtime linkname targets are included too.
 // This is passed to the patched compiler, assembler and linker so they keep
 // applying those properties to obfuscated paths; a missing entry silently drops
 // the property, such as race instrumentation leaking into sync internals.
 // Format: "obfuscated1=original1,obfuscated2=original2,..."
 func buildRuntimePkgPathMap() string {
-	pkgPaths := slices.Concat(objabiSpecialPkgPaths, linkerLoadedPkgPaths[:])
+	pkgPaths := slices.Concat(objabiSpecialPkgPaths, linkerLoadedPkgPaths[:], specialPkgPaths[:], slices.Sorted(maps.Keys(runtimeAndLinknamed)))
 	var mappings []string
 	seen := make(map[string]bool, len(pkgPaths))
 	for _, pkgPath := range pkgPaths {
@@ -529,8 +512,18 @@ func buildRuntimePkgPathMap() string {
 			mappings = append(mappings, obfuscatedPath+"="+pkgPath)
 		}
 	}
+	// The compiler and assembler must classify renamed FIPS packages before
+	// generating code, so the no-relocation rules and integrity scope survive.
+	for _, pkg := range sharedCache.ListedPackages.all() {
+		path := pkg.baseImportPath()
+		if path == "crypto/internal/fips140" || strings.HasPrefix(path, "crypto/internal/fips140/") {
+			if obfuscated := pkg.obfuscatedImportPath(); obfuscated != path {
+				mappings = append(mappings, obfuscated+"="+path)
+			}
+		}
+	}
 	slices.Sort(mappings)
-	return strings.Join(mappings, ",")
+	return strings.Join(slices.Compact(mappings), ",")
 }
 
 // buildSymbolMap builds a complete mapping of obfuscated->original symbols
@@ -540,33 +533,36 @@ func buildRuntimePkgPathMap() string {
 func buildSymbolMap() string {
 	// Intrinsics and builtin symbols can overlap. Use one naming rule and
 	// one entry per original symbol so neither producer can disagree.
-	pkgSymbols := make(map[string]map[string]bool)
+	pkgSymbols := make(map[string][]string)
 	for pkgPath, symbols := range compilerIntrinsics {
-		pkgSymbols[pkgPath] = maps.Clone(symbols)
+		pkgSymbols[pkgPath] = slices.Collect(maps.Keys(symbols))
 	}
-	for pkgPath, symbols := range builtinSymbols {
-		if pkgSymbols[pkgPath] == nil {
-			pkgSymbols[pkgPath] = make(map[string]bool)
-		}
-		for _, symbol := range symbols {
-			pkgSymbols[pkgPath][symbol] = true
+	for _, registry := range []map[string][]string{mappedToolchainSymbols, builtinSymbols} {
+		for pkgPath, symbols := range registry {
+			pkgSymbols[pkgPath] = append(pkgSymbols[pkgPath], symbols...)
 		}
 	}
 	var mappings []string
-	for _, pkgPath := range slices.Sorted(maps.Keys(pkgSymbols)) {
+	for pkgPath, symbols := range pkgSymbols {
 		lpkg, _ := sharedCache.ListedPackages.get(pkgPath)
 		if lpkg == nil || !lpkg.toObfuscate() {
 			continue
 		}
 		obfuscatedPath := lpkg.obfuscatedImportPath()
-		for _, symbol := range slices.Sorted(maps.Keys(pkgSymbols[pkgPath])) {
+		for _, symbol := range symbols {
 			obfuscatedSymbol := obfuscatedPackageObjectName(lpkg, symbol)
 			if obfuscatedPath != pkgPath || obfuscatedSymbol != symbol {
 				mappings = append(mappings, obfuscatedPath+"."+obfuscatedSymbol+"="+pkgPath+"."+symbol)
 			}
 		}
 	}
-	return strings.Join(mappings, ",")
+	if pkg := fips140Package(); pkg != nil {
+		for _, name := range []string{"fatal", "getIndicator", "setIndicator"} {
+			mappings = append(mappings, pkg.obfuscatedImportPath()+"."+hashWithPackage(pkg, name)+"=crypto/internal/fips140."+name)
+		}
+	}
+	slices.Sort(mappings)
+	return strings.Join(slices.Compact(mappings), ",")
 }
 
 // garbleBuildFlags are always passed to top-level build commands such as
@@ -607,6 +603,9 @@ func linknameActionID() [sha256.Size]byte {
 	h := sha256.New()
 	for _, path := range slices.Sorted(maps.Keys(runtimeAndLinknamed)) {
 		pkg, _ := sharedCache.ListedPackages.get(path)
+		if path == "crypto/internal/fips140" {
+			pkg = fips140Package()
+		}
 		if strings.HasSuffix(path, "_test") {
 			pkg = listedTestVariant(path)
 			if pkg != nil {
@@ -847,6 +846,17 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 	}
 
 	pkg, ok := sharedCache.ListedPackages.get(path)
+	// Frozen modules retain unversioned assembly and linkname spellings.
+	// Resolve them to the selected implementation without changing dependency
+	// checks or accepting a target which is not actually in this build.
+	if !ok && (path == "crypto/internal/fips140" || strings.HasPrefix(path, "crypto/internal/fips140/")) {
+		if root := fips140Package(); root != nil {
+			frozen := root.baseImportPath() + strings.TrimPrefix(path, "crypto/internal/fips140")
+			if selected, found := sharedCache.ListedPackages.get(frozen); found {
+				path, pkg, ok = frozen, selected, true
+			}
+		}
+	}
 
 	// A std package may list any other package in std, even those it doesn't depend on.
 	// This is due to how runtime linkname-implements std packages,

@@ -37,8 +37,7 @@ order to:
 * [Obfuscate literals](#literal-obfuscation) and [embedded files](#embedded-file-obfuscation), if the `-literals` flag is given
 * Remove [extra information](#tiny-mode), if the `-tiny` flag is given
 
-The tool obfuscates all supported packages being built, including the standard runtime.
-The unsupported `runtime/cgo` and `crypto/internal/fips140` packages are excluded.
+The tool obfuscates all packages being built, including the standard runtime.
 Runtime obfuscation follows Go's supported `GOOS`/`GOARCH` targets; Garble does not
 maintain a narrower architecture allowlist.
 

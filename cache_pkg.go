@@ -169,6 +169,7 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool)
 			astutil.AddNamedImport(fset, file, "_", "unsafe")
 		}
 
+		transformRuntimeMetadataNames(lpkg, file)
 		files = append(files, file)
 	}
 	if mainPackage && reflectPatchFile == "" {

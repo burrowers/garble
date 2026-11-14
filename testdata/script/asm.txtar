@@ -67,6 +67,8 @@ func addArgs(args *Args) int64
 // argsSize returns the size of Args struct using go_asm.h constant
 func argsSize() int64
 
+const asmZero = 0
+
 var asmLiteral = "an assembly-only string global"
 
 func asmLiteralValue() string
@@ -137,6 +139,8 @@ TEXT ·asmLiteralValue(SB), $0-16
 
 TEXT ·argsSize(SB), $0-8
 	MOVQ $Args__size, AX
+	ADDQ $const_asmZero, AX
+	ADDQ $ASM_ZERO, AX
 	MOVQ AX, ret+0(FP)
 	RET
 
@@ -150,6 +154,7 @@ TEXT clib·add(SB),$0-16
 	ADDL arg, ·goData+0(SB)
 
 -- extra/garble_define2_amd64.h --
+#define ASM_ZERO const_asmZero
 #define addGoDataTo2(arg) \
 	ADDL arg, ·goData+0(SB)
 

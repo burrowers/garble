@@ -18,7 +18,9 @@ import (
 // include the signature: generic declarations and their instantiations must
 // use the same spelling even when their parameter types differ.
 func obfuscatedMethodName(name string) string {
-	if preservedMethodNames[name] {
+	// Error implements Go's predeclared error interface. Other package-defined
+	// method identities, including former FIPS/cgo exemptions, are obfuscated.
+	if name == "Error" {
 		return name
 	}
 	salt := []byte("garble exported method")
@@ -45,6 +47,11 @@ func methodName(lpkg *listedPackage, name string) string {
 // concrete reflected types known while compiling that dependency.
 func writeCompilerMethodNames(info *types.Info) (string, error) {
 	names := make(map[string]string)
+	// These names are consumed by compiler semantics even when the package
+	// contains no corresponding string constants.
+	for _, name := range []string{"Method", "MethodByName", "Pointer", "UnsafeAddr"} {
+		names[name] = obfuscatedMethodName(name)
+	}
 	for _, tv := range info.Types {
 		if tv.Value == nil || tv.Value.Kind() != constant.String {
 			continue

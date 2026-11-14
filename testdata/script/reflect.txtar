@@ -110,6 +110,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -876,9 +877,26 @@ func testx509() {
 		panic(err)
 	}
 
-	_, err = x509.ParseCertificate(derBytes)
+	cert, err := x509.ParseCertificate(derBytes)
 	if err != nil {
 		panic(err)
+	}
+	if !reflect.DeepEqual(cert.Subject.Organization, template.Subject.Organization) {
+		panic("certificate subject changed")
+	}
+	// A SEQUENCE of an RDN SET, not a SEQUENCE of SEQUENCEs. Compare exact
+	// DER and round-trip the named SET through the ASN.1 decoder.
+	rdn := pkix.RDNSequence{{{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: "A"}}}
+	if reflect.TypeOf(rdn[0]).Name() != "RelativeDistinguishedNameSET" || reflect.TypeOf(pkix.AttributeTypeAndValueSET{}).Name() != "AttributeTypeAndValueSET" {
+		panic("pkix reflected name changed")
+	}
+	der, err := asn1.Marshal(rdn)
+	if err != nil || fmt.Sprintf("%x", der) != "300c310a30080603550403130141" {
+		panic(fmt.Sprintf("RDN SET encoding: %x, %v", der, err))
+	}
+	var decoded pkix.RDNSequence
+	if rest, err := asn1.Unmarshal(der, &decoded); err != nil || len(rest) != 0 || !reflect.DeepEqual(decoded, rdn) {
+		panic(fmt.Sprintf("RDN SET decoding: %v", err))
 	}
 }
 

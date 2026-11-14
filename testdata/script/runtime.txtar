@@ -51,7 +51,9 @@ stderr -count=1 'write barrier'
 # The inliner marks internal/byteorder helpers as cheap, so all six hash/fnv
 # AppendBinary methods inline through them.
 exec garble build -gcflags=hash/fnv=-m hash/fnv
-stderr -count=6 'can inline .*\.AppendBinary'
+stdin stderr
+exec garble reverse -gcflags=hash/fnv=-m hash/fnv
+stdout -count=6 'can inline .*\.AppendBinary'
 
 # Recognizing the obfuscated runtime.newobject without also translating the
 # package-path check in computeZeroMap crashes the compiler when building the

@@ -54,7 +54,7 @@ env GOGARBLE=test/mainfoo/dep
 stderr 'GOGARBLE=.*is no longer supported; all packages including the runtime are obfuscated now'
 env GOGARBLE=*
 
-# Instrumented builds preserve the compiler's coverage variables and hook.
+# Instrumented builds rename the coverage variables without breaking the hook.
 exec garble build -cover -o=covered$exe garble_main.go
 mkdir coverdir
 env GOCOVERDIR=$WORK/coverdir
@@ -62,6 +62,7 @@ exec ./covered$exe
 cmp stderr main.stderr
 exec go tool covdata percent -i=$WORK/coverdir
 stdout 'coverage: 100.0% of statements'
+! binsubstr covered$exe 'goCover_'
 env GOCOVERDIR=
 
 # The compiler marks its coverage metadata variable read-only and passes it to

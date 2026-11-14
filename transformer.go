@@ -277,22 +277,6 @@ func namedType(t types.Type) *types.TypeName {
 	}
 }
 
-// isTestSignature returns true if the signature matches "func _(*testing.T)".
-func isTestSignature(sign *types.Signature) bool {
-	if sign.Recv() != nil {
-		return false // test funcs don't have receivers
-	}
-	params := sign.Params()
-	if params.Len() != 1 {
-		return false // too many parameters for a test func
-	}
-	tname := namedType(params.At(0).Type())
-	if tname == nil {
-		return false // the only parameter isn't named, like "string"
-	}
-	return tname.Pkg().Path() == "testing" && tname.Name() == "T"
-}
-
 func splitFlagsFromArgs(all []string) (flags, args []string) {
 	for i := 0; i < len(all); i++ {
 		arg := all[i]
@@ -330,8 +314,8 @@ func alterTrimpath(flags []string) []string {
 type transformer struct {
 	compilerMethodNames string
 
-	// coverageNames are generated variables named in the compiler's
-	// -coveragecfg file. Renaming them would break the compiler's fixup.
+	// coverageNames holds the original generated names; the compiler receives
+	// a rewritten -coveragecfg matching the transformed declarations.
 	coverageNames struct {
 		MetaVar       string
 		PkgIdVar      string
@@ -400,19 +384,43 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 		// Replace go_asm.h constant names; see [saveGoAsmNames].
 		// This can't be done in the gensymabis pass as the compiler hasn't run by then.
 		nameMap := loadGoAsmNames(tf.curPkg)
-		for _, path := range paths {
-			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
-			pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir())
-			newPath := filepath.Join(pkgDir, name)
-			if len(nameMap) > 0 {
-				content, err := os.ReadFile(newPath)
-				if err != nil {
-					return nil, err
-				}
-				if new := replaceGoAsmNames(string(content), nameMap); new != string(content) {
-					if err := os.WriteFile(newPath, []byte(new), 0o666); err != nil {
+		pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir())
+		rewrite := func(path string) error {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if new := replaceGoAsmNames(string(content), nameMap); new != string(content) {
+				return os.WriteFile(path, []byte(new), 0o666)
+			}
+			return nil
+		}
+		if len(nameMap) > 0 {
+			// The first assembler pass also copied local includes into this
+			// directory. Their go_asm.h references need the same fixup.
+			goFiles := make(map[string]bool)
+			for _, path := range tf.curPkg.CompiledGoFiles {
+				goFiles[filepath.Base(path)] = true
+			}
+			entries, err := os.ReadDir(pkgDir)
+			if err != nil {
+				return nil, err
+			}
+			for _, entry := range entries {
+				name := entry.Name()
+				if !entry.IsDir() && strings.HasPrefix(name, "garbled_") && !goFiles[name] {
+					if err := rewrite(filepath.Join(pkgDir, name)); err != nil {
 						return nil, err
 					}
+				}
+			}
+		}
+		for _, path := range paths {
+			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
+			newPath := filepath.Join(pkgDir, name)
+			if len(nameMap) > 0 {
+				if err := rewrite(newPath); err != nil {
+					return nil, err
 				}
 			}
 			newPaths = append(newPaths, newPath)
@@ -589,6 +597,10 @@ func (tf *transformer) saveGoAsmNames() error {
 	scope := tf.pkg.Scope()
 	for _, name := range scope.Names() {
 		obj := scope.Lookup(name)
+		if _, ok := obj.(*types.Const); ok {
+			nameMap["const_"+name] = "const_" + obfuscatedPackageObjectName(tf.curPkg, name)
+			continue
+		}
 		tn, ok := obj.(*types.TypeName)
 		if !ok {
 			continue
@@ -650,63 +662,21 @@ func loadGoAsmNames(lpkg *listedPackage) map[string]string {
 	return nameMap
 }
 
-// toolchainNameDependencies holds declarations whose exact symbol names the Go
-// runtime consumes, even though they are neither compiler intrinsics nor
-// linkname targets. Like [compilerIntrinsics], their package path and name must
-// both survive obfuscation, so [isToolchainNameDependency] gates the four sites
-// below that already exempted intrinsics.
-//
-// runtime.stkframe.argMapInternal matches these reflect assembly stubs by name
-// to synthesize their dynamic argument maps while the garbage collector scans a
-// stack; renaming either stub can make a live pointer appear to be freed. Tiny
-// mode preserves the same names in the unified toolchain patches under
-// internal/patcher/patches.
-var toolchainNameDependencies = map[string]map[string]bool{
-	"internal/abi": {
-		"EscapeNonString":   true,
-		"FuncPCABI0":        true,
-		"FuncPCABIInternal": true,
-		// NoEscape is matched by name in the inliner's cheap-call list; the
-		// compiler keeps internal/abi's path, so preserving the name keeps
-		// that check working under obfuscation.
-		"NoEscape": true,
-	},
-	"sync/atomic": {
-		"align64": true,
-	},
-	"structs": {
-		"HostLayout": true,
-	},
-	"reflect": {
-		"makeFuncStub":    true,
-		"methodValueCall": true,
-
-		// The compiler recognizes reflect.Value's Method results by type name
-		// to keep methods reachable in the linker's deadcode pass.
-		"Value": true,
-
-		// usemethod exempts reflect's own Method implementations by symbol
-		// name, such as "(*rtype).MethodByName". Renaming these receivers
-		// makes the linker retain every exported method of reachable types.
-		"rtype":         true,
-		"interfaceType": true,
-
-		// ir.InitLSym marks these as WRAPPER by name, which recover
-		// relies on through a deferred reflect.MakeFunc func or method value.
-		"callMethod":  true,
-		"callReflect": true,
-	},
-	"runtime": {
-		"getg":               true,
-		"goexit":             true,
-		"KeepAlive":          true,
-		"main":               true,
-		"publicationBarrier": true,
-	},
+// isToolchainNameDependency identifies declarations that still require their
+// original spelling. Translated contracts use mappedToolchainSymbols instead;
+// runtime metadata can preserve a name independently of its declaration.
+func isToolchainNameDependency(path, name string) bool {
+	return path == "runtime" && name == "main"
 }
 
-func isToolchainNameDependency(path, name string) bool {
-	return toolchainNameDependencies[path][name]
+// mappedToolchainSymbols names declarations whose semantic identities the
+// patched tools recover even though their source names are obfuscated.
+var mappedToolchainSymbols = map[string][]string{
+	"internal/abi": {"EscapeNonString", "NoEscape", "FuncPCABI0", "FuncPCABIInternal"},
+	"reflect":      {"Value", "Method", "rtype", "interfaceType", "callMethod", "callReflect", "makeFuncStub", "methodValueCall"},
+	"structs":      {"HostLayout"},
+	"embed":        {"FS"},
+	"runtime":      {"getg"},
 }
 
 // obfuscatedPackageObjectName is the shared package-level naming rule used by
@@ -715,7 +685,13 @@ func obfuscatedPackageObjectName(lpkg *listedPackage, name string) string {
 	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.baseImportPath(), name) {
 		return name
 	}
-	return hashWithPackage(lpkg, name)
+	newName := hashWithPackage(lpkg, name)
+	// encoding/asn1 recognizes SET suffixes on named slices. Preserve only
+	// the suffix, not the descriptive pkix identifier.
+	if lpkg.baseImportPath() == "crypto/x509/pkix" && strings.HasSuffix(name, "SET") {
+		newName += "SET"
+	}
+	return newName
 }
 
 func (tf *transformer) validateMappedSymbolNames() {
@@ -724,6 +700,9 @@ func (tf *transformer) validateMappedSymbolNames() {
 		symbols = make(map[string]bool)
 	}
 	for _, name := range builtinSymbols[tf.curPkg.ImportPath] {
+		symbols[name] = true
+	}
+	for _, name := range mappedToolchainSymbols[tf.curPkg.ImportPath] {
 		symbols[name] = true
 	}
 	for name := range symbols {
@@ -898,14 +877,9 @@ func (tf *transformer) writeSourceFile(basename, obfuscated string, content []by
 
 func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	flags, paths := splitFlagsFromFiles(args, ".go")
-	if cfg := flagValue(flags, "-coveragecfg"); cfg != "" {
-		data, err := os.ReadFile(cfg)
-		if err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(data, &tf.coverageNames); err != nil {
-			return nil, fmt.Errorf("parse coverage configuration: %w", err)
-		}
+	flags, err := tf.transformCoverageConfig(flags)
+	if err != nil {
+		return nil, err
 	}
 	var debugArtifacts cachedDebugArtifacts
 	if flagDebugDir != "" {
@@ -1210,10 +1184,14 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 	if newName == "" {
 		return localName, ""
 	}
-	// Frozen FIPS snapshots have versioned import paths, but their runtime
-	// linknames remain unversioned. FIPS is never obfuscated, so preserve these
-	// targets without requiring the unversioned package to be listed.
-	if strings.HasPrefix(newName, "crypto/internal/fips140.") || strings.HasPrefix(newName, "crypto/internal/fips140/") {
+	// Frozen snapshots keep the same runtime ABI. Resolve it against the
+	// selected implementation, not an absent unversioned package listing.
+	switch newName {
+	case "crypto/internal/fips140.fatal", "crypto/internal/fips140.getIndicator", "crypto/internal/fips140.setIndicator":
+		if pkg := fips140Package(); pkg != nil {
+			name := strings.TrimPrefix(newName, "crypto/internal/fips140.")
+			return localName, pkg.obfuscatedImportPath() + "." + hashWithPackage(pkg, name)
+		}
 		return localName, newName
 	}
 	// If the new name is of the form "pkgpath.Name", and we've obfuscated
@@ -1560,42 +1538,8 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 		newName := methodName(lpkg, name)
 		return newName, newName != name
 	}
-	if pkg.Path() == tf.curPkg.ImportPath && obj.Parent() == pkg.Scope() {
-		cfg := tf.coverageNames
-		if name == cfg.MetaVar || name == cfg.PkgIdVar ||
-			cfg.CounterPrefix != "" && strings.HasPrefix(name, cfg.CounterPrefix) {
-			return "", false
-		}
-	}
 
-	// TODO: We match by object name here, which is actually imprecise.
-	// For example, in package embed we match the type FS, but we would also
-	// match any field or method named FS.
-	// Can we instead use an object map like ReflectObjects?
 	path := pkg.Path()
-	switch path {
-	case "embed":
-		// FS is detected by the compiler for //go:embed.
-		if name == "FS" {
-			return "", false
-		}
-	case "reflect":
-		switch name {
-		// Per the linker's deadcode.go docs,
-		// the Method and MethodByName methods are what drive the logic.
-		case "Method", "MethodByName":
-			return "", false
-		}
-	case "crypto/x509/pkix":
-		// For better or worse, encoding/asn1 detects a "SET" suffix on slice type names
-		// to tell whether those slices should be treated as sets or sequences.
-		// Do not obfuscate those names to prevent breaking x509 certificates.
-		// TODO: we can surely do better; ideally propose a non-string-based solution
-		// upstream, or as a fallback, obfuscate to a name ending with "SET".
-		if strings.HasSuffix(name, "SET") {
-			return "", false
-		}
-	}
 
 	lpkg, err := listPackage(tf.curPkg, path)
 	if err != nil {
@@ -1639,19 +1583,25 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 			}
 			return newName, true
 		}
+		if pkg == tf.pkg && obj.Parent() == pkg.Scope() &&
+			name != tf.coverageNames.MetaVar && name != tf.coverageNames.PkgIdVar {
+			if mapped := tf.coverageCounterName(name); mapped != "" {
+				return mapped, true
+			}
+		}
 		// A non-field variable is always obfuscated; fall through to hashing.
 
+	case *types.Const:
+		debugName = "constant"
 	case *types.TypeName:
 		debugName = "type"
 	case *types.Func:
-		sign := obj.Signature()
 		debugName = "func"
-		switch name {
-		case "main", "init", "TestMain":
-			return "", false // don't break them
-		}
-		if strings.HasPrefix(name, "Test") && isTestSignature(sign) {
-			return "", false // don't break tests
+		// The compiler and linker recognize package initialization and the
+		// executable entry point. Test discovery has already happened in
+		// cmd/go; its generated references are transformed along with tests.
+		if name == "init" || name == "main" && pkg.Name() == "main" {
+			return "", false
 		}
 	default:
 		return "", false // we only want to rename the above
@@ -1691,8 +1641,19 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
 	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.ImportPath) {
+		var original map[ast.Decl]bool
+		path := tf.curPkg.baseImportPath()
+		if path == "crypto/internal/fips140" || strings.HasPrefix(path, "crypto/internal/fips140/") {
+			original = make(map[ast.Decl]bool, len(file.Decls))
+			for _, decl := range file.Decls {
+				original[decl] = true
+			}
+		}
 		var inits []literals.GlobalInit
 		file, inits = literals.ObfuscateWithGlobalInits(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, tf.staticLiteralInits(), randomName, tf.curPkgCache.PureConstructors)
+		if original != nil {
+			localizeFIPSProxies(file, original)
+		}
 		tf.literalGlobalInits = append(tf.literalGlobalInits, inits...)
 
 		// some imported constants might not be needed anymore, remove unnecessary imports

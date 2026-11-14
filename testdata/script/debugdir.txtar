@@ -14,7 +14,53 @@ grep 'some comment' $WORK/debug1/source/test/main/main.go
 ! grep ImportedFunc $WORK/debug1/garbled/test/main/main.go
 ! grep ImportedMethod $WORK/debug1/garbled/test/main/imported/imported.go
 ! grep ImportedMethod $WORK/debug1/garbled/test/main/main.go
+! grep 'alphaMarker' $WORK/debug1/garbled/test/main/alpha.go
+! grep 'betaMarker' $WORK/debug1/garbled/test/main/beta.go
+! grep 'ImportedConstant' $WORK/debug1/garbled/test/main/imported/imported.go
+! grep 'ImportedConstant' $WORK/debug1/garbled/test/main/main.go
+exec ./main
 ! grep 'some comment' $WORK/debug1/garbled/test/main/main.go
+
+# Non-entry main and test-like helpers are ordinary declarations.
+grep -count=2 '^func (main|TestHelper)\(' $WORK/debug1/source/test/main/imported/imported.go
+! grep '^func (main|TestHelper)\(' $WORK/debug1/garbled/test/main/imported/imported.go
+
+# Both pkix names lose their prefix but retain ASN.1's SET suffix.
+grep -count=2 '^type (RelativeDistinguishedNameSET|AttributeTypeAndValueSET) ' $WORK/debug1/source/crypto/x509/pkix/pkix.go
+! grep '^type (RelativeDistinguishedNameSET|AttributeTypeAndValueSET) ' $WORK/debug1/garbled/crypto/x509/pkix/pkix.go
+grep -count=2 '^type [A-Za-z0-9_]+SET ' $WORK/debug1/garbled/crypto/x509/pkix/pkix.go
+
+# Current FIPS packages and declarations are transformed, not just selected.
+grep -count=2 '^(package fips140|func RecordApproved\()' $WORK/debug1/source/crypto/internal/fips140/indicator.go
+! grep '^(package fips140|func RecordApproved\()' $WORK/debug1/garbled/crypto/internal/fips140/indicator.go
+grep '^package [A-Za-z0-9_]+$' $WORK/debug1/garbled/crypto/internal/fips140/indicator.go
+grep '^func [A-Za-z0-9_]+\(\)' $WORK/debug1/garbled/crypto/internal/fips140/indicator.go
+grep -count=2 '^(package sha256|type Digest )' $WORK/debug1/source/crypto/internal/fips140/sha256/sha256.go
+! grep '^(package sha256|type Digest )' $WORK/debug1/garbled/crypto/internal/fips140/sha256/sha256.go
+grep -count=2 '^(package [A-Za-z0-9_]+$|type [A-Za-z0-9_]+ struct)' $WORK/debug1/garbled/crypto/internal/fips140/sha256/sha256.go
+grep -count=2 '^(package hmac|type HMAC )' $WORK/debug1/source/crypto/internal/fips140/hmac/hmac.go
+! grep '^(package hmac|type HMAC )' $WORK/debug1/garbled/crypto/internal/fips140/hmac/hmac.go
+grep '^package [A-Za-z0-9_]+$' $WORK/debug1/garbled/crypto/internal/fips140/hmac/hmac.go
+grep '^type [A-Za-z0-9_]+ struct' $WORK/debug1/garbled/crypto/internal/fips140/hmac/hmac.go
+
+# Methods no longer inherit package-wide provider exemptions.
+grep -count=2 '^func \([^)]*\) (Read|Write)\(' $WORK/debug1/source/os/file.go
+! grep '^func \([^)]*\) (Read|Write)\(' $WORK/debug1/garbled/os/file.go
+grep '^func \([^)]*\) Sum\(' $WORK/debug1/source/crypto/internal/fips140/hmac/hmac.go
+! grep '^func \([^)]*\) Sum\(' $WORK/debug1/garbled/crypto/internal/fips140/hmac/hmac.go
+grep '^func \([^)]*\) Delete\(' $WORK/debug1/source/sync/map.go
+! grep '^func \([^)]*\) Delete\(' $WORK/debug1/garbled/sync/map.go
+grep '^func \([^)]*\) Value\(' $WORK/debug1/source/reflect/map.go
+! grep '^func \([^)]*\) Value\(' $WORK/debug1/garbled/reflect/map.go
+grep '^func \([^)]*\) String\(' $WORK/debug1/source/reflect/value.go
+! grep '^func \([^)]*\) String\(' $WORK/debug1/garbled/reflect/value.go
+
+# runtime/cgo is transformed too, while its C ABI linknames remain intact.
+[cgo] grep 'package cgo' $WORK/debug1/source/runtime/cgo/callbacks.go
+[cgo] ! grep 'package cgo' $WORK/debug1/garbled/runtime/cgo/callbacks.go
+[cgo] grep 'func set_crosscall2\(' $WORK/debug1/source/runtime/cgo/callbacks.go
+[cgo] ! grep 'func set_crosscall2\(' $WORK/debug1/garbled/runtime/cgo/callbacks.go
+[cgo] grep '//go:cgo_export_static crosscall2' $WORK/debug1/garbled/runtime/cgo/callbacks.go
 
 # Each garbled file must hold its own transformed source. Printing reuses a
 # buffer, so the cached debug artifacts must not alias it across files.
@@ -56,6 +102,9 @@ go 1.23
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/x509/pkix"
 	"reflect"
 
 	"test/main/imported" // some comment
@@ -72,18 +121,37 @@ type someStruct struct {
 
 func main() {
 	imported.ImportedFunc()
+	const localConstant = imported.ImportedConstant + 1
+	if localConstant != 43 {
+		panic("constant value changed")
+	}
 	var value methodInterface = imported.Type{}
 	value.ImportedMethod()
-	reflect.TypeOf(123)
+	reflect.TypeOf(pkix.RelativeDistinguishedNameSET{})
+	h := hmac.New(sha256.New, nil)
+	h.Write([]byte("debugdir"))
+	if len(h.Sum(nil)) != sha256.Size {
+		panic("HMAC length changed")
+	}
 }
 -- imported/imported.go --
 package imported
 
-func ImportedFunc() {}
+const ImportedConstant = 42
+
+func ImportedFunc() { main(); TestHelper() }
+func main()         {}
+func TestHelper()   {}
 
 type Type struct{}
 
 func (Type) ImportedMethod() {}
+-- cgo.go --
+//go:build cgo
+
+package main
+
+import _ "runtime/cgo"
 -- alpha.go --
 package main
 

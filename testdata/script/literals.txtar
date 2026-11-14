@@ -58,6 +58,25 @@ exec garble -literals -seed=AAAAAAAAAAA -debugdir=debug build -buildmode=pie -ld
 literal-inits debug/garbled/test/main/pic/main.go stderr weak
 literal-inits debug/garbled/test/main/pic/dep/dep.go stderr weak
 
+-- reflect_error.go --
+package main
+
+import (
+	"reflect"
+	"runtime"
+)
+
+func init() {
+	want := runtime.FuncForPC(reflect.ValueOf(reflect.Value.Bool).Pointer()).Name()
+	defer func() {
+		value, ok := recover().(*reflect.ValueError)
+		if !ok || value.Method != want {
+			panic("lost reflected Value method identity")
+		}
+	}()
+	reflect.ValueOf(1).Bool()
+}
+
 -- pic/main.go --
 package main
 

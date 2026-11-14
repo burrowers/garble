@@ -8,6 +8,13 @@ exec garble build -o=main.wasm .
 exec node $GOROOT/lib/wasm/wasm_exec_node.js main.wasm
 stderr '^wasm-runtime-ok$'
 
+# HostLayout is a compiler-recognized marker even when its package path and
+# package name are hashed. Execute the WASI module against a real host import.
+env GOOS=wasip1
+exec garble build -o=hostlayout.wasm ./hostlayout
+exec node hostlayout.cjs hostlayout.wasm
+stdout '^host-layout-ok$'
+
 -- go.mod --
 module test/runtimewasm
 
@@ -16,3 +23,47 @@ go 1.27
 package main
 
 func main() { println("wasm-runtime-ok") }
+-- hostlayout/main.go --
+package main
+
+import "structs"
+
+type record struct {
+	_ structs.HostLayout
+	A uint32
+	B uint64
+}
+
+//go:wasmimport garble_test inspect
+func inspect(*record) uint32
+
+func main() {
+	r := record{A: 0x12345678, B: 0x1020304050607080}
+	if inspect(&r) != 42 || r.A != 43 {
+		panic("host layout differs")
+	}
+	println("host-layout-ok")
+}
+-- hostlayout.cjs --
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const { WASI } = require('node:wasi');
+const wasi = new WASI({ version: 'preview1', args: [], env: {}, preopens: {} });
+const moduleBytes = fs.readFileSync(process.argv[2]);
+const moduleObject = new WebAssembly.Module(moduleBytes);
+assert(WebAssembly.Module.imports(moduleObject).some(i => i.module === 'garble_test' && i.name === 'inspect'));
+let instance;
+instance = new WebAssembly.Instance(moduleObject, {
+  wasi_snapshot_preview1: wasi.wasiImport,
+  garble_test: {
+    inspect(ptr) {
+      const data = new DataView(instance.exports.memory.buffer);
+      assert.equal(data.getUint32(ptr, true), 0x12345678);
+      assert.equal(data.getBigUint64(ptr + 8, true), 0x1020304050607080n);
+      data.setUint32(ptr, 43, true);
+      return 42;
+    }
+  }
+});
+wasi.start(instance);
+console.log('host-layout-ok');

@@ -48,7 +48,8 @@ func TestMain(m *testing.M) {
 		return
 	}
 	testscript.Main(garbleMain{m}, map[string]func(){
-		"garble": main,
+		"garble":      main,
+		"fipscorrupt": corruptFIPSChecksum,
 		"buildid": func() {
 			if len(os.Args) != 2 {
 				fmt.Fprintln(os.Stderr, "usage: buildid path")
@@ -649,8 +650,8 @@ func TestRuntimeFuncIDBuiltinSymbols(t *testing.T) {
 }
 
 func TestRuntimeGoexitToolchainDependency(t *testing.T) {
-	if !isToolchainNameDependency("runtime", "goexit") {
-		t.Fatal("runtime.goexit must keep its assembly name for runtime stack metadata")
+	if isToolchainNameDependency("runtime", "goexit") {
+		t.Fatal("runtime.goexit must use the translated symbol map")
 	}
 	if !slices.Contains(builtinSymbols["runtime"], "goexit") {
 		t.Fatal("runtime.goexit must be included in the linker symbol map")
@@ -719,8 +720,9 @@ func TestTranslatedNameCheckSymbols(t *testing.T) {
 			t.Errorf("internal/byteorder.%s must be in the symbol map so the inliner recognizes it as cheap", name)
 		}
 	}
-	if !isToolchainNameDependency("internal/abi", "NoEscape") {
-		t.Error("internal/abi.NoEscape must keep its name so the inliner marks it as a cheap no-op call")
+	if isToolchainNameDependency("internal/abi", "NoEscape") ||
+		!slices.Contains(mappedToolchainSymbols["internal/abi"], "NoEscape") {
+		t.Error("internal/abi.NoEscape must use the translated symbol map for cheap-call recognition")
 	}
 }
 
@@ -740,8 +742,9 @@ func TestRuntimeAllocationHelpersCanBeRenamed(t *testing.T) {
 }
 
 func TestStructsHostLayoutToolchainDependency(t *testing.T) {
-	if !isToolchainNameDependency("structs", "HostLayout") {
-		t.Fatal("structs.HostLayout must keep its name for go:wasmimport validation")
+	if isToolchainNameDependency("structs", "HostLayout") ||
+		!slices.Contains(mappedToolchainSymbols["structs"], "HostLayout") {
+		t.Fatal("structs.HostLayout must use its translated declaration identity")
 	}
 }
 

@@ -8,13 +8,37 @@ cmp stderr main.stderr
 
 [short] stop # no need to verify this with -short
 
+# Both runtime modes must execute the real integrity check and self-tests.
+env GODEBUG=fips140=on
+exec ./main
+cmp stderr main.stderr
+env GODEBUG=fips140=only
+exec ./main
+cmp stderr main.stderr
+[linux] exec fipscorrupt main$exe tampered$exe
+[linux] ! exec ./tampered$exe
+[linux] stderr 'fips140: verification mismatch'
+env GODEBUG=fips140=on,failfipscast=SHA2-256
+! exec ./main
+stderr 'FIPS 140-3 self-test failed: SHA2-256'
+env GODEBUG=
+
+# PIE exercises the FIPS no-absolute-relocation contract with literal decoders.
+exec garble -literals build -buildmode=pie
+env GODEBUG=fips140=only
+exec ./main
+cmp stderr main.stderr
+env GODEBUG=
+
 # Frozen FIPS packages have versioned import paths, but keep unversioned
-# runtime linknames. Those targets must remain untouched, like FIPS itself.
+# runtime linknames. The versioned package must retain the runtime ABI.
 env GOFIPS140=v1.0.0
 exec garble build
+env GODEBUG=fips140=only
 exec ./main
 cmp stderr main.stderr
 env GOFIPS140=off
+env GODEBUG=
 
 go build
 exec ./main
@@ -41,6 +65,8 @@ func linknameCalledInPkg() {
 package main
 
 import (
+	"crypto/aes"
+	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
 	_ "os/exec"
@@ -108,6 +134,25 @@ func tagline() string
 func changeThing(c unsafe.Pointer, to string)
 
 func main() {
+	// FIPS 197, Appendix C.1; RFC 4231, test case 1.
+	block, err := aes.NewCipher([]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15})
+	if err != nil {
+		panic(err)
+	}
+	var ciphertext [16]byte
+	block.Encrypt(ciphertext[:], []byte{0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff})
+	if got := fmt.Sprintf("%x", ciphertext); got != "69c4e0d86a7b0430d8cdb78070b4c55a" {
+		panic(got)
+	}
+	key := make([]byte, 20)
+	for i := range key {
+		key[i] = 0x0b
+	}
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte("Hi There"))
+	if got := fmt.Sprintf("%x", h.Sum(nil)); got != "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7" {
+		panic(got)
+	}
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte("hello"))); got != "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" {
 		panic(got)
 	}

@@ -15,10 +15,11 @@ grep 'goto _s2a_l10' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 grep '\_\(\)' $WORK/debug/garbled/test/main/garble_main.go
 
 # obfuscated file must contains interface for unexported interface emulation
-# GoString uses the global method hash for this fixture's fixed seed.
+# Both methods use global method hashes for this fixture's fixed seed.
 grep 'LvNmTg\(\) string' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 ! grep 'GoString\(\) string' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
-grep 'String\(\) string' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
+grep 'N6dmD_J\(\) string' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
+! grep '\bString\(\) string' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 
 # control flow obfuscation should work correctly with literals obfuscation
 ! binsubstr main$exe 'correct name'

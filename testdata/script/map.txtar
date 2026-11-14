@@ -16,8 +16,9 @@ exec go run checkmap.go map.json
 cmp stdout expected.json
 
 # The imported package's path is obfuscated, while the main package keeps
-# 'main'. Exported interface methods and unreachable names have no entries.
-# The exact objects map also checks that the unexported method is Type.M1.
+# 'main'. Exported methods now have entries; unreachable names do not.
+# The exact objects map checks exported Method as Type.M0 and the unexported
+# method as Type.M1.
 
 -- checkmap.go --
 //go:build ignore
@@ -67,6 +68,7 @@ func main() {
     "objects": {
       "Func": "WyCltOQD7",
       "Type": "DhGKDlt9JmL",
+      "Type.M0": "JOaUfUAHF",
       "Type.M1": "gjmYsc0O8lJ",
       "Type.UF0": "C8xgTKGxp",
       "Type.UF1": "bY3gZ_F_i",
