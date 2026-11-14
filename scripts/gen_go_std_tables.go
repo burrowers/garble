@@ -49,6 +49,18 @@ var runtimePkgPaths = []string{
 {{- end }}
 }
 
+// objabiSpecialPkgPaths lists every package path named by a list in
+// cmd/internal/objabi's pkgspecial.go: runtime packages, packages without
+// sanitizer instrumentation, packages without race memory instrumentation, and
+// packages whose assembly may use ABI selectors. The compiler and assembler
+// look those properties up by package path, so an obfuscated path must be
+// mapped back to the original one or the property is silently lost.
+var objabiSpecialPkgPaths = []string{
+{{- range $path := .ObjabiSpecialPkgPaths }}
+	"{{ $path.String }}", // {{ $path.GoVersionLang }}
+{{- end }}
+}
+
 // runtimeAndLinknamed contains the runtime package and all the packages
 // which it points to via //go:linkname directives.
 // We need to track these as some are not imported as transitive dependencies,
@@ -104,12 +116,13 @@ var reflectSkipPkg = map[string]bool{
 `[1:]))
 
 type tmplData struct {
-	GoVersions           []string
-	RuntimePkgPaths      []versionedString
-	RuntimeAndLinknamed  []versionedString
-	CompilerIntrinsics   []tmplIntrinsic
-	BuiltinSymbols       []tmplIntrinsic
-	PreservedMethodNames []versionedString
+	GoVersions            []string
+	RuntimePkgPaths       []versionedString
+	ObjabiSpecialPkgPaths []versionedString
+	RuntimeAndLinknamed   []versionedString
+	CompilerIntrinsics    []tmplIntrinsic
+	BuiltinSymbols        []tmplIntrinsic
+	PreservedMethodNames  []versionedString
 }
 
 type tmplIntrinsic struct {
@@ -570,35 +583,68 @@ func generatePreservedMethodNames(goroots []versionedString) []versionedString {
 	return slices.CompactFunc(names, versionedString.Equal)
 }
 
+// pkgSpecialListPaths reads one package list from cmd/internal/objabi's
+// pkgspecial.go for every supported Go root. The declaration is parsed rather
+// than grepped, so a single-line list and a block list both yield their
+// entries.
+func pkgSpecialListPaths(goroots []versionedString, listName string) []versionedString {
+	var paths []versionedString
+	for _, goroot := range goroots {
+		path := filepath.Join(goroot.String, "src", "cmd", "internal", "objabi", "pkgspecial.go")
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			panic(err)
+		}
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				valueSpec, ok := spec.(*ast.ValueSpec)
+				if !ok || len(valueSpec.Names) != 1 || valueSpec.Names[0].Name != listName || len(valueSpec.Values) != 1 {
+					continue
+				}
+				composite, ok := valueSpec.Values[0].(*ast.CompositeLit)
+				if !ok {
+					panic(fmt.Sprintf("%s is not a slice literal", listName))
+				}
+				for _, elt := range composite.Elts {
+					entry, ok := stringLiteral(elt)
+					if !ok {
+						panic(fmt.Sprintf("%s has a non-string entry", listName))
+					}
+					paths = append(paths, versionedString{String: entry, GoVersionLang: goroot.GoVersionLang})
+				}
+			}
+		}
+	}
+	slices.SortFunc(paths, versionedString.Compare)
+	return slices.CompactFunc(paths, versionedString.Equal)
+}
+
 func main() {
 	var goroots []versionedString
 	for _, goVersion := range goVersions {
 		goroots = append(goroots, cmdGo(goVersion, goPlatform{}, "env", "GOROOT"))
 	}
 
-	var runtimePkgPaths []versionedString
-	for _, goroot := range goroots {
-		inRuntimePkgs := false
-		for line := range strings.SplitSeq(readFile(filepath.Join(
-			goroot.String, "src", "cmd", "internal", "objabi", "pkgspecial.go",
-		)), "\n") {
-			switch {
-			case line == "var runtimePkgs = []string{":
-				inRuntimePkgs = true
-			case inRuntimePkgs && line == "}":
-				inRuntimePkgs = false
-			case inRuntimePkgs:
-				if match := rxStringEntry.FindStringSubmatch(line); match != nil {
-					runtimePkgPaths = append(runtimePkgPaths, versionedString{
-						String:        match[1],
-						GoVersionLang: goroot.GoVersionLang,
-					})
-				}
-			}
-		}
+	runtimePkgPaths := pkgSpecialListPaths(goroots, "runtimePkgs")
+
+	// objabiSpecialPkgPaths covers every list that cmd/internal/objabi resolves by
+	// package path. A path from a "-" prefixed entry is still looked up, since
+	// the prefix only unsets the property, so every named path belongs here.
+	var objabiSpecialPkgPaths []versionedString
+	for _, listName := range []string{
+		"runtimePkgs", "extraNoInstrumentPkgs", "noRaceFuncPkgs", "allowAsmABIPkgs",
+	} {
+		objabiSpecialPkgPaths = append(objabiSpecialPkgPaths, pkgSpecialListPaths(goroots, listName)...)
 	}
-	slices.SortFunc(runtimePkgPaths, versionedString.Compare)
-	runtimePkgPaths = slices.CompactFunc(runtimePkgPaths, versionedString.Equal)
+	for i := range objabiSpecialPkgPaths {
+		objabiSpecialPkgPaths[i].String = strings.TrimPrefix(objabiSpecialPkgPaths[i].String, "-")
+	}
+	slices.SortFunc(objabiSpecialPkgPaths, versionedString.Compare)
+	objabiSpecialPkgPaths = slices.CompactFunc(objabiSpecialPkgPaths, versionedString.Equal)
 
 	// All packages that the runtime linknames to, except runtime and its dependencies.
 	// This resulting list is what we need to "go list" when obfuscating the runtime,
@@ -651,12 +697,13 @@ func main() {
 
 	var buf bytes.Buffer
 	if err := tmplTables.Execute(&buf, tmplData{
-		GoVersions:           goVersions,
-		RuntimePkgPaths:      runtimePkgPaths,
-		RuntimeAndLinknamed:  runtimeAndLinknamed,
-		CompilerIntrinsics:   compilerIntrinsics,
-		BuiltinSymbols:       builtinSymbols,
-		PreservedMethodNames: generatePreservedMethodNames(goroots),
+		GoVersions:            goVersions,
+		RuntimePkgPaths:       runtimePkgPaths,
+		ObjabiSpecialPkgPaths: objabiSpecialPkgPaths,
+		RuntimeAndLinknamed:   runtimeAndLinknamed,
+		CompilerIntrinsics:    compilerIntrinsics,
+		BuiltinSymbols:        builtinSymbols,
+		PreservedMethodNames:  generatePreservedMethodNames(goroots),
 	}); err != nil {
 		panic(err)
 	}
