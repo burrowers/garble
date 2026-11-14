@@ -498,15 +498,24 @@ var linkerLoadedPkgPaths = [...]string{
 	"runtime/asan",
 }
 
-// buildRuntimePkgPathMap builds a mapping of obfuscated->original paths for all
-// runtime packages and the toolchain packages the linker loads by name. This is
-// passed to the patched compiler and linker so they can recognize obfuscated
-// runtime packages for special handling (write barriers, etc.)
+// buildRuntimePkgPathMap builds a mapping of obfuscated->original paths for
+// every package whose path the toolchain resolves in a special-package table:
+// runtime packages for write barriers and related checks, packages without race
+// or sanitizer instrumentation, and packages whose assembly may use ABI
+// selectors. The toolchain packages the linker loads by name are included too.
+// This is passed to the patched compiler, assembler and linker so they keep
+// applying those properties to obfuscated paths; a missing entry silently drops
+// the property, such as race instrumentation leaking into sync internals.
 // Format: "obfuscated1=original1,obfuscated2=original2,..."
 func buildRuntimePkgPathMap() string {
-	pkgPaths := slices.Concat(runtimePkgPaths, linkerLoadedPkgPaths[:])
+	pkgPaths := slices.Concat(objabiSpecialPkgPaths, linkerLoadedPkgPaths[:])
 	var mappings []string
+	seen := make(map[string]bool, len(pkgPaths))
 	for _, pkgPath := range pkgPaths {
+		if seen[pkgPath] {
+			continue
+		}
+		seen[pkgPath] = true
 		lpkg, _ := sharedCache.ListedPackages.get(pkgPath)
 		if lpkg == nil {
 			continue // Package not in current build

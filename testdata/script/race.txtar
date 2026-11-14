@@ -10,6 +10,7 @@
 exec garble build -race -o=main$exe .
 exec ./main$exe
 stdout '^sum 20$'
+stdout '^mutex 200$'
 
 # The instrumentation must be functional, not merely linked in.
 env RACY=1
@@ -46,6 +47,27 @@ func main() {
 	}
 	wg.Wait()
 	fmt.Println("sum", shared.Load())
+
+	// The mutex's own state word is read and written without synchronization
+	// inside internal/sync, so plain Go builds it without race memory
+	// instrumentation. Instrumenting it reports a race between the fast-path
+	// compare-and-swap and the plain reads in lockSlow and Unlock.
+	var mu sync.Mutex
+	counter := 0
+	var wg2 sync.WaitGroup
+	for range 4 {
+		wg2.Add(1)
+		go func() {
+			defer wg2.Done()
+			for range 50 {
+				mu.Lock()
+				counter++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg2.Wait()
+	fmt.Println("mutex", counter)
 }
 
 var plain int

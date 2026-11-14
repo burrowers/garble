@@ -34,6 +34,48 @@ var runtimePkgPaths = []string{
 	"runtime",                          // go1.27
 }
 
+// objabiSpecialPkgPaths lists every package path named by a list in
+// cmd/internal/objabi's pkgspecial.go: runtime packages, packages without
+// sanitizer instrumentation, packages without race memory instrumentation, and
+// packages whose assembly may use ABI selectors. The compiler and assembler
+// look those properties up by package path, so an obfuscated path must be
+// mapped back to the original one or the property is silently lost.
+var objabiSpecialPkgPaths = []string{
+	"internal/abi",                     // go1.27
+	"internal/bytealg",                 // go1.27
+	"internal/byteorder",               // go1.27
+	"internal/chacha8rand",             // go1.27
+	"internal/coverage/rtcov",          // go1.27
+	"internal/cpu",                     // go1.27
+	"internal/goarch",                  // go1.27
+	"internal/godebugs",                // go1.27
+	"internal/goexperiment",            // go1.27
+	"internal/goos",                    // go1.27
+	"internal/profilerecord",           // go1.27
+	"internal/runtime/atomic",          // go1.27
+	"internal/runtime/cgroup",          // go1.27
+	"internal/runtime/exithook",        // go1.27
+	"internal/runtime/gc",              // go1.27
+	"internal/runtime/gc/scan",         // go1.27
+	"internal/runtime/maps",            // go1.27
+	"internal/runtime/math",            // go1.27
+	"internal/runtime/startlinetest",   // go1.27
+	"internal/runtime/sys",             // go1.27
+	"internal/runtime/syscall/linux",   // go1.27
+	"internal/runtime/syscall/windows", // go1.27
+	"internal/strconv",                 // go1.27
+	"internal/stringslite",             // go1.27
+	"internal/sync",                    // go1.27
+	"reflect",                          // go1.27
+	"runtime",                          // go1.27
+	"runtime/asan",                     // go1.27
+	"runtime/msan",                     // go1.27
+	"runtime/race",                     // go1.27
+	"sync",                             // go1.27
+	"sync/atomic",                      // go1.27
+	"syscall",                          // go1.27
+}
+
 // runtimeAndLinknamed contains the runtime package and all the packages
 // which it points to via //go:linkname directives.
 // We need to track these as some are not imported as transitive dependencies,
