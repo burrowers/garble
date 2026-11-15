@@ -256,7 +256,7 @@ func Obfuscate(fset *token.FileSet, ssaPkg *ssa.Package, files []*ast.File, obfR
 
 		astFunc, err := ssa2ast.Convert(ssaFunc, funcConfig)
 		if err != nil {
-			return "", nil, nil, err
+			return "", nil, nil, fmt.Errorf("controlflow directive on %s: %w", ssaFunc, err)
 		}
 		if len(prologues) > 0 {
 			astFunc.Body.List = append(prologues, astFunc.Body.List...)

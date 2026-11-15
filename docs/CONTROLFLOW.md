@@ -596,6 +596,12 @@ _s2a_l4:
 ### Caveats
 
 * Obfuscation breaks the lazy iteration over maps. See: [ssa2ast/polyfill.go](../internal/ssa2ast/polyfill.go)
+* A value that has to survive a block boundary is declared once for the whole flattened function.
+  That declaration cannot be written when neither the value's type nor an unnamed equivalent is
+  writable from the converted file, for example a named basic type of another package, or a pointer
+  to an unexported struct of another package. The build then fails with an error naming the
+  function, the variable and the type; keep that value inside one block, or remove the directive
+  from the function.
 
 ### Complexity benchmark
 

@@ -1,12 +1,20 @@
 package ssa2ast
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
 	"strconv"
 )
+
+// ErrUnwritableVarType reports a value that has to survive a block boundary but
+// whose type the converted function-level declaration cannot write. A value of a
+// named type is assignable only to its own type, to an unnamed type with an
+// identical underlying type, or to an interface it implements, and an unexported
+// type of another package can be written as none of the first two.
+var ErrUnwritableVarType = errors.New("type cannot be written from another package, and no unnamed equivalent is assignable")
 
 type TypeConverter struct {
 	resolver ImportNameResolver
@@ -35,52 +43,89 @@ func (tc *TypeConverter) canName(typ types.Type) bool {
 // function body, rather than the type of an expression inside it.
 //
 // A cross-block variable holds every operation its SSA value supports, not
-// only method calls. A named type of another package that is not exported
-// cannot be written, and the interface that stands in for it keeps only the
-// exported methods, so len, indexing, slicing, ranging and passing the value as
-// an argument stop typechecking once the value crosses a block boundary. When
-// that interface would carry no method at all, the underlying type is the
-// better substitute: an unexported method cannot be called from another
-// package anyway, and a value of the named type stays assignable to its
-// underlying type.
+// only method calls, so the declaration has to keep the value assignable. A
+// value of a named type is assignable to its own type, to an interface it
+// implements, and to an unnamed type with an identical underlying type. The
+// first is unavailable for a type of another package that is not exported, and
+// the second keeps only the exported methods, which loses len, indexing,
+// slicing, ranging, field access and argument passing. The third is the useful
+// substitute where it exists: an unexported method cannot be called from
+// another package anyway, and a value of the named type is assignable to an
+// unnamed type with the same structure.
 //
-// The substitute has to be an unnamed type, so a named basic type keeps the
-// emulated interface: every predeclared basic type is a named type as well, and
-// a value of a named basic type is not assignable to its underlying type.
+// Where none of the three can be written the conversion fails with an
+// ErrUnwritableVarType error naming the type. A named basic type is the clearest
+// example: every predeclared basic type is a named type too, so the value is not
+// assignable to the underlying type that could be written for it. Emitting the
+// substituted declaration anyway would leave a typecheck error in the generated
+// source that no longer mentions the value's type.
 func (tc *TypeConverter) ConvertVar(typ types.Type) (ast.Expr, error) {
-	if underlying, ok := tc.varUnderlying(typ); ok {
-		return tc.Convert(underlying)
+	declared, ok := tc.varType(typ)
+	if !ok {
+		return nil, fmt.Errorf("type %s: %w", typ, ErrUnwritableVarType)
 	}
-	return tc.Convert(typ)
+	return tc.Convert(declared)
 }
 
-// varUnderlying reports the type to declare for a variable of typ when the
-// emulated interface would drop operations the value still has.
-func (tc *TypeConverter) varUnderlying(typ types.Type) (types.Type, bool) {
-	named, ok := types.Unalias(typ).(*types.Named)
-	if !ok || tc.canName(typ) {
-		return nil, false
-	}
-	for i := range named.NumMethods() {
-		if token.IsExported(named.Method(i).Name()) {
-			// The interface exists to keep these method calls.
-			return nil, false
+// varType reports the type to declare for a cross-block variable of typ, and
+// whether the converted source can declare one at all. It tries the type
+// itself first, then the substitutes that keep as much of the value as the
+// generated file can express.
+func (tc *TypeConverter) varType(typ types.Type) (types.Type, bool) {
+	candidates := []types.Type{typ}
+	if named, ok := types.Unalias(typ).(*types.Named); ok {
+		obj := named.Obj()
+		switch {
+		case tc.canName(typ):
+			// Written as itself, which the candidate above already covers.
+		case obj.Pkg() == nil || obj.Parent() != obj.Pkg().Scope():
+			// A named type declared in a local (function or block) scope is
+			// not part of the converted output, so Convert writes its
+			// underlying type.
+			candidates = append(candidates, named.Underlying())
+		default:
+			// An unexported type of another package. The interface of its
+			// exported methods keeps the method calls, but only when the
+			// value implements it, which a pointer-receiver method alone does
+			// not.
+			if iface := exportedMethodInterface(named); iface != nil {
+				candidates = append(candidates, iface)
+			}
+			candidates = append(candidates, named.Underlying())
 		}
 	}
-	underlying := named.Underlying()
-	if _, basic := underlying.(*types.Basic); basic {
-		// A predeclared basic type is a named type too, so the value is not
-		// assignable to its underlying type either; that declaration would
-		// need a conversion the generated file cannot write.
-		return nil, false
+	for _, candidate := range candidates {
+		// Convert has to write the declared type as itself, and the value of
+		// the SSA type has to stay assignable to it. Both fail together for
+		// the shapes of this class that the type system does not let the
+		// generated file express, such as a named basic type or a pointer to
+		// an unexported struct of another package.
+		if tc.spellable(candidate) && types.AssignableTo(typ, candidate) {
+			return candidate, true
+		}
 	}
-	// A value is assignable to the declared variable only when both share an
-	// identical underlying type, so every named type inside it has to be
-	// written as itself as well.
-	if !tc.spellable(underlying) {
-		return nil, false
+	return nil, false
+}
+
+// exportedMethodInterface reports the interface of a named type's exported
+// methods, or nil when it has none.
+func exportedMethodInterface(named *types.Named) *types.Interface {
+	var methods []*types.Func
+	for i := range named.NumMethods() {
+		method := named.Method(i)
+		if !token.IsExported(method.Name()) {
+			continue
+		}
+		// An interface method carries no receiver, and the assignability
+		// check that consumes this interface needs one that does not.
+		sig := method.Type().(*types.Signature)
+		methods = append(methods, types.NewFunc(method.Pos(), method.Pkg(), method.Name(),
+			types.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())))
 	}
-	return underlying, true
+	if len(methods) == 0 {
+		return nil
+	}
+	return types.NewInterfaceType(methods, nil).Complete()
 }
 
 // spellable reports whether Convert writes typ as itself, without substituting
@@ -112,7 +157,25 @@ func (tc *TypeConverter) spellable(typ types.Type) bool {
 	case *types.Pointer:
 		return tc.spellable(typ.Elem())
 	case *types.Signature:
+		if typeParams := typ.TypeParams(); typeParams != nil {
+			for i := range typeParams.Len() {
+				// Convert writes the underlying type of the constraint.
+				if !tc.spellable(typeParams.At(i).Constraint().Underlying()) {
+					return false
+				}
+			}
+		}
 		return tc.spellableTuple(typ.Params()) && tc.spellableTuple(typ.Results())
+	case *types.TypeParam:
+		// Convert writes the type parameter's own name.
+		return true
+	case *types.Union:
+		for i := range typ.Len() {
+			if !tc.spellable(typ.Term(i).Type()) {
+				return false
+			}
+		}
+		return true
 	case *types.Slice:
 		return tc.spellable(typ.Elem())
 	case *types.Struct:
