@@ -119,21 +119,15 @@ func TestTestVariantsAreObfuscatable(t *testing.T) {
 	}
 }
 
-// TestNoRaceFuncPkgPathsAreMapped covers the packages whose functions the
-// compiler keeps free of race memory instrumentation. cmd/compile looks that
-// property up by package path, so an obfuscated path that the toolchain map
-// does not translate makes the race detector instrument sync internals that
-// plain Go leaves alone, and their unsynchronized state reads are then
-// reported as data races in programs that contain none.
-func TestNoRaceFuncPkgPathsAreMapped(t *testing.T) {
+// testRuntimePkgPathsAreMapped lists paths as synthetic packages in a fresh
+// shared cache with the given seed, and checks that each one has a hashed path
+// which the toolchain path map translates back to the original.
+func testRuntimePkgPathsAreMapped(t *testing.T, seed string, paths []string) {
+	t.Helper()
 	oldCache, oldSeed := sharedCache, flagSeed
-	defer func() { sharedCache, flagSeed = oldCache, oldSeed }()
-	flagSeed = seedFlag{bytes: []byte("no-race-func-paths")}
+	t.Cleanup(func() { sharedCache, flagSeed = oldCache, oldSeed })
+	flagSeed = seedFlag{bytes: []byte(seed)}
 	sharedCache = &sharedCacheType{BinaryContentID: []byte("test"), ListedPackages: newListedPackages()}
-
-	// internal/runtime/atomic is the control: it is also a runtime package, so
-	// its path is mapped even without the no-race-func table.
-	paths := []string{"internal/runtime/atomic", "internal/sync", "sync", "sync/atomic"}
 	for _, path := range paths {
 		sharedCache.ListedPackages.set(path, &listedPackage{
 			Name:            "synthetic",
@@ -156,37 +150,26 @@ func TestNoRaceFuncPkgPathsAreMapped(t *testing.T) {
 	}
 }
 
+// TestNoRaceFuncPkgPathsAreMapped covers the packages whose functions the
+// compiler keeps free of race memory instrumentation. cmd/compile looks that
+// property up by package path, so an obfuscated path that the toolchain map
+// does not translate makes the race detector instrument sync internals that
+// plain Go leaves alone, and their unsynchronized state reads are then
+// reported as data races in programs that contain none.
+func TestNoRaceFuncPkgPathsAreMapped(t *testing.T) {
+	// internal/runtime/atomic is the control: it is also a runtime package, so
+	// its path is mapped even without the no-race-func table.
+	testRuntimePkgPathsAreMapped(t, "no-race-func-paths",
+		[]string{"internal/runtime/atomic", "internal/sync", "sync", "sync/atomic"})
+}
+
 // TestLinkerLoadedPkgPathsAreMapped covers the packages cmd/link opens by a
 // literal import path rather than through a package's Imports. Their obfuscated
 // paths only resolve if the toolchain path map contains them, so a missing entry
 // silently drops cgo or the race, memory or address sanitizer runtime from the link.
 func TestLinkerLoadedPkgPathsAreMapped(t *testing.T) {
-	oldCache, oldSeed := sharedCache, flagSeed
-	defer func() { sharedCache, flagSeed = oldCache, oldSeed }()
-	flagSeed = seedFlag{bytes: []byte("linker-internal-paths")}
-	sharedCache = &sharedCacheType{BinaryContentID: []byte("test"), ListedPackages: newListedPackages()}
-
 	// runtime is the control: it is listed by the toolchain's own runtime
 	// package table and must stay mapped.
-	paths := []string{"runtime", "runtime/cgo", "runtime/race", "runtime/msan", "runtime/asan", "runtime/pprof"}
-	for _, path := range paths {
-		sharedCache.ListedPackages.set(path, &listedPackage{
-			Name:            "synthetic",
-			ImportPath:      path,
-			GarbleActionID:  addGarbleToHash([]byte(path)),
-			CompiledGoFiles: []string{"synthetic.go"},
-		})
-	}
-
-	mappings := strings.Split(buildRuntimePkgPathMap(), ",")
-	for _, path := range paths {
-		pkg, _ := sharedCache.ListedPackages.get(path)
-		obfuscated := pkg.obfuscatedImportPath()
-		if obfuscated == path {
-			t.Fatalf("%s is exempt from path hashing; the test needs a hashed path", path)
-		}
-		if want := obfuscated + "=" + path; !slices.Contains(mappings, want) {
-			t.Errorf("toolchain path map is missing %q; mappings: %v", want, mappings)
-		}
-	}
+	testRuntimePkgPathsAreMapped(t, "linker-internal-paths",
+		[]string{"runtime", "runtime/cgo", "runtime/race", "runtime/msan", "runtime/asan", "runtime/pprof"})
 }
