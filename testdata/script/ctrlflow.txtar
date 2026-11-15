@@ -30,6 +30,13 @@ grep '\(\w+ \^ \d+\)' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 # check delegate table hardening
 grep 'func\(int\) int' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 
+# A cross-block value whose type cannot be written from the converted file must
+# fail with a diagnostic naming the type and the function, instead of leaving
+# invalid generated source that reports an unrelated operator or len error.
+! exec garble build -o=unwritable-bin$exe ./unwritable
+stderr 'controlflow directive on test/main/unwritable\.main: variable _s2a_[0-9]+'
+stderr 'type test/main/unwritable/other\.rank: type cannot be written from another package, and no unnamed equivalent is assignable'
+
 -- go.mod --
 module test/main
 
@@ -387,6 +394,20 @@ func crossBlockForeignValue(pick bool) (int, byte, int) {
 	return len(blob), blob[0], named.CellSum(cell) + total
 }
 
+// crossBlockPointerReceiverValue keeps a value of an unexported foreign named
+// type whose only method has a pointer receiver. The interface that emulates the
+// type does not accept the value, so the declaration has to fall back to the
+// underlying type to keep len and indexing.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func crossBlockPointerReceiverValue(pick bool) (int, byte) {
+	pointed := named.MakePointed(3)
+	if pick {
+		pointed = named.MakePointed(8)
+	}
+	return len(pointed), pointed[0]
+}
+
 //garble:controlflow flatten_passes=1 junk_jumps=10 block_splits=10 trash_blocks=32
 func main() {
 	if got := charSum("abcd"); got != 394 {
@@ -444,6 +465,12 @@ func main() {
 	}
 	if n, first, sum := crossBlockForeignValue(false); n != 3 || first != 1 || sum != 8 {
 		panic("cross-block foreign value changed")
+	}
+	if n, first := crossBlockPointerReceiverValue(true); n != 2 || first != 8 {
+		panic("cross-block pointer-receiver value changed")
+	}
+	if n, first := crossBlockPointerReceiverValue(false); n != 2 || first != 3 {
+		panic("cross-block pointer-receiver value changed")
 	}
 
 	if got := (scoreList{3, 4}).Total(); got != 7 {
@@ -530,6 +557,15 @@ type counts map[string]int
 
 func MakeCounts(n int) counts { return counts{"a": n, "b": 1} }
 
+// pointed is an unexported named slice type whose only method has a pointer
+// receiver, so a value of it does not implement the interface that emulates the
+// type, and a cross-block declaration has to fall back to the underlying type.
+type pointed []byte
+
+func MakePointed(first byte) pointed { return pointed{first, 5} }
+
+func (p *pointed) Touch() { (*p)[0]++ }
+
 // Box is a generic type of another package, so a flattened caller selects a
 // method of an instantiated foreign type.
 type Box[T any] struct{ Value T }
@@ -561,3 +597,31 @@ cross
 0 44 2147483647 -2147483648 -2147483648 -2147483648 -1
 constant bounds panicked
 flattened positions kept
+-- unwritable/main.go --
+package main
+
+import (
+	"os"
+
+	"test/main/unwritable/other"
+)
+
+// A value of an unexported named basic type of another package cannot cross a
+// block boundary: every predeclared basic type is a named type too, so the value
+// is not assignable to the underlying type that could be written for it.
+//
+//garble:controlflow flatten_passes=1
+func main() {
+	r := other.MakeRank(1)
+	if len(os.Args) > 1 {
+		r = other.MakeRank(5)
+	}
+	println(int(r * 2))
+}
+-- unwritable/other/other.go --
+package other
+
+// rank is an unexported named basic type.
+type rank int
+
+func MakeRank(n int) rank { return rank(n) }

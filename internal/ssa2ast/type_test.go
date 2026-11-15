@@ -167,24 +167,44 @@ func TestConvertVar(t *testing.T) {
 		types.NewTuple(types.NewVar(token.NoPos, other, "", types.Typ[types.Int])),
 		false,
 	)))
+	// valueMethoded implements its interface with a value receiver, so its
+	// methods are in the method set of the value that crosses the blocks.
+	valueMethoded := newNamed("valueMethoded", byteSlice)
+	valueMethoded.AddMethod(types.NewFunc(token.NoPos, other, "Size", types.NewSignatureType(
+		types.NewVar(token.NoPos, other, "", valueMethoded),
+		nil, nil, nil,
+		types.NewTuple(types.NewVar(token.NoPos, other, "", types.Typ[types.Int])),
+		false,
+	)))
 	exported := newNamed("Exported", byteSlice)
 	basicRank := newNamed("rank", types.Typ[types.Int])
+	ptrCell := types.NewPointer(cell)
+	rankSlice := types.NewSlice(basicRank)
 
 	tc := &TypeConverter{resolver: defaultImportNameResolver}
 	for _, test := range []struct {
-		name string
-		typ  types.Type
-		want string
+		name    string
+		typ     types.Type
+		want    string
+		wantErr bool
 	}{
-		{"unexported slice without methods", blob, "[]uint8"},
-		{"unexported struct of writable fields", cell, "struct {\n\tN int\n}"},
-		{"unexported type with an exported method", methoded, "interface {\n\tSize() int\n}"},
-		{"unexported struct holding an unexported type", holds, "interface {\n}"},
-		{"unexported basic type", basicRank, "interface {\n}"},
-		{"exported type", exported, "other.Exported"},
+		{"unexported slice without methods", blob, "[]uint8", false},
+		{"unexported struct of writable fields", cell, "struct {\n	N int\n}", false},
+		{"unexported type with a value-receiver method", valueMethoded, "interface {\n	Size() int\n}", false},
+		{"unexported type with a pointer-receiver method", methoded, "[]uint8", false},
+		{"unexported struct holding an unexported type", holds, "", true},
+		{"unexported basic type", basicRank, "", true},
+		{"pointer to an unexported struct", ptrCell, "", true},
+		{"slice of an unexported basic type", rankSlice, "", true},
+		{"exported type", exported, "other.Exported", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			expr, err := tc.ConvertVar(test.typ)
+			if test.wantErr {
+				qt.Assert(t, qt.ErrorIs(err, ErrUnwritableVarType))
+				qt.Assert(t, qt.IsNil(expr))
+				return
+			}
 			qt.Assert(t, qt.IsNil(err))
 			qt.Assert(t, qt.Equals(exprString(t, expr), test.want))
 		})
