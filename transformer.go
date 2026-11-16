@@ -928,7 +928,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	if tf.pkg, tf.info, err = typecheck(tf.curPkg.ImportPath, files, tf.origImporter, withSSAInfo); err != nil {
 		return nil, err
 	}
-	if flagLiterals && tf.curPkg.ImportPath == "embed" {
+	if flagLiterals && tf.curPkg.baseImportPath() == "embed" {
 		var patched bool
 		for i, file := range files {
 			if filepath.Base(paths[i]) == "embed.go" {
@@ -996,7 +996,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	tf.fieldToStruct = computeFieldToStruct(tf.info)
 	tf.validateMappedSymbolNames()
 
-	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.ImportPath) {
+	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.baseImportPath()) {
 		if tf.linkerVariableStrings, err = computeLinkerVariableStrings(tf.pkg, files, flagValue(flags, "-p") == "main"); err != nil {
 			return nil, err
 		}
@@ -1023,7 +1023,11 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
 		log.Printf("obfuscating %s", basename)
-		switch tf.curPkg.ImportPath {
+		// A package rebuilt for a test binary carries a " [pkg.test]" suffix in
+		// its import path, but it is the same package: the runtime-only patches
+		// below have to reach that copy as well, or the linker and the runtime
+		// disagree about the pclntab it reads at startup.
+		switch tf.curPkg.baseImportPath() {
 		case "runtime":
 			if flagTiny {
 				// strip unneeded runtime code
@@ -1043,7 +1047,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			}
 		}
 		if flagTiny {
-			stripFatalMessages(tf.curPkg.ImportPath, file)
+			stripFatalMessages(tf.curPkg.baseImportPath(), file)
 		}
 		if err := tf.transformDirectives(file.Comments); err != nil {
 			return nil, err
@@ -1073,7 +1077,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 			debugArtifacts.GarbledFiles[basename] = bytes.Clone(src)
 		}
 	}
-	if tf.curPkg.ImportPath == "runtime" && flagTiny {
+	if tf.curPkg.baseImportPath() == "runtime" && flagTiny {
 		validateDirectRuntimeStripping(runtimeStrippedByFile)
 	}
 	if err := saveDebugArtifactsForPkg(tf.curPkg, debugCacheKindCompile, debugArtifacts); err != nil {
@@ -1153,7 +1157,7 @@ func (tf *transformer) transformDirectives(comments []*ast.CommentGroup) error {
 				if len(fields) < 2 {
 					continue
 				}
-				if localNamePart, ok := strings.CutPrefix(fields[1], tf.curPkg.ImportPath+"."); ok {
+				if localNamePart, ok := strings.CutPrefix(fields[1], tf.curPkg.baseImportPath()+"."); ok {
 					fields[1] = tf.curPkg.obfuscatedImportPath() + "." + obfuscatedPackageObjectName(tf.curPkg, localNamePart)
 				}
 				comment.Text = strings.Join(fields, " ")
@@ -1640,7 +1644,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 	// We can't obfuscate literals in the runtime and its dependencies,
 	// because obfuscated literals sometimes escape to heap,
 	// and that's not allowed in the runtime itself.
-	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.ImportPath) {
+	if flagLiterals && tf.curPkg.toObfuscate() && !isRuntimePkgPath(tf.curPkg.baseImportPath()) {
 		var original map[ast.Decl]bool
 		path := tf.curPkg.baseImportPath()
 		if path == "crypto/internal/fips140" || strings.HasPrefix(path, "crypto/internal/fips140/") {
@@ -1802,7 +1806,7 @@ func (tf *transformer) transformLink(args []string) ([]string, error) {
 				continue
 			}
 		}
-		if flagLiterals && lpkg.toObfuscate() && !isRuntimePkgPath(lpkg.ImportPath) {
+		if flagLiterals && lpkg.toObfuscate() && !isRuntimePkgPath(lpkg.baseImportPath()) {
 			// Compilation already injected the value. Leaving either spelling
 			// here would add a plaintext string to the binary.
 			flags = flags[:len(flags)-1]

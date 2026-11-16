@@ -135,17 +135,17 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool)
 		var src any
 
 		base := filepath.Base(path)
-		if flagTiny && lpkg.ImportPath == "runtime" && (base == "panic.go" || base == "print.go") {
+		if flagTiny && lpkg.baseImportPath() == "runtime" && (base == "panic.go" || base == "print.go") {
 			src, err = tinyPanicRuntimeSource(path, base)
 			if err != nil {
 				return nil, err
 			}
-		} else if lpkg.ImportPath == "internal/abi" && base == "type.go" {
+		} else if lpkg.baseImportPath() == "internal/abi" && base == "type.go" {
 			src, err = abiNamePatch(path)
 			if err != nil {
 				return nil, err
 			}
-		} else if lpkg.ImportPath == "reflect" && (base == "type.go" || base == "value.go") {
+		} else if lpkg.baseImportPath() == "reflect" && (base == "type.go" || base == "value.go") {
 			src, err = reflectMethodsPatch(path, base)
 			if err != nil {
 				return nil, err
@@ -214,7 +214,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		ReflectObjectNames: map[string]string{},
 		PureConstructors:   map[string]bool{},
 	}
-	constructors := flagLiterals && !isRuntimePkgPath(lpkg.ImportPath)
+	constructors := flagLiterals && !isRuntimePkgPath(lpkg.baseImportPath())
 	// Standard packages with no reflection dependency cannot contribute reflected
 	// names. Non-standard packages may still forward models to an interface whose
 	// implementation is found downstream, so retain their call edges.
@@ -320,7 +320,7 @@ func loadListedPkgCache(fsCache *cache.Cache, lpkg *listedPackage) (pkgCache, er
 	}
 	// Non-standard packages can forward reflected values without importing reflect.
 	// Standard packages may still contribute literal constructor summaries.
-	if !lpkg.hasDep("reflect") && lpkg.Standard && (!flagLiterals || isRuntimePkgPath(lpkg.ImportPath)) {
+	if !lpkg.hasDep("reflect") && lpkg.Standard && (!flagLiterals || isRuntimePkgPath(lpkg.baseImportPath())) {
 		return pkgCache{}, nil
 	}
 	// Missing or corrupted entry in the cache.
