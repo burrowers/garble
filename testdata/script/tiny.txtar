@@ -34,6 +34,17 @@ stderr '^runtime.sentinels.goexit false gopanic false$'
 # "crash" must still crash the process rather than exit with status 2.
 stderr '^single aborts: false crash aborts: true$'
 
+# A GODEBUG setting which asks the runtime for trace/debug output must not turn
+# into a startup fatal error. The init trace derives each package path from the
+# function name table, which tiny mode empties, so the lookup has to report no
+# path instead of indexing an empty name. Tiny mode stubs the runtime print
+# calls, so the trace itself is still not printed.
+env GODEBUG=inittrace=1
+! exec ./main$exe
+stderr '^panic: [0-9a-f]{16}$'
+! stderr '@[0-9.]+ ms, [0-9.]+ ms clock'
+env GODEBUG=
+
 # Panic values which are not plain strings are not formatted, so they stay
 # hidden rather than exposing their contents.
 ! exec ./main$exe single
@@ -70,6 +81,14 @@ exec garble -tiny -literals -seed=AAAAAAAAAAA build -o literals$exe
 cp stderr panic-literals.stderr
 exec garble -tiny -literals -seed=AAAAAAAAAAA reverse . panic-literals.stderr
 stdout '^panic: ya like jazz\?$'
+
+# The literal build decodes its message before the panic, and asks for the init
+# trace through the same name table, so it must behave the same way.
+env GODEBUG=inittrace=1
+! exec ./literals$exe
+stderr '^panic: [0-9a-f]{16}$'
+! stderr '@[0-9.]+ ms, [0-9.]+ ms clock'
+env GODEBUG=
 
 [short] stop # no need to verify this with -short
 

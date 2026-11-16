@@ -135,8 +135,12 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool)
 		var src any
 
 		base := filepath.Base(path)
-		if flagTiny && lpkg.baseImportPath() == "runtime" && (base == "panic.go" || base == "print.go") {
-			src, err = tinyPanicRuntimeSource(path, base)
+		if flagTiny && lpkg.baseImportPath() == "runtime" && (base == "panic.go" || base == "print.go" || base == "symtab.go") {
+			if base == "symtab.go" {
+				src, err = tinyFuncPkgPathSource(path)
+			} else {
+				src, err = tinyPanicRuntimeSource(path, base)
+			}
 			if err != nil {
 				return nil, err
 			}
