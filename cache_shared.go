@@ -817,6 +817,31 @@ func (from *listedPackage) testVariantPath(path string) string {
 	return ""
 }
 
+// getForTool returns the listing entry which describes a toolexec import path,
+// or nil if the listing cannot explain it.
+//
+// A test build compiles some packages as copies which cmd/go names
+// "<path> [<forTest>.test]". The listing carries a variant only when the
+// package's own in-package test files are merged into it. A copy made for
+// coverage alone carries no test files: it is path itself compiled from
+// generated coverage files, and the go command passes the plain import path to
+// the compiler, so the plain entry describes it. That covers the package under
+// test when all of its tests are external, and every dependency which -cover
+// instruments for the test binary. Naming, import path and action hash stay
+// those of the package, which keeps the copy's symbols resolvable from the
+// packages referring to it by the bare import path.
+func (l *listedPackages) getForTool(path string) *listedPackage {
+	if pkg, ok := l.get(path); ok {
+		return pkg
+	}
+	base, suffix, ok := strings.Cut(path, " [")
+	if !ok || !strings.HasSuffix(suffix, ".test]") {
+		return nil
+	}
+	pkg, _ := l.get(base)
+	return pkg
+}
+
 // implicitLinkerDeps are the packages which the go command adds to main
 // packages on behalf of the linker, depending on the target platform and build
 // flags. They are never in a package's Imports, so any package may refer to
