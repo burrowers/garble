@@ -56,7 +56,19 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y qemu-user
         command -v qemu-riscv64
-    - run: go test -timeout=15m ./...
+    - if: matrix.os == 'namespace-profile-linux'
+      run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
+    - if: matrix.os == 'namespace-profile-linux'
+      run: python3 -B scripts/test_cost.py --output test-cost.json -- go test -count=1 -timeout=15m ./...
+    - if: matrix.os != 'namespace-profile-linux'
+      run: go test -timeout=15m ./...
+    - uses: actions/upload-artifact@v4
+      if: always() && matrix.os == 'namespace-profile-linux'
+      with:
+        name: test-cost-linux
+        path: test-cost.json
+        if-no-files-found: warn
+        retention-days: 14
     # macos and windows failures with bincmp can be hard to reproduce locally,
     # so upload the binaries as artifacts.
     - uses: actions/upload-artifact@v4

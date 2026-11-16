@@ -101,6 +101,64 @@ the hash of the operation's inputs, and the last component is the *content ID*,
 the hash of the operation's output. For more, read
 [the docs in buildid.go](https://github.com/golang/go/blob/master/src/cmd/go/internal/work/buildid.go)
 
+### PR cost reports
+
+GitHub Actions maintains one informational comment per PR with two independent
+sections. Increases never fail a check; failed builds or tests still fail their
+usual jobs.
+
+* **Build cost:** the same pinned real application, `shfmt` v3.11.0, is built
+  with base and head Garble in default, `-literals`, and `-tiny -literals` modes.
+  One fixed-seed sample per revision/mode keeps the default to six measured
+  builds. Every sample has fresh Go and Garble package caches; only prepared
+  tool binaries are reused. Module downloads and toolchain preparation happen
+  before measurement, not inside build CPU/time/allocation totals. Each produced
+  CLI formats the same shell input and must match the committed expected output.
+  Identical measurement-only instrumentation on both sides records cumulative
+  Go heap allocations and allocated bytes in Garble, the compiler, and the
+  linker, including stock compiler processes used by preliminary package listing.
+  The compact comment shows binary size, process-tree CPU time and combined
+  allocation deltas. Raw artifacts retain elapsed time, separate process-group
+  allocation totals/counts, exact revisions, toolchain, workload, and samples.
+  Allocation totals are not peak memory and do not include `cmd/go`, assembler,
+  native/mmap storage, direct-exit tool-version probes, or toolchain bootstrap.
+  Counters are less sensitive to scheduling than elapsed time, not perfectly
+  deterministic or instruction counts. Explicit `--samples=3` remains available
+  for deeper investigation.
+* **Test cost:** the existing full Linux test job records elapsed time and OS
+  user/system CPU seconds for `go test -count=1 -timeout=15m ./...`, including
+  waited-for descendants and the builds performed by integration tests. It does
+  not profile individual tests, serialize them, reset their build caches, or run
+  another suite. A delta requires an artifact from the exact base commit's
+  `master` push, matching Go patch version, CPU model, CPU count, runner profile,
+  and command. Ordinary CI cache state is uncontrolled, so even a compatible
+  comparison remains a noisy signal. Failed suites and missing/incompatible
+  baselines are reported without a delta.
+
+Raw measurements are retained as Actions artifacts for 14 days. An expired or
+not-yet-recorded base is not replaced with an unrelated commit. The test section
+covers the full Linux suite, not the race/386/third-party jobs or the other OSes.
+
+The build-metrics job runs fork code without comment-write credentials on an
+ephemeral runner, without persistent caches. The existing Test jobs retain their
+usual Namespace caches. A separate `workflow_run` workflow checks out only the
+default branch, validates
+bounded numeric JSON without extracting or executing artifact files, binds the
+measurements to the PR's current base/head and source repository, and updates the
+comment. PR code can falsify its own numeric artifact: these are review aids, not
+trusted attestations. Superseded-head sections are discarded rather than reused.
+
+The build-metrics job uses the base revision's collector and workload so that a
+PR cannot accidentally change the comparison inputs. Only the initial PR adding
+this infrastructure bootstraps its proposed harness, with a notice in the log.
+The automatic publisher becomes active once its workflow is on the default
+branch. Likewise, test deltas need a successful instrumented base test run; the
+first PR introducing this infrastructure has no historical test-cost baseline.
+
+Run the reporting-tool tests with:
+
+    python3 -B -m unittest discover -s scripts -p 'test_*.py'
+
 ### Benchmarking
 
 A build benchmark is available, to be able to measure the cost of builing a

@@ -1,0 +1,32 @@
+name: PR metrics comment
+
+on:
+  workflow_run:
+    workflows: [PR build metrics, Test]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+# Serialize section updates so build and test results cannot overwrite each other.
+concurrency:
+  group: pr-metrics-comments-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # workflow_run is privileged: never check out the PR or execute its artifact.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Validate numeric results and update the PR comment
+        run: python3 -B scripts/pr_metrics_comment.py
+        env:
+          GH_TOKEN: ${{ github.token }}
