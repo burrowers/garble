@@ -2,10 +2,24 @@ name: Bug Report
 description: File a bug report.
 
 body:
+  - type: checkboxes
+    id: tested-master
+    attributes:
+      label: "Reproduce on master"
+      description: |
+        Before filing a bug report, install the latest development version with
+        `go install mvdan.cc/garble@master` and try reproducing the issue again.
+        Make sure you run the newly installed binary, not an older copy on your PATH.
+        If the issue is already fixed on master, please do not file a bug report.
+      options:
+        - label: "I have tested the latest master and the issue still occurs."
+          required: true
+
   - type: textarea
     id: garble-version
     attributes:
       label: "Output of `garble version`:"
+      description: "Paste the output from the master build used to reproduce the issue."
       placeholder: |
         mvdan.cc/garble v0.14.2
 
