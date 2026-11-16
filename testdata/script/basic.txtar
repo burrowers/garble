@@ -83,6 +83,13 @@ exec garble test -cover -v -run TestGlobalVar -count=1 .
 stdout 'test-cover-ok'
 stdout 'coverage: .* of statements'
 
+# A covered test build instruments the package under test as a copy named
+# "<pkg> [<pkg>.test]", which the listing only carries when in-package test
+# files are merged into it. A package whose tests are all external has no such
+# variant, so the toolexec lookup has nothing to resolve the copy against.
+! exec garble test -cover -count=1 ./coverext
+stderr 'TOOLEXEC_IMPORTPATH package not found in listed packages: test/mainfoo/coverext \[test/mainfoo/coverext\.test\]'
+
 # A leading -C changes directory before module discovery and relative outputs.
 cd ..
 exec garble build -C $WORK -o=chdir_binary$exe garble_main.go
@@ -186,4 +193,24 @@ func TestGlobalVar(t *testing.T) {
 	}
 	globalFunc()
 	t.Log("test-cover-ok")
+}
+-- coverext/coverext.go --
+package coverext
+
+func Covered(n int) int { return n + 1 }
+
+func Uncovered() int { return 0 }
+-- coverext/coverext_test.go --
+package coverext_test
+
+import (
+	"testing"
+
+	"test/mainfoo/coverext"
+)
+
+func TestCovered(t *testing.T) {
+	if got := coverext.Covered(1); got != 2 {
+		t.Fatalf("Covered(1) = %d", got)
+	}
 }
