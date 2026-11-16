@@ -40,6 +40,15 @@ stdout 'package bar_test, func name: test/bar\.OriginalFuncName'
 
 [short] stop # no need to verify this with -short
 
+# A standard-library package that the runtime package itself imports makes the
+# go command rebuild the runtime for the test binary. That copy has to keep the
+# same runtime-only patches as the ordinary package, or the binary dies before
+# the first test runs.
+exec garble test -count=1 -short hash/crc32
+stdout 'ok\s+hash/crc32'
+exec garble test -count=1 -short math/bits
+stdout 'ok\s+math/bits'
+
 # Also check that many packages test fine, including a main package and multiple
 # test packages.
 #
