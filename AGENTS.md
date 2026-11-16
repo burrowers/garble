@@ -69,6 +69,12 @@ Instead:
   with `Fixes #NNN.`. Credit external contributors by name when relevant.
 - Keep prose tight — say what matters and stop. No restating, no padding.
 
+## Pull requests
+
+- When using AI tools, ensure the PR description names all models and agent
+  harnesses used. An existing attribution line or footer satisfies this; preserve
+  its format and add only missing information rather than a duplicate disclosure.
+
 ## Bug-fix workflow
 
 Split into two commits: first a regression test that passes against the broken code
