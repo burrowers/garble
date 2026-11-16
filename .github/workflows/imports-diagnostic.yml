@@ -30,7 +30,7 @@ jobs:
           $env:GOTMPDIR = $work
           go version
           go env GOOS GOARCH CGO_ENABLED GOCACHE GOTMPDIR
-          go test -timeout=15m -run '^TestScript$/^(imports|imports_probe|cache|reflect|test|seed-cache|std_obfuscation)$' -count=1 -testwork . 2>&1 | Tee-Object -FilePath (Join-Path $work 'test.log')
+          go test -timeout=15m -count=1 -testwork ./... 2>&1 | Tee-Object -FilePath (Join-Path $work 'test.log')
           $testResult = $LASTEXITCODE
           $graphs = @(Get-ChildItem $work -Filter '*first.json' -Recurse)
           $graphs | Select-Object FullName, Length | Format-Table
