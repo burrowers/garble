@@ -1,0 +1,44 @@
+// Copyright (c) 2026, The Garble Authors.
+// See LICENSE for licensing information.
+
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+
+// tinyFuncPkgPathSource keeps runtime.funcpkgpath from slicing an empty
+// function name.
+//
+// Tiny mode replaces the name of every unexported function in the name table
+// with one shared empty entry, so funcname returns "" for a function such as
+// main.init. funcpkgpath starts one byte before the end of that name and walks
+// it looking for the package separator, which indexes the string at -1 and
+// panics inside the runtime. GODEBUG=inittrace=1 takes exactly that path once
+// per package in doInit1; the panic is then converted into a throw because it
+// is raised in runtime code, and tiny mode has already stubbed the fatal error
+// prints, so the program left with status 2 without writing anything at all.
+//
+// There is no package path to report for a nameless function, so the trace
+// reports an empty one. The trace itself still cannot be printed in tiny mode,
+// since its print calls are stubbed like every other runtime print.
+func tinyFuncPkgPathSource(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	src := string(data)
+	const needle = "func funcpkgpath(f funcInfo) string {\n\tname := funcNameForPrint(funcname(f))\n"
+	if !strings.Contains(src, needle) {
+		return "", fmt.Errorf("tiny funcpkgpath patch did not match funcpkgpath")
+	}
+	src = strings.Replace(src, needle, needle+`	if name == "" {
+		// Tiny mode empties the name table for unexported functions, and an
+		// invalid funcInfo has no name either.
+		return ""
+	}
+`, 1)
+	return src, nil
+}
