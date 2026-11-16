@@ -1,0 +1,42 @@
+name: Imports cache diagnostic
+on:
+  push:
+    branches: [diagnose/imports-cache-flake]
+permissions:
+  contents: read
+concurrency:
+  group: imports-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: namespace-profile-windows
+    timeout-minutes: 20
+    steps:
+      - uses: namespacelabs/nscloud-checkout-action@v9
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+          cache: false
+      - uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          cache: go
+      - name: Preserve script workspaces and run focused probes
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'imports-probe'
+          New-Item -ItemType Directory -Force $work | Out-Null
+          $env:TEMP = $work
+          $env:TMP = $work
+          go version
+          go env GOOS GOARCH CGO_ENABLED GOCACHE
+          go test -timeout=15m -run '^TestScript$/^(imports|imports_probe)$' -count=5 -testwork . 2>&1 | Tee-Object -FilePath (Join-Path $work 'test.log')
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: imports-cache-diagnostic
+          path: |
+            ${{ runner.temp }}/imports-probe/**/*.log
+            ${{ runner.temp }}/imports-probe/**/*.json
+          if-no-files-found: error
+          retention-days: 7

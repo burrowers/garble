@@ -1,0 +1,179 @@
+env GOMODCACHE=$WORK/modcache
+env GODEBUG=gocachehash=1
+exec garble build -tags buildtag -v -x -debug-actiongraph=first.json
+cp stderr first.log
+cp main$exe old$exe
+rm main$exe
+exec garble build -tags buildtag -v -x -debug-actiongraph=second.json
+cp stderr second.log
+bincmp main$exe old$exe
+-- go.mod --
+module test/main
+
+go 1.23
+
+require (
+	gopkg.in/garbletest.v2 v2.999.0
+	gopkg.in/garbletestconst.v2 v2.999.0
+	rsc.io/quote v1.5.2
+)
+
+require (
+	golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c // indirect
+	rsc.io/sampler v1.3.0 // indirect
+	rsc.io/testonly v1.0.0 // indirect
+)
+-- go.sum --
+golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c h1:pvCbr/wm8HzDD3fVywevekufpn6tCGPY3spdHeZJEsw=
+golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
+gopkg.in/garbletest.v2 v2.999.0 h1:XHlBQi3MAcJL2fjNiEPAPAilkzc7hAv4vyyjY5w+IUY=
+gopkg.in/garbletest.v2 v2.999.0/go.mod h1:MI9QqKJD8i8oL8mW/bR0qq19/VuezEdJbVvl2B8Pa40=
+gopkg.in/garbletestconst.v2 v2.999.0 h1:VABqc63EJolbOSh1+WlSSQmX8ZT7VIs53mKCGxECTH8=
+gopkg.in/garbletestconst.v2 v2.999.0/go.mod h1:QA2FI8zGZhhsdLJGUrq78ah+ohEZo9ZDw3ex+C2WVEc=
+rsc.io/quote v1.5.2 h1:3fEykkD9k7lYzXqCYrwGAf7iNhbk4yCjHmKBN9td4L0=
+rsc.io/quote v1.5.2/go.mod h1:LzX7hefJvL54yjefDEDHNONDjII0t9xZLPXsUe+TKr0=
+rsc.io/sampler v1.3.0 h1:+lXbM7nYGGOYhnMEiMtjCwcUfjn4sajeMm15HMT6SnU=
+rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
+rsc.io/testonly v1.0.0 h1:K/VWHdO+Jv7woUXG0GzVNx1czBXUt3Ib1deaMn+xk64=
+rsc.io/testonly v1.0.0/go.mod h1:OqmGbIFOcF+XrFReLOGZ6BhMM7uMBiQwZsyNmh74SzY=
+-- garble_main.go --
+package main
+
+import (
+	"database/sql"
+	"fmt"
+
+	"test/main/importedpkg"
+
+	garbletest "gopkg.in/garbletest.v2"
+	garbletestconst "gopkg.in/garbletestconst.v2"
+	"rsc.io/quote"
+)
+
+func main() {
+	fmt.Println(importedpkg.ImportedVar)
+	fmt.Println(importedpkg.ImportedConst)
+	fmt.Println(importedpkg.ImportedFunc('x'))
+	normal := importedpkg.NormalStruct{SharedName: 3}
+	normal.IndirectStruct.Field = 23
+	fmt.Println(normal)
+
+	fmt.Println(quote.Go())
+	garbletest.Test()
+	fmt.Println(garbletestconst.StrConst)
+	fmt.Println(sql.Drivers()[0])
+}
+
+-- notag_fail.go --
+//go:build !buildtag
+
+package main
+
+var foo int = "should be omitted by -tags"
+
+-- withtag_success.go --
+//go:build buildtag
+
+package main
+
+import "fmt"
+
+func init() { fmt.Println("buildtag init func") }
+
+-- differentpkg_unnamed.go --
+package main
+
+import (
+	"test/main/different-pkg-name"
+	"test/main/goextension.go"
+)
+
+var _ = actualpkgname.Noop
+var _ = goextension.Noop
+
+-- differentpkg_named.go --
+package main
+
+import named "test/main/different-pkg-name"
+
+var _ = named.Noop
+
+-- importedpkg/imported.go --
+package importedpkg
+
+import (
+	"test/main/importedpkg/indirect"
+)
+
+var ImportedVar = "imported var value"
+
+const ImportedConst = "imported const value"
+
+func ImportedFunc(param rune) string {
+	return string(param)
+}
+
+const SharedName = 2
+
+type NormalStruct struct {
+	SharedName            int
+	IndirectStruct        indirect.Indirect
+	normalUnexportedField int
+}
+
+-- importedpkg/commented_imports.go --
+package importedpkg
+
+// The import group below used to trigger a bug in go/printer
+// where a named import could end up across two lines:
+//
+//   indirect
+//   "HPS4Mskq"
+//
+// resulting in a subsequent parsing failure:
+//
+//   syntax error: missing import path
+
+import (
+	// first comment
+
+	"test/main/importedpkg/another"
+
+	// second comment
+	"test/main/importedpkg/indirect"
+)
+
+var _ indirect.Indirect
+var _ = another.Blank
+
+-- importedpkg/another/pkg.go --
+package another
+
+const Blank = 3
+
+-- importedpkg/indirect/indirect.go --
+package indirect
+
+type Indirect struct {
+	Field int
+}
+
+-- different-pkg-name/pkg.go --
+package actualpkgname
+
+var Noop int
+
+-- goextension.go/ext.go --
+package goextension
+
+var Noop int
+
+-- main.stdout --
+buildtag init func
+imported var value
+imported const value
+x
+{3 {23} 0}
+Don't communicate by sharing memory, share memory by communicating.
+42
+dummy
