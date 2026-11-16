@@ -160,6 +160,7 @@ func TestScript(t *testing.T) {
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
 			"sleep":             sleep,
+			"cache-build":       cacheBuild,
 			"binsubstr":         binsubstr,
 			"bincmp":            bincmp,
 			"generate-literals": generateLiterals,
