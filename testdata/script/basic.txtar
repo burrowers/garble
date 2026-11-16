@@ -84,11 +84,12 @@ stdout 'test-cover-ok'
 stdout 'coverage: .* of statements'
 
 # A covered test build instruments the package under test as a copy named
-# "<pkg> [<pkg>.test]", which the listing only carries when in-package test
-# files are merged into it. A package whose tests are all external has no such
-# variant, so the toolexec lookup has nothing to resolve the copy against.
-! exec garble test -cover -count=1 ./coverext
-stderr 'TOOLEXEC_IMPORTPATH package not found in listed packages: test/mainfoo/coverext \[test/mainfoo/coverext\.test\]'
+# "<pkg> [<pkg>.test]". The listing only carries that variant when in-package
+# test files are merged into it, so a package with external tests only has to
+# be resolved to the package itself.
+exec garble test -cover -count=1 ./coverext
+stdout 'ok\s+test/mainfoo/coverext'
+stdout 'coverage: 50.0% of statements'
 
 # A leading -C changes directory before module discovery and relative outputs.
 cd ..

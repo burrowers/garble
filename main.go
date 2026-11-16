@@ -311,7 +311,7 @@ func mainErr(args []string) error {
 				return alterToolVersion(tool, args)
 			}
 			toolexecImportPath := os.Getenv("TOOLEXEC_IMPORTPATH")
-			tf.curPkg, _ = sharedCache.ListedPackages.get(toolexecImportPath)
+			tf.curPkg = sharedCache.ListedPackages.getForTool(toolexecImportPath)
 			if tf.curPkg == nil {
 				return fmt.Errorf("TOOLEXEC_IMPORTPATH package not found in listed packages: %s", toolexecImportPath)
 			}
