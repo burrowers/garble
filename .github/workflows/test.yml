@@ -57,6 +57,13 @@ jobs:
         sudo apt-get install -y qemu-user
         command -v qemu-riscv64
     - run: go test -timeout=15m ./...
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: imports-cache-${{ matrix.os }}-go${{ matrix.go-version }}
+        path: cache_diagnostics/
+        if-no-files-found: ignore
+        retention-days: 7
     # macos and windows failures with bincmp can be hard to reproduce locally,
     # so upload the binaries as artifacts.
     - uses: actions/upload-artifact@v4
