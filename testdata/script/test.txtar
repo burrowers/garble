@@ -2,7 +2,7 @@
 env GARBLE_CACHE=${WORK}/garble-cache
 exec garble test -c
 ! stdout 'PASS'
-binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo'
+binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo' 'TestLinkedOwnPackage'
 ! binsubstr bar.test$exe 'LocalFoo|ImportedVar|OriginalFuncName'
 
 # A cached test main has GoFiles but no CompiledGoFiles in go list output.
@@ -17,6 +17,7 @@ stdout 'test declaration:'
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
 stdout 'PASS.*TestLinkedFromTestVariant'
+stdout 'PASS.*TestLinkedOwnPackage'
 stdout 'PASS.*TestMockedFoo'
 stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
@@ -35,6 +36,7 @@ go test -v . -args payload -overlay=missing.json
 stdout '^--- PASS: TestArgs \('
 stdout 'PASS.*TestFoo'
 stdout 'PASS.*TestSeparateFoo'
+stdout 'PASS.*TestLinkedOwnPackage'
 stdout 'package bar, func name: test/bar\.OriginalFuncName'
 stdout 'package bar_test, func name: test/bar\.OriginalFuncName'
 
@@ -223,6 +225,29 @@ func panicHelper(t *testing.T) {
 		}
 	}()
 	panic("helper panic")
+}
+
+-- linkname_self_test.go --
+package bar
+
+import (
+	"testing"
+
+	_ "unsafe" // for go:linkname
+)
+
+// The directive names a symbol of this package, which this file is compiled
+// into as the test variant "test/bar [test/bar.test]". No import of the
+// package's own path can satisfy garble's dependency check, so the variant has
+// to count as the package the directive names.
+//
+//go:linkname linkedLocalFoo test/bar.LocalFoo
+func linkedLocalFoo() string
+
+func TestLinkedOwnPackage(t *testing.T) {
+	if got := linkedLocalFoo(); got != "Foo" {
+		t.Fatalf("linkedLocalFoo() = %q, want %q", got, "Foo")
+	}
 }
 
 -- tagged_test.go --
