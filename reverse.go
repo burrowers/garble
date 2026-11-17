@@ -220,15 +220,22 @@ Use -test to reverse frames from a binary built with "garble test":
 		}
 		// Add the package path after any full-path replacements for logical
 		// absolute filenames, so the latter take precedence.
-		if base, _, variant := strings.Cut(lpkg.ImportPath, " ["); variant {
+		if plainPath, _, variant := strings.Cut(lpkg.ImportPath, " ["); variant {
+			// A test variant's symbols are named after the plain import path
+			// of the package it builds, which is the synthetic "<pkg>_test"
+			// path for an external test package. The plain entry can be absent
+			// from the listing, or carry no compiled files when every source
+			// file of the package is a test file, so register the prefix here.
+			addHashedWithPackage(plainPath)
 			// Only an external test package has a synthetic "_test" path;
 			// an ordinary package may itself end in "_test".
-			if base == lpkg.ForTest+"_test" {
-				base = lpkg.ForTest
+			dirPath := plainPath
+			if dirPath == lpkg.ForTest+"_test" {
+				dirPath = lpkg.ForTest
 			}
 			// The obfuscated source directory keeps the listing identity of a
 			// test variant, while its symbols use the plain package identity.
-			replaces = append(replaces, hashWithListingIdentity(lpkg, lpkg.ImportPath), base)
+			replaces = append(replaces, hashWithListingIdentity(lpkg, lpkg.ImportPath), dirPath)
 		} else {
 			addHashedWithPackage(lpkg.ImportPath)
 		}
