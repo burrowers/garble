@@ -113,6 +113,7 @@ var runtimeAndLinknamed = map[string]bool{
 	"runtime":                          true, // go1.27
 	"runtime/debug":                    true, // go1.27
 	"runtime/metrics":                  true, // go1.27
+	"runtime/metrics_test":             true, // go1.27
 	"runtime/pprof":                    true, // go1.27
 	"runtime/secret":                   true, // go1.27
 	"runtime/trace":                    true, // go1.27
