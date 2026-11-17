@@ -1,0 +1,38 @@
+From 4f4e0bf8c5538b6c49669f048577b2edc647d93b Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Tue, 17 Nov 2026 12:53:01 +0000
+Subject: [PATCH] compile: look up hard-coded coverage package IDs under the
+ original path
+
+cmd/cover decides whether a package needs a hard-coded coverage package ID
+by calling coverage.HardCodedPkgID on the package path it was given, and
+writes that constant into every counter block. The compiler makes the same
+decision for the registration it prepends to the package's init, but it
+reads the path from -p.
+
+Those two paths are no longer the same once the import path is obfuscated,
+so a package in coverage's rtPkgs list registers itself as an ordinary
+package while its counters still carry the hard-coded ID. cmd/cover is a
+host tool that is not patched, so the compiler has to look the ID up under
+the original path to agree with the counters it is handed.
+---
+ cmd/compile/internal/coverage/cover.go | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/cmd/compile/internal/coverage/cover.go b/cmd/compile/internal/coverage/cover.go
+index 5ecd527..27e8df1 100644
+--- a/cmd/compile/internal/coverage/cover.go
++++ b/cmd/compile/internal/coverage/cover.go
+@@ -166,7 +166,11 @@ func registerMeta(cnames names, hashv [16]byte, mdlen int) {
+ 	//   pkgIdVar = runtime.addCovMeta(&sym, len, hash, pkgpath, pkid, cmode, cgran)
+ 	//
+ 	fn := typecheck.LookupRuntime("addCovMeta")
+-	pkid := coverage.HardCodedPkgID(base.Ctxt.Pkgpath)
++	// cmd/cover picked the hard-coded ID, if any, from the original package
++	// path, while the compiler is handed the obfuscated one. Look the ID up
++	// under the original path too, or the counters and the registration
++	// disagree for every package in coverage's rtPkgs list.
++	pkid := coverage.HardCodedPkgID(objabi.OriginalPackagePath(base.Ctxt.Pkgpath))
+ 	pkIdNode := ir.NewInt(base.Pos, int64(pkid))
+ 	cmodeNode := ir.NewInt(base.Pos, int64(cnames.CounterMode))
+ 	cgranNode := ir.NewInt(base.Pos, int64(cnames.CounterGran))
