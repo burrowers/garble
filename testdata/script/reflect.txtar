@@ -366,51 +366,27 @@ func main() {
 		fmt.Println(check.label+":", check.got)
 	}
 	keyType := reflect.TypeOf(map[MapKeyReflect]bool{}).Key()
-	if field, ok := keyType.FieldByName("KeyName"); ok {
-		fmt.Println("map key:", keyType.Name(), field.Name)
-	} else {
-		fmt.Println("map key: missing")
-	}
+	fmt.Println("map key:", typeForField(keyType, "KeyName"))
 	argType := reflect.TypeOf(func(FuncArgReflect) {}).In(0)
-	if field, ok := argType.FieldByName("ArgName"); ok {
-		fmt.Println("func arg:", argType.Name(), field.Name)
-	} else {
-		fmt.Println("func arg: missing")
-	}
+	fmt.Println("func arg:", typeForField(argType, "ArgName"))
 	if m, ok := reflect.TypeOf(MethodSignatureReflect{}).MethodByName("Handle"); ok {
 		methodArg := m.Type.In(1)
-		if field, ok := methodArg.FieldByName("MethodArgName"); ok {
-			fmt.Println("method arg:", methodArg.Name(), field.Name)
-		} else {
-			fmt.Println("method arg: missing")
-		}
+		fmt.Println("method arg:", typeForField(methodArg, "MethodArgName"))
 		methodResult := m.Type.Out(0)
-		if field, ok := methodResult.FieldByName("MethodResultName"); ok {
-			fmt.Println("method result:", methodResult.Name(), field.Name)
-		} else {
-			fmt.Println("method result: missing")
-		}
+		fmt.Println("method result:", typeForField(methodResult, "MethodResultName"))
 	} else {
 		fmt.Println("method arg: method missing")
 	}
 	if m, ok := reflect.TypeOf((*MethodIfaceReflect)(nil)).Elem().MethodByName("Serve"); ok {
 		ifaceArg := m.Type.In(0)
-		if field, ok := ifaceArg.FieldByName("MethodIfaceArgName"); ok {
-			fmt.Println("method iface arg:", ifaceArg.Name(), field.Name)
-		} else {
-			fmt.Println("method iface arg: missing")
-		}
+		fmt.Println("method iface arg:", typeForField(ifaceArg, "MethodIfaceArgName"))
 	} else {
 		fmt.Println("method iface arg: method missing")
 	}
 	anonIface := reflect.TypeOf(UnnamedIfaceHolder{}).Field(0).Type
 	if m, ok := anonIface.MethodByName("UnnamedIface"); ok {
 		result := m.Type.Out(0)
-		if field, ok := result.FieldByName("UnnamedIfaceResultName"); ok {
-			fmt.Println("unnamed iface result:", result.Name(), field.Name)
-		} else {
-			fmt.Println("unnamed iface result: missing")
-		}
+		fmt.Println("unnamed iface result:", typeForField(result, "UnnamedIfaceResultName"))
 	} else {
 		fmt.Println("unnamed iface result: method missing")
 	}
