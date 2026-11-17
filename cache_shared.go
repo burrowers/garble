@@ -863,6 +863,16 @@ func listPackage(from *listedPackage, path string) (*listedPackage, error) {
 		return from, nil
 	}
 
+	// A package rebuilt for a test binary is the same package compiled with
+	// extra test files, and it names its symbols after its plain path. A
+	// directive in one of those test files which refers to the package's own
+	// path therefore names this variant, not a separate package which the
+	// variant would have to depend on; importing itself cannot satisfy such a
+	// dependency check.
+	if path == from.baseImportPath() {
+		return from, nil
+	}
+
 	// If the path is listed in the top-level ImportMap, use its mapping instead.
 	// This is a common scenario when dealing with vendored packages in GOROOT.
 	// The map is flat, so we don't need to recurse.
