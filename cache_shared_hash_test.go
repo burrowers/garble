@@ -19,9 +19,6 @@ func TestLinknameActionIDExternalTestPresence(t *testing.T) {
 		{"runtime/metrics_test", "readMetricNames", "runtime_readMetricNames", false},
 	} {
 		t.Run(test.path, func(t *testing.T) {
-			if test.path == "runtime/metrics_test" {
-				t.Skip("TODO: include metrics test linknames in the cache identity")
-			}
 			for _, mode := range []string{"unseeded", "fixed-seed"} {
 				t.Run(mode, func(t *testing.T) {
 					flagSeed = seedFlag{}

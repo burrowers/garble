@@ -605,7 +605,7 @@ func main() {
 				}
 				path := m[1]
 				switch path {
-				case "main", "runtime/metrics_test":
+				case "main":
 					continue
 				}
 				runtimeAndLinknamed = append(runtimeAndLinknamed, versionedString{
