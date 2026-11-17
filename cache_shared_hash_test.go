@@ -11,57 +11,92 @@ import (
 func TestLinknameActionIDExternalTestPresence(t *testing.T) {
 	oldCache, oldSeed := sharedCache, flagSeed
 	t.Cleanup(func() { sharedCache, flagSeed = oldCache, oldSeed })
-	for _, mode := range []string{"unseeded", "fixed-seed"} {
-		t.Run(mode, func(t *testing.T) {
-			flagSeed = seedFlag{}
-			if mode == "fixed-seed" {
-				flagSeed.bytes = []byte("12345678")
+	for _, test := range []struct {
+		path, localName, targetName string
+		plainPlaceholder            bool
+	}{
+		{"sync_test", "sync_test_runtime_blockUntilEmptyCleanupQueue", "runtime_blockUntilEmptyCleanupQueue", true},
+		{"runtime/metrics_test", "readMetricNames", "runtime_readMetricNames", false},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			if test.path == "runtime/metrics_test" {
+				t.Skip("TODO: include metrics test linknames in the cache identity")
 			}
-			runtime := &listedPackage{
-				ImportPath: "runtime", Name: "runtime", Standard: true,
-				BuildID: strings.Repeat("A", 20) + "/content", CompiledGoFiles: []string{"runtime.go"},
-			}
-			placeholder := &listedPackage{ImportPath: "sync_test"}
-			external := &listedPackage{
-				ImportPath: "sync_test [sync.test]", ForTest: "sync", Name: "sync_test",
-				BuildID: strings.Repeat("E", 20) + "/content", CompiledGoFiles: []string{"sync_test.go"},
-			}
-			sharedCache = &sharedCacheType{
-				ListedPackages: newListedPackages(), BinaryContentID: []byte("test binary"),
-			}
-			sharedCache.ListedPackages.set(runtime.ImportPath, runtime)
-			sharedCache.ListedPackages.set(placeholder.ImportPath, placeholder)
-			type state struct {
-				linknameActionID, runtimeActionID, toolID [32]byte
-				target                                    string
-			}
-			snapshot := func() state {
-				sharedCache.LinknameActionID = linknameActionID()
-				for _, pkg := range sharedCache.ListedPackages.all() {
-					if pkg.BuildID != "" {
-						pkg.GarbleActionID = addGarbleToHash(decodeBuildIDHash(splitActionID(pkg.BuildID)))
+			for _, mode := range []string{"unseeded", "fixed-seed"} {
+				t.Run(mode, func(t *testing.T) {
+					flagSeed = seedFlag{}
+					if mode == "fixed-seed" {
+						flagSeed.bytes = []byte("12345678")
 					}
-				}
-				tf := &transformer{curPkg: runtime}
-				_, target := tf.transformLinkname("sync_test_runtime_blockUntilEmptyCleanupQueue", "sync_test.runtime_blockUntilEmptyCleanupQueue")
-				return state{sharedCache.LinknameActionID, runtime.GarbleActionID, addGarbleToHash([]byte("tool identity")), target}
-			}
-			before := snapshot()
-			sharedCache.ListedPackages.set(external.ImportPath, external)
-			if external.namingPackage() != placeholder {
-				t.Fatal("external test symbols must retain the plain placeholder's naming identity")
-			}
-			after := snapshot()
-			if before.target != "sync_test.runtime_blockUntilEmptyCleanupQueue" || after.target == before.target {
-				t.Fatalf("expected external test presence to obfuscate the runtime target: before=%q after=%q", before.target, after.target)
-			}
-			if before.linknameActionID == after.linknameActionID || before.runtimeActionID == after.runtimeActionID || before.toolID == after.toolID {
-				t.Fatalf("runtime linkname output changed without invalidating cache identities: digest_equal=%v runtime_equal=%v tool_equal=%v; before=%q after=%q",
-					before.linknameActionID == after.linknameActionID, before.runtimeActionID == after.runtimeActionID, before.toolID == after.toolID, before.target, after.target)
-			}
-			external.BuildID = strings.Repeat("F", 20) + "/other-content"
-			if changed := snapshot(); changed != after {
-				t.Fatal("the variant's action ID must not replace the canonical original naming identity")
+					runtime := &listedPackage{
+						ImportPath: "runtime", Name: "runtime", Standard: true,
+						BuildID: strings.Repeat("A", 20) + "/content", CompiledGoFiles: []string{"runtime.go"},
+					}
+					placeholder := &listedPackage{ImportPath: test.path}
+					forTest := strings.TrimSuffix(test.path, "_test")
+					external := &listedPackage{
+						ImportPath: test.path + " [" + forTest + ".test]", ForTest: forTest, Name: strings.TrimPrefix(test.path, "runtime/"),
+						BuildID: strings.Repeat("E", 20) + "/content", CompiledGoFiles: []string{"sync_test.go"},
+					}
+					sharedCache = &sharedCacheType{
+						ListedPackages: newListedPackages(), BinaryContentID: []byte("test binary"),
+					}
+					sharedCache.ListedPackages.set(runtime.ImportPath, runtime)
+					if test.plainPlaceholder {
+						sharedCache.ListedPackages.set(placeholder.ImportPath, placeholder)
+					}
+					type state struct {
+						linknameActionID, runtimeActionID, toolID [32]byte
+						target                                    string
+					}
+					snapshot := func() state {
+						sharedCache.LinknameActionID = linknameActionID()
+						for _, pkg := range sharedCache.ListedPackages.all() {
+							if pkg.BuildID != "" {
+								pkg.GarbleActionID = addGarbleToHash(decodeBuildIDHash(splitActionID(pkg.BuildID)))
+							}
+						}
+						tf := &transformer{curPkg: runtime}
+						_, target := tf.transformLinkname(test.localName, test.path+"."+test.targetName)
+						return state{sharedCache.LinknameActionID, runtime.GarbleActionID, addGarbleToHash([]byte("tool identity")), target}
+					}
+					before := snapshot()
+					sharedCache.ListedPackages.set(external.ImportPath, external)
+					wantNaming := external
+					if test.plainPlaceholder {
+						wantNaming = placeholder
+					}
+					if external.namingPackage() != wantNaming {
+						t.Fatal("external test symbols must retain the canonical naming identity")
+					}
+					after := snapshot()
+					t.Run("presence", func(t *testing.T) {
+						if before.target != test.path+"."+test.targetName || after.target == before.target {
+							t.Fatalf("expected external test presence to obfuscate the runtime target: before=%q after=%q", before.target, after.target)
+						}
+						if before.linknameActionID == after.linknameActionID || before.runtimeActionID == after.runtimeActionID || before.toolID == after.toolID {
+							t.Fatalf("runtime linkname output changed without invalidating cache identities: digest_equal=%v runtime_equal=%v tool_equal=%v; before=%q after=%q",
+								before.linknameActionID == after.linknameActionID, before.runtimeActionID == after.runtimeActionID, before.toolID == after.toolID, before.target, after.target)
+						}
+					})
+					t.Run("action", func(t *testing.T) {
+						external.BuildID = strings.Repeat("F", 20) + "/other-content"
+						changed := snapshot()
+						if test.plainPlaceholder {
+							if changed != after {
+								t.Fatal("the variant's action ID must not replace the canonical original naming identity")
+							}
+						} else {
+							if changed.linknameActionID == after.linknameActionID || changed.runtimeActionID == after.runtimeActionID || changed.toolID == after.toolID {
+								t.Fatalf("the variant's fallback naming identity must invalidate caches: digest_equal=%v runtime_equal=%v tool_equal=%v",
+									changed.linknameActionID == after.linknameActionID, changed.runtimeActionID == after.runtimeActionID, changed.toolID == after.toolID)
+							}
+							if (changed.target != after.target) != (mode == "unseeded") {
+								t.Fatalf("fallback action must affect only unseeded names: before=%q after=%q", after.target, changed.target)
+							}
+						}
+					})
+				})
 			}
 		})
 	}
