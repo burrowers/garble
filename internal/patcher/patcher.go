@@ -42,7 +42,7 @@ const (
 	GoSrcEnv = "GARBLE_GO_SRC"
 
 	// Bump when tool patch/build semantics change to invalidate cached binaries.
-	toolchainBuildVersion = "v5"
+	toolchainBuildVersion = "v6"
 )
 
 // Files that we may need to overlay from the modified source while building
@@ -72,6 +72,7 @@ var compilerOverlayFiles = []string{
 	"cmd/compile/internal/noder/reader.go",
 	"cmd/compile/internal/noder/writer.go",
 	"cmd/compile/internal/staticdata/embed.go",
+	"cmd/compile/internal/coverage/cover.go",
 	"cmd/compile/internal/ssagen/nowb.go",
 	"cmd/compile/internal/typecheck/syms.go",
 	"cmd/compile/internal/reflectdata/reflect.go",

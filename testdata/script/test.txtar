@@ -59,6 +59,17 @@ exec garble test -count=1 -short -cover -run '^TestBase$' path
 stdout 'ok\s+path'
 stdout 'coverage: .* of statements'
 
+# cmd/cover decides whether a package needs a hard-coded coverage package ID,
+# writes it into every counter block, and the compiler repeats that decision for
+# the registration it adds to the package's init. cmd/cover is a host tool and
+# sees the original import path, so the compiler must look the ID up under that
+# path too; otherwise a package in internal/coverage's rtPkgs list registers as
+# an ordinary package and reports no coverage at all.
+exec garble test -count=1 -short -cover internal/strconv
+stdout 'ok\s+internal/strconv'
+! stdout 'coverage: 0\.0% of statements'
+! stdout 'internal error in coverage meta-data tracking'
+
 # Also check that many packages test fine, including a main package and multiple
 # test packages.
 #
