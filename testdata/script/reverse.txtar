@@ -39,6 +39,18 @@ stdin stdout
 exec garble reverse -test .
 cmp stdout test.expected
 
+# A package whose sources are all test files is compiled into a test variant,
+# and its plain listing entry carries no compiled files of its own. Its symbols
+# still have to reverse to the plain package path rather than keep the hash.
+go test -c -trimpath -o plain-only$exe ./case/onlytest
+exec ./plain-only$exe
+cp stdout only.expected
+exec garble test -c -o obfuscated-only$exe ./case/onlytest
+exec ./obfuscated-only$exe
+stdin stdout
+exec garble reverse -test ./case/onlytest
+cmp stdout only.expected
+
 [short] stop # no need to verify this with -short
 
 # Ensure that the reversed output matches the non-garbled output.
@@ -122,6 +134,34 @@ import (
 func TestReverseExternalFile(t *testing.T) {
 	_, file, line, ok := runtime.Caller(0)
 	fmt.Printf("external test frame: %s:%d:%t\n", file, line, ok)
+}
+
+// externalFrameName reports the symbol name of a function declared in the
+// external test package, so that reversing it has to restore that package path.
+func externalFrameName() string {
+	pc, _, _, _ := runtime.Caller(0)
+	return runtime.FuncForPC(pc).Name()
+}
+
+func TestReverseExternalName(t *testing.T) {
+	fmt.Printf("external test func name: %s\n", externalFrameName())
+}
+-- case/onlytest/only_test.go --
+package onlytest
+
+import (
+	"fmt"
+	"runtime"
+	"testing"
+)
+
+func onlyTestFrameName() string {
+	pc, _, _, _ := runtime.Caller(0)
+	return runtime.FuncForPC(pc).Name()
+}
+
+func TestName(t *testing.T) {
+	fmt.Printf("test-only package func name: %s\n", onlyTestFrameName())
 }
 -- long_main.go --
 package main
