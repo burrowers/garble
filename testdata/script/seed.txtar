@@ -18,6 +18,9 @@ binsubstr main$exe 'teststring' 'imported var value'
 [short] stop # the extra checks are relatively expensive
 
 # Word-list naming preserves behavior, canonicalizes input, and caches by content.
+# The list's eight five-letter words give sixteen-word names of 95 bytes, which is
+# enough to push the name maps the patched tools read past the per-string limit of
+# the process environment, so these builds also cover their file transport.
 exec garble -seed=${SEED1} -wordlist=words.txt build
 exec ./main$exe words
 cmp stderr main.stderr
@@ -119,58 +122,34 @@ cmp stderr mainpkg.stderr
 exec ./main$exe test/main/imported
 cmp stderr importedpkg.stderr
 -- words.txt --
-ant
-bat
-cat
-dog
-eel
-fox
-hen
-jay
-koi
-owl
-pig
-ram
-rat
-ray
-yak
-yew
+alpha
+brave
+cider
+delta
+eagle
+frost
+giant
+hotel
 -- words-equivalent.txt --
-yew
-yak
-ray
-rat
-ram
-pig
-owl
-koi
-jay
-hen
-fox
-eel
-dog
-cat
-bat
-ant
-ant
+hotel
+giant
+frost
+eagle
+delta
+cider
+brave
+alpha
+alpha
 
 -- words-different.txt --
-ant
-bat
-cat
-dog
-eel
-fox
-hen
-jay
-koi
-owl
-pig
-ram
-rat
-ray
-yak
-emu
+alpha
+brave
+cider
+delta
+eagle
+frost
+giant
+ivory
 -- go.mod --
 module test/main
 
@@ -201,7 +180,7 @@ func mainFunc() {
 			println(imported.ImportedVar)
 			if linkedValue() != imported.ImportedVar { panic("linkname mismatch") }
 			for _, name := range hashedNames {
-				if strings.Count(name, "_") != 11 { panic("not a twelve-word name: " + name) }
+				if strings.Count(name, "_") != 15 { panic("not a sixteen-word name: " + name) }
 			}
 		case "panic":
 			panic("test panic")
