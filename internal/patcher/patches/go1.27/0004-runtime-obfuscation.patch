@@ -562,7 +562,7 @@ new file mode 100644
 index 0000000000..f283b2a863
 --- /dev/null
 +++ b/cmd/internal/objabi/garble.go
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,155 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -571,14 +571,18 @@ index 0000000000..f283b2a863
 +package objabi
 +
 +import (
++	"fmt"
 +	"os"
 +	"strings"
 +	"sync"
 +)
 +
 +const (
-+	pkgPathMapEnv = "GARBLE_PKGPATH_MAP"
-+	symbolMapEnv  = "GARBLE_SYMBOL_MAP"
++	// Both maps travel as file paths: a complete map is user-sized payload and
++	// exceeds the per-string limit of the environment once -wordlist makes the
++	// generated names long.
++	pkgPathMapEnv = "GARBLE_PKGPATH_MAP_FILE"
++	symbolMapEnv  = "GARBLE_SYMBOL_MAP_FILE"
 +)
 +
 +type nameMap struct {
@@ -602,12 +606,26 @@ index 0000000000..f283b2a863
 +	return m
 +}
 +
++// readNameMap returns the map Garble wrote to the file named by pathEnv, or an
++// empty map when the variable is unset.
++func readNameMap(pathEnv string) string {
++	path := os.Getenv(pathEnv)
++	if path == "" {
++		return ""
++	}
++	data, err := os.ReadFile(path)
++	if err != nil {
++		panic(fmt.Errorf("[garble] cannot read name map: %v", err))
++	}
++	return string(data)
++}
++
 +var pkgPaths = sync.OnceValue(func() nameMap {
-+	return parseNameMap(os.Getenv(pkgPathMapEnv))
++	return parseNameMap(readNameMap(pkgPathMapEnv))
 +})
 +
 +var symbols = sync.OnceValue(func() nameMap {
-+	return parseNameMap(os.Getenv(symbolMapEnv))
++	return parseNameMap(readNameMap(symbolMapEnv))
 +})
 +
 +// OriginalPackagePath returns the original package path for an obfuscated path.

@@ -385,8 +385,11 @@ func mainErr(args []string) error {
 				return fmt.Errorf("cannot get modified %s: %v", name, err)
 			}
 			executablePath = modifiedPath
-			os.Setenv(patcher.PkgPathMapEnv, sharedCache.RuntimePkgPathMap)
-			os.Setenv(patcher.SymbolMapEnv, sharedCache.SymbolMap)
+			// The root process wrote both maps before it started `go`; write
+			// them here only when this process did not inherit the paths.
+			if err := writeNameMapFiles(false); err != nil {
+				return err
+			}
 			log.Printf("replaced %s with: %s", name, executablePath)
 		case "link":
 			modifiedPath, err := patcher.PatchLinker(
@@ -400,8 +403,6 @@ func mainErr(args []string) error {
 			os.Setenv(patcher.MagicValueEnv, strconv.FormatUint(uint64(magicValue()), 10))
 			os.Setenv(patcher.EntryOffKeyEnv, strconv.FormatUint(uint64(entryOffKey()), 10))
 			os.Setenv(patcher.TinyEnv, strconv.FormatBool(flagTiny))
-			os.Setenv(patcher.PkgPathMapEnv, sharedCache.RuntimePkgPathMap)
-			os.Setenv(patcher.SymbolMapEnv, sharedCache.SymbolMap)
 			log.Printf("replaced linker with: %s", executablePath)
 		}
 
@@ -413,6 +414,34 @@ func mainErr(args []string) error {
 	default:
 		return fmt.Errorf("unknown command: %q", command)
 	}
+}
+
+// writeNameMapFiles writes the package-path and symbol maps that the patched
+// compiler, assembler and linker resolve names with, and points their
+// environment variables at the files. A complete map cannot travel in the
+// environment itself: execve limits a single string to MAX_ARG_STRLEN, and
+// -wordlist makes the generated names, and with them the symbol map, user-sized.
+//
+// The root process writes both files once before it starts `go`, so every
+// toolexec and tool process inherits the paths. A toolexec process that did not
+// inherit them writes its own copy from the shared cache.
+func writeNameMapFiles(overwrite bool) error {
+	for _, m := range []struct{ env, name, value string }{
+		{patcher.PkgPathMapEnv, "pkgpath-map.txt", sharedCache.RuntimePkgPathMap},
+		{patcher.SymbolMapEnv, "symbol-map.txt", sharedCache.SymbolMap},
+	} {
+		if m.value == "" || (!overwrite && os.Getenv(m.env) != "") {
+			continue
+		}
+		path := filepath.Join(sharedTempDir, m.name)
+		if err := os.WriteFile(path, []byte(m.value), 0o600); err != nil {
+			return fmt.Errorf("cannot write %s: %w", m.name, err)
+		}
+		if err := os.Setenv(m.env, path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // patchedLinkerDone is closed once startPatchingLinker's work has finished.
@@ -638,6 +667,11 @@ This command wraps "go %s". Below is its help:
 	if command != "list" {
 		sharedCache.RuntimePkgPathMap = buildRuntimePkgPathMap()
 		sharedCache.SymbolMap = buildSymbolMap()
+		// Write the maps once for the whole build; each tool process inherits
+		// the paths, as a complete map cannot travel in the environment.
+		if err := writeNameMapFiles(true); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := saveSharedCache(); err != nil {

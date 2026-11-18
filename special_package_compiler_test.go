@@ -42,7 +42,10 @@ func TestMappedReflectHeaderWriteBarrier(t *testing.T) {
 	compile := func(mapping string, args ...string) string {
 		t.Helper()
 		cmd := exec.Command(compiler, args...)
-		cmd.Env = append(os.Environ(), patcher.PkgPathMapEnv+"="+mapping, patcher.SymbolMapEnv+"=", patcher.LiteralInitsEnv+"=")
+		cmd.Env = append(os.Environ(),
+			patcher.PkgPathMapEnv+"="+write("pkgpath-map.txt", mapping),
+			patcher.SymbolMapEnv+"="+write("symbol-map.txt", ""),
+			patcher.LiteralInitsEnv+"=")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("compile: %v\n%s", err, out)
