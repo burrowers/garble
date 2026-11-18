@@ -613,6 +613,18 @@ func (tf *transformer) saveGoAsmNames() error {
 		nameMap[name+"__size"] = obfTypeName + "__size"
 		for field := range strct.Fields() {
 			obfFieldName := hashWithStruct(strct, field)
+			if field.Embedded() {
+				// go_asm.h names an embedded field's offset constant after the
+				// type it embeds, not after the field object, so the constant
+				// has to follow that type's obfuscated name. A field hash would
+				// name a symbol which go_asm.h never declares.
+				obfFieldName = field.Name()
+				if tname := namedType(field.Type()); tname != nil {
+					if newName, ok := tf.obfuscatedObjectName(tname); ok {
+						obfFieldName = newName
+					}
+				}
+			}
 			nameMap[name+"_"+field.Name()] = obfTypeName + "_" + obfFieldName
 		}
 	}

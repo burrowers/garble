@@ -73,6 +73,30 @@ var asmLiteral = "an assembly-only string global"
 
 func asmLiteralValue() string
 
+type Inline struct {
+	v int64
+}
+
+type Alias = Inline
+
+type Box[T any] struct {
+	V T
+}
+
+// All embeds one field of each spelling: a named struct type, a pointer to
+// one, an alias, and an instantiated generic type. go_asm.h names an
+// embedded field's offset after the embedded type, so an obfuscated build
+// has to rewrite those constants to the renamed type.
+type All struct {
+	Args
+	*Inline
+	Alias
+	Box[int]
+}
+
+// allOffsets sums the go_asm.h constants of All's embedded fields.
+func allOffsets() int64
+
 func main() {
 	if asmLiteralValue() != "an assembly-only string global" {
 		panic("assembly-only literal initializer removed")
@@ -90,6 +114,7 @@ func main() {
 
 	println(addArgs(&Args{a12: 5, a1: 10, a123: 20}))
 	println(argsSize())
+	println(allOffsets())
 }
 
 -- garble_main_amd64.s --
@@ -141,6 +166,15 @@ TEXT ·argsSize(SB), $0-8
 	MOVQ $Args__size, AX
 	ADDQ $const_asmZero, AX
 	ADDQ $ASM_ZERO, AX
+	MOVQ AX, ret+0(FP)
+	RET
+
+TEXT ·allOffsets(SB), $0-8
+	MOVQ $All_Args, AX
+	ADDQ $All_Inline, AX
+	ADDQ $All_Alias, AX
+	ADDQ $All_Box, AX
+	ADDQ $All__size, AX
 	MOVQ AX, ret+0(FP)
 	RET
 
@@ -215,6 +249,7 @@ TEXT ·AddImpl(SB),$0-16
 7
 35
 24
+144
 -- overlay.json --
 {"Replace":{"imported/imported_amd64.s":"imported/backing.txt"}}
 -- empty-reverse.txt --
