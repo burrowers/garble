@@ -31,6 +31,15 @@ grep '^type FS ' $WORK/debug/source/embed/embed.go
 ! grep '^type FS ' $WORK/debug/garbled/embed/embed.go
 grep '^type HostLayout ' $WORK/debug/source/structs/hostlayout.go
 ! grep '^type HostLayout ' $WORK/debug/garbled/structs/hostlayout.go
+# SIMD intrinsics are registered per receiver type and method, and the tag types
+# reach the compiler's SIMD layout gate by name, so an obfuscated simd/archsimd
+# has to translate the package path, both halves of the intrinsic name and the
+# tag types. Without that the intrinsics stay real calls to declarations without
+# bodies, and the compiler aborts while laying out the vector wrappers.
+env GOEXPERIMENT=simd
+exec garble build -o=simdmain$exe ./simdprog
+exec ./simdmain$exe
+stdout '^simdok 311 16$'
 -- go.mod --
 module test/intrinsic
 
@@ -108,4 +117,27 @@ func checkHash(depth int, seed maphash.Seed, pointer *int, expected uint64) {
 		checkHash(depth-1, seed, pointer, expected)
 	}
 	runtime.KeepAlive(&stack)
+}
+-- simdprog/main.go --
+package main
+
+import (
+	"fmt"
+	"simd/archsimd"
+	"unsafe"
+)
+
+// A program whose behaviour and layout depend on the archsimd intrinsics: the
+// loads, element access and arithmetic exist only as compiler intrinsics, and
+// the vector type takes its size from the SIMD tag types. The operations are
+// the ones every SIMD architecture declares, so the step runs on amd64 and
+// arm64 alike.
+func main() {
+	a := archsimd.LoadUint8x16([]uint8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+	b := a.SetElem(0, 40).Add(a)
+	sum := uint64(0)
+	for i := uint8(0); i < 16; i++ {
+		sum += uint64(b.GetElem(i))
+	}
+	fmt.Println("simdok", sum, unsafe.Sizeof(a))
 }

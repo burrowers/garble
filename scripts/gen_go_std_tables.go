@@ -172,6 +172,14 @@ func readFile(path string) string {
 
 var rxLinkname = regexp.MustCompile(`^//go:linkname .* ([^.]*)\.[^.]*$`)
 var rxIntrinsic = regexp.MustCompile(`\b(add|addF|alias)\("([^"]*)", "([^"]*)",`)
+
+// SIMD intrinsics register through the simdPackage constant or a helper which
+// repeats its path, so the literal-path pattern above never matches them.
+var (
+	rxSimdIntrinsic = regexp.MustCompile(`\b(?:add|addF)\(simdPackage, "([^"]*)"`)
+	rxSimdHelper    = regexp.MustCompile(`\baddWasmSIMD\("([^"]*)", "([^"]*)"`)
+	rxSimdPackage   = regexp.MustCompile(`(?m)^const simdPackage = "([^"]*)"$`)
+)
 var rxStringEntry = regexp.MustCompile(`^\s*"([^"]+)",$`)
 var rxBuiltinEntry = regexp.MustCompile(`^\s*\{"([^"]+)", [01]\},$`)
 var rxRuntimeSymbol = regexp.MustCompile(`^runtime\.[A-Za-z0-9_]+$`)
@@ -188,6 +196,40 @@ func addVersionedSymbol(symbols map[string][]versionedString, fullName string, g
 		String:        name,
 		GoVersionLang: goroot.GoVersionLang,
 	})
+}
+
+// addSimdIntrinsics adds the receiver-qualified intrinsic names registered in
+// ssagen's SIMD files, which the literal-path pattern above cannot see. The
+// compiler resolves the receiver type and the method as two declarations, so
+// the names stay whole here and buildSymbolMap splits them.
+func addSimdIntrinsics(symbols map[string][]versionedString, goroot versionedString) {
+	dir := filepath.Join(goroot.String, "src", "cmd", "compile", "internal", "ssagen")
+	match := rxSimdPackage.FindStringSubmatch(readFile(filepath.Join(dir, "intrinsics.go")))
+	if match == nil {
+		panic("simdPackage constant not found in ssagen/intrinsics.go")
+	}
+	simdPath := match[1]
+	add := func(path, name string) {
+		symbols[path] = append(symbols[path], versionedString{
+			String:        name,
+			GoVersionLang: goroot.GoVersionLang,
+		})
+	}
+	for _, fileName := range []string{
+		"intrinsics.go",
+		"simdAMD64intrinsics.go",
+		"simdARM64intrinsics.go",
+		"simdWasmintrinsics.go",
+	} {
+		for line := range strings.SplitSeq(readFile(filepath.Join(dir, fileName)), "\n") {
+			if m := rxSimdIntrinsic.FindStringSubmatch(line); m != nil {
+				add(simdPath, m[1])
+			}
+			if m := rxSimdHelper.FindStringSubmatch(line); m != nil {
+				add(m[1], m[2])
+			}
+		}
+	}
 }
 
 func groupedSymbols(symbols map[string][]versionedString) []tmplIntrinsic {
@@ -633,6 +675,7 @@ func main() {
 				GoVersionLang: goroot.GoVersionLang,
 			})
 		}
+		addSimdIntrinsics(compilerIntrinsicsByPath, goroot)
 	}
 	compilerIntrinsics := groupedSymbols(compilerIntrinsicsByPath)
 	builtinSymbols := generateBuiltinSymbols(goroots)

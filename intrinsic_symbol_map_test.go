@@ -28,6 +28,39 @@ func TestIntrinsicSymbolMapUsesTransformedDeclaration(t *testing.T) {
 	}
 }
 
+// A SIMD intrinsic is registered per receiver type and method, and the
+// compiler looks up the original spelling of each half, so the symbol map has
+// to carry each declaration instead of the qualified combination.
+func TestIntrinsicSymbolMapSplitsReceiverQualifiedNames(t *testing.T) {
+	oldCache := sharedCache
+	defer func() { sharedCache = oldCache }()
+	pkg := &listedPackage{ImportPath: "simd/archsimd", Name: "archsimd", CompiledGoFiles: []string{"types_amd64.go"}}
+	pkg.GarbleActionID[0] = 85
+	sharedCache = &sharedCacheType{ListedPackages: newListedPackages(), BinaryContentID: []byte("test")}
+	sharedCache.ListedPackages.set(pkg.ImportPath, pkg)
+	mapText := buildSymbolMap()
+	if strings.Contains(mapText, "=simd/archsimd.Uint8x16.Add") {
+		t.Fatal("symbol map maps a receiver-qualified name instead of its declarations")
+	}
+	for _, want := range []struct {
+		name   string
+		method bool
+	}{
+		{name: "Uint8x16"},
+		{name: "Add", method: true},
+		{name: "v128"},
+	} {
+		obfuscated := obfuscatedPackageObjectName(pkg, want.name)
+		if want.method {
+			obfuscated = methodName(pkg, want.name)
+		}
+		entry := pkg.obfuscatedImportPath() + "." + obfuscated + "=" + pkg.ImportPath + "." + want.name
+		if !strings.Contains(","+mapText+",", ","+entry+",") {
+			t.Fatalf("missing SIMD symbol mapping %s", entry)
+		}
+	}
+}
+
 func TestIntrinsicAndBuiltinSymbolProducersAgree(t *testing.T) {
 	oldCache := sharedCache
 	defer func() { sharedCache = oldCache }()
