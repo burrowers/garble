@@ -423,12 +423,28 @@ func flattenedMapPanic() {
 	m["x"] = 1
 }
 
+// A read through a nil pointer materializes the local struct type, which
+// go/printer prints over one line per field. The nil check sits on the type's
+// closing brace, so the statement marker has to keep covering it.
+//
+//garble:controlflow
+func flattenedFieldPanic() {
+	defer recoverFlattenedPanic("flattened field", flattenEntry())
+	type inner struct {
+		N int64
+		M int64
+	}
+	var p *inner
+	_ = p.N
+}
+
 func flattenSites() {
 	flattenedDividePanic()
 	flattenedAssertPanic()
 	flattenedIndexPanic()
 	flattenedSlicePanic()
 	flattenedMapPanic()
+	flattenedFieldPanic()
 }
 
 -- case/goroutine/goroutine_site.go --
@@ -516,3 +532,4 @@ flattened assert: test/main/flatten_sites.go:49
 flattened index: test/main/flatten_sites.go:57
 flattened slice: test/main/flatten_sites.go:64
 flattened map: test/main/flatten_sites.go:71
+flattened field: test/main/flatten_sites.go:86

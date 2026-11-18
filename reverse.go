@@ -163,6 +163,10 @@ Use -test to reverse frames from a binary built with "garble test":
 						addPosition(node.Colon)
 					case *ast.Ellipsis:
 						addPosition(node.Ellipsis)
+					case *ast.SelectorExpr:
+						// A field read in converted code is positioned at its
+						// selector, which is not the start of any statement.
+						addPosition(node.Sel.Pos())
 					}
 				}
 				switch node := node.(type) {
