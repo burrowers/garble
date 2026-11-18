@@ -351,6 +351,10 @@ type transformer struct {
 	// if it is used for any other purpose, we may lose determinism.
 	obfRand *mathrand.Rand
 
+	// literalNames names the declarations that literal obfuscation adds
+	// to the package. It is initialized by transformCompile.
+	literalNames literals.NameProviderFunc
+
 	// origImporter is a go/types importer which uses the original versions
 	// of packages, without any obfuscation. This is helpful to make
 	// decisions on how to obfuscate our input code.
@@ -915,6 +919,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	}
 	// log.Printf("seeding math/rand with %x\n", randSeed)
 	tf.obfRand = mathrand.New(mathrand.NewSource(int64(binary.BigEndian.Uint64(randSeed))))
+	tf.literalNames = uniqueRandomNames(randomName)
 
 	// Even if loadPkgCache below finds a direct cache hit,
 	// other parts of garble still need type information to obfuscate.
@@ -1654,7 +1659,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			}
 		}
 		var inits []literals.GlobalInit
-		file, inits = literals.ObfuscateWithGlobalInits(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, tf.staticLiteralInits(), randomName, tf.curPkgCache.PureConstructors)
+		file, inits = literals.ObfuscateWithGlobalInits(tf.obfRand, file, tf.info, tf.linkerVariableStrings, tf.embeddedValues, tf.staticLiteralInits(), tf.literalNames, tf.curPkgCache.PureConstructors)
 		if original != nil {
 			localizeFIPSProxies(file, original)
 		}

@@ -336,6 +336,15 @@ func randomName(rand *mathrand.Rand, baseName string) string {
 	return hashWithCustomSalt(salt, baseName)
 }
 
+// uniqueRandomNames returns the name provider for one package's literal
+// obfuscation, wrapping next.
+//
+// TODO: lifted literal functions share the package scope, so two of them
+// with the same random name fail the build with "redeclared in this block".
+func uniqueRandomNames(next literals.NameProviderFunc) literals.NameProviderFunc {
+	return next
+}
+
 // hashWithCustomSalt returns a hashed version of name,
 // including the provided salt as well as opts.Seed into the hash input.
 //
