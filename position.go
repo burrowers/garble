@@ -117,11 +117,26 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	// compiler places the return instruction and a deferred call's return
 	// site there. It is not a statement, so it needs its own positions.
 	var origBlockEnds []token.Pos
+	// A converted expression can materialize a type it cannot name, and
+	// go/printer spreads such a type over one printed line per field. The
+	// compiler attributes a nil check inside the expression to the type's
+	// closing brace, which the statement marker does not cover, so the frame
+	// reports a line that has drifted by the number of printed lines the type
+	// added. Generated types therefore keep the position of their statement.
+	var origTypeEnds []token.Pos
 	for node := range ast.Preorder(file) {
 		if block, ok := node.(*ast.BlockStmt); ok {
 			origBlockEnds = append(origBlockEnds, block.Rbrace)
 		}
 		switch node := node.(type) {
+		case *ast.StructType:
+			if node.Fields != nil {
+				origTypeEnds = append(origTypeEnds, node.Fields.Closing)
+			}
+		case *ast.InterfaceType:
+			if node.Methods != nil {
+				origTypeEnds = append(origTypeEnds, node.Methods.Closing)
+			}
 		case *ast.CallExpr:
 			// A converted function can carry positions from the file it was
 			// moved out of, so resolve them through the whole file set rather
@@ -167,8 +182,20 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 		dst[printedFile.Offset(printedPos)] = origPosition{pos: pos, file: file}
 	}
 	callIndex, stmtIndex, blockIndex := 0, 0, 0
+	typeEnds := make(map[int]token.Pos, len(origTypeEnds))
+	typeEndIndex := 0
 	for node := range ast.Preorder(printed) {
 		switch node := node.(type) {
+		case *ast.StructType:
+			if node.Fields != nil && node.Fields.Closing.IsValid() && typeEndIndex < len(origTypeEnds) {
+				typeEnds[printedFile.Offset(node.Fields.Closing)] = origTypeEnds[typeEndIndex]
+			}
+			typeEndIndex++
+		case *ast.InterfaceType:
+			if node.Methods != nil && node.Methods.Closing.IsValid() && typeEndIndex < len(origTypeEnds) {
+				typeEnds[printedFile.Offset(node.Methods.Closing)] = origTypeEnds[typeEndIndex]
+			}
+			typeEndIndex++
 		case *ast.CallExpr:
 			record(callPositions, origCallPositions, callIndex, node.Lparen)
 			callIndex++
@@ -241,6 +268,10 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	}
 	generated := false
 	generatedLine := 0
+	// The statement whose tokens are being printed, and the printed line it
+	// started on, so that a generated type inside it can restore its position.
+	var stmtPosition origPosition
+	stmtAtLine := 0
 	for {
 		pos, tok, lit := s.Scan()
 		if tok == token.FUNC && braceDepth == 0 && identIndex < len(generatedIdent) {
@@ -258,6 +289,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			haveMarker = true
 		}
 		if origPos, ok := stmtPositions[fsetFile.Offset(pos)]; ok && !generated {
+			stmtPosition, stmtAtLine = origPos, line
 			// The first statement of a file gets a marker so that positions
 			// before any call are reversible at all. Later statements and
 			// block ends only need one when go/printer changed the line
@@ -265,6 +297,18 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			// otherwise drift.
 			if want := markerLine + (line - markerAtLine); !haveMarker || want != origPos.pos.Line {
 				writeMarker(fsetFile.Position(pos).Offset, line, origPos)
+			}
+		}
+		// A package-level type declaration closes its own brace at depth one,
+		// so only a type inside a function body can belong to a statement.
+		if typePos, ok := typeEnds[fsetFile.Offset(pos)]; ok && !typePos.IsValid() && !generated && braceDepth >= 2 {
+			// A generated type carries no position of its own and prints over
+			// several lines, so the tokens after its closing brace have
+			// drifted from the statement they belong to. Anchor them back to
+			// the statement, which is the position the compiler reports for a
+			// nil check inside the materialized expression.
+			if stmtAtLine != 0 && line != stmtAtLine {
+				writeMarker(fsetFile.Position(pos).Offset, line, stmtPosition)
 			}
 		}
 		switch tok {
