@@ -18,8 +18,7 @@ func TestUniqueRandomNames(t *testing.T) {
 	rand := mathrand.New(mathrand.NewSource(1))
 	first := names(rand, "literalDecoder0")
 	second := names(rand, "literalHelper1")
-	// TODO: the second name should differ from the first
-	if first != second {
-		t.Fatalf("got distinct names %q and %q; want the current duplicate", first, second)
+	if first != "c5c7Mz" || second != "a8Kq2x" {
+		t.Fatalf("got names %q and %q; want c5c7Mz then a redraw to a8Kq2x", first, second)
 	}
 }

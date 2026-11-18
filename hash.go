@@ -337,12 +337,22 @@ func randomName(rand *mathrand.Rand, baseName string) string {
 }
 
 // uniqueRandomNames returns the name provider for one package's literal
-// obfuscation, wrapping next.
-//
-// TODO: lifted literal functions share the package scope, so two of them
-// with the same random name fail the build with "redeclared in this block".
+// obfuscation, wrapping next. It draws again whenever next returns a name it
+// has already handed out: lifted literal functions from every file share the
+// package scope, and with tens of thousands of them two 6-12 character hashes
+// eventually match, failing the build with "redeclared in this block".
+// Redraws come from the same seeded source, so builds stay reproducible.
 func uniqueRandomNames(next literals.NameProviderFunc) literals.NameProviderFunc {
-	return next
+	used := make(map[string]bool)
+	return func(rand *mathrand.Rand, baseName string) string {
+		for {
+			name := next(rand, baseName)
+			if !used[name] {
+				used[name] = true
+				return name
+			}
+		}
+	}
 }
 
 // hashWithCustomSalt returns a hashed version of name,
