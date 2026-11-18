@@ -244,7 +244,7 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 			}
 			cmd := exec.Command(tool, args...)
 			for _, entry := range os.Environ() {
-				if !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS_FILE=") && !strings.HasPrefix(entry, "GARBLE_PKGPATH_MAP=") && !strings.HasPrefix(entry, "GARBLE_SYMBOL_MAP=") {
+				if !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS_FILE=") && !strings.HasPrefix(entry, "GARBLE_PKGPATH_MAP_FILE=") && !strings.HasPrefix(entry, "GARBLE_SYMBOL_MAP_FILE=") {
 					cmd.Env = append(cmd.Env, entry)
 				}
 			}
@@ -346,7 +346,7 @@ func TestLiteralInitManifestCompiler(t *testing.T) {
 			}
 			cmd := exec.Command(compiler, append(args, source)...)
 			for _, entry := range os.Environ() {
-				if !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS=") && !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS_FILE=") && !strings.HasPrefix(entry, "GARBLE_PKGPATH_MAP=") && !strings.HasPrefix(entry, "GARBLE_SYMBOL_MAP=") && !strings.HasPrefix(entry, "GOOS=") && !strings.HasPrefix(entry, "GOARCH=") {
+				if !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS=") && !strings.HasPrefix(entry, "GARBLE_LITERAL_INITS_FILE=") && !strings.HasPrefix(entry, "GARBLE_PKGPATH_MAP_FILE=") && !strings.HasPrefix(entry, "GARBLE_SYMBOL_MAP_FILE=") && !strings.HasPrefix(entry, "GOOS=") && !strings.HasPrefix(entry, "GOARCH=") {
 					cmd.Env = append(cmd.Env, entry)
 				}
 			}

@@ -27,8 +27,12 @@ import (
 )
 
 const (
-	PkgPathMapEnv   = "GARBLE_PKGPATH_MAP"
-	SymbolMapEnv    = "GARBLE_SYMBOL_MAP"
+	// PkgPathMapEnv and SymbolMapEnv name the files holding the package-path
+	// and symbol maps of the build. The maps are user-sized payload, so they
+	// cannot travel in the environment itself: one complete map exceeds the
+	// per-string limit of execve once -wordlist makes the generated names long.
+	PkgPathMapEnv   = "GARBLE_PKGPATH_MAP_FILE"
+	SymbolMapEnv    = "GARBLE_SYMBOL_MAP_FILE"
 	LiteralInitsEnv = "GARBLE_LITERAL_INITS_FILE"
 	MethodMapEnv    = "GARBLE_METHOD_MAP"
 
