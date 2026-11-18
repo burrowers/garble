@@ -689,6 +689,9 @@ var mappedToolchainSymbols = map[string][]string{
 	"structs":      {"HostLayout"},
 	"embed":        {"FS"},
 	"runtime":      {"getg"},
+	// CalcStructSize recognizes the SIMD tag types by name to give the vector
+	// types their ABI layout, and an obfuscated comparison never matches.
+	"simd/archsimd": {"v128", "v256", "v512"},
 }
 
 // obfuscatedPackageObjectName is the shared package-level naming rule used by

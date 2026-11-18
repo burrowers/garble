@@ -526,6 +526,24 @@ func buildRuntimePkgPathMap() string {
 	return strings.Join(slices.Compact(mappings), ",")
 }
 
+// symbolMapEntry is one declaration which the patched compiler translates on
+// its own.
+type symbolMapEntry struct {
+	name   string
+	method bool
+}
+
+// symbolMapEntries expands a compiler intrinsic name into the declarations the
+// patched compiler resolves separately. A receiver-qualified intrinsic such as
+// "Uint8x16.Add" names a receiver type and a method, and findIntrinsic looks up
+// the original spelling of each half rather than of the whole name.
+func symbolMapEntries(symbol string) []symbolMapEntry {
+	if recv, method, qualified := strings.Cut(symbol, "."); qualified {
+		return []symbolMapEntry{{name: recv}, {name: method, method: true}}
+	}
+	return []symbolMapEntry{{name: symbol}}
+}
+
 // buildSymbolMap builds a complete mapping of obfuscated->original symbols
 // for all intrinsic and builtin functions. This is passed to the patched
 // compiler and linker so they can recognize obfuscated symbols.
@@ -550,9 +568,16 @@ func buildSymbolMap() string {
 		}
 		obfuscatedPath := lpkg.obfuscatedImportPath()
 		for _, symbol := range symbols {
-			obfuscatedSymbol := obfuscatedPackageObjectName(lpkg, symbol)
-			if obfuscatedPath != pkgPath || obfuscatedSymbol != symbol {
-				mappings = append(mappings, obfuscatedPath+"."+obfuscatedSymbol+"="+pkgPath+"."+symbol)
+			for _, entry := range symbolMapEntries(symbol) {
+				// Methods hash with the global method salt rather than with the
+				// declaring package's identity.
+				obfuscatedSymbol := obfuscatedPackageObjectName(lpkg, entry.name)
+				if entry.method {
+					obfuscatedSymbol = methodName(lpkg, entry.name)
+				}
+				if obfuscatedPath != pkgPath || obfuscatedSymbol != entry.name {
+					mappings = append(mappings, obfuscatedPath+"."+obfuscatedSymbol+"="+pkgPath+"."+entry.name)
+				}
 			}
 		}
 	}

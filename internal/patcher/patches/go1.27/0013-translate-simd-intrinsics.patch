@@ -1,0 +1,84 @@
+From 38cb8b8c88fa5af0026e739b3ad4f1708c73a297 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Wed, 18 Nov 2026 02:30:04 +0000
+Subject: [PATCH] compile: translate SIMD intrinsic receivers and tag types
+
+simd/archsimd registers its intrinsics with the simdPackage constant or a helper that repeats the path, and every one of them names a receiver type and a method. findIntrinsic therefore receives a receiver-qualified name such as "Uint8x16.Add" whose two halves are obfuscated independently, while the intrinsic registry is keyed on their original spelling. Translating the whole name through the symbol map cannot match an entry, because the map records declarations, not qualified combinations.
+
+Translate the receiver and the method separately in the compiler, keeping a pointer receiver's spelling around the translated type name. CalcStructSize also gates the SIMD tag types (v128, v256, v512) on a plaintext package path, so an obfuscated simd/archsimd never reached simdify and the vector types kept a struct layout instead of their ABI layout.
+---
+ cmd/compile/internal/ssagen/intrinsics.go |  2 +-
+ cmd/compile/internal/types/size.go        |  6 +++---
+ cmd/internal/objabi/garble.go             | 20 ++++++++++++++++++++
+ 3 files changed, 24 insertions(+), 4 deletions(-)
+
+diff --git a/cmd/compile/internal/ssagen/intrinsics.go b/cmd/compile/internal/ssagen/intrinsics.go
+index 95544be..2729fd2 100644
+--- a/cmd/compile/internal/ssagen/intrinsics.go
++++ b/cmd/compile/internal/ssagen/intrinsics.go
+@@ -2395,7 +2395,7 @@ func findIntrinsic(sym *types.Sym) intrinsicBuilder {
+ 		pkg = "runtime"
+ 	}
+ 	fn := sym.Name
+-	origPkg, origFn := objabi.OriginalSymbolParts(pkg, fn)
++	origPkg, origFn := objabi.OriginalReceiverSymbol(pkg, fn)
+ 	if base.Flag.Race && origPkg == "sync/atomic" {
+ 		// The race detector needs to be able to intercept these calls.
+ 		// We can't intrinsify them.
+diff --git a/cmd/compile/internal/types/size.go b/cmd/compile/internal/types/size.go
+index e80c0ce..526ad0f 100644
+--- a/cmd/compile/internal/types/size.go
++++ b/cmd/compile/internal/types/size.go
+@@ -490,15 +490,15 @@ func CalcStructSize(t *Type) {
+ 	// Recognize special types. This logic is duplicated in go/types and
+ 	// cmd/compile/internal/types2.
+ 	if sym := t.Sym(); sym != nil {
+-		_, name := objabi.OriginalPackageSymbol(sym.Pkg.Path, sym.Name)
++		pkgPath, name := objabi.OriginalPackageSymbol(sym.Pkg.Path, sym.Name)
+ 		switch {
+ 		case name == "align64" && isAtomicStdPkg(sym.Pkg, sym.Name):
+ 			maxAlign = 8
+ 
+-		case buildcfg.Experiment.SIMD && (sym.Pkg.Path == "simd/archsimd") && len(t.Fields()) >= 1:
++		case buildcfg.Experiment.SIMD && pkgPath == "simd/archsimd" && len(t.Fields()) >= 1:
+ 			// This gates the experiment -- without it, no user-visible types can be "simd".
+ 			// The SSA-visible SIMD types remain.
+-			switch sym.Name {
++			switch name {
+ 			case "v128":
+ 				simdify(t, true)
+ 				return
+diff --git a/cmd/internal/objabi/garble.go b/cmd/internal/objabi/garble.go
+index 907bf1c..2b95fc1 100644
+--- a/cmd/internal/objabi/garble.go
++++ b/cmd/internal/objabi/garble.go
+@@ -89,6 +89,26 @@ func OriginalSymbolParts(path, name string) (string, string) {
+ 	return path, name
+ }
+ 
++// OriginalReceiverSymbol translates an obfuscated package path and declaration
++// name to their original values, including a receiver-qualified name such as
++// "Uint8x16.Add". A receiver type and a method are separate declarations, so
++// the symbol map records each half on its own.
++func OriginalReceiverSymbol(path, name string) (string, string) {
++	recv, meth, qualified := strings.Cut(name, ".")
++	if !qualified {
++		return OriginalPackageSymbol(path, name)
++	}
++	// A pointer receiver is spelled "(*T)"; the mapped component is the type
++	// name alone, so keep the decorations around the translated name.
++	open, closing := "", ""
++	if inner, ok := strings.CutPrefix(recv, "(*"); ok && strings.HasSuffix(inner, ")") {
++		recv, open, closing = strings.TrimSuffix(inner, ")"), "(*", ")"
++	}
++	originalPath, originalRecv := OriginalPackageSymbol(path, recv)
++	_, originalMeth := OriginalSymbolParts(path, meth)
++	return originalPath, open + originalRecv + closing + "." + originalMeth
++}
++
+ // OriginalPackageSymbol translates an obfuscated package path and declaration
+ // name to their original values.
+ func OriginalPackageSymbol(path, name string) (string, string) {
+-- 
+2.47.3
+
