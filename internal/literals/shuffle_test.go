@@ -12,6 +12,7 @@ import (
 	"go/token"
 	"go/types"
 	"math/rand"
+	"slices"
 	"testing"
 )
 
@@ -58,11 +59,7 @@ func TestShuffleBoundedOperations(t *testing.T) {
 			if loops != 1 || indirect != 1 {
 				t.Errorf("seed %d size %d: want one operation loop and indexed indirect call; got %d, %d", seed, size, loops, indirect)
 			}
-			refs := 0
-			for _, key := range keys {
-				refs += key.refs
-			}
-			if refs == 0 {
+			if !slices.ContainsFunc(keys, (*externalKey).IsUsed) {
 				t.Fatal("missing external key dependencies")
 			}
 			counts = append(counts, count)

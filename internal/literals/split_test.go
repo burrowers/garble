@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"go/ast"
 	"math/rand"
+	"slices"
 	"testing"
 )
 
@@ -54,11 +55,7 @@ func TestSplitRecordDecoder(t *testing.T) {
 	if loops != 2 || indexedWrites != 1 {
 		t.Fatalf("decoder must write chunks in two loops: loops=%d, indexed writes=%d", loops, indexedWrites)
 	}
-	var refs int
-	for _, key := range keys {
-		refs += key.refs
-	}
-	if refs == 0 {
+	if !slices.ContainsFunc(keys, (*externalKey).IsUsed) {
 		t.Fatal("decoder lost external key dependencies")
 	}
 }

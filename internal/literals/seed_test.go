@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"math/rand"
+	"slices"
 	"testing"
 )
 
@@ -66,11 +67,7 @@ func TestSeedPayloadLoop(t *testing.T) {
 	if payloadStrings != 1 {
 		t.Fatalf("decoder must keep exactly one static payload literal, got %d", payloadStrings)
 	}
-	var refs int
-	for _, key := range keys {
-		refs += key.refs
-	}
-	if refs == 0 {
+	if !slices.ContainsFunc(keys, (*externalKey).IsUsed) {
 		t.Fatal("decoder lost external key dependencies")
 	}
 }
