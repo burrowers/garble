@@ -1,7 +1,9 @@
-# TODO: runtime package obfuscation must preserve the error.Error wrapper.
+# The runtime must emit the builtin error.Error wrapper even when its package
+# path is obfuscated. Taking the method expression requires that wrapper.
 env GARBLE_EXPERIMENTAL_CONTROLFLOW=0
-! exec garble -seed=tkeruNBZVdMHbct5bi6dDQ build -o=main$exe .
-stderr 'relocation target go:builtin[.]error[.]Error not defined'
+exec garble -seed=tkeruNBZVdMHbct5bi6dDQ build -o=main$exe .
+exec ./main$exe
+stderr '^builtin-error-wrapper-ok$'
 
 -- go.mod --
 module test/builtinerrorwrapper

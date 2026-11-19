@@ -1,0 +1,22 @@
+From: tiansin <tiansin@tiansin.com>
+Subject: [PATCH] compile: preserve builtin error wrapper with runtime obfuscation
+
+The runtime must emit the error.Error method wrapper even when imported
+packages already mention the error type. Compare the canonical package
+path so this exception still applies when runtime has been obfuscated.
+---
+ cmd/compile/internal/noder/reader.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmd/compile/internal/noder/reader.go b/cmd/compile/internal/noder/reader.go
+--- a/cmd/compile/internal/noder/reader.go
++++ b/cmd/compile/internal/noder/reader.go
+@@ -4008,7 +4008,7 @@
+ 	}
+ 
+ 	// Special case: runtime must define error even if imported packages mention it (#29304).
+-	forceNeed := typ == types.ErrorType && base.Ctxt.Pkgpath == "runtime"
++	forceNeed := typ == types.ErrorType && base.TranslateGarblePkgPath(base.Ctxt.Pkgpath) == "runtime"
+ 
+ 	// If a type was found in an imported package, then we can assume
+ 	// that package (or one of its transitive dependencies) already
