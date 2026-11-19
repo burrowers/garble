@@ -56,6 +56,14 @@ stderr 'garble \[garble flags\] reverse \[build flags\] \[-test\] package \[file
 ! stderr 'usage: go '
 ! stdout .
 
+! exec garble export -h
+stderr 'garble \[garble flags\] export \[-tags=tags\] directory packages'
+! stdout .
+
+! exec garble help export
+stderr 'garble \[garble flags\] export \[-tags=tags\] directory packages'
+! stdout .
+
 ! exec garble -badflag
 stderr 'flag provided but not defined'
 stderr 'garble \[garble flags\] command'

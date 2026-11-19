@@ -1,0 +1,266 @@
+# One automatic export must retain both filename and explicit build constraints.
+cd source
+exec garble -literals -seed=AAAAAAAAAAA export $WORK/out ./...
+exists $WORK/out/example.com/platforms/system_linux.go
+exists $WORK/out/example.com/platforms/system_windows.go
+exists $WORK/out/example.com/platforms/system_other.go
+exists $WORK/out/example.com/platforms/bits_386.go
+exists $WORK/out/example.com/platforms/bits_other.go
+exists $WORK/out/example.com/platforms/family_unix.go
+exists $WORK/out/example.com/platforms/family_other.go
+exists $WORK/out/example.com/platforms/onlywindows/api_windows.go
+! grep 'portable literal secret marker' $WORK/out/example.com/platforms/platforms.go
+! exists $WORK/out/example.com/platforms/internal/windowsimpl
+! grep 'privateSystem' $WORK/out/example.com/platforms/system_linux.go
+! grep 'privateSystem' $WORK/out/example.com/platforms/system_windows.go
+exec gofmt $WORK/out/example.com/platforms/validation.go
+! stdout 'capacity secret text|capacity αβγ text'
+! stdout '\[\]byte\{65, 66, 67, 68, 69, 70, 71, 72\}|\[2 \* 4\]byte\{65, 66, 67, 68, 69, 70, 71, 72\}|\[\.\.\.\]byte\{65, 66, 67, 68, 69, 70, 71, 72\}'
+
+cd $WORK
+rm source
+cd consumer
+exec go run .
+
+# Compile the same source tree for another OS and a 32-bit architecture.
+env CGO_ENABLED=0
+env GOOS=windows
+env GOARCH=amd64
+exec go build -o $WORK/windows.exe .
+env GOOS=linux
+env GOARCH=386
+exec go build -o $WORK/linux386 .
+env GOOS=darwin
+env GOARCH=arm64
+exec go build -o $WORK/darwin .
+
+-- source/go.mod --
+module example.com/platforms
+
+go 1.27
+
+-- source/platforms.go --
+// Package platforms demonstrates one reusable cross-platform export.
+package platforms
+
+import (
+	"runtime"
+	"unsafe"
+)
+
+// Target reports the selected source variants.
+func Target() string { return privateSystem + "/" + privateBits }
+
+// RuntimeTarget must not be frozen to the machine performing the export.
+func RuntimeTarget() string { return runtime.GOOS + "/" + runtime.GOARCH }
+
+// Width must retain target-dependent compile-time arithmetic.
+func Width() string { return "pointer-size:" + string(rune('0'+unsafe.Sizeof(uint(0)))) }
+
+// Message still obfuscates ordinary source literals.
+func Message() string { return "portable literal secret marker" }
+
+// Family exercises the built-in unix constraint.
+func Family() string { return privateFamily }
+
+-- source/validation.go --
+package platforms
+
+import "runtime"
+import "unsafe"
+
+var target = "execution platform/" + runtime.GOOS + "/" + runtime.GOARCH
+var word = "execution word/" + string(unsafe.Sizeof(uintptr(0))+64)
+var targetBytes = []byte{byte(unsafe.Sizeof(uintptr(0))), 2, 3, 4, 5, 6, 7, 8}
+var targetArray = [unsafe.Sizeof(uintptr(0)) * 2]byte{1, 2, 3, 4, 5, 6, 7, 8}
+var plainBytes = []byte{65, 66, 67, 68, 69, 70, 71, 72}
+var plainArray = [2 * 4]byte{65, 66, 67, 68, 69, 70, 71, 72}
+var inferredArray = [...]byte{65, 66, 67, 68, 69, 70, 71, 72}
+
+const platformIndex = len(runtime.GOOS)
+
+var targetStrings = [...]string{platformIndex: "array secret payload"}
+
+type Bytes []byte
+type Runes []rune
+
+func dependentBytes() []byte     { return []byte("portable prefix/" + runtime.GOOS) }
+func dependentRunes() []rune     { return []rune("portable prefix/" + runtime.GOOS) }
+func dependentNamedBytes() Bytes { return Bytes("portable prefix/" + runtime.GOOS) }
+func dependentNamedRunes() Runes { return Runes("portable prefix/" + runtime.GOOS) }
+
+var byteSink = dependentBytes()
+var runeSink = dependentRunes()
+var namedByteSink = dependentNamedBytes()
+var namedRuneSink = dependentNamedRunes()
+
+// ValidateLiterals checks portable decoders and independent exact-capacity storage.
+func ValidateLiterals() {
+	size := unsafe.Sizeof(uintptr(0))
+	os, arch := runtime.GOOS, runtime.GOARCH
+	if target != "execution platform/"+os+"/"+arch {
+		panic("platform value")
+	}
+	if word != "execution word/"+string(size+64) {
+		panic("word-size value")
+	}
+	if targetBytes[0] != byte(size) || len(targetArray) != int(size)*2 {
+		panic("target bytes")
+	}
+	if len(targetStrings) != len(os)+1 || targetStrings[len(os)] != "array secret payload" {
+		panic("target string array")
+	}
+	if string(plainBytes) != "ABCDEFGH" || string(plainArray[:]) != "ABCDEFGH" || string(inferredArray[:]) != "ABCDEFGH" {
+		panic("plain bytes")
+	}
+	b := []byte("capacity secret text")
+	r := []rune("capacity αβγ text")
+	nb := Bytes("capacity secret text")
+	nr := Runes("capacity αβγ text")
+	p := &[]byte{65, 66, 67, 68, 69, 70, 71, 72}
+	if len(b) != cap(b) || len(r) != cap(r) || len(nb) != cap(nb) || len(nr) != cap(nr) || len(plainBytes) != cap(plainBytes) || len(*p) != cap(*p) {
+		panic("capacity")
+	}
+	b[0], r[0], nb[0], nr[0], (*p)[0] = '!', '!', '!', '!', '!'
+	if string([]byte("capacity secret text")) != "capacity secret text" || string([]rune("capacity αβγ text")) != "capacity αβγ text" || string(Bytes("capacity secret text")) != "capacity secret text" || string(Runes("capacity αβγ text")) != "capacity αβγ text" || (*(&[]byte{65, 66, 67, 68, 69, 70, 71, 72}))[0] != 65 {
+		panic("aliased storage")
+	}
+	if len(byteSink) != cap(byteSink) || len(runeSink) != cap(runeSink) || len(namedByteSink) != cap(namedByteSink) || len(namedRuneSink) != cap(namedRuneSink) {
+		panic("dependent conversion capacity")
+	}
+	want := "portable prefix/" + os
+	if string(byteSink) != want || string(runeSink) != want || string(namedByteSink) != want || string(namedRuneSink) != want {
+		panic("dependent conversion value")
+	}
+	byteSink[0], runeSink[0], namedByteSink[0], namedRuneSink[0] = '!', '!', '!', '!'
+	if string(dependentBytes()) != want || string(dependentRunes()) != want || string(dependentNamedBytes()) != want || string(dependentNamedRunes()) != want {
+		panic("dependent conversion aliased storage")
+	}
+}
+
+-- source/system_linux.go --
+package platforms
+
+const privateSystem = "linux"
+
+-- source/system_windows.go --
+package platforms
+
+import "example.com/platforms/internal/windowsimpl"
+
+var privateSystem = windowsimpl.System()
+
+-- source/system_other.go --
+//go:build !linux && !windows
+
+package platforms
+
+const privateSystem = "other"
+
+-- source/bits_386.go --
+package platforms
+
+const privateBits = "32"
+
+-- source/bits_other.go --
+//go:build !386
+
+package platforms
+
+const privateBits = "not386"
+
+-- source/family_unix.go --
+//go:build unix
+
+package platforms
+
+const privateFamily = "unix"
+
+-- source/family_other.go --
+//go:build !unix
+
+package platforms
+
+const privateFamily = "not-unix"
+
+-- source/onlywindows/api_windows.go --
+package onlywindows
+
+func Ping() int { return 3 }
+
+-- source/internal/windowsimpl/helper_windows.go --
+package windowsimpl
+
+func System() string { return "windows" }
+
+-- consumer/go.mod --
+module example.com/consumer
+
+go 1.27
+
+require example.com/platforms v0.0.0
+
+replace example.com/platforms => ../out/example.com/platforms
+
+-- consumer/main.go --
+package main
+
+import (
+	"runtime"
+	"unsafe"
+
+	"example.com/platforms"
+)
+
+func main() {
+	platforms.ValidateLiterals()
+	system := "other"
+	switch runtime.GOOS {
+	case "linux", "windows":
+		system = runtime.GOOS
+	}
+	bits := "not386"
+	if runtime.GOARCH == "386" {
+		bits = "32"
+	}
+	if actual := platforms.Target(); actual != system+"/"+bits {
+		panic(actual)
+	}
+	if actual := platforms.Width(); actual != "pointer-size:"+string(rune('0'+unsafe.Sizeof(uint(0)))) {
+		panic(actual)
+	}
+	if platforms.Message() != "portable literal secret marker" {
+		panic("wrong literal")
+	}
+	if actual := platforms.Family(); actual != expectedFamily {
+		panic(actual)
+	}
+	if actual := platforms.RuntimeTarget(); actual != runtime.GOOS+"/"+runtime.GOARCH {
+		panic(actual)
+	}
+}
+
+-- consumer/family_unix.go --
+//go:build unix
+
+package main
+
+const expectedFamily = "unix"
+
+-- consumer/family_other.go --
+//go:build !unix
+
+package main
+
+const expectedFamily = "not-unix"
+
+-- consumer/windows_windows.go --
+package main
+
+import "example.com/platforms/onlywindows"
+
+func init() {
+	if onlywindows.Ping() != 3 {
+		panic("platform-only public package")
+	}
+}
