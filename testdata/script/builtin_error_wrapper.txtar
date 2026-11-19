@@ -1,0 +1,19 @@
+# TODO: runtime package obfuscation must preserve the error.Error wrapper.
+env GARBLE_EXPERIMENTAL_CONTROLFLOW=0
+! exec garble -seed=tkeruNBZVdMHbct5bi6dDQ build -o=main$exe .
+stderr 'relocation target go:builtin[.]error[.]Error not defined'
+
+-- go.mod --
+module test/builtinerrorwrapper
+
+go 1.27
+-- main.go --
+package main
+
+import "errors"
+
+var errorText = error.Error
+
+func main() {
+	println(errorText(errors.New("builtin-error-wrapper-ok")))
+}
