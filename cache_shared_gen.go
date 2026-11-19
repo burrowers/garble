@@ -590,9 +590,9 @@ func (z pkgRange) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 12
+	// map header, size 13
 	// string "Words"
-	o = append(o, 0x8c, 0xa5, 0x57, 0x6f, 0x72, 0x64, 0x73)
+	o = append(o, 0x8d, 0xa5, 0x57, 0x6f, 0x72, 0x64, 0x73)
 	o = msgp.AppendArrayHeader(o, uint32(len(z.Words)))
 	for za0001 := range z.Words {
 		o = msgp.AppendString(o, z.Words[za0001])
@@ -635,6 +635,12 @@ func (z *sharedCacheType) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "LinknameActionID"
 	o = append(o, 0xb0, 0x4c, 0x69, 0x6e, 0x6b, 0x6e, 0x61, 0x6d, 0x65, 0x41, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x44)
 	o = msgp.AppendBytes(o, (z.LinknameActionID)[:])
+	// string "MainLinknameTargets"
+	o = append(o, 0xb3, 0x4d, 0x61, 0x69, 0x6e, 0x4c, 0x69, 0x6e, 0x6b, 0x6e, 0x61, 0x6d, 0x65, 0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x73)
+	o = msgp.AppendArrayHeader(o, uint32(len(z.MainLinknameTargets)))
+	for za0004 := range z.MainLinknameTargets {
+		o = msgp.AppendString(o, z.MainLinknameTargets[za0004])
+	}
 	// string "GoCmd"
 	o = append(o, 0xa5, 0x47, 0x6f, 0x43, 0x6d, 0x64)
 	o = msgp.AppendString(o, z.GoCmd)
@@ -774,6 +780,25 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "LinknameActionID")
 				return
 			}
+		case "MainLinknameTargets":
+			var zb0004 uint32
+			zb0004, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "MainLinknameTargets")
+				return
+			}
+			if cap(z.MainLinknameTargets) >= int(zb0004) {
+				z.MainLinknameTargets = (z.MainLinknameTargets)[:zb0004]
+			} else {
+				z.MainLinknameTargets = make([]string, zb0004)
+			}
+			for za0004 := range z.MainLinknameTargets {
+				z.MainLinknameTargets[za0004], bts, err = msgp.ReadStringBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "MainLinknameTargets", za0004)
+					return
+				}
+			}
 		case "GoCmd":
 			z.GoCmd, bts, err = msgp.ReadStringBytes(bts)
 			if err != nil {
@@ -781,14 +806,14 @@ func (z *sharedCacheType) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				return
 			}
 		case "GoEnv":
-			var zb0004 uint32
-			zb0004, bts, err = msgp.ReadMapHeaderBytes(bts)
+			var zb0005 uint32
+			zb0005, bts, err = msgp.ReadMapHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "GoEnv")
 				return
 			}
-			for zb0004 > 0 {
-				zb0004--
+			for zb0005 > 0 {
+				zb0005--
 				field, bts, err = msgp.ReadMapKeyZC(bts)
 				if err != nil {
 					err = msgp.WrapError(err, "GoEnv")
@@ -861,6 +886,10 @@ func (z *sharedCacheType) Msgsize() (s int) {
 	} else {
 		s += z.ListedPackages.Msgsize()
 	}
-	s += 16 + msgp.BytesPrefixSize + len(z.BinaryContentID) + 17 + msgp.ArrayHeaderSize + (sha256.Size * (msgp.ByteSize)) + 6 + msgp.StringPrefixSize + len(z.GoCmd) + 6 + 1 + 5 + msgp.StringPrefixSize + len(z.GoEnv.GOOS) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOARCH) + 10 + msgp.StringPrefixSize + len(z.GoEnv.GOVERSION) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOROOT) + 8 + msgp.StringPrefixSize + len(z.GoEnv.GOFLAGS)
+	s += 16 + msgp.BytesPrefixSize + len(z.BinaryContentID) + 17 + msgp.ArrayHeaderSize + (sha256.Size * (msgp.ByteSize)) + 20 + msgp.ArrayHeaderSize
+	for za0004 := range z.MainLinknameTargets {
+		s += msgp.StringPrefixSize + len(z.MainLinknameTargets[za0004])
+	}
+	s += 6 + msgp.StringPrefixSize + len(z.GoCmd) + 6 + 1 + 5 + msgp.StringPrefixSize + len(z.GoEnv.GOOS) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOARCH) + 10 + msgp.StringPrefixSize + len(z.GoEnv.GOVERSION) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOROOT) + 8 + msgp.StringPrefixSize + len(z.GoEnv.GOFLAGS)
 	return
 }

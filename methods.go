@@ -38,6 +38,9 @@ func methodName(lpkg *listedPackage, name string) string {
 	if token.IsExported(name) {
 		return obfuscatedMethodName(name)
 	}
+	if lpkg.isMainLinknameTarget(name) {
+		return name
+	}
 	// Unexported methods retain their declaring package's identity in Go.
 	return hashWithPackage(lpkg, name)
 }
