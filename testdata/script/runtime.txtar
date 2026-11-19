@@ -151,7 +151,15 @@ import (
 	"sync"
 )
 
+// Taking the method expression requires runtime to emit the builtin wrapper,
+// even when its package path is obfuscated.
+var builtinErrorText = error.Error
+
 func main() {
+	if got := builtinErrorText(fmt.Errorf("builtin-error-wrapper")); got != "builtin-error-wrapper" {
+		panic("unexpected error method result")
+	}
+
 	var wg sync.WaitGroup
 	results := make(chan string, 1)
 	wg.Add(1)
