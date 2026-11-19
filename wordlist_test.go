@@ -4,12 +4,77 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"go/token"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestWordListNameOutput(t *testing.T) {
+	old := sharedCache
+	t.Cleanup(func() { sharedCache = old })
+	for _, test := range []struct {
+		name  string
+		words string
+		sum   []byte
+		input string
+		want  string
+	}{
+		{"Binary", "a\nb", []byte{0x05}, "private", "b_a_b" + strings.Repeat("_a", 45)},
+		{"Ternary", "a\nb\nc", []byte{11}, "private", "c_a_b" + strings.Repeat("_a", 28)},
+		{"Exported", "a\nb\nc", []byte{11}, "Public", "C_a_b" + strings.Repeat("_a", 28)},
+		{"PackagePath", "a\nb\nc", []byte{11}, "example.org/pkg", "c_a_b" + strings.Repeat("_a", 28)},
+		{"Longest", "aaaaaaa\nbbbbbbb\nccccccc\nddddddd\neeeeeee\nfffffff\nggggggg\nhhhhhhh", []byte{0}, "Public", "Aaaaaaa" + strings.Repeat("_aaaaaaa", 15)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			words, count, err := parseWordList(test.words)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sharedCache = &sharedCacheType{Words: words, WordCount: count}
+			if got := wordListName(test.sum, test.input); got != test.want {
+				t.Fatalf("wordListName = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func BenchmarkWordListName(b *testing.B) {
+	old := sharedCache
+	b.Cleanup(func() { sharedCache = old })
+	sum := sha256.Sum256([]byte("word-list naming benchmark"))
+	for _, size := range []int{2, 8, 256, 65536} {
+		var text strings.Builder
+		for i := range size {
+			// Small dictionaries need short words to satisfy the name limit.
+			width := 1
+			if size > 26 {
+				width = 4
+			}
+			value := i
+			for range width {
+				text.WriteByte('a' + byte(value%26))
+				value /= 26
+			}
+			text.WriteByte('\n')
+		}
+		words, count, err := parseWordList(text.String())
+		if err != nil {
+			b.Fatal(err)
+		}
+		sharedCache = &sharedCacheType{Words: words, WordCount: count}
+		for _, name := range []string{"private", "Exported"} {
+			b.Run(fmt.Sprintf("%d/%s", size, name), func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					wordListName(sum[:], name)
+				}
+			})
+		}
+	}
+}
 
 func TestWordListValidation(t *testing.T) {
 	for _, text := range []string{"", "one\none", "A\nb", "a1\nb", "a_b\nb", "é\nb", "abcdefghi\nb", "apple\npear"} {

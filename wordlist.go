@@ -56,14 +56,18 @@ func wordListName(sum []byte, name string) string {
 	value := new(big.Int).SetBytes(sum)
 	base := big.NewInt(int64(len(words)))
 	remainder := new(big.Int)
-	parts := make([]string, sharedCache.WordCount)
-	for i := range parts {
+	// parseWordList bounds every generated name to 128 bytes.
+	var buffer [128]byte
+	result := buffer[:0]
+	for i := range sharedCache.WordCount {
 		value.QuoRem(value, base, remainder)
-		parts[i] = words[remainder.Int64()]
+		if i > 0 {
+			result = append(result, '_')
+		}
+		result = append(result, words[remainder.Int64()]...)
 	}
-	result := strings.Join(parts, "_")
 	if token.IsIdentifier(name) && token.IsExported(name) {
-		result = string(toUpper(result[0])) + result[1:]
+		result[0] = toUpper(result[0])
 	}
-	return result
+	return string(result)
 }
