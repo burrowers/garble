@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/scanner"
+	"go/token"
 	"log"
 	"maps"
 	"os"
@@ -30,6 +32,9 @@ import (
 
 // listedPackages is ignored as it has hand-written marshalers for its lazy index.
 //msgp:ignore listedPackages
+
+// symbolMapEntry is only used while building the serialized SymbolMap string.
+//msgp:ignore symbolMapEntry
 
 // sharedCacheType is shared as a read-only cache between the many garble toolexec
 // sub-processes.
@@ -67,6 +72,10 @@ type sharedCacheType struct {
 	// LinknameActionID covers naming dependencies absent from Go's import graph,
 	// such as the packages whose runtime hooks are defined by outgoing linknames.
 	LinknameActionID [sha256.Size]byte
+
+	// Pin names that would otherwise depend on main's identity. A referrer
+	// cannot import main, so that hash would go stale when only main changes.
+	MainLinknameTargets []string
 
 	// GoCmd is [GoEnv.GOROOT]/bin/go, so that we run exactly the same version
 	// of the Go tool that the original "go build" invocation did.
@@ -365,6 +374,10 @@ func (p *listedPackage) toObfuscate() bool {
 	return len(p.CompiledGoFiles) > 0
 }
 
+func (p *listedPackage) isMainLinknameTarget(name string) bool {
+	return p.Name == "main" && p.ForTest == "" && slices.Contains(sharedCache.MainLinknameTargets, name)
+}
+
 func (p *listedPackage) hasDep(path string) bool {
 	if p.allDeps == nil {
 		p.allDeps = make(map[string]struct{}, len(p.Imports)*2)
@@ -653,6 +666,63 @@ func linknameActionID() [sha256.Size]byte {
 	var sum [sha256.Size]byte
 	h.Sum(sum[:0])
 	return sum
+}
+
+// mainLinknameTargets scans before compilation: with multiple mains, a referrer
+// need not compile before the main whose names it pins.
+func mainLinknameTargets() ([]string, error) {
+	targets := make(map[string]bool)
+	for _, lpkg := range sharedCache.ListedPackages.all() {
+		for _, path := range lpkg.CompiledGoFiles {
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(lpkg.Dir, path)
+			}
+			src, err := os.ReadFile(path)
+			if errors.Is(err, os.ErrNotExist) {
+				continue // generated file no longer retained by go list
+			}
+			if err != nil {
+				return nil, err
+			}
+			collectMainLinknameTargets(src, targets)
+		}
+	}
+	return slices.Sorted(maps.Keys(targets)), nil
+}
+
+func collectMainLinknameTargets(src []byte, targets map[string]bool) {
+	if !bytes.Contains(src, []byte("//go:linkname")) {
+		return
+	}
+	// Scan comments rather than lines so raw strings and block comments cannot
+	// accidentally disable obfuscation. The compiler diagnoses invalid source.
+	var scan scanner.Scanner
+	scan.Init(token.NewFileSet().AddFile("", -1, len(src)), src, nil, scanner.ScanComments)
+	for {
+		_, tok, text := scan.Scan()
+		if tok == token.EOF {
+			return
+		}
+		if tok != token.COMMENT {
+			continue
+		}
+		fields := strings.Fields(text)
+		if len(fields) != 3 || (fields[0] != "//go:linkname" && fields[0] != "//go:linknamestd") {
+			continue
+		}
+		name, ok := strings.CutPrefix(fields[2], "main.")
+		if !ok {
+			continue
+		}
+		if receiver, method, ok := strings.Cut(name, "."); ok {
+			targets[strings.Trim(receiver, "(*)")] = true
+			if token.IsExported(method) {
+				continue // the shared exported method hash does not depend on main
+			}
+			name = method
+		}
+		targets[name] = true
+	}
 }
 
 // appendListedPackages gets information about the current package

@@ -697,7 +697,8 @@ var mappedToolchainSymbols = map[string][]string{
 // obfuscatedPackageObjectName is the shared package-level naming rule used by
 // source transformation and the symbol map consumed by patched tools.
 func obfuscatedPackageObjectName(lpkg *listedPackage, name string) string {
-	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.baseImportPath(), name) {
+	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.baseImportPath(), name) ||
+		lpkg.isMainLinknameTarget(name) {
 		return name
 	}
 	newName := hashWithPackage(lpkg, name)
@@ -1244,6 +1245,14 @@ func (tf *transformer) transformLinkname(localName, newName string) (string, str
 		i := strings.Index(newName[pkgSplit:], ".")
 		if i < 0 {
 			// We couldn't find a prefix that matched a known package.
+			// The linker's main path need not be in the listing. The receiver
+			// stays plaintext, but exported methods must match interfaces in
+			// other packages and use a hash that doesn't depend on main.
+			if target, ok := strings.CutPrefix(newName, "main."); ok {
+				if recv, name, ok := strings.Cut(target, "."); ok && token.IsIdentifier(name) && token.IsExported(name) {
+					return localName, "main." + recv + "." + obfuscatedMethodName(name)
+				}
+			}
 			// Probably a made up name like above, but with a dot.
 			return localName, newName
 		}
