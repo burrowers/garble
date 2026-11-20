@@ -110,6 +110,7 @@ stdout 'SKIP.*TestWithFlag'
 stdout 'package bar, func name:'
 stdout 'package bar_test, func name:'
 ! stdout 'OriginalFuncName'
+stdout 'PASS.*TestExternalFieldNames'
 stdout '\?\s+test/bar/mocks\s'
 stdout '\?\s+test/bar/somemain\s'
 stdout 'ok\s+test/bar/somemaintest\s'
@@ -156,6 +157,7 @@ package bar
 
 import (
 	"encoding/xml"
+	"fmt"
 	"reflect"
 	"runtime"
 	"testing"
@@ -190,6 +192,28 @@ func FuzzGuided(f *testing.F) {
 		}
 	})
 }
+
+// FieldNames reports the field names reflection gives for v.
+//
+// This file is part of the package under test, which the test binary compiles
+// only as a variant, while v's type is declared in the external test package.
+// That package names this one by its plain import path, so the reflected
+// parameters have to be recorded under the same spelling on both sides.
+func FieldNames(v any) string {
+	t := reflect.TypeOf(v)
+	names := make([]string, 0, t.NumField())
+	for i := range t.NumField() {
+		names = append(names, t.Field(i).Name)
+	}
+	return fmt.Sprint(names)
+}
+
+// TypeName reports the type name reflection gives for v.
+func TypeName(v any) string { return reflect.TypeOf(v).Name() }
+
+// MapKeyName reports the key type name of a map value, the sibling position of
+// a reflected type that is not a struct field.
+func MapKeyName[K comparable, V any](m map[K]V) string { return reflect.TypeOf(m).Key().Name() }
 
 -- reflect_error_test.go --
 package bar
@@ -322,6 +346,25 @@ func TestMockedFoo(t *testing.T) {
 	field := reflect.TypeOf(mocks.Payload{}).Field(0)
 	if field.Name != "Value" {
 		t.Fatalf("reflected field name: %s", field.Name)
+	}
+}
+
+// externalConfig is declared in the external test package and reflected from
+// the package under test, which is compiled only as a test variant.
+type externalConfig struct {
+	ExternalAlpha string
+	ExternalBeta  int
+}
+
+func TestExternalFieldNames(t *testing.T) {
+	if got := bar.FieldNames(externalConfig{}); got != "[ExternalAlpha ExternalBeta]" {
+		t.Fatalf("reflected field names: %s", got)
+	}
+	if got := bar.TypeName(externalConfig{}); got != "externalConfig" {
+		t.Fatalf("reflected type name: %s", got)
+	}
+	if got := bar.MapKeyName(map[externalConfig]int{}); got != "externalConfig" {
+		t.Fatalf("reflected map key name: %s", got)
 	}
 }
 
