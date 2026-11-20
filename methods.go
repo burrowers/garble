@@ -105,9 +105,16 @@ func reflectMethodsPatch(path, base string) (string, error) {
 		if start < 0 {
 			return "", fmt.Errorf("cannot find MethodByName search in %s", path)
 		}
-		end := strings.Index(source[start:], "\n	return Method{}, false")
+		// cmd/cover prepends its counter statement to the line it instruments,
+		// so the return cannot be anchored at the start of a line. Find the
+		// statement and cut at the beginning of its line, which keeps the
+		// counter of that block in the rewritten source.
+		end := strings.Index(source[start:], "return Method{}, false")
 		if end < 0 {
 			return "", fmt.Errorf("cannot find MethodByName search in %s", path)
+		}
+		if lineStart := strings.LastIndexByte(source[:start+end], '\n'); lineStart >= start {
+			end = lineStart - start
 		}
 		source = source[:start] + `	for i := range methods {
 		if name == t.nameOff(methods[i].Name).Name() {

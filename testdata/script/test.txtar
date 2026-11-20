@@ -72,6 +72,24 @@ stdout 'ok\s+internal/strconv'
 ! stdout 'coverage: 0\.0% of statements'
 ! stdout 'internal error in coverage meta-data tracking'
 
+# The packages garble patches by source file name are compiled from
+# "<base>.cover.go" copies when they are covered, so a rule keyed on the plain
+# file name would skip exactly the source that ends up in the test binary.
+# internal/abi's pclntab magic and reflect's method lookup are two such rules:
+# without them the covered binary dies at startup or panics in a reflected
+# method call, while the same packages pass uncovered.
+exec garble test -count=1 -short -cover internal/abi
+stdout 'ok\s+internal/abi'
+exec garble test -count=1 -cover -run '^TestMethodValueCallABI$' reflect
+stdout 'ok\s+reflect'
+
+# Tiny mode patches the runtime's own files as text: the entry offsets, the
+# stripped functions and the funcpkgpath guard all have to reach the covered
+# copies as well, or garble's own stripping validation trips over the file names
+# it never saw.
+exec garble -tiny test -count=1 -short -cover -run '^TestGcSys$' runtime
+stdout 'ok\s+runtime'
+
 # Also check that many packages test fine, including a main package and multiple
 # test packages.
 #

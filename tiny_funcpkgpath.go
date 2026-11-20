@@ -30,15 +30,25 @@ func tinyFuncPkgPathSource(path string) (string, error) {
 		return "", err
 	}
 	src := string(data)
-	const needle = "func funcpkgpath(f funcInfo) string {\n\tname := funcNameForPrint(funcname(f))\n"
-	if !strings.Contains(src, needle) {
+	const sig = "func funcpkgpath(f funcInfo) string {"
+	start := strings.Index(src, sig)
+	if start < 0 {
 		return "", fmt.Errorf("tiny funcpkgpath patch did not match funcpkgpath")
 	}
-	src = strings.Replace(src, needle, needle+`	if name == "" {
+	// The guard has to follow the name declaration rather than the signature,
+	// because a covered build compiles cmd/cover's copy of the file, where a
+	// counter statement precedes the body's first line.
+	const nameDecl = "\n	name := funcNameForPrint(funcname(f))\n"
+	decl := strings.Index(src[start:], nameDecl)
+	if decl < 0 {
+		return "", fmt.Errorf("tiny funcpkgpath patch did not match funcpkgpath")
+	}
+	insertAt := start + decl + len(nameDecl)
+	const guard = `	if name == "" {
 		// Tiny mode empties the name table for unexported functions, and an
 		// invalid funcInfo has no name either.
 		return ""
 	}
-`, 1)
-	return src, nil
+`
+	return src[:insertAt] + guard + src[insertAt:], nil
 }
