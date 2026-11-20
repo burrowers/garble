@@ -372,7 +372,7 @@ func (ri *reflectInspector) checkMethodSignature(reflectParams map[int]bool, sig
 // Checks the signature of an interface method for potential reflection use.
 func (ri *reflectInspector) checkInterfaceMethod(m *types.Func) {
 	reflectParams := make(map[int]bool)
-	methodName, _ := stripTypeArgs(m.FullName())
+	methodName, _ := stripTypeArgs(reflectFuncName(m))
 
 	maps.Copy(reflectParams, ri.result.ReflectAPIs[methodName])
 
@@ -402,7 +402,7 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 	var funcName string
 	genericFunc := false
 	if f != nil {
-		funcName, genericFunc = stripTypeArgs(f.FullName())
+		funcName, genericFunc = stripTypeArgs(reflectFuncName(f))
 	}
 
 	reflectParams := make(map[int]bool)
@@ -461,11 +461,11 @@ func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
 				callName := ""
 				if callee := call.StaticCallee(); callee != nil {
 					if obj, ok := ssaFuncOrigin(callee).Object().(*types.Func); ok && obj != nil {
-						callName = obj.FullName()
+						callName = reflectFuncName(obj)
 					}
 				}
 				if callName == "" && call.Method != nil {
-					callName = call.Method.FullName()
+					callName = reflectFuncName(call.Method)
 				}
 				if callName == "" {
 					callName = call.Value.String()
@@ -620,7 +620,7 @@ func (ri *reflectInspector) recordImplementedInterfaceMethods(method *types.Func
 	for _, pkg := range append([]*types.Package{ri.pkg}, ri.pkg.Imports()...) {
 		for iface, im := range interfaceMethods(pkg) {
 			if im.Name() == method.Name() && types.Implements(method.Signature().Recv().Type(), iface) {
-				mergeReflectParams(ri.result.ReflectAPIs, im.FullName(), params)
+				mergeReflectParams(ri.result.ReflectAPIs, reflectFuncName(im), params)
 			}
 		}
 	}
@@ -658,7 +658,7 @@ func matchReflectedInterfaceMethods(pkg *types.Package, result *pkgCache) {
 	interfaces := make(map[string][]interfaceMethod)
 	for _, p := range packages {
 		for iface, method := range interfaceMethods(p) {
-			if targets[method.FullName()] {
+			if targets[reflectFuncName(method)] {
 				interfaces[method.Name()] = append(interfaces[method.Name()], interfaceMethod{iface, method})
 			}
 		}
@@ -674,13 +674,13 @@ func matchReflectedInterfaceMethods(pkg *types.Package, result *pkgCache) {
 			receiver := types.NewPointer(typ)
 			for selection := range types.NewMethodSet(receiver).Methods() {
 				method := selection.Obj().(*types.Func)
-				params := result.ReflectAPIs[method.FullName()]
+				params := result.ReflectAPIs[reflectFuncName(method)]
 				if len(params) == 0 {
 					continue
 				}
 				for _, target := range interfaces[method.Name()] {
 					if types.Implements(receiver, target.iface) {
-						mergeReflectParams(result.ReflectAPIs, target.method.FullName(), params)
+						mergeReflectParams(result.ReflectAPIs, reflectFuncName(target.method), params)
 					}
 				}
 			}
@@ -951,7 +951,7 @@ func declaringGenericFunction(fun *ssa.Function, tp *types.TypeParam) (string, i
 				// looking for the function that declares the parameter.
 				continue
 			}
-			name, _ := stripTypeArgs(obj.FullName())
+			name, _ := stripTypeArgs(reflectFuncName(obj))
 			return name, i, true
 		}
 	}
@@ -1491,6 +1491,37 @@ func typeToObj(typ types.Type) types.Object {
 		return typeToObj(t.Elem())
 	}
 	return nil
+}
+
+// reflectFuncName returns the name a function is keyed by in the reflection
+// records: [pkgCache.ReflectAPIs], [pkgCache.ReflectTypeParams] and the caller
+// and callee names of [pkgCache.ReflectCallEdges].
+//
+// A package rebuilt for a test binary is typechecked under its listing key,
+// which spells the import path as "path [path.test]", but cmd/go gives the
+// compiler the plain path and every package that imports it names its objects
+// by that plain path. A key built from the typechecked package must therefore
+// be spelled with the plain path as well. A key that keeps the variant spelling
+// is never found again by a caller in another package, so the arguments such a
+// caller passes to it go unrecorded and their reflected names stay obfuscated.
+func reflectFuncName(obj *types.Func) string {
+	name := obj.FullName()
+	pkg := obj.Pkg()
+	if pkg == nil || sharedCache == nil {
+		return name
+	}
+	path := pkg.Path()
+	lpkg, ok := sharedCache.ListedPackages.get(path)
+	if !ok {
+		return name
+	}
+	plain := lpkg.baseImportPath()
+	if plain == path {
+		return name
+	}
+	// The variant spelling qualifies the function itself and every named type
+	// in its signature, so replace all of them.
+	return strings.ReplaceAll(name, path, plain)
 }
 
 // stripTypeArgs removes generic type arguments from instantiated names like:
