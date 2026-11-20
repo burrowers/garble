@@ -26,11 +26,6 @@ import (
 	"text/template"
 )
 
-type goPlatform struct {
-	GOOS, GOARCH string
-	Priority     int // smaller wins when deduplicating
-}
-
 var goVersions = []string{"go1.27.0"}
 
 var tmplTables = template.Must(template.New("").Parse(`
@@ -124,7 +119,6 @@ func (t tmplIntrinsic) Compare(t2 tmplIntrinsic) int {
 type versionedString struct {
 	String        string
 	GoVersionLang string
-	Platform      goPlatform
 }
 
 func (v versionedString) Compare(v2 versionedString) int {
@@ -132,11 +126,7 @@ func (v versionedString) Compare(v2 versionedString) int {
 		return c
 	}
 	// Negated so that newer Go versions go first.
-	if c := -cmp.Compare(v.GoVersionLang, v2.GoVersionLang); c != 0 {
-		return c
-	}
-	// Platforms with a lower priority go first.
-	return cmp.Compare(v.Platform.Priority, v2.Platform.Priority)
+	return -cmp.Compare(v.GoVersionLang, v2.GoVersionLang)
 }
 
 func (v versionedString) Equal(v2 versionedString) bool {
@@ -145,12 +135,9 @@ func (v versionedString) Equal(v2 versionedString) bool {
 	return v.String == v2.String
 }
 
-func cmdGo(goVersion string, platform goPlatform, args ...string) versionedString {
+func cmdGo(goVersion string, args ...string) versionedString {
 	cmd := exec.Command("go", args...)
 	cmd.Env = append(cmd.Environ(), "GOTOOLCHAIN="+goVersion)
-	if platform.GOOS != "" {
-		cmd.Env = append(cmd.Env, "GOOS="+platform.GOOS, "GOARCH="+platform.GOARCH)
-	}
 	out, err := cmd.Output()
 	if err != nil {
 		panic(err)
@@ -158,7 +145,6 @@ func cmdGo(goVersion string, platform goPlatform, args ...string) versionedStrin
 	return versionedString{
 		String:        string(bytes.TrimSpace(out)), // no trailing newline
 		GoVersionLang: version.Lang(goVersion),
-		Platform:      platform,
 	}
 }
 
@@ -610,7 +596,7 @@ func pkgSpecialListPaths(goroots []versionedString, listName string) []versioned
 func main() {
 	var goroots []versionedString
 	for _, goVersion := range goVersions {
-		goroots = append(goroots, cmdGo(goVersion, goPlatform{}, "env", "GOROOT"))
+		goroots = append(goroots, cmdGo(goVersion, "env", "GOROOT"))
 	}
 
 	runtimePkgPaths := pkgSpecialListPaths(goroots, "runtimePkgs")
