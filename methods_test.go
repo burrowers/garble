@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -87,5 +88,70 @@ func TestReflectMethodsPatchRejectsChangedSource(t *testing.T) {
 	}
 	if _, err := reflectMethodsPatch(path, "type.go"); err == nil {
 		t.Fatal("unrecognized reflection source accepted")
+	}
+}
+
+// A covered build compiles cmd/cover's rewritten copy of reflect/type.go, where
+// the counter of a block is prepended to the statement it instruments. The
+// patch has to apply to that shape as well, and it has to leave the counter in
+// place rather than cut it off with the replaced method search.
+func TestReflectMethodsPatchCoveredSource(t *testing.T) {
+	const src = `package reflect
+
+func (t *rtype) Method(i int) (Method, bool) {
+	p := methods[i]
+	pname := t.nameOff(p.Name)
+	_ = pname
+	return Method{}, false
+}
+
+func (t *abiType) ExportedMethod(i int) (Method, bool) {
+	p := &t.Methods[i]
+	pname := t.nameOff(p.Name)
+	_ = pname
+	return Method{}, false
+}
+
+func (t *rtype) MethodByName(name string) (Method, bool) {
+	methods := t.ExportedMethods()
+	// We are looking for the first index i where the string becomes >= s.
+	i, j := 0, len(methods)
+	_, _ = i, j
+	if i < len(methods) && name == t.nameOff(methods[i].Name).Name() {
+		return t.Method(i), true
+	}
+
+	goCover_909ca0096d51__72[8] = 1;return Method{}, false
+}
+
+func (t *abiType) MethodByName(name string) (Method, bool) {
+	i := t.methodIndex(name)
+	if name == "" {
+		return t.Method(i), true
+		}
+	return Method{}, false
+}
+`
+	path := filepath.Join(t.TempDir(), "type.cover.go")
+	if err := os.WriteFile(path, []byte(src), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := reflectMethodsPatch(path, "type.go")
+	if err != nil {
+		t.Fatalf("covered source rejected: %v", err)
+	}
+	for _, want := range []string{
+		"goCover_909ca0096d51__72[8] = 1;return Method{}, false",
+		"methods[_garbleMethodIndex(t, i)]",
+		"t.Methods[_garbleMethodIndex((*rtype)(unsafe.Pointer(t)), i)]",
+		"return t.Method(_garbleMethodRank(t, i)), true",
+		"func _garbleMethodRank(t *rtype, raw int) int",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("patched covered source is missing %q:\n%s", want, got)
+		}
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), path, got, 0); err != nil {
+		t.Fatalf("patched covered source does not parse: %v\n%s", err, got)
 	}
 }

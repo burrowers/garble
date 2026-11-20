@@ -58,4 +58,29 @@ func TestTinyFuncPkgPathSource(t *testing.T) {
 	if !strings.Contains(src, "return name[:i]") {
 		t.Fatalf("original body lost:\n%s", src)
 	}
+
+	// A covered build compiles cmd/cover's copy of the file, where the counter
+	// statement of the first block precedes the name declaration on the same
+	// line as the signature.
+	const coveredSource = `package runtime
+
+func funcpkgpath(f funcInfo) string {goCover_909ca0096d51__12[5] = 1;
+	name := funcNameForPrint(funcname(f))
+	i := len(name) - 1
+	return name[:i]
+}
+`
+	if err := os.WriteFile(path, []byte(coveredSource), 0600); err != nil {
+		t.Fatal(err)
+	}
+	src, err = tinyFuncPkgPathSource(path)
+	if err != nil {
+		t.Fatalf("covered source rejected: %v", err)
+	}
+	if got := strings.Count(src, `if name == "" {`); got != 1 {
+		t.Fatalf("guard inserted %d times in covered source, want 1", got)
+	}
+	if !strings.Contains(src, "goCover_909ca0096d51__12[5] = 1;") {
+		t.Fatalf("covered counter lost:\n%s", src)
+	}
 }

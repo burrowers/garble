@@ -119,6 +119,23 @@ var openCache = sync.OnceValues(func() (*cache.Cache, error) {
 	return cache.Open(dir)
 })
 
+// coveredFileSuffix is what cmd/cover appends to the rewritten copy of a file it
+// instruments: a covered package is compiled from <base>.cover.go copies in the
+// build's work directory, never from its own files.
+const coveredFileSuffix = ".cover.go"
+
+// patchedBasename reports the file name that garble's per-file source patches
+// match against. With -cover the compiler reads '<base>.cover.go' instead of
+// '<base>.go', so a rule keyed on the plain name silently skips exactly the
+// source that ends up in the binary, and the covered copy keeps the plaintext
+// constants the patched linker has already replaced.
+func patchedBasename(name string) string {
+	if trimmed, ok := strings.CutSuffix(name, coveredFileSuffix); ok {
+		return trimmed + ".go"
+	}
+	return name
+}
+
 // parseFiles parses the given Go files of lpkg. It supports relative file paths,
 // such as those found in listedPackage.CompiledGoFiles, as long as dir is set to
 // listedPackage.Dir. When mainPatch is true and lpkg is a main package, garble's
@@ -134,7 +151,7 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool)
 
 		var src any
 
-		base := filepath.Base(path)
+		base := patchedBasename(filepath.Base(path))
 		if flagTiny && lpkg.baseImportPath() == "runtime" && (base == "panic.go" || base == "print.go" || base == "symtab.go") {
 			if base == "symtab.go" {
 				src, err = tinyFuncPkgPathSource(path)

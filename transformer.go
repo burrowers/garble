@@ -946,7 +946,7 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 	if flagLiterals && tf.curPkg.baseImportPath() == "embed" {
 		var patched bool
 		for i, file := range files {
-			if filepath.Base(paths[i]) == "embed.go" {
+			if patchedBasename(filepath.Base(paths[i])) == "embed.go" {
 				if err := patchEmbedPackage(file); err != nil {
 					return nil, err
 				}
@@ -1037,6 +1037,10 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 
 	for i, file := range files {
 		basename := filepath.Base(paths[i])
+		// The per-file patches below match the package's own file names, but a
+		// covered build compiles '<base>.cover.go' copies, so the rules have to
+		// see the name of the file cmd/cover rewrote.
+		patchName := patchedBasename(basename)
 		log.Printf("obfuscating %s", basename)
 		// A package rebuilt for a test binary carries a " [pkg.test]" suffix in
 		// its import path, but it is the same package: the runtime-only patches
@@ -1046,18 +1050,18 @@ func (tf *transformer) transformCompile(args []string) ([]string, error) {
 		case "runtime":
 			if flagTiny {
 				// strip unneeded runtime code
-				strippedFunctions, strippedVMAName := stripRuntime(basename, file)
-				runtimeStrippedByFile[basename] = strippedFunctions
-				if basename == "set_vma_name_linux.go" && sharedCache.GoEnv.GOOS == "linux" && !strippedVMAName {
+				strippedFunctions, strippedVMAName := stripRuntime(patchName, file)
+				runtimeStrippedByFile[patchName] = strippedFunctions
+				if patchName == "set_vma_name_linux.go" && sharedCache.GoEnv.GOOS == "linux" && !strippedVMAName {
 					panic("runtime stripping rule did not match set_vma_name_linux.go:setVMAName")
 				}
 				tf.useAllImports(file)
 			}
-			if basename == "symtab.go" {
+			if patchName == "symtab.go" {
 				updateEntryOffset(file, entryOffKey(), tf.info)
 			}
 		case "internal/abi":
-			if basename == "symtab.go" {
+			if patchName == "symtab.go" {
 				updateMagicValue(file, magicValue())
 			}
 		}
