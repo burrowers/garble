@@ -619,6 +619,48 @@ func isSynthesizedTestMain(lpkg listedPackage) bool {
 	return lpkg.Name == "main" && lpkg.ForTest == "" && strings.HasSuffix(lpkg.ImportPath, ".test")
 }
 
+// listedPackageErrors formats the errors of the listed packages which this
+// command will build, and drops those of a package form the go command only
+// listed to obtain export data.
+func listedPackageErrors(pkgs []listedPackage, imported, cleanVariants map[string]struct{}) string {
+	var b strings.Builder
+	for _, pkg := range pkgs {
+		if unbuiltPlainForm(pkg, imported, cleanVariants) {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		if pkg.Error.Pos != "" {
+			b.WriteString(pkg.Error.Pos)
+			b.WriteString(": ")
+		}
+		// Error messages sometimes include a trailing newline.
+		b.WriteString(strings.TrimRight(pkg.Error.Err, "\n"))
+	}
+	return b.String()
+}
+
+// unbuiltPlainForm reports whether pkg's listing error belongs to a package
+// form which this command never builds. A -test listing compiles each tested
+// package's plain form only because -export asks for its export data, while
+// the test binary imports the variant instead: a plain form which fails to
+// build, for example because its assembly needs a go_asm.h constant of a type
+// only the test files declare, leaves the test build intact, which is why
+// `go test` succeeds without ever compiling that form. Tolerate the error when
+// its test variant listed cleanly and nothing else in the listing imports the
+// plain form, which would make it a dependency of a package that is built.
+func unbuiltPlainForm(pkg listedPackage, imported, cleanVariants map[string]struct{}) bool {
+	if pkg.ForTest != "" {
+		return false
+	}
+	if _, ok := cleanVariants[pkg.ImportPath]; !ok {
+		return false
+	}
+	_, isImported := imported[pkg.ImportPath]
+	return !isImported
+}
+
 // linknameActionID hashes original Go action IDs, before Garble adds its own
 // inputs. A runtime object can name foreign packages without importing them;
 // their compile flags must invalidate that object even when Go reuses runtime's
@@ -707,11 +749,30 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 	}
 
 	dec := json.NewDecoder(stdout)
-	var pkgErrors strings.Builder
+	// A listed package's error is fatal, except where the go command will not
+	// build that form of the package for this command. Collect the errors and
+	// decide once the whole listing is known, as the evidence for that rests
+	// on entries which may come before or after the erroring one.
+	var pkgErrors []listedPackage
+	imported := make(map[string]struct{})
+	cleanVariants := make(map[string]struct{})
 	for dec.More() {
 		var pkg listedPackage
 		if err := dec.Decode(&pkg); err != nil {
 			return err
+		}
+
+		// Record the paths which the listing actually links against: a test
+		// variant's imports are mapped to the variant of a package under test,
+		// so the plain form of such a package is imported by nothing.
+		for _, path := range pkg.Imports {
+			if mapped := pkg.ImportMap[path]; mapped != "" {
+				path = mapped
+			}
+			imported[path] = struct{}{}
+		}
+		if pkg.ForTest != "" && pkg.Error == nil {
+			cleanVariants[pkg.ForTest] = struct{}{}
 		}
 
 		if perr := pkg.Error; perr != nil {
@@ -735,15 +796,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 				// garble takes from this package depends on that build; the real
 				// build reports any genuine failure of the test main.
 			} else {
-				if pkgErrors.Len() > 0 {
-					pkgErrors.WriteString("\n")
-				}
-				if perr.Pos != "" {
-					pkgErrors.WriteString(perr.Pos)
-					pkgErrors.WriteString(": ")
-				}
-				// Error messages sometimes include a trailing newline.
-				pkgErrors.WriteString(strings.TrimRight(perr.Err, "\n"))
+				pkgErrors = append(pkgErrors, pkg)
 			}
 		}
 
@@ -772,8 +825,8 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("go list error: %v:\nargs: %q\n%s", err, args, stderr.Bytes())
 	}
-	if pkgErrors.Len() > 0 {
-		return errors.New(pkgErrors.String())
+	if msg := listedPackageErrors(pkgErrors, imported, cleanVariants); msg != "" {
+		return errors.New(msg)
 	}
 
 	if mainBuild {
