@@ -125,6 +125,11 @@ type reflectInspector struct {
 	// SSA does not track referrers of a global, so the initializing writes are
 	// indexed up front; a reflected global exposes whatever was stored in it.
 	globalStores map[*ssa.Global][]ssa.Value
+	// closureBindings holds, for every anonymous function of the package, the
+	// values the MakeClosure sites bind to its free variables. A FreeVar names
+	// no operand, so this is the only route from a captured value back to the
+	// value the enclosing function produced.
+	closureBindings map[*ssa.Function][][]ssa.Value
 
 	result pkgCache
 }
@@ -139,6 +144,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 	// the ones it learns from, so a chain of reflect-tainted calls can need one
 	// pass per link. Repeat until a pass records nothing new.
 	ri.indexGlobalStores(ssaPkg)
+	ri.indexClosureBindings(ssaPkg)
 	for {
 		prev := ri.recordedCount()
 		ri.ignoreReflectedTypes(ssaPkg)
@@ -181,12 +187,22 @@ func (ri *reflectInspector) indexGlobalStores(ssaPkg *ssa.Package) {
 		}
 		for _, block := range fn.Blocks {
 			for _, inst := range block.Instrs {
-				store, ok := inst.(*ssa.Store)
-				if !ok {
-					continue
-				}
-				if global := globalOfAddr(store.Addr); global != nil {
-					ri.globalStores[global] = append(ri.globalStores[global], store.Val)
+				// A map and a channel are reference types, so a write into a
+				// package-level one never stores to the global's address and
+				// would otherwise be invisible here.
+				switch inst := inst.(type) {
+				case *ssa.Store:
+					if global := globalOfAddr(inst.Addr); global != nil {
+						ri.globalStores[global] = append(ri.globalStores[global], inst.Val)
+					}
+				case *ssa.MapUpdate:
+					if global := globalOfAddr(inst.Map); global != nil {
+						ri.globalStores[global] = append(ri.globalStores[global], inst.Value)
+					}
+				case *ssa.Send:
+					if global := globalOfAddr(inst.Chan); global != nil {
+						ri.globalStores[global] = append(ri.globalStores[global], inst.X)
+					}
 				}
 			}
 		}
@@ -210,8 +226,63 @@ func globalOfAddr(addr ssa.Value) *ssa.Global {
 		return globalOfAddr(addr.X)
 	case *ssa.ChangeType:
 		return globalOfAddr(addr.X)
+	case *ssa.UnOp:
+		// A map or a channel is reached through a load of the variable which
+		// holds it, so the writes into it name the load rather than the global.
+		return globalOfAddr(addr.X)
 	}
 	return nil
+}
+
+// indexClosureBindings records which values each MakeClosure instruction binds
+// to the free variables of the anonymous function it builds. A *ssa.FreeVar
+// has no operand, so without this index a value read from a captured variable
+// cannot be traced back to the value the enclosing function produced.
+func (ri *reflectInspector) indexClosureBindings(ssaPkg *ssa.Package) {
+	if ri.closureBindings != nil {
+		return
+	}
+	ri.closureBindings = make(map[*ssa.Function][][]ssa.Value)
+	var scan func(fn *ssa.Function)
+	scan = func(fn *ssa.Function) {
+		for _, anon := range fn.AnonFuncs {
+			scan(anon)
+		}
+		for _, block := range fn.Blocks {
+			for _, inst := range block.Instrs {
+				mc, ok := inst.(*ssa.MakeClosure)
+				if !ok {
+					continue
+				}
+				closure, ok := mc.Fn.(*ssa.Function)
+				if !ok {
+					continue
+				}
+				ri.closureBindings[closure] = append(ri.closureBindings[closure], mc.Bindings)
+			}
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(ssaPkg.Members)) {
+		switch memb := ssaPkg.Members[name].(type) {
+		case *ssa.Function:
+			scan(memb)
+		case *ssa.Type:
+			// A method body is not a package member, so a closure created
+			// there is not reached through Members and its bindings would be
+			// indexed nowhere.
+			for _, typ := range []types.Type{memb.Type(), types.NewPointer(memb.Type())} {
+				for method := range ssaPkg.Prog.MethodSets.MethodSet(typ).Methods() {
+					fn := ssaPkg.Prog.MethodValue(method)
+					if fn == nil {
+						fn = ssaPkg.Prog.FuncValue(method.Obj().(*types.Func))
+					}
+					if fn != nil {
+						scan(fn)
+					}
+				}
+			}
+		}
+	}
 }
 
 // find all functions, methods and interface declarations of a package and record their
@@ -925,6 +996,10 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 		}
 		return ri.recordArgReflected(fun, val.X, visited)
 	case *ssa.Slice:
+		// Slicing a backing array or another slice keeps the same elements,
+		// and their addresses are derived from this value, so the values
+		// stored through its index are part of what reflection sees.
+		ri.recordReferrersReflected(fun, val, visited)
 		return ri.recordArgReflected(fun, val.X, visited)
 	case *ssa.Call:
 		// A returned slice can contain the input models after reordering.
@@ -995,7 +1070,13 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 				}
 			}
 		}
-	case *ssa.MakeSlice, *ssa.Const:
+	case *ssa.MakeSlice:
+		// The elements of a slice are reachable through its index, so the
+		// values stored into the addresses derived from it are part of what
+		// reflection sees, as for a map's entries.
+		ri.recursivelyRecordUsedForReflect(val.Type())
+		ri.recordReferrersReflected(fun, val, visited)
+	case *ssa.Const:
 		ri.recursivelyRecordUsedForReflect(val.Type())
 	case *ssa.Global:
 		ri.recursivelyRecordUsedForReflect(val.Type())
@@ -1012,6 +1093,33 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 
 		ri.recursivelyRecordUsedForReflect(val.Type())
 		return val
+	case *ssa.Extract:
+		// The values of a range over a map arrive as an Extract of the
+		// iterator's Next instruction, which names no map of its own, so
+		// follow the iterator back to the map being ranged over.
+		if next, ok := val.Tuple.(*ssa.Next); ok && !next.IsString {
+			return ri.recordArgReflected(fun, next.Iter, visited)
+		}
+	case *ssa.Range:
+		// An iterator reads the map its range instruction was given, so the
+		// values an iteration produces are the ones stored into that map.
+		return ri.recordArgReflected(fun, val.X, visited)
+	case *ssa.FreeVar:
+		// A closure reads a captured variable through a FreeVar, which names
+		// no operand of its own. Follow the MakeClosure sites which build this
+		// function, so a value reflected inside a closure is traced back to
+		// the producer in the enclosing function.
+		for i, freeVar := range val.Parent().FreeVars {
+			if freeVar != val {
+				continue
+			}
+			for _, bindings := range ri.closureBindings[val.Parent()] {
+				if i < len(bindings) {
+					ri.recordArgReflected(fun, bindings[i], visited)
+				}
+			}
+			break
+		}
 	}
 
 	return nil
