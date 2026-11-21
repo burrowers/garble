@@ -6,8 +6,8 @@ stderr 'deadLiteralImported1167'
 exec ./main$exe
 cmp stderr main.stderr
 
-binsubstr main$exe 'skip typed const' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'skip untyped const' 'sz<min'
-! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret' 'parens!!'
+binsubstr main$exe 'skip typed const' 'skip untyped const' 'sz<min'
+! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret' 'parens!!' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'named case label secret'
 ! binsubstr main$exe 'initialized owner of linked string'
 ! binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz' 'local option key' 'local option value'
 
@@ -337,6 +337,27 @@ type typeAlias [arrayLen]byte
 type namedByteSlice []byte
 type namedRuneSlice []rune
 
+type namedStringType string
+
+// A named string conversion still yields a constant, so the positions which
+// need one must keep compiling: a const declaration, and the operand of len in
+// an array length, cannot take a decoder call.
+const namedConstOperand namedStringType = "named const operand secret"
+
+var namedConstLength [len(namedStringType("named array length secret"))]byte
+
+// The switch tag is a runtime value, so the compiler has to materialize the
+// case label and the binary shows whether it was decoded.
+var namedCaseValues = []namedStringType{"named case label secret"}
+
+func namedCaseLabel(i int) bool {
+	switch namedCaseValues[i] {
+	case "named case label secret":
+		return true
+	}
+	return false
+}
+
 var namedPayload = namedByteSlice("a named literal payload large enough to trigger decoding, including \x00 and \xff")
 var namedRunes = namedRuneSlice("é界ΩabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
@@ -412,6 +433,9 @@ func main() {
 	shadowTest()
 	dotImportTest()
 	multipleTimeImportTest()
+	if !namedCaseLabel(0) {
+		println("unreachable")
+	}
 
 	strArray := [2]string{"1: literal in", "an secret array"}
 	println(strArray[0], strArray[1])
