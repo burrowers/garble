@@ -681,6 +681,7 @@ func main() {
 	checkAnyTable()
 	checkCrossPackageAny()
 	checkMapAndChanAny()
+	checkProducerAny()
 }
 
 func rangeFuncSequence(yield func(int) bool) {
@@ -1198,6 +1199,113 @@ func checkMapAndChanAny() {
 	fmt.Printf("chan any: %s %v %v %q\n", out, err, field.IsValid(), field.String())
 }
 
+// The producers below fill a container whose elements are interface values
+// somewhere else: through an index of a make'd slice, through a package-level
+// map or channel written by another function, through a range over a map, and
+// through a closure which captures the value. Each row has its own shape,
+// because identical struct types hash their field names identically.
+type makeIndexRow struct {
+	MakeIndexAlpha string
+	MakeIndexBeta  int
+}
+
+type globalMapRow struct {
+	GlobalMapAlpha string
+	GlobalMapBeta  int
+}
+
+type localMapRangeRow struct {
+	LocalMapRangeAlpha string
+	LocalMapRangeBeta  int
+}
+
+type globalChanRow struct {
+	GlobalChanAlpha string
+	GlobalChanBeta  int
+}
+
+type closureRow struct {
+	ClosureAlpha string
+	ClosureBeta  int
+}
+
+var globalAnyMap = map[string]any{}
+
+var globalAnyChan = make(chan any, 1)
+
+var closureAnyTable = []any{&closureRow{ClosureAlpha: "a", ClosureBeta: 1}}
+
+func fillGlobalAnyMap() {
+	globalAnyMap["row"] = &globalMapRow{GlobalMapAlpha: "a", GlobalMapBeta: 1}
+}
+
+func sendGlobalAnyChan() {
+	globalAnyChan <- &globalChanRow{GlobalChanAlpha: "a", GlobalChanBeta: 1}
+}
+
+func reportField(label string, value any, name string) {
+	out, err := json.Marshal(value)
+	field := reflect.ValueOf(value).Elem().FieldByName(name)
+	fmt.Printf("%s: %s %v %v %q\n", label, out, err, field.IsValid(), field.String())
+}
+
+type methodClosureRow struct {
+	MethodClosureAlpha string
+	MethodClosureBeta  int
+}
+
+type methodClosureHolder struct{}
+
+// report marshals the captured value inside a closure whose enclosing function
+// is a method body, so the MakeClosure site is not a package-level function and
+// the bindings index would miss it if methods were not walked.
+func (methodClosureHolder) report() string {
+	rows := make([]any, 1)
+	rows[0] = &methodClosureRow{MethodClosureAlpha: "a", MethodClosureBeta: 1}
+	reported := ""
+	for _, captured := range rows {
+		func() {
+			out, err := json.Marshal(captured)
+			field := reflect.ValueOf(captured).Elem().FieldByName("MethodClosureAlpha")
+			reported = fmt.Sprintf("%s %v %v %q", out, err, field.IsValid(), field.String())
+		}()
+	}
+	return reported
+}
+
+func checkProducerAny() {
+	rows := make([]any, 1)
+	rows[0] = &makeIndexRow{MakeIndexAlpha: "a", MakeIndexBeta: 1}
+	reportField("make index any", rows[0], "MakeIndexAlpha")
+
+	fillGlobalAnyMap()
+	reportField("global map key any", globalAnyMap["row"], "GlobalMapAlpha")
+	for _, value := range globalAnyMap {
+		reportField("global map range any", value, "GlobalMapAlpha")
+	}
+
+	localMap := map[string]any{"row": &localMapRangeRow{LocalMapRangeAlpha: "a", LocalMapRangeBeta: 1}}
+	for _, value := range localMap {
+		reportField("local map range any", value, "LocalMapRangeAlpha")
+	}
+
+	sendGlobalAnyChan()
+	reportField("global chan any", <-globalAnyChan, "GlobalChanAlpha")
+
+	// A goroutine reads the range variable through a free variable, so the
+	// value is not visible in the closure's own operand list.
+	done := make(chan struct{})
+	for _, entry := range closureAnyTable {
+		go func() {
+			defer close(done)
+			reportField("closure any", entry, "ClosureAlpha")
+		}()
+	}
+	<-done
+
+	fmt.Printf("method closure any: %s\n", methodClosureHolder{}.report())
+}
+
 -- importedpkg/imported.go --
 package importedpkg
 
@@ -1661,6 +1769,13 @@ any table pointer: {"Alpha":"a","Beta":1} <nil>
 cross-package any: {"CrossAlpha":"a","CrossBeta":1} <nil> true "a"
 map any: {"MapAnyAlpha":"a","MapAnyBeta":1} <nil> true "a"
 chan any: {"ChanAnyAlpha":"a","ChanAnyBeta":1} <nil> true "a"
+make index any: {"MakeIndexAlpha":"a","MakeIndexBeta":1} <nil> true "a"
+global map key any: {"GlobalMapAlpha":"a","GlobalMapBeta":1} <nil> true "a"
+global map range any: {"GlobalMapAlpha":"a","GlobalMapBeta":1} <nil> true "a"
+local map range any: {"LocalMapRangeAlpha":"a","LocalMapRangeBeta":1} <nil> true "a"
+global chan any: {"GlobalChanAlpha":"a","GlobalChanBeta":1} <nil> true "a"
+closure any: {"ClosureAlpha":"a","ClosureBeta":1} <nil> true "a"
+method closure any: {"MethodClosureAlpha":"a","MethodClosureBeta":1} <nil> true "a"
 range defer 2
 range defer 1
 range defer 0
