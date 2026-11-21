@@ -131,6 +131,14 @@ stdout 'ok\s+test/bar/somemaintest\s'
 stdout 'ok\s+test/bar/sometest\s'
 stdout 'ok\s+test/bar/exporttest\s'
 
+# A test build lists each tested package's plain form only because -export asks
+# for its export data, and the binary imports the variant instead. Assembly
+# which needs a go_asm.h constant of a type only the test files declare fails
+# in that unbuilt plain form while the test variant assembles, so go test
+# passes where plain go build fails; the listing error of a form no package
+# imports must not be fatal here either.
+stdout 'ok\s+test/bar/asmtest\s'
+
 # verify that an unknown test flag does not consume a following build flag
 exec garble test . -withflag -tags testprefix -v
 stdout 'PASS.*TestWithFlag'
@@ -432,4 +440,51 @@ func linkedValue() string { return "linked" }
 
 type Payload struct {
 	Value string
+}
+
+-- asmtest/asmtest_amd64.go --
+//go:build amd64
+
+package asmtest
+
+// off returns the offset of Outer's B field, from go_asm.h.
+func off() int64
+
+-- asmtest/asmtest_amd64.s --
+#include "textflag.h"
+#include "go_asm.h"
+
+TEXT ·off(SB), NOSPLIT, $0-8
+	MOVQ $Outer_B, AX
+	MOVQ AX, ret+0(FP)
+	RET
+
+-- asmtest/asmtest_other.go --
+//go:build !amd64
+
+package asmtest
+
+// off reads a go_asm.h constant on amd64, which only that architecture
+// assembles; elsewhere the package has to build without the offset.
+func off() int64 { return 8 }
+
+-- asmtest/asmtest_test.go --
+package asmtest
+
+import "testing"
+
+// Outer is declared in the test files only, so the variant's go_asm.h has its
+// B field offset while a plain compile of this package has no such type and
+// fails to assemble.
+type Outer struct {
+	embedded
+	B int64
+}
+
+type embedded struct{ A int32 }
+
+func TestOff(t *testing.T) {
+	if got := off(); got != 8 {
+		t.Fatalf("offset = %d, want 8", got)
+	}
 }
