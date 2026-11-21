@@ -61,6 +61,21 @@ exec garble test -count=1 -short -cover -run '^TestBase$' path
 stdout 'ok\s+path'
 stdout 'coverage: .* of statements'
 
+# The go command enables coverage for -coverprofile alone, without -cover. The
+# preliminary listing has to request the same coverage import graph, or
+# runtime/coverage is compiled although no listing mentioned it and the build
+# fails with "TOOLEXEC_IMPORTPATH package not found in listed packages".
+exec garble test -count=1 -short -coverprofile=$WORK/cover.out -run '^TestBase$' path
+stdout 'ok\s+path'
+stdout 'coverage: .* of statements'
+grep '^mode: set' $WORK/cover.out
+grep 'path/match.go:' $WORK/cover.out
+
+# The same flag under its explicit test-binary spelling.
+exec garble test -count=1 -short -test.coverprofile=$WORK/cover2.out -run '^TestBase$' path
+stdout 'ok\s+path'
+grep 'path/match.go:' $WORK/cover2.out
+
 # cmd/cover decides whether a package needs a hard-coded coverage package ID,
 # writes it into every counter block, and the compiler repeats that decision for
 # the registration it adds to the package's init. cmd/cover is a host tool and

@@ -563,6 +563,14 @@ This command wraps "go %s". Below is its help:
 	sharedCache.ForwardBuildFlags, _ = filterForwardBuildFlags(allFlags)
 	if command == "test" {
 		sharedCache.ForwardBuildFlags = append(sharedCache.ForwardBuildFlags, "-test")
+		// cmd/go enables coverage for -coverprofile by itself, without -cover,
+		// and then instruments the package and links runtime/coverage. The
+		// listing has to request that same coverage import graph; otherwise
+		// runtime/coverage is compiled without any listing entry and the build
+		// fails with "TOOLEXEC_IMPORTPATH package not found in listed packages".
+		if hasCoverProfileFlag(allFlags) && !hasCoverBuildFlag(sharedCache.ForwardBuildFlags) {
+			sharedCache.ForwardBuildFlags = append(sharedCache.ForwardBuildFlags, "-cover")
+		}
 	}
 
 	if err := fetchGoEnv(); err != nil {
@@ -954,6 +962,32 @@ func filterForwardBuildFlags(flags []string) (filtered []string, firstUnknown st
 		}
 	}
 	return filtered, firstUnknown
+}
+
+// hasCoverProfileFlag reports whether args ask the test binary to write a
+// coverage profile. cmd/go enables coverage for that request on its own, so it
+// changes the imports of the build even when no coverage build flag is passed.
+func hasCoverProfileFlag(args []string) bool {
+	for _, arg := range args {
+		name, _, _ := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		if name == "coverprofile" || name == "test.coverprofile" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasCoverBuildFlag reports whether one of the forwarded build flags already
+// enables coverage, in which case the listing needs no extra -cover.
+func hasCoverBuildFlag(flags []string) bool {
+	for _, arg := range flags {
+		name, _, _ := strings.Cut(arg, "=")
+		switch strings.TrimLeft(name, "-") {
+		case "cover", "covermode", "coverpkg":
+			return true
+		}
+	}
+	return false
 }
 
 // rejectUnknownBuildFlags errors on the first non-build flag in flags, if any.
