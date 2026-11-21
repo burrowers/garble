@@ -277,6 +277,25 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 					return false
 				}
 			}
+			// A constant whose type is a named string type is the same literal
+			// with a conversion around it, so leaving it alone keeps the bytes in
+			// plaintext for no reason: `Env("secret")`, `var e Env = "secret"`,
+			// a map key, a struct field or a call argument all record the named
+			// type instead of plain string. Keep the conversion and decode its
+			// operand, which leaves the type unchanged. A reference to a
+			// constant declaration gains nothing, because the declaration keeps
+			// its bytes anyway and the decoder would only repeat them.
+			if named, ok := types.Unalias(typeAndValue.Type).(*types.Named); ok {
+				if basic, ok := named.Underlying().(*types.Basic); ok && basic.Kind() == types.String {
+					value := constant.StringVal(typeAndValue.Value)
+					if stringLiteralText(node) && len(value) >= MinSize {
+						if typeExpr := constructorResult(file, info, named); typeExpr != nil {
+							cursor.Replace(withPos(ah.CallExpr(typeExpr, obfuscateString(or, value)), node.Pos()))
+							return false
+						}
+					}
+				}
+			}
 			// Keep descending: a string constant we left alone, such as one
 			// below MinSize or one of a named type, may still have operands
 			// which we can rewrite.
@@ -352,6 +371,20 @@ func skipLiteralInit(spec *ast.ValueSpec, info *types.Info, staticInits map[*typ
 		if obj, ok := info.Defs[name].(*types.Var); ok && staticInits[obj] {
 			return true
 		}
+	}
+	return false
+}
+
+// stringLiteralText reports whether an expression carries source text for a
+// constant string: the literal itself, or the operand of a conversion. A
+// reference to a constant declaration does not, and decoding it would only turn
+// a constant into runtime work without removing any source bytes.
+func stringLiteralText(expr ast.Expr) bool {
+	switch expr := ast.Unparen(expr).(type) {
+	case *ast.BasicLit:
+		return expr.Kind == token.STRING
+	case *ast.CallExpr:
+		return len(expr.Args) == 1 && stringLiteralText(expr.Args[0])
 	}
 	return false
 }
