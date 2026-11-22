@@ -11,6 +11,7 @@ binsubstr main$exe 'skip typed const' 'skip untyped const' 'sz<min'
 ! binsubstr main$exe 'initialized owner of linked string'
 ! binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz' 'local option key' 'local option value'
 ! binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
+! binsubstr main$exe 'elemuint8slice' 'elemaliasslice' 'elemuint8array' 'elemaliasarray'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -26,6 +27,7 @@ exec ./main$exe
 cmp stderr main.stderr
 binsubstr main$exe 'Lorem Ipsum' 'dolor sit amet' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret'
 binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
+binsubstr main$exe 'elemuint8slice' 'elemaliasslice' 'elemuint8array' 'elemaliasarray' 'elemconvuint8' 'elemconvalias' 'elemconvdefined'
 
 # Generate and write random literals into a separate file.
 # Huge literals must use the bounded-AST decoder instead of per-byte expressions.
@@ -391,6 +393,22 @@ func aliasOfStringCheck() {
 var namedPayload = namedByteSlice("a named literal payload large enough to trigger decoding, including \x00 and \xff")
 var namedRunes = namedRuneSlice("é界ΩabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
+// An element type of a byte literal may be spelled as uint8 or through an alias
+// of byte. Both name the same type the compiler uses for []byte, so these are the
+// same literals as their []byte spelling and must be decoded the same way.
+type byteAliasElem = byte
+type byteDefinedElem byte
+
+var (
+	uint8ElemSlice  = []uint8{'e', 'l', 'e', 'm', 'u', 'i', 'n', 't', '8', 's', 'l', 'i', 'c', 'e'}
+	aliasElemSlice  = []byteAliasElem{'e', 'l', 'e', 'm', 'a', 'l', 'i', 'a', 's', 's', 'l', 'i', 'c', 'e'}
+	uint8ElemArray  = [14]uint8{'e', 'l', 'e', 'm', 'u', 'i', 'n', 't', '8', 'a', 'r', 'r', 'a', 'y'}
+	aliasElemArray  = [14]byteAliasElem{'e', 'l', 'e', 'm', 'a', 'l', 'i', 'a', 's', 'a', 'r', 'r', 'a', 'y'}
+	uint8ElemConv   = []uint8("elemconvuint8")
+	aliasElemConv   = []byteAliasElem("elemconvalias")
+	definedElemConv = []byteDefinedElem("elemconvdefined")
+)
+
 // Strings which are only used inside constant expressions must be left alone;
 // rewriting them into decoder calls would stop the constants from compiling.
 const constString string = "constant expression secret"
@@ -417,6 +435,28 @@ func main() {
 	}
 	if len(namedRunes) != cap(namedRunes) || namedRunes[0] != 'é' || namedRunes[len(namedRunes)-1] != '9' {
 		panic("named rune slice literal changed")
+	}
+	// The same literals spelled with uint8 or through an alias of byte as their
+	// element type must decode to the same value with the same capacity.
+	if len(uint8ElemSlice) != 14 || cap(uint8ElemSlice) != 14 || string(uint8ElemSlice) != "elemuint8slice" {
+		panic("uint8 spelled byte slice literal changed")
+	}
+	if len(aliasElemSlice) != 14 || cap(aliasElemSlice) != 14 || string(aliasElemSlice) != "elemaliasslice" {
+		panic("alias spelled byte slice literal changed")
+	}
+	if string(uint8ElemArray[:]) != "elemuint8array" || string(aliasElemArray[:]) != "elemaliasarray" {
+		panic("spelled byte array literal changed")
+	}
+	// A constant string converted to a slice whose element type is a byte type
+	// keeps len == cap, as it does under plain Go, whatever the element spelling.
+	if len(uint8ElemConv) != cap(uint8ElemConv) || string(uint8ElemConv) != "elemconvuint8" {
+		panic("uint8 spelled byte slice conversion changed")
+	}
+	if len(aliasElemConv) != cap(aliasElemConv) || string(aliasElemConv) != "elemconvalias" {
+		panic("alias spelled byte slice conversion changed")
+	}
+	if len(definedElemConv) != cap(definedElemConv) || string(definedElemConv) != "elemconvdefined" {
+		panic("defined byte slice conversion changed")
 	}
 	empty := ""
 	tooSmall := "sz<min"
