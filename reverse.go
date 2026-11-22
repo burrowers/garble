@@ -126,7 +126,8 @@ func newReverser() (*strings.Replacer, map[string]string, error) {
 				pos := fset.Position(nodePos)
 				originalFile := goFile
 				physicalFile := fset.PositionFor(nodePos, false).Filename
-				if pos.Filename != physicalFile {
+				logicalFile := pos.Filename != physicalFile
+				if logicalFile {
 					if relative, err := filepath.Rel(filepath.Dir(physicalFile), pos.Filename); err == nil && filepath.IsLocal(relative) {
 						originalFile = filepath.ToSlash(relative)
 					} else {
@@ -149,6 +150,13 @@ func newReverser() (*strings.Replacer, map[string]string, error) {
 					obfuscatedPath := hashWithListingIdentity(lpkg, lpkg.ImportPath) + "/" + newFilename
 					positions[obfuscatedPath] = originalFile
 					replaces = append(replaces, obfuscatedPath, originalFile)
+				} else if dir := lpkg.trimpathDir(); dir != "" && !logicalFile {
+					// A dependency outside the main module is trimmed to
+					// "module@version/path", which is not the import path the
+					// package path replacement above produces, so replace the
+					// whole file name rather than only its last element.
+					obfuscatedPath := hashWithListingIdentity(lpkg, lpkg.ImportPath) + "/" + newFilename
+					positions[obfuscatedPath] = dir + "/" + originalFile
 				}
 
 				// A relative filename in a "//line" directive is recorded

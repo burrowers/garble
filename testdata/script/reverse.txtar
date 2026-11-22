@@ -109,6 +109,10 @@ stdout main\.CallerFuncName
 module test/main
 
 go 1.23
+
+require test/dep v0.0.0
+
+replace test/dep => ./dep
 -- reverse_test.go --
 package main
 
@@ -216,6 +220,20 @@ func deferredWithoutDirective() {
 	No source line directive is needed to trigger this drift. */
 }
 
+-- dep/go.mod --
+module test/dep
+
+go 1.23
+
+-- dep/dep.go --
+package dep
+
+import "runtime/debug"
+
+// Stack captures the current stack from a dependency outside the main module,
+// so that the traceback carries the module-qualified name of its file.
+func Stack() []byte { return debug.Stack() }
+
 -- lib/long_lib.go --
 package lib
 
@@ -224,7 +242,7 @@ import (
 	"io"
 	"regexp"
 	"runtime"
-	"runtime/debug"
+	"test/dep"
 )
 
 type ExportedLibType struct {
@@ -249,7 +267,7 @@ func printStackTrace(w io.Writer) error {
 
 	// Keep this comment here, because comments affect line numbers.
 
-	stack := debug.Stack()
+	stack := dep.Stack()
 	stack = rxCallArgs.ReplaceAll(stack, []byte("(...)"))
 	stack = rxPointer.ReplaceAll(stack, []byte("+0x??"))
 
@@ -505,6 +523,8 @@ func reportCallers(label string) {
 lib filename: test/main/lib/long_lib.go
 
 goroutine 1 [running]:
+test/dep.Stack(...)
+	test/dep@v0.0.0/dep.go:7
 test/main/lib.printStackTrace(...)
 	test/main/lib/long_lib.go:33 +0x??
 test/main/lib.(*ExportedLibType).ExportedLibMethod(...)

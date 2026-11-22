@@ -9,11 +9,72 @@ import (
 )
 
 // MarshalMsg implements msgp.Marshaler
+func (z listedModule) MarshalMsg(b []byte) (o []byte, err error) {
+	o = msgp.Require(b, z.Msgsize())
+	// map header, size 2
+	// string "Path"
+	o = append(o, 0x82, 0xa4, 0x50, 0x61, 0x74, 0x68)
+	o = msgp.AppendString(o, z.Path)
+	// string "Version"
+	o = append(o, 0xa7, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e)
+	o = msgp.AppendString(o, z.Version)
+	return
+}
+
+// UnmarshalMsg implements msgp.Unmarshaler
+func (z *listedModule) UnmarshalMsg(bts []byte) (o []byte, err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, bts, err = msgp.ReadMapHeaderBytes(bts)
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, bts, err = msgp.ReadMapKeyZC(bts)
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "Path":
+			z.Path, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "Path")
+				return
+			}
+		case "Version":
+			z.Version, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "Version")
+				return
+			}
+		default:
+			bts, err = msgp.Skip(bts)
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	o = bts
+	return
+}
+
+// Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
+func (z listedModule) Msgsize() (s int) {
+	s = 1 + 5 + msgp.StringPrefixSize + len(z.Path) + 8 + msgp.StringPrefixSize + len(z.Version)
+	return
+}
+
+// MarshalMsg implements msgp.Marshaler
 func (z *listedPackage) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 14
+	// map header, size 15
 	// string "Name"
-	o = append(o, 0x8e, 0xa4, 0x4e, 0x61, 0x6d, 0x65)
+	o = append(o, 0x8f, 0xa4, 0x4e, 0x61, 0x6d, 0x65)
 	o = msgp.AppendString(o, z.Name)
 	// string "ImportPath"
 	o = append(o, 0xaa, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x68)
@@ -37,6 +98,19 @@ func (z *listedPackage) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "Standard"
 	o = append(o, 0xa8, 0x53, 0x74, 0x61, 0x6e, 0x64, 0x61, 0x72, 0x64)
 	o = msgp.AppendBool(o, z.Standard)
+	// string "Module"
+	o = append(o, 0xa6, 0x4d, 0x6f, 0x64, 0x75, 0x6c, 0x65)
+	if z.Module == nil {
+		o = msgp.AppendNil(o)
+	} else {
+		// map header, size 2
+		// string "Path"
+		o = append(o, 0x82, 0xa4, 0x50, 0x61, 0x74, 0x68)
+		o = msgp.AppendString(o, z.Module.Path)
+		// string "Version"
+		o = append(o, 0xa7, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e)
+		o = msgp.AppendString(o, z.Module.Version)
+	}
 	// string "Dir"
 	o = append(o, 0xa3, 0x44, 0x69, 0x72)
 	o = msgp.AppendString(o, z.Dir)
@@ -165,6 +239,52 @@ func (z *listedPackage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "Standard")
 				return
 			}
+		case "Module":
+			if msgp.IsNil(bts) {
+				bts, err = msgp.ReadNilBytes(bts)
+				if err != nil {
+					return
+				}
+				z.Module = nil
+			} else {
+				if z.Module == nil {
+					z.Module = new(listedModule)
+				}
+				var zb0003 uint32
+				zb0003, bts, err = msgp.ReadMapHeaderBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "Module")
+					return
+				}
+				for zb0003 > 0 {
+					zb0003--
+					field, bts, err = msgp.ReadMapKeyZC(bts)
+					if err != nil {
+						err = msgp.WrapError(err, "Module")
+						return
+					}
+					switch msgp.UnsafeString(field) {
+					case "Path":
+						z.Module.Path, bts, err = msgp.ReadStringBytes(bts)
+						if err != nil {
+							err = msgp.WrapError(err, "Module", "Path")
+							return
+						}
+					case "Version":
+						z.Module.Version, bts, err = msgp.ReadStringBytes(bts)
+						if err != nil {
+							err = msgp.WrapError(err, "Module", "Version")
+							return
+						}
+					default:
+						bts, err = msgp.Skip(bts)
+						if err != nil {
+							err = msgp.WrapError(err, "Module")
+							return
+						}
+					}
+				}
+			}
 		case "Dir":
 			z.Dir, bts, err = msgp.ReadStringBytes(bts)
 			if err != nil {
@@ -172,16 +292,16 @@ func (z *listedPackage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				return
 			}
 		case "GoFiles":
-			var zb0003 uint32
-			zb0003, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			var zb0004 uint32
+			zb0004, bts, err = msgp.ReadArrayHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "GoFiles")
 				return
 			}
-			if cap(z.GoFiles) >= int(zb0003) {
-				z.GoFiles = (z.GoFiles)[:zb0003]
+			if cap(z.GoFiles) >= int(zb0004) {
+				z.GoFiles = (z.GoFiles)[:zb0004]
 			} else {
-				z.GoFiles = make([]string, zb0003)
+				z.GoFiles = make([]string, zb0004)
 			}
 			for za0003 := range z.GoFiles {
 				z.GoFiles[za0003], bts, err = msgp.ReadStringBytes(bts)
@@ -191,16 +311,16 @@ func (z *listedPackage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				}
 			}
 		case "CompiledGoFiles":
-			var zb0004 uint32
-			zb0004, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			var zb0005 uint32
+			zb0005, bts, err = msgp.ReadArrayHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "CompiledGoFiles")
 				return
 			}
-			if cap(z.CompiledGoFiles) >= int(zb0004) {
-				z.CompiledGoFiles = (z.CompiledGoFiles)[:zb0004]
+			if cap(z.CompiledGoFiles) >= int(zb0005) {
+				z.CompiledGoFiles = (z.CompiledGoFiles)[:zb0005]
 			} else {
-				z.CompiledGoFiles = make([]string, zb0004)
+				z.CompiledGoFiles = make([]string, zb0005)
 			}
 			for za0004 := range z.CompiledGoFiles {
 				z.CompiledGoFiles[za0004], bts, err = msgp.ReadStringBytes(bts)
@@ -210,16 +330,16 @@ func (z *listedPackage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				}
 			}
 		case "SFiles":
-			var zb0005 uint32
-			zb0005, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			var zb0006 uint32
+			zb0006, bts, err = msgp.ReadArrayHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "SFiles")
 				return
 			}
-			if cap(z.SFiles) >= int(zb0005) {
-				z.SFiles = (z.SFiles)[:zb0005]
+			if cap(z.SFiles) >= int(zb0006) {
+				z.SFiles = (z.SFiles)[:zb0006]
 			} else {
-				z.SFiles = make([]string, zb0005)
+				z.SFiles = make([]string, zb0006)
 			}
 			for za0005 := range z.SFiles {
 				z.SFiles[za0005], bts, err = msgp.ReadStringBytes(bts)
@@ -229,16 +349,16 @@ func (z *listedPackage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				}
 			}
 		case "Imports":
-			var zb0006 uint32
-			zb0006, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			var zb0007 uint32
+			zb0007, bts, err = msgp.ReadArrayHeaderBytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "Imports")
 				return
 			}
-			if cap(z.Imports) >= int(zb0006) {
-				z.Imports = (z.Imports)[:zb0006]
+			if cap(z.Imports) >= int(zb0007) {
+				z.Imports = (z.Imports)[:zb0007]
 			} else {
-				z.Imports = make([]string, zb0006)
+				z.Imports = make([]string, zb0007)
 			}
 			for za0006 := range z.Imports {
 				z.Imports[za0006], bts, err = msgp.ReadStringBytes(bts)
@@ -258,14 +378,14 @@ func (z *listedPackage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				if z.Error == nil {
 					z.Error = new(packageError)
 				}
-				var zb0007 uint32
-				zb0007, bts, err = msgp.ReadMapHeaderBytes(bts)
+				var zb0008 uint32
+				zb0008, bts, err = msgp.ReadMapHeaderBytes(bts)
 				if err != nil {
 					err = msgp.WrapError(err, "Error")
 					return
 				}
-				for zb0007 > 0 {
-					zb0007--
+				for zb0008 > 0 {
+					zb0008--
 					field, bts, err = msgp.ReadMapKeyZC(bts)
 					if err != nil {
 						err = msgp.WrapError(err, "Error")
@@ -320,7 +440,13 @@ func (z *listedPackage) Msgsize() (s int) {
 			s += msgp.StringPrefixSize + len(za0001) + msgp.StringPrefixSize + len(za0002)
 		}
 	}
-	s += 9 + msgp.BoolSize + 4 + msgp.StringPrefixSize + len(z.Dir) + 8 + msgp.ArrayHeaderSize
+	s += 9 + msgp.BoolSize + 7
+	if z.Module == nil {
+		s += msgp.NilSize
+	} else {
+		s += 1 + 5 + msgp.StringPrefixSize + len(z.Module.Path) + 8 + msgp.StringPrefixSize + len(z.Module.Version)
+	}
+	s += 4 + msgp.StringPrefixSize + len(z.Dir) + 8 + msgp.ArrayHeaderSize
 	for za0003 := range z.GoFiles {
 		s += msgp.StringPrefixSize + len(z.GoFiles[za0003])
 	}
@@ -862,5 +988,66 @@ func (z *sharedCacheType) Msgsize() (s int) {
 		s += z.ListedPackages.Msgsize()
 	}
 	s += 16 + msgp.BytesPrefixSize + len(z.BinaryContentID) + 17 + msgp.ArrayHeaderSize + (sha256.Size * (msgp.ByteSize)) + 6 + msgp.StringPrefixSize + len(z.GoCmd) + 6 + 1 + 5 + msgp.StringPrefixSize + len(z.GoEnv.GOOS) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOARCH) + 10 + msgp.StringPrefixSize + len(z.GoEnv.GOVERSION) + 7 + msgp.StringPrefixSize + len(z.GoEnv.GOROOT) + 8 + msgp.StringPrefixSize + len(z.GoEnv.GOFLAGS)
+	return
+}
+
+// MarshalMsg implements msgp.Marshaler
+func (z symbolMapEntry) MarshalMsg(b []byte) (o []byte, err error) {
+	o = msgp.Require(b, z.Msgsize())
+	// map header, size 2
+	// string "name"
+	o = append(o, 0x82, 0xa4, 0x6e, 0x61, 0x6d, 0x65)
+	o = msgp.AppendString(o, z.name)
+	// string "method"
+	o = append(o, 0xa6, 0x6d, 0x65, 0x74, 0x68, 0x6f, 0x64)
+	o = msgp.AppendBool(o, z.method)
+	return
+}
+
+// UnmarshalMsg implements msgp.Unmarshaler
+func (z *symbolMapEntry) UnmarshalMsg(bts []byte) (o []byte, err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, bts, err = msgp.ReadMapHeaderBytes(bts)
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, bts, err = msgp.ReadMapKeyZC(bts)
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "name":
+			z.name, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "name")
+				return
+			}
+		case "method":
+			z.method, bts, err = msgp.ReadBoolBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "method")
+				return
+			}
+		default:
+			bts, err = msgp.Skip(bts)
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	o = bts
+	return
+}
+
+// Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
+func (z symbolMapEntry) Msgsize() (s int) {
+	s = 1 + 5 + msgp.StringPrefixSize + len(z.name) + 7 + msgp.BoolSize
 	return
 }
