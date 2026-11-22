@@ -15,6 +15,7 @@ func TestListedTestMainCacheRoundTrip(t *testing.T) {
 		Name:       "main",
 		ImportPath: "example/p.test",
 		BuildID:    "test-main-build",
+		Module:     &listedModule{Path: "example", Version: "v1.2.3"},
 		GoFiles:    []string{"/cache/generated-test-main-d"},
 		Imports:    []string{"testing", "example/p"},
 		ImportMap:  map[string]string{"example/p": "example/p [example/p.test]"},

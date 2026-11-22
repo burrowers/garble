@@ -304,6 +304,11 @@ type listedPackage struct {
 	ImportMap  map[string]string
 	Standard   bool
 
+	// Module is nil for standard library packages, and its version is empty
+	// for the main module. Both decide how the go command trims a compiled
+	// file name, which 'garble reverse' has to reproduce.
+	Module *listedModule
+
 	Dir             string
 	GoFiles         []string // includes generated test mains omitted from CompiledGoFiles
 	CompiledGoFiles []string // all .go files to build
@@ -329,6 +334,13 @@ type listedPackage struct {
 	GarbleActionID [sha256.Size]byte `json:"-"`
 }
 
+// listedModule holds the 'go list' module fields which decide how the go
+// command trims the compiled file names of a package's module.
+type listedModule struct {
+	Path    string
+	Version string
+}
+
 // baseImportPath returns the package's import path without the " [pkg.test]"
 // suffix which the go command adds to a package rebuilt for a test binary.
 // That suffix names the test, not the package, so every decision about the
@@ -336,6 +348,20 @@ type listedPackage struct {
 func (p *listedPackage) baseImportPath() string {
 	path, _, _ := strings.Cut(p.ImportPath, " [")
 	return path
+}
+
+// trimpathDir returns the directory which the go command's -trimpath rewriting
+// gives the compiled files of the package, or an empty string when that is the
+// import path itself. Command line compiler diagnostics and runtime tracebacks
+// carry the trimmed name, so reversing a position means reproducing it: see
+// [Action.trimpath] in cmd/go, which replaces the module directory with the
+// module path and version and appends the rest of the import path.
+func (p *listedPackage) trimpathDir() string {
+	m := p.Module
+	if m == nil || m.Version == "" {
+		return ""
+	}
+	return m.Path + "@" + m.Version + strings.TrimPrefix(p.baseImportPath(), m.Path)
 }
 
 // namingPackage returns the package whose identity names p's symbols and
