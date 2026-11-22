@@ -385,13 +385,28 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 		// This can't be done in the gensymabis pass as the compiler hasn't run by then.
 		nameMap := loadGoAsmNames(tf.curPkg)
 		pkgDir := filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir())
-		rewrite := func(path string) error {
+		// The first pass archived this package's assembly and its local
+		// includes before the go_asm.h names were rewritten, so remember the
+		// rewritten text and update those archives below; otherwise the
+		// -debugdir tree pairs obfuscated Go sources with plaintext constants.
+		var rewritten map[string][]byte
+		rewrite := func(path, relPath string) error {
 			content, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
-			if new := replaceGoAsmNames(string(content), nameMap); new != string(content) {
-				return os.WriteFile(path, []byte(new), 0o666)
+			new := replaceGoAsmNames(string(content), nameMap)
+			if new == string(content) {
+				return nil
+			}
+			if err := os.WriteFile(path, []byte(new), 0o666); err != nil {
+				return err
+			}
+			if flagDebugDir != "" {
+				if rewritten == nil {
+					rewritten = make(map[string][]byte)
+				}
+				rewritten[relPath] = []byte(new)
 			}
 			return nil
 		}
@@ -409,21 +424,27 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 			for _, entry := range entries {
 				name := entry.Name()
 				if !entry.IsDir() && strings.HasPrefix(name, "garbled_") && !goFiles[name] {
-					if err := rewrite(filepath.Join(pkgDir, name)); err != nil {
+					// The debug tree archives an include under its own name.
+					relPath := strings.TrimPrefix(name, "garbled_")
+					if err := rewrite(filepath.Join(pkgDir, name), relPath); err != nil {
 						return nil, err
 					}
 				}
 			}
 		}
 		for _, path := range paths {
-			name := hashWithPackage(tf.curPkg, filepath.Base(path)) + ".s"
+			basename := filepath.Base(path)
+			name := hashWithPackage(tf.curPkg, basename) + ".s"
 			newPath := filepath.Join(pkgDir, name)
 			if len(nameMap) > 0 {
-				if err := rewrite(newPath); err != nil {
+				if err := rewrite(newPath, basename); err != nil {
 					return nil, err
 				}
 			}
 			newPaths = append(newPaths, newPath)
+		}
+		if err := updateDebugArtifactsGarbled(tf.curPkg, rewritten); err != nil {
+			return nil, err
 		}
 		return append(flags, newPaths...), nil
 	}

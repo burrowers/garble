@@ -71,6 +71,16 @@ grep BETA-MARKER $WORK/debug1/garbled/test/main/beta.go
 [amd64] grep ASM-ONE-MARKER $WORK/debug1/garbled/test/main/one_amd64.s
 [amd64] ! grep ASM-TWO-MARKER $WORK/debug1/garbled/test/main/one_amd64.s
 
+# The archiving pass runs before go_asm.h names are substituted, so the garbled
+# tree must be updated afterwards; otherwise it keeps the plaintext constants
+# while the Go source next to it is obfuscated.
+[amd64] grep '\$someStruct_someField' $WORK/debug1/source/test/main/one_amd64.s
+[amd64] grep 'OFFSET_OF_SOME_FIELD someStruct_someField' $WORK/debug1/source/test/main/offsets.h
+[amd64] ! grep 'someStruct' $WORK/debug1/garbled/test/main/one_amd64.s
+[amd64] ! grep 'someStruct' $WORK/debug1/garbled/test/main/offsets.h
+[amd64] grep '\$[A-Za-z0-9]+__size, BX' $WORK/debug1/garbled/test/main/one_amd64.s
+[amd64] grep 'MOVQ \$OFFSET_OF_SOME_FIELD, CX' $WORK/debug1/garbled/test/main/one_amd64.s
+
 # We should refuse to delete non-empty directories which weren't created
 # by an earlier invocation of garble -debugdir, as that could lead to data loss.
 ! exec garble -debugdir=notdebug build
@@ -172,10 +182,15 @@ package main
 func OneMarker() int
 func TwoMarker() int
 -- one_amd64.s --
+#include "go_asm.h"
 #include "textflag.h"
+#include "offsets.h"
 
 // ASM-ONE-MARKER
 TEXT ·OneMarker(SB), NOSPLIT, $0-8
+	MOVQ $someStruct_someField, AX
+	MOVQ $someStruct__size, BX
+	MOVQ $OFFSET_OF_SOME_FIELD, CX
 	MOVQ $11, ret+0(FP)
 	RET
 -- two_amd64.s --
@@ -185,3 +200,7 @@ TEXT ·OneMarker(SB), NOSPLIT, $0-8
 TEXT ·TwoMarker(SB), NOSPLIT, $0-8
 	MOVQ $22, ret+0(FP)
 	RET
+-- offsets.h --
+// A local header which itself names a go_asm.h constant.
+#define OFFSET_OF_SOME_FIELD someStruct_someField
+
