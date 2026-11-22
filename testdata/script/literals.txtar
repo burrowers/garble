@@ -12,6 +12,7 @@ binsubstr main$exe 'skip typed const' 'skip untyped const' 'sz<min'
 ! binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz' 'local option key' 'local option value'
 ! binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
 ! binsubstr main$exe 'elemuint8slice' 'elemaliasslice' 'elemuint8array' 'elemaliasarray'
+! binsubstr main$exe 'namedcomposite' 'aliascomposite' 'namedarrayse' 'pointercompo' 'fieldcomposit' 'fieldarrayse'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -28,6 +29,7 @@ cmp stderr main.stderr
 binsubstr main$exe 'Lorem Ipsum' 'dolor sit amet' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret'
 binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
 binsubstr main$exe 'elemuint8slice' 'elemaliasslice' 'elemuint8array' 'elemaliasarray' 'elemconvuint8' 'elemconvalias' 'elemconvdefined'
+binsubstr main$exe 'namedcomposite' 'aliascomposite' 'namedarrayse' 'pointercompo' 'fieldcomposit' 'fieldarrayse'
 
 # Generate and write random literals into a separate file.
 # Huge literals must use the bounded-AST decoder instead of per-byte expressions.
@@ -338,6 +340,10 @@ var array [arrayLen]byte
 
 type typeAlias [arrayLen]byte
 
+type byteSliceAlias = []byte
+
+type namedByteArray [12]byte
+
 type namedByteSlice []byte
 type namedRuneSlice []rune
 
@@ -408,6 +414,22 @@ var (
 	aliasElemConv   = []byteAliasElem("elemconvalias")
 	definedElemConv = []byteDefinedElem("elemconvdefined")
 )
+// A composite literal of a defined type or of an alias of []byte holds the same
+// bytes as the unnamed spelling, so both spellings have to be decoded.
+var namedByteComposite = namedByteSlice{'n', 'a', 'm', 'e', 'd', 'c', 'o', 'm', 'p', 'o', 's', 'i', 't', 'e'}
+var aliasByteComposite = byteSliceAlias{'a', 'l', 'i', 'a', 's', 'c', 'o', 'm', 'p', 'o', 's', 'i', 't', 'e'}
+var namedArrayComposite = namedByteArray{'n', 'a', 'm', 'e', 'd', 'a', 'r', 'r', 'a', 'y', 's', 'e'}
+var namedBytePointer = &namedByteSlice{'p', 'o', 'i', 'n', 't', 'e', 'r', 'c', 'o', 'm', 'p', 'o'}
+
+type byteCompositeHolder struct {
+	slice namedByteSlice
+	array namedByteArray
+}
+
+var byteCompositeFields = byteCompositeHolder{
+	slice: namedByteSlice{'f', 'i', 'e', 'l', 'd', 'c', 'o', 'm', 'p', 'o', 's', 'i', 't'},
+	array: namedByteArray{'f', 'i', 'e', 'l', 'd', 'a', 'r', 'r', 'a', 'y', 's', 'e'},
+}
 
 // Strings which are only used inside constant expressions must be left alone;
 // rewriting them into decoder calls would stop the constants from compiling.
@@ -457,6 +479,18 @@ func main() {
 	}
 	if len(definedElemConv) != cap(definedElemConv) || string(definedElemConv) != "elemconvdefined" {
 		panic("defined byte slice conversion changed")
+	}
+	if string(namedByteComposite) != "namedcomposite" || len(namedByteComposite) != cap(namedByteComposite) {
+		panic("named byte composite literal changed")
+	}
+	if string(aliasByteComposite) != "aliascomposite" || len(aliasByteComposite) != cap(aliasByteComposite) {
+		panic("alias byte composite literal changed")
+	}
+	if string(namedArrayComposite[:]) != "namedarrayse" || string((*namedBytePointer)[:]) != "pointercompo" {
+		panic("named byte array or address-of composite literal changed")
+	}
+	if string(byteCompositeFields.slice) != "fieldcomposit" || string(byteCompositeFields.array[:]) != "fieldarrayse" {
+		panic("named byte composite literal in a struct field changed")
 	}
 	empty := ""
 	tooSmall := "sz<min"

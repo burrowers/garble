@@ -609,6 +609,11 @@ func byteElemType(elem types.Type) bool {
 // composite literal and calls the appropriate obfuscation method, returning a
 // new node that should be used to replace it.
 //
+// The literal may spell its type as []byte, as [N]byte, or as a defined type or
+// alias whose underlying type is one of those. The spelled type decides whether
+// the replacement needs a conversion: a decoder returns an unnamed byte slice or
+// array, so any other spelling has to convert the decoded value back.
+//
 // If the input node cannot be obfuscated nil is returned.
 func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
 	if len(node.Elts) < MinSize {
@@ -617,8 +622,14 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 
 	byteType := types.Typ[types.Uint8]
 
+	writtenType := info.TypeOf(node.Type)
+	if writtenType == nil {
+		return nil
+	}
+	underlying := types.Unalias(writtenType).Underlying()
+
 	var arrayLen int64
-	switch y := info.TypeOf(node.Type).(type) {
+	switch y := underlying.(type) {
 	case *types.Array:
 		// The decoder returns an unnamed byte array or slice, which is only
 		// assignable to the written type when its element type is byte itself.
@@ -658,7 +669,19 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 	}
 
 	replacement := obfuscateBytes(or, isPointer, data, arrayLen)
-	return withPos(replacement, node.Pos())
+	if types.Identical(writtenType, underlying) {
+		return withPos(replacement, node.Pos())
+	}
+	// The decoder returns an unnamed byte slice or byte array, so a defined type
+	// or a named alias spelling has to convert the decoded value back to the type
+	// the source wrote. The address-of form needs a pointer conversion: a
+	// conversion result is not addressable, so `&conversion(...)` would not
+	// compile.
+	typeExpr := node.Type
+	if isPointer {
+		typeExpr = &ast.ParenExpr{X: ah.StarExpr(typeExpr)}
+	}
+	return withPos(ah.CallExpr(typeExpr, replacement), node.Pos())
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.
