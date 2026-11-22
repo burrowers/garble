@@ -687,6 +687,16 @@ func unbuiltPlainForm(pkg listedPackage, imported, cleanVariants map[string]stru
 	return !isImported
 }
 
+// speculativeLoadFailure reports whether pkg's listing error comes from a
+// speculative listing of a package which nothing in that listing imports.
+func speculativeLoadFailure(pkg listedPackage, requested []string, imported map[string]struct{}) bool {
+	if !slices.Contains(requested, pkg.ImportPath) {
+		return false
+	}
+	_, isImported := imported[pkg.ImportPath]
+	return !isImported
+}
+
 // linknameActionID hashes original Go action IDs, before Garble adds its own
 // inputs. A runtime object can name foreign packages without importing them;
 // their compile flags must invalidate that object even when Go reuses runtime's
@@ -724,8 +734,10 @@ func linknameActionID() [sha256.Size]byte {
 }
 
 // appendListedPackages gets information about the current package
-// and all of its dependencies
-func appendListedPackages(packages []string, mainBuild bool) error {
+// and all of its dependencies. A speculative listing asks only for packages
+// which no build target reaches, such as the runtime-linknamed ones absent from
+// the build graph; its packages are listed for their build IDs alone.
+func appendListedPackages(packages []string, mainBuild, speculative bool) error {
 	startTime := time.Now()
 	args := []string{
 		"list",
@@ -821,6 +833,13 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 				// -cover in the listing for the coverage import graph, and nothing
 				// garble takes from this package depends on that build; the real
 				// build reports any genuine failure of the test main.
+			} else if speculative && speculativeLoadFailure(pkg, packages, imported) {
+				// The go command loads the module graph to resolve a package which
+				// no build target reaches, so a requirement which the workspace
+				// itself satisfies can still fail to load when its version cannot
+				// be fetched. Nothing this command builds depends on such a
+				// package, and a missing entry is already treated as an absent
+				// linknamed target, so the load failure cannot change the result.
 			} else {
 				pkgErrors = append(pkgErrors, pkg)
 			}
@@ -861,7 +880,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		// listing them alongside the build targets changes PGO package identity.
 		missing := slices.DeleteFunc(linknamedToList(), sharedCache.ListedPackages.has)
 		if len(missing) > 0 {
-			if err := appendListedPackages(missing, false); err != nil {
+			if err := appendListedPackages(missing, false, true); err != nil {
 				return fmt.Errorf("failed to load missing runtime-linknamed packages: %v", err)
 			}
 		}
@@ -891,7 +910,7 @@ func appendListedPackages(packages []string, mainBuild bool) error {
 		slices.Sort(plainMissing)
 		plainMissing = slices.Compact(plainMissing)
 		if len(plainMissing) > 0 {
-			if err := appendListedPackages(plainMissing, false); err != nil {
+			if err := appendListedPackages(plainMissing, false, false); err != nil {
 				return fmt.Errorf("failed to load plain packages of test variants: %v", err)
 			}
 		}
