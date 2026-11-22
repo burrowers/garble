@@ -270,7 +270,7 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 					}
 				}
 			}
-			if typeAndValue.Type == types.Typ[types.String] || byteStringArg {
+			if isPlainString(typeAndValue.Type) || byteStringArg {
 				value := constant.StringVal(typeAndValue.Value)
 				if len(value) >= MinSize {
 					cursor.Replace(withPos(obfuscateString(or, value), node.Pos()))
@@ -373,6 +373,16 @@ func skipLiteralInit(spec *ast.ValueSpec, info *types.Info, staticInits map[*typ
 		}
 	}
 	return false
+}
+
+// isPlainString reports whether t is the predeclared string type, directly or
+// through an alias. `type S = string` records a *types.Alias whose Unalias
+// result is the basic string type, so comparing only with
+// types.Typ[types.String] left every literal that names the alias in plaintext,
+// while a defined string type records a *types.Named and keeps the
+// conversion-wrapping rewrite.
+func isPlainString(t types.Type) bool {
+	return types.Unalias(t) == types.Typ[types.String]
 }
 
 // stringLiteralText reports whether an expression carries source text for a
