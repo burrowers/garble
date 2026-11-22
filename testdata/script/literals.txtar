@@ -10,6 +10,7 @@ binsubstr main$exe 'skip typed const' 'skip untyped const' 'sz<min'
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret' 'parens!!' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'named case label secret'
 ! binsubstr main$exe 'initialized owner of linked string'
 ! binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz' 'local option key' 'local option value'
+! binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -24,6 +25,7 @@ go build
 exec ./main$exe
 cmp stderr main.stderr
 binsubstr main$exe 'Lorem Ipsum' 'dolor sit amet' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret'
+binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
 
 # Generate and write random literals into a separate file.
 # Huge literals must use the bounded-AST decoder instead of per-byte expressions.
@@ -358,6 +360,34 @@ func namedCaseLabel(i int) bool {
 	return false
 }
 
+// An alias of the predeclared string type records a *types.Alias rather than
+// the string type itself, so a rewrite that compares only against
+// types.Typ[types.String] leaves every position naming the alias in plaintext,
+// while the defined named type above and plain strings are decoded.
+type stringAliasType = string
+type aliasOfAliasType = stringAliasType
+
+var aliasOfStringVar stringAliasType = "alias of string var secret"
+var aliasOfStringSlice = []aliasOfAliasType{"alias of string slice secret"}
+var aliasOfStringMap = map[stringAliasType]string{"alias of string map key secret": "alias of string map value secret"}
+var aliasOfStringField = struct{ f stringAliasType }{f: "alias of string field secret"}
+
+func aliasOfStringRet() stringAliasType { return "alias of string return secret" }
+func aliasOfStringParam(s stringAliasType) string {
+	return s
+}
+func aliasOfStringConv() string { return stringAliasType("alias of string conversion secret") }
+
+func aliasOfStringCheck() {
+	println(aliasOfStringVar)
+	println(aliasOfStringSlice[0])
+	println(aliasOfStringMap["alias of string map key secret"])
+	println(aliasOfStringField.f)
+	println(aliasOfStringRet())
+	println(aliasOfStringParam("alias of string arg secret"))
+	println(aliasOfStringConv())
+}
+
 var namedPayload = namedByteSlice("a named literal payload large enough to trigger decoding, including \x00 and \xff")
 var namedRunes = namedRuneSlice("é界ΩabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
@@ -436,6 +466,7 @@ func main() {
 	if !namedCaseLabel(0) {
 		println("unreachable")
 	}
+	aliasOfStringCheck()
 
 	strArray := [2]string{"1: literal in", "an secret array"}
 	println(strArray[0], strArray[1])
@@ -919,5 +950,12 @@ str from dot imported func
 str from dot imported var
 str as dot imported type
 string in dot imported struct
+alias of string var secret
+alias of string slice secret
+alias of string map value secret
+alias of string field secret
+alias of string return secret
+alias of string arg secret
+alias of string conversion secret
 1: literal in an secret array
 2: literal in a secret slice
