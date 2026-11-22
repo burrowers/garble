@@ -24,6 +24,20 @@ cmp stderr main.stderr
 go build
 exec ./main
 cmp stderr main.stderr
+
+# A workspace satisfies an import whose required version nobody can fetch: the
+# second use'd module is the module the requirement names. The extra listing of
+# runtime-linknamed packages loads the module graph of the workspace, and that
+# load must not fail a build whose targets resolve entirely through use.
+env GOPROXY=off
+cd ws
+go build -o plain.exe ./main
+exec ./plain.exe
+stderr 'workspace ok'
+exec garble -seed=FX4AAAAAAAA build -o garbled.exe ./main
+exec ./garbled.exe
+stderr 'workspace ok'
+cd $WORK
 -- go.mod --
 module test/main
 
@@ -108,6 +122,38 @@ var Value = "1c/2x"
 package level2y
 
 var Value = "1c/2y"
+
+-- ws/go.work --
+go 1.23
+
+use (
+	./main
+	./lib
+)
+
+-- ws/main/go.mod --
+module test/ws/main
+
+go 1.23
+
+require example.org/unfetchable v0.0.0
+
+-- ws/main/main.go --
+package main
+
+import "example.org/unfetchable/sub"
+
+func main() { sub.Hello() }
+
+-- ws/lib/go.mod --
+module example.org/unfetchable
+
+go 1.23
+
+-- ws/lib/sub/sub.go --
+package sub
+
+func Hello() { println("workspace ok") }
 
 -- main.stderr --
 1a/2x 1a/2y

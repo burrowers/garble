@@ -654,7 +654,7 @@ This command wraps "go %s". Below is its help:
 			}
 		}
 	}
-	listErr := appendListedPackages(listArgs, true)
+	listErr := appendListedPackages(listArgs, true, false)
 	// A Go tool which can't be run at all fails here as well as in the
 	// background fetch above; prefer that error, as it is the root cause.
 	if err := <-binaryContentID; err != nil {
