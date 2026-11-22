@@ -202,7 +202,7 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 			// A constant string converted to a byte or rune slice has an
 			// exact capacity. Decoding first can make the allocation larger.
 			if call, ok := node.(*ast.CallExpr); ok && len(call.Args) == 1 {
-				if slice, ok := info.TypeOf(call.Fun).Underlying().(*types.Slice); ok && (slice.Elem() == types.Universe.Lookup("byte").Type() || slice.Elem() == types.Universe.Lookup("rune").Type()) {
+				if slice, ok := info.TypeOf(call.Fun).Underlying().(*types.Slice); ok && (byteElemType(slice.Elem()) || slice.Elem() == types.Universe.Lookup("rune").Type()) {
 					elem := slice.Elem()
 					if value := info.Types[call.Args[0]].Value; value != nil && value.Kind() == constant.String {
 						text := constant.StringVal(value)
@@ -594,9 +594,20 @@ func (r *obfRand) nextLiftedFuncName(base string) string {
 	return name
 }
 
-// handleCompositeLiteral checks if the input node is []byte or [...]byte and
-// calls the appropriate obfuscation method, returning a new node that should
-// be used to replace it.
+// byteElemType reports whether elem is a byte element type: byte itself, its
+// canonical uint8 spelling, an alias of either, or a defined type whose
+// underlying type is uint8. Comparing the element type with the universe byte
+// object only matched the spelling "byte", because byte is an alias and
+// go/types keeps the alias, so the same element type written as uint8 or through
+// an alias was not recognized.
+func byteElemType(elem types.Type) bool {
+	basic, ok := types.Unalias(elem).Underlying().(*types.Basic)
+	return ok && basic.Kind() == types.Uint8
+}
+
+// handleCompositeLiteral checks if the input node is a byte slice or byte array
+// composite literal and calls the appropriate obfuscation method, returning a
+// new node that should be used to replace it.
 //
 // If the input node cannot be obfuscated nil is returned.
 func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit, info *types.Info) ast.Node {
@@ -604,19 +615,24 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 		return nil
 	}
 
-	byteType := types.Universe.Lookup("byte").Type()
+	byteType := types.Typ[types.Uint8]
 
 	var arrayLen int64
 	switch y := info.TypeOf(node.Type).(type) {
 	case *types.Array:
-		if y.Elem() != byteType {
+		// The decoder returns an unnamed byte array or slice, which is only
+		// assignable to the written type when its element type is byte itself.
+		// A defined element type, such as `type D byte`, would need a conversion
+		// Go does not allow between [N]byte and [N]D, so those literals keep
+		// their current form.
+		if !types.Identical(types.Unalias(y.Elem()), byteType) {
 			return nil
 		}
 
 		arrayLen = y.Len()
 
 	case *types.Slice:
-		if y.Elem() != byteType {
+		if !types.Identical(types.Unalias(y.Elem()), byteType) {
 			return nil
 		}
 
@@ -641,7 +657,8 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 		data = append(data, byte(value))
 	}
 
-	return withPos(obfuscateBytes(or, isPointer, data, arrayLen), node.Pos())
+	replacement := obfuscateBytes(or, isPointer, data, arrayLen)
+	return withPos(replacement, node.Pos())
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.
