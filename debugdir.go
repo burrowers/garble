@@ -56,6 +56,49 @@ func saveDebugArtifactsForPkg(lpkg *listedPackage, kind string, artifacts cached
 	return fsCache.PutBytes(debugArtifactsCacheID(lpkg.GarbleActionID, kind), data)
 }
 
+// updateDebugArtifactsGarbled replaces the archived garbled text of a package's
+// assembly and its local includes with the bytes the second assembler pass
+// assembled. The first pass archives that text before [transformer.saveGoAsmNames]
+// names are substituted, so without this update the -debugdir tree keeps the
+// plaintext go_asm.h constants next to obfuscated Go sources.
+func updateDebugArtifactsGarbled(lpkg *listedPackage, files map[string][]byte) error {
+	if flagDebugDir == "" || len(files) == 0 {
+		return nil
+	}
+	for relPath, content := range files {
+		if err := writeDebugDirFile(debugDirGarbledSubdir, lpkg, relPath, content); err != nil {
+			return err
+		}
+	}
+	cacheID := debugArtifactsCacheID(lpkg.GarbleActionID, debugCacheKindAsm)
+	fsCache, err := openCache()
+	if err != nil {
+		return err
+	}
+	filename, _, err := fsCache.GetFile(cacheID)
+	if err != nil {
+		// Nothing archived by the first pass; the files above are the archive.
+		return nil
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	var artifacts cachedDebugArtifacts
+	if _, err := artifacts.UnmarshalMsg(data); err != nil {
+		return err
+	}
+	if artifacts.GarbledFiles == nil {
+		artifacts.GarbledFiles = make(map[string][]byte)
+	}
+	maps.Copy(artifacts.GarbledFiles, files)
+	data, err = artifacts.MarshalMsg(nil)
+	if err != nil {
+		return err
+	}
+	return fsCache.PutBytes(cacheID, data)
+}
+
 func restoreDebugArtifactsForPkg(fsCache *cache.Cache, lpkg *listedPackage, kind string) error {
 	filename, _, err := fsCache.GetFile(debugArtifactsCacheID(lpkg.GarbleActionID, kind))
 	if err != nil {
