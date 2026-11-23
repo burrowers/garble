@@ -58,6 +58,18 @@ go build -trimpath
 exec ./main
 cmp stderr reverse.stdout
 
+# A -cover build compiles a generated copy of each file, whose byte offsets are
+# not those of the source and which cmd/cover names in a whole-file "//line"
+# directive. Its markers carry the logical position instead, so a reversed frame
+# must name the source file rather than the hash of the copy's offset.
+exec garble -seed=0002deadbeefcafe build -cover -o obfuscated-cover$exe .
+exec ./obfuscated-cover$exe
+stdin stderr
+exec garble -seed=0002deadbeefcafe reverse .
+stdout 'lib filename: test/main/lib/long_lib\.go'
+stdout 'test/main/long_main\.go:36'
+stdout 'test/main/lib/long_lib\.go:33'
+
 # The go statement owns the position of a goroutine's creation site, which a
 # panic trace prints as "created by". Reverse it to the same line as plain Go.
 go build -trimpath -o goroutine-plain$exe ./case/goroutine

@@ -22,6 +22,11 @@ var printBuf1, printBuf2 bytes.Buffer
 type origPosition struct {
 	pos  token.Position
 	file string
+	// logical reports that the position of a file whose whole-file "//line"
+	// directive names another file, such as the copy cmd/cover compiles. Its
+	// byte offsets belong to that copy, so the marker keys on the logical line
+	// instead, which the original source can reproduce.
+	logical bool
 }
 
 // printFile prints a Go file to a buffer, while also removing non-directive
@@ -72,6 +77,12 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	if strings.HasPrefix(filename, "_cgo_") {
 		newPrefix = "_cgo_"
 	}
+	// cmd/cover compiles a "<base>.cover.go" copy of a file instead of the file
+	// itself, and the copy starts with a whole-file "//line" directive naming
+	// the source file. The copy's byte offsets are not those of the source, so
+	// its markers are keyed by the logical position, which garble reverse can
+	// recompute from the source file alone.
+	logicalPositions := fset.Position(file.Pos()).Filename != fset.PositionFor(file.Pos(), false).Filename
 
 	// Many parts of garble, notably the literal obfuscator, modify the AST.
 	// Unfortunately, comments are free-floating in File.Comments,
@@ -179,7 +190,7 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 			// different source files apart.
 			file = filepath.Base(physical)
 		}
-		dst[printedFile.Offset(printedPos)] = origPosition{pos: pos, file: file}
+		dst[printedFile.Offset(printedPos)] = origPosition{pos: pos, file: file, logical: logicalPositions}
 	}
 	callIndex, stmtIndex, blockIndex := 0, 0, 0
 	typeEnds := make(map[int]token.Pos, len(origTypeEnds))
@@ -243,6 +254,9 @@ func printFile(lpkg *listedPackage, file *ast.File) ([]byte, error) {
 	hashedMarkerName := func(orig origPosition) string {
 		if flagTiny {
 			return ""
+		}
+		if orig.logical {
+			return hashWithPackage(lpkg, fmt.Sprintf("%s:%d", filepath.Base(orig.pos.Filename), orig.pos.Line)) + ".go"
 		}
 		name := filename
 		if orig.file != "" {
