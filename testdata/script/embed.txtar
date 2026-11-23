@@ -95,6 +95,11 @@ type namedString string
 type namedBytes []byte
 type aliasString = namedString
 
+// A slice of a defined byte type is a byte slice for //go:embed, but it cannot
+// be converted from a []byte, so its decoded value must start as a string.
+type byteElem byte
+type elemSlice []byteElem
+
 //go:embed string.txt
 var namedText namedString
 
@@ -103,6 +108,12 @@ var aliasedText aliasString
 
 //go:embed bytes.txt
 var namedData namedBytes
+
+//go:embed bytes.txt
+var elemText []byteElem
+
+//go:embed bytes.txt
+var elemNamed elemSlice
 
 var initialized = text + "!\n"
 
@@ -165,6 +176,7 @@ func main() {
 		return nil
 	})
 	fmt.Printf("variables: %s|%s|%s|%s|%s|%s", text, bytes, namedText, aliasedText, namedData, initialized)
+	fmt.Printf("elem: %s|%d/%d %s|%d/%d\n", elemText, len(elemText), cap(elemText), elemNamed, len(elemNamed), cap(elemNamed))
 	fmt.Printf("raw: %s", rawPattern)
 }
 -- obfuscate/string.txt --
@@ -209,4 +221,7 @@ variables: GARBLE_EMBED_STRING_SECRET_194
 |GARBLE_EMBED_BYTES_SECRET_194
 |GARBLE_EMBED_STRING_SECRET_194
 !
+elem: GARBLE_EMBED_BYTES_SECRET_194
+|30/30 GARBLE_EMBED_BYTES_SECRET_194
+|30/30
 raw: GARBLE_RAW_PATTERN_SECRET_194
