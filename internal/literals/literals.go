@@ -69,6 +69,7 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 		constructors = ConstructorSummaries([]*ast.File{file}, info, nil)
 	}
 	or := newObfRand(rand, file, nameFunc)
+	or.typeParams = newTypeParamSpellings(file, info)
 	var globalInits []GlobalInit
 	// Package initializers, including their function literals, keep a shared
 	// dispatcher. Each original function declaration gets a separate tree so
@@ -296,6 +297,26 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 					}
 				}
 			}
+			// A constant whose recorded type is a type parameter is decodable
+			// too: the decoded value is a string, and only a conversion to the
+			// parameter makes it assignable again, so the rewrite keeps the
+			// shape the same and adds that conversion. The conversion is valid
+			// exactly when a string converts to every type in the parameter's
+			// type set, which also rejects an unconstrained parameter.
+			if tp, ok := typeAndValue.Type.(*types.TypeParam); ok && stringLiteralText(node) {
+				value := constant.StringVal(typeAndValue.Value)
+				if name, ok := or.typeParams.spelling(tp); ok && len(value) >= MinSize &&
+					types.ConvertibleTo(types.Typ[types.String], tp) {
+					// The identifier is part of the file the renaming pass walks
+					// next, so it is bound to the parameter's object and renamed
+					// with the declaration; the spelling above is the current
+					// one, before that pass runs.
+					typeIdent := ast.NewIdent(name)
+					info.Uses[typeIdent] = tp.Obj()
+					cursor.Replace(withPos(ah.CallExpr(typeIdent, obfuscateString(or, value)), node.Pos()))
+					return false
+				}
+			}
 			// Keep descending: a string constant we left alone, such as one
 			// below MinSize or one of a named type, may still have operands
 			// which we can rewrite.
@@ -383,6 +404,111 @@ func skipLiteralInit(spec *ast.ValueSpec, info *types.Info, staticInits map[*typ
 // conversion-wrapping rewrite.
 func isPlainString(t types.Type) bool {
 	return types.Unalias(t) == types.Typ[types.String]
+}
+
+// typeParamSpellings maps a type parameter to the spelling its declaration has
+// in this file. A constant in a generic body is typed by the type parameter
+// itself - a local variable of type T, an element of []T, a map key, a call
+// argument and a switch case all record T instead of the predeclared string -
+// so the decoded value has to be converted back to T, and that conversion needs
+// the declaration's spelling. Identifiers are renamed before this pass, so the
+// type object keeps the original name while the identifier carries the new one.
+//
+// A spelling that a declaration inside the same function shadows resolves to a
+// different object at that point, so the conversion would name the wrong type.
+// Such a parameter is marked ambiguous and left alone, which keeps today's
+// plaintext rather than producing a build that does not compile.
+type typeParamSpellings struct {
+	names     map[*types.TypeParam]string
+	ambiguous map[*types.TypeParam]bool
+}
+
+func newTypeParamSpellings(file *ast.File, info *types.Info) *typeParamSpellings {
+	s := &typeParamSpellings{
+		names:     make(map[*types.TypeParam]string),
+		ambiguous: make(map[*types.TypeParam]bool),
+	}
+	// declared returns the type parameters a field list declares. A receiver
+	// declares its type parameters inside the type of its only field
+	// (`func (g genericRecv[T])`), which has no names of its own.
+	declared := func(list *ast.FieldList) []*types.TypeParam {
+		if list == nil {
+			return nil
+		}
+		var tparams []*types.TypeParam
+		record := func(ident *ast.Ident) {
+			obj := info.Defs[ident]
+			if obj == nil {
+				return
+			}
+			if tp, ok := obj.Type().(*types.TypeParam); ok {
+				s.names[tp] = ident.Name
+				tparams = append(tparams, tp)
+			}
+		}
+		for _, field := range list.List {
+			for _, ident := range field.Names {
+				record(ident)
+			}
+			ast.Inspect(field.Type, func(node ast.Node) bool {
+				if ident, ok := node.(*ast.Ident); ok {
+					record(ident)
+				}
+				return true
+			})
+		}
+		return tparams
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.FuncDecl:
+			tparams := declared(node.Type.TypeParams)
+			tparams = append(tparams, declared(node.Recv)...)
+			if len(tparams) == 0 {
+				return true
+			}
+			byName := make(map[string]*types.TypeParam, len(tparams))
+			for _, tp := range tparams {
+				byName[s.names[tp]] = tp
+			}
+			ast.Inspect(node, func(node ast.Node) bool {
+				ident, ok := node.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				tp, ok := byName[ident.Name]
+				if !ok {
+					return true
+				}
+				obj := info.Defs[ident]
+				if obj == nil {
+					obj = info.Uses[ident]
+				}
+				if obj != nil && obj.Type() != tp {
+					s.ambiguous[tp] = true
+				}
+				return true
+			})
+			return false
+		case *ast.TypeSpec:
+			declared(node.TypeParams)
+			return false
+		}
+		return true
+	})
+	return s
+}
+
+// spelling reports the identifier a conversion to tp has to use.
+func (s *typeParamSpellings) spelling(tp *types.TypeParam) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	name, ok := s.names[tp]
+	if !ok || s.ambiguous[tp] {
+		return "", false
+	}
+	return name, true
 }
 
 // stringLiteralText reports whether an expression carries source text for a
