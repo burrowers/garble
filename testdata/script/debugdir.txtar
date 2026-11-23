@@ -78,7 +78,7 @@ grep BETA-MARKER $WORK/debug1/garbled/test/main/beta.go
 [amd64] grep 'OFFSET_OF_SOME_FIELD someStruct_someField' $WORK/debug1/source/test/main/offsets.h
 [amd64] ! grep 'someStruct' $WORK/debug1/garbled/test/main/one_amd64.s
 [amd64] ! grep 'someStruct' $WORK/debug1/garbled/test/main/offsets.h
-[amd64] grep '\$[A-Za-z0-9]+__size, BX' $WORK/debug1/garbled/test/main/one_amd64.s
+[amd64] grep '\$[A-Za-z0-9_]+__size, BX' $WORK/debug1/garbled/test/main/one_amd64.s
 [amd64] grep 'MOVQ \$OFFSET_OF_SOME_FIELD, CX' $WORK/debug1/garbled/test/main/one_amd64.s
 
 # We should refuse to delete non-empty directories which weren't created
