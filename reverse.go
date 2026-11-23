@@ -138,32 +138,39 @@ func newReverser() (*strings.Replacer, map[string]string, error) {
 					// Test variants prefix compiled filenames with " [pkg.test]".
 					originalFile = base + strings.TrimPrefix(originalFile, lpkg.ImportPath)
 				}
-				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
-				newFilename := hashWithPackage(lpkg, origPos) + ".go"
 				// Markers carry the original line, and every line after them
 				// keeps counting from there, so only the filename needs
 				// replacing; the reported line is already the original one.
-				positions[newFilename] = originalFile
-				if filepath.IsAbs(originalFile) {
-					// The directory prefix is the package's source directory,
-					// which keeps the listing identity of a test variant.
-					obfuscatedPath := hashWithListingIdentity(lpkg, lpkg.ImportPath) + "/" + newFilename
-					positions[obfuscatedPath] = originalFile
-					replaces = append(replaces, obfuscatedPath, originalFile)
-				} else if dir := lpkg.trimpathDir(); dir != "" && !logicalFile {
-					// A dependency outside the main module is trimmed to
-					// "module@version/path", which is not the import path the
-					// package path replacement above produces, so replace the
-					// whole file name rather than only its last element.
-					obfuscatedPath := hashWithListingIdentity(lpkg, lpkg.ImportPath) + "/" + newFilename
-					positions[obfuscatedPath] = dir + "/" + originalFile
-				}
+				registerMarker := func(newFilename string) {
+					positions[newFilename] = originalFile
+					if filepath.IsAbs(originalFile) {
+						// The directory prefix is the package's source directory,
+						// which keeps the listing identity of a test variant.
+						obfuscatedPath := hashWithListingIdentity(lpkg, lpkg.ImportPath) + "/" + newFilename
+						positions[obfuscatedPath] = originalFile
+						replaces = append(replaces, obfuscatedPath, originalFile)
+					} else if dir := lpkg.trimpathDir(); dir != "" && !logicalFile {
+						// A dependency outside the main module is trimmed to
+						// "module@version/path", which is not the import path the
+						// package path replacement above produces, so replace the
+						// whole file name rather than only its last element.
+						obfuscatedPath := hashWithListingIdentity(lpkg, lpkg.ImportPath) + "/" + newFilename
+						positions[obfuscatedPath] = dir + "/" + originalFile
+					}
 
-				// A relative filename in a "//line" directive is recorded
-				// relative to the package's import path, so positions read
-				// as "obfuscatedpkg/obfuscated.go". We only replace the
-				// filename, as the import path before it is replaced above.
-				replaces = append(replaces, newFilename, originalFile)
+					// A relative filename in a "//line" directive is recorded
+					// relative to the package's import path, so positions read
+					// as "obfuscatedpkg/obfuscated.go". We only replace the
+					// filename, as the import path before it is replaced above.
+					replaces = append(replaces, newFilename, originalFile)
+				}
+				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
+				registerMarker(hashWithPackage(lpkg, origPos) + ".go")
+				// A generated copy of a file, such as the one cmd/cover compiles
+				// instead of a package's source, has byte offsets of its own, so
+				// its markers key on the logical position instead.
+				linePos := fmt.Sprintf("%s:%d", filepath.Base(pos.Filename), pos.Line)
+				registerMarker(hashWithPackage(lpkg, linePos) + ".go")
 			}
 			if flagTiny {
 				// Tiny mode prints a token instead of a panic message.
