@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/printer"
-	"go/token"
 	"go/types"
 	"math/rand"
 	"slices"
@@ -32,18 +31,9 @@ var callback = func() string { return "repeated literal secret" }
 `
 	for _, obf := range Obfuscators {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
-			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, "repeat.go", source, parser.SkipObjectResolution)
-			if err != nil {
-				t.Fatal(err)
-			}
-			previous := testPkgToObfuscatorMap
-			testPkgToObfuscatorMap = map[string]obfuscator{"main": obf}
-			defer func() { testPkgToObfuscatorMap = previous }()
 			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object)}
-			if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
-				t.Fatal(err)
-			}
+			file, fset := checkSource(t, "main", "repeat.go", source, parser.SkipObjectResolution, info)
+			useObfuscator(t, file.Name.Name, obf)
 			before := slices.Clone(file.Decls)
 			Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
 			orig, generated := SplitDecls(file, before)

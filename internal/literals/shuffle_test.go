@@ -90,18 +90,9 @@ func main() {
  if len(slice) != cap(slice) || len(*ptr) != cap(*ptr) || len(converted) != cap(converted) { panic("capacity") }
  println(str, string(slice), string(*ptr), string(array[:]), string(converted))
 }`, marker, []byte(marker), []byte(marker), array, marker)
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "probe.go", text, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatal(err)
-	}
 	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
-	if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
-		t.Fatal(err)
-	}
-	previous := testPkgToObfuscatorMap
-	testPkgToObfuscatorMap = map[string]obfuscator{"main": shuffle{}}
-	defer func() { testPkgToObfuscatorMap = previous }()
+	file, fset := checkSource(t, "main", "probe.go", text, parser.SkipObjectResolution, info)
+	useObfuscator(t, file.Name.Name, shuffle{})
 	Obfuscate(rand.New(rand.NewSource(123)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%d", base, r.Uint64()) })
 	var source bytes.Buffer
 	if err := printer.Fprint(&source, fset, file); err != nil {
