@@ -65,18 +65,9 @@ func init() { global += "init literal secret" }
 `
 	for _, obf := range Obfuscators {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
-			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, "owner.go", source, parser.SkipObjectResolution)
-			if err != nil {
-				t.Fatal(err)
-			}
-			previous := testPkgToObfuscatorMap
-			testPkgToObfuscatorMap = map[string]obfuscator{"main": obf}
-			defer func() { testPkgToObfuscatorMap = previous }()
 			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
-			if _, err := new(types.Config).Check("owners", fset, []*ast.File{file}, info); err != nil {
-				t.Fatal(err)
-			}
+			file, fset := checkSource(t, "owners", "owner.go", source, parser.SkipObjectResolution, info)
+			useObfuscator(t, file.Name.Name, obf)
 			liftedNames := make(map[string]bool)
 			before := slices.Clone(file.Decls)
 			Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string {

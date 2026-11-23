@@ -24,18 +24,9 @@ func pick(v string) string { return v + log[0] }
 `
 	for _, obf := range Obfuscators {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
-			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, "order.go", source, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
 			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
-			if _, err := new(types.Config).Check("order", fset, []*ast.File{file}, info); err != nil {
-				t.Fatal(err)
-			}
-			old := testPkgToObfuscatorMap
-			testPkgToObfuscatorMap = map[string]obfuscator{"order": obf}
-			defer func() { testPkgToObfuscatorMap = old }()
+			file, fset := checkSource(t, "order", "order.go", source, 0, info)
+			useObfuscator(t, file.Name.Name, obf)
 			file = Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string {
 				return fmt.Sprintf("hidden_%s_%x", base, r.Uint64())
 			})
@@ -60,8 +51,8 @@ func pick(v string) string { return v + log[0] }
 }
 
 func TestConstructorSummarySafety(t *testing.T) {
-	fs := token.NewFileSet()
-	file, err := parser.ParseFile(fs, "safety.go", `package safety
+	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
+	file, _ := checkSource(t, "safety", "safety.go", `package safety
  type Key string
  type Pair struct { Text string }
  var global = "observable global value"
@@ -91,14 +82,7 @@ func TestConstructorSummarySafety(t *testing.T) {
  func Assert(v any) string { return v.(string) }
  //go:linkname Linked
  func Linked(v string) Pair { return Pair{v} }
- `, parser.ParseComments)
-	if err != nil {
-		t.Fatal(err)
-	}
-	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
-	if _, err := new(types.Config).Check("safety", fs, []*ast.File{file}, info); err != nil {
-		t.Fatal(err)
-	}
+ `, parser.ParseComments, info)
 	summaries := ConstructorSummaries([]*ast.File{file}, info, nil)
 	for _, decl := range file.Decls {
 		if fn, ok := decl.(*ast.FuncDecl); ok {
@@ -152,13 +136,13 @@ func TestConstructorResultTypes(t *testing.T) {
 func TestGlobalLiteralProxyOwnership(t *testing.T) {
 	for _, obf := range Obfuscators {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
-			fset := token.NewFileSet()
 			long := ""
 			for range 100 {
 				long += "an oversized concatenation operand "
 			}
 			long = long[:MaxSize]
-			file, err := parser.ParseFile(fset, "global.go", fmt.Sprintf(`package globals
+			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
+			file, fset := checkSource(t, "globals", "global.go", fmt.Sprintf(`package globals
 var early = len([1]string{late})
 var late = "initialized through an unevaluated operand"
 type record struct { Text string; Count int; Nested [2]string }
@@ -197,17 +181,8 @@ var constructorRead = read("must retain a global-reading constructor")
 var indirect = K1.String
 var unknown = indirect("must retain an indirect constructor")
 func effect() string { return "a user call is not pure" }
-`, long, long), 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
-			if _, err := new(types.Config).Check("globals", fset, []*ast.File{file}, info); err != nil {
-				t.Fatal(err)
-			}
-			old := testPkgToObfuscatorMap
-			testPkgToObfuscatorMap = map[string]obfuscator{"globals": obf}
-			defer func() { testPkgToObfuscatorMap = old }()
+`, long, long), 0, info)
+			useObfuscator(t, file.Name.Name, obf)
 			file, inits := ObfuscateWithGlobalInits(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%x", base, r.Uint64()) })
 			want := []string{"late", "scalarDead", "scalarLive", "dead", "live", "oversized", "deadMap", "liveMap", "constructor"}
 			if len(inits) != len(want) {
