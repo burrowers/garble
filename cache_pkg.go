@@ -220,6 +220,25 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 	return computePkgCache(fsCache, lpkg, pkg, files, info, ssaPkg)
 }
 
+// linkOnlyReflectDeps returns the packages which the go command links into a
+// binary without naming them in any package's Imports, and whose reflection
+// records the current build therefore needs. Only a dependency which the
+// forwarded build flags actually activate is included: a name recorded by a
+// package that is not linked would only add plaintext to the binary.
+func linkOnlyReflectDeps() []string {
+	if hasCoverBuildFlag(sharedCache.ForwardBuildFlags) {
+		// A covered binary always links runtime/coverage, which imports
+		// internal/coverage/cfile. cfile decodes the go command's own
+		// metafiles.txt with encoding/json, so the field names of the
+		// coverage meta-data collection have to stay readable; otherwise
+		// every auxiliary fragment decodes as empty and a test binary counts
+		// only the statements of its own package.
+		return []string{"runtime/coverage"}
+	}
+	return nil
+}
+
+// computePkgCache merges the package caches of the packages this one imports.
 func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info, ssaPkg *ssa.Package) (pkgCache, error) {
 	// Not yet in the cache. Load the cache entries for all direct dependencies,
 	// build our cache entry, and write it to disk.
@@ -269,6 +288,21 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		maps.Copy(computed.PureConstructors, literals.ConstructorSummaries(files, info, computed.PureConstructors))
 	}
 	if lpkg.Name == "main" {
+		// A main package also links the packages the go command adds on behalf
+		// of the linker. They are never named in an Imports list, so neither
+		// they nor the packages they import can contribute their reflected
+		// names to the name table this cache fills.
+		for _, path := range linkOnlyReflectDeps() {
+			dep, ok := sharedCache.ListedPackages.get(path)
+			if !ok || dep.BuildID == "" {
+				continue // the build does not link this dependency
+			}
+			loaded, err := loadListedPkgCache(fsCache, dep)
+			if err != nil {
+				return pkgCache{}, fmt.Errorf("pkgCache load for %s: %w", path, err)
+			}
+			maps.Copy(computed.ReflectObjectNames, loaded.ReflectObjectNames)
+		}
 		matchReflectedInterfaceMethods(pkg, &computed)
 	}
 	// Reflection discovered by a downstream implementation must flow back across

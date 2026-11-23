@@ -174,3 +174,34 @@ func TestLinkerLoadedPkgPathsAreMapped(t *testing.T) {
 	testRuntimePkgPathsAreMapped(t, "linker-internal-paths",
 		[]string{"runtime", "runtime/cgo", "runtime/race", "runtime/msan", "runtime/asan", "runtime/pprof"})
 }
+
+// TestLinkOnlyReflectDepsFollowCoverage covers the packages whose reflected
+// names a main package's cache has to merge although no package imports them.
+// internal/coverage/cfile only reaches a covered test binary through
+// runtime/coverage, so a merge driven by Imports alone leaves the coverage
+// meta-data collection's field names obfuscated and the auxiliary fragments
+// undecodable.
+func TestLinkOnlyReflectDepsFollowCoverage(t *testing.T) {
+	saved := sharedCache
+	defer func() { sharedCache = saved }()
+	sharedCache = &sharedCacheType{}
+	for _, test := range []struct {
+		name  string
+		flags []string
+		want  []string
+	}{
+		{"no flags", nil, nil},
+		{"build flags", []string{"-trimpath", "-p", "1", "-ldflags=-s"}, nil},
+		{"cover", []string{"-cover"}, []string{"runtime/coverage"}},
+		{"coverpkg", []string{"-coverpkg=./..."}, []string{"runtime/coverage"}},
+		{"covermode", []string{"-covermode=atomic"}, []string{"runtime/coverage"}},
+		{"double hyphen", []string{"--cover"}, []string{"runtime/coverage"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sharedCache.ForwardBuildFlags = test.flags
+			if got := linkOnlyReflectDeps(); !slices.Equal(got, test.want) {
+				t.Fatalf("linkOnlyReflectDeps() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
