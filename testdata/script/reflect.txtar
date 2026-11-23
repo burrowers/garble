@@ -329,6 +329,43 @@ func inspectDynamic(v any) string {
 	return f.String()
 }
 
+// A package can declare a package-level type and a function-local type with
+// the same name, and encoding/json reflects on the fields of both. Each type
+// object keeps its own field names, whichever of the two is reached first.
+type ShadowedName struct{ PackageField string }
+
+type ShadowedNameLate struct{ LateField string }
+
+func encodePackageShadowedName() string {
+	enc, _ := json.Marshal(ShadowedName{PackageField: "package-first"})
+	return string(enc)
+}
+
+func shadowedNames() string {
+	before := encodePackageShadowedName()
+	type ShadowedName struct{ LocalField string }
+	var local ShadowedName
+	if err := json.Unmarshal([]byte(`{"LocalField":"local-second"}`), &local); err != nil {
+		panic(err)
+	}
+	after, _ := json.Marshal(local)
+	return before + " " + string(after) + " " + local.LocalField
+}
+
+func shadowedNamesLocalFirst() string {
+	localJSON, localValue := func() (string, string) {
+		type ShadowedNameLate struct{ EarlyField string }
+		var early ShadowedNameLate
+		if err := json.Unmarshal([]byte(`{"EarlyField":"early-first"}`), &early); err != nil {
+			panic(err)
+		}
+		out, _ := json.Marshal(early)
+		return string(out), early.EarlyField
+	}()
+	late, _ := json.Marshal(ShadowedNameLate{LateField: "late-second"})
+	return localJSON + " " + localValue + " " + string(late)
+}
+
 func main() {
 	checkTypelinks()
 	checkMethodOrder()
@@ -446,6 +483,8 @@ func main() {
 	// Use of a common library using reflect, encoding/json.
 	enc, _ := json.Marshal(EncodingT{Foo: 3})
 	fmt.Println(string(enc))
+	fmt.Println(shadowedNames())
+	fmt.Println(shadowedNamesLocalFirst())
 
 	// Another common library, text/template.
 	tmpl := template.Must(template.New("").Parse("Hello {{.Name}}."))
@@ -1755,6 +1794,8 @@ generic field: GenericFieldOtherArgReflect [GenericFieldOtherArgName]
 ReflectValueOf{ExportedField:"abc", unexportedField:""}
 [method: abc]
 {"Foo":3}
+{"PackageField":"package-first"} {"LocalField":"local-second"} local-second
+{"EarlyField":"early-first"} early-first {"LateField":"late-second"}
 Hello Dave.
 name: test value: example port: 8080
 TYPE MyStruct: name=STRING

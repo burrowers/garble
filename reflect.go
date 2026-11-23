@@ -121,6 +121,13 @@ type reflectInspector struct {
 	// walkedInstantiations holds the instantiations whose members were already
 	// walked, so repeated passes over the package do not repeat that work.
 	walkedInstantiations map[types.Type]bool
+	// walkedTypes holds the named types whose members were already recorded.
+	// A package can declare several distinct types with one name: a
+	// package-level type and a local one, or locals in different functions.
+	// They share one obfuscated name, so a recorded name says nothing about
+	// the members of another type object with that name; only the object
+	// itself does.
+	walkedTypes map[types.Object]bool
 	// globalStores holds the values written into each package-level variable.
 	// SSA does not track referrers of a global, so the initializing writes are
 	// indexed up front; a reflected global exposes whatever was stored in it.
@@ -1332,17 +1339,20 @@ func (ri *reflectInspector) recursivelyRecordUsedForReflectImpl(t types.Type, vi
 		if obj.Pkg() == nil {
 			return
 		}
-		if ri.usedForReflect(obj) {
-			// t.Obj reports the origin's type object for an instantiation, so the
-			// origin being recorded says nothing about the concrete types this
-			// instantiation substitutes into its members. Walk each
-			// instantiation's members once, which also bounds the recursion.
+		if ri.walkedTypes[obj] {
+			// This object's members were recorded already. A new instantiation
+			// of the same origin still substitutes its own type arguments into
+			// them, so only that part can still add anything.
 			if t.TypeArgs().Len() > 0 && !ri.walkedInstantiations[t] {
 				ri.walkedInstantiations[t] = true
 				ri.recordInstantiationMembers(t, visited)
 			}
-			return // prevent endless recursion
+			return
 		}
+		if ri.walkedTypes == nil {
+			ri.walkedTypes = make(map[types.Object]bool)
+		}
+		ri.walkedTypes[obj] = true
 		ri.recordUsedForReflect(obj, nil)
 		for i := range t.NumMethods() {
 			method := t.Method(i)
