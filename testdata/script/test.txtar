@@ -76,6 +76,18 @@ exec garble test -count=1 -short -test.coverprofile=$WORK/cover2.out -run '^Test
 stdout 'ok\s+path'
 grep 'path/match.go:' $WORK/cover2.out
 
+# A test binary counts the statements of every covered package of the
+# invocation, including one it does not import: the go command writes that
+# package's meta-data into metafiles.txt and internal/coverage/cfile decodes the
+# collection with encoding/json. Renaming the collection's fields makes the
+# decode fail silently, so the binary counts only the package under test and
+# prints no percentage at all. coveraux is covered by the pattern and tested in
+# the same invocation, but imported by neither test binary.
+go test -count=1 -p 1 -short -coverpkg=test/bar/coveraux,test/bar/sometest ./sometest ./coveraux
+stdout 'ok\s+test/bar/sometest\s+\S+\s+coverage: 0\.0% of statements in test/bar/coveraux, test/bar/sometest'
+exec garble test -count=1 -p 1 -short -coverpkg=test/bar/coveraux,test/bar/sometest ./sometest ./coveraux
+stdout 'ok\s+test/bar/sometest\s+\S+\s+coverage: 0\.0% of statements in test/bar/coveraux, test/bar/sometest'
+
 # cmd/cover decides whether a package needs a hard-coded coverage package ID,
 # writes it into every counter block, and the compiler repeats that decision for
 # the registration it adds to the package's init. cmd/cover is a host tool and
@@ -531,3 +543,23 @@ func TestOff(t *testing.T) {
 		t.Fatalf("offset = %d, want 8", got)
 	}
 }
+
+-- coveraux/cover.go --
+// Package coveraux is covered by a -coverpkg pattern and tested in the same
+// invocation, but imported by no other test binary of that invocation.
+package coveraux
+
+// Aux counts as three statements, all uncovered by the test below.
+func Aux(x int) int {
+	if x > 0 {
+		return x + 1
+	}
+	return -x
+}
+
+-- coveraux/cover_test.go --
+package coveraux
+
+import "testing"
+
+func TestNothing(t *testing.T) {}
