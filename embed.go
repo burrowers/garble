@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"go/types"
 	"os"
+	"strconv"
 	"strings"
 
 	"mvdan.cc/garble/internal/literals"
@@ -143,9 +144,29 @@ func (tf *transformer) obfuscateEmbeds(files []*ast.File, flags []string) error 
 				if tf.embeddedValues == nil {
 					tf.embeddedValues = make(map[ast.Expr]literals.EmbeddedValue)
 				}
-				tf.embeddedValues[expr] = literals.EmbeddedValue{Data: plain, String: isString}
-				if _, named := types.Unalias(obj.Type()).(*types.Named); named {
-					expr = &ast.CallExpr{Fun: spec.Type, Args: []ast.Expr{expr}}
+				declared := types.Unalias(obj.Type())
+				// A slice of a defined byte type cannot be converted from a []byte,
+				// because Go's slice conversions need identical element types. A
+				// string converts to either spelling, so decode those values as one
+				// and convert the result to the declared type.
+				fromString := false
+				if !isString {
+					if slice, ok := declared.Underlying().(*types.Slice); ok &&
+						!types.Identical(slice.Elem(), types.Typ[types.Byte]) {
+						fromString = true
+					}
+				}
+				tf.embeddedValues[expr] = literals.EmbeddedValue{Data: plain, String: isString || fromString}
+				if _, named := declared.(*types.Named); named || fromString {
+					conv := &ast.CallExpr{Fun: spec.Type, Args: []ast.Expr{expr}, Lparen: expr.Pos()}
+					expr = conv
+				}
+				if fromString {
+					// An embedded slice has len == cap in plain Go, while a string
+					// conversion may leave a larger capacity, so cap it at the
+					// statically known plaintext length.
+					size := &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(len(plain)), ValuePos: expr.Pos()}
+					expr = &ast.SliceExpr{X: expr, High: size, Max: size, Lbrack: expr.Pos(), Rbrack: size.Pos()}
 				}
 				spec.Values = []ast.Expr{expr}
 				// Keep comments attached to the AST, but remove only consumed directives.
