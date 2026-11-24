@@ -1138,6 +1138,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sync"
 
 	"test/main/importedpkg"
 )
@@ -1254,6 +1255,11 @@ type methodClosureRow struct {
 	MethodClosureBeta  int
 }
 
+type syncMapRow struct {
+	SyncMapAlpha string
+	SyncMapBeta  int
+}
+
 type methodClosureHolder struct{}
 
 // report marshals the captured value inside a closure whose enclosing function
@@ -1304,6 +1310,16 @@ func checkProducerAny() {
 	<-done
 
 	fmt.Printf("method closure any: %s\n", methodClosureHolder{}.report())
+
+	// A method of an external package stores the boxed value, so the producer
+	// is the argument of a call whose body belongs to another package.
+	var box sync.Map
+	box.Store("row", &syncMapRow{SyncMapAlpha: "a", SyncMapBeta: 1})
+	loaded, ok := box.Load("row")
+	if !ok {
+		panic("missing sync map entry")
+	}
+	reportField("sync map any", loaded, "SyncMapAlpha")
 }
 
 -- importedpkg/imported.go --
@@ -1776,6 +1792,7 @@ local map range any: {"LocalMapRangeAlpha":"a","LocalMapRangeBeta":1} <nil> true
 global chan any: {"GlobalChanAlpha":"a","GlobalChanBeta":1} <nil> true "a"
 closure any: {"ClosureAlpha":"a","ClosureBeta":1} <nil> true "a"
 method closure any: {"MethodClosureAlpha":"a","MethodClosureBeta":1} <nil> true "a"
+sync map any: {"SyncMapAlpha":"a","SyncMapBeta":1} <nil> true "a"
 range defer 2
 range defer 1
 range defer 0

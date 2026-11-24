@@ -1002,6 +1002,12 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 		ri.recordReferrersReflected(fun, val, visited)
 		return ri.recordArgReflected(fun, val.X, visited)
 	case *ssa.Call:
+		// A container whose body belongs to another package keeps the
+		// interface values it was given, and whoever reflects on one of them
+		// reads back the concrete type that was boxed at a call site here.
+		// A sync.Map is the canonical case: Store and Load are both calls on
+		// the same receiver, and only this package sees what went in.
+		ri.recordContainerStores(fun, callReceiver(&val.Call), visited)
 		// A returned slice can contain the input models after reordering.
 		// Only follow same-typed arguments rather than tainting every input.
 		if _, ok := val.Type().(*types.Slice); ok {
@@ -1094,6 +1100,12 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 		ri.recursivelyRecordUsedForReflect(val.Type())
 		return val
 	case *ssa.Extract:
+		// A multi-value call returns a tuple, and each result is an Extract
+		// which names no operand of its own. Follow the call so a container
+		// lookup's element stays reachable, as for a single-value call.
+		if tuple, ok := val.Tuple.(*ssa.Call); ok {
+			ri.recordArgReflected(fun, tuple, visited)
+		}
 		// The values of a range over a map arrive as an Extract of the
 		// iterator's Next instruction, which names no map of its own, so
 		// follow the iterator back to the map being ranged over.
@@ -1123,6 +1135,49 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 	}
 
 	return nil
+}
+
+// callReceiver returns the receiver a call passes explicitly, or nil when the
+// call has no receiver or binds it into a function value first.
+func callReceiver(call *ssa.CallCommon) ssa.Value {
+	sig := call.Signature()
+	if sig == nil || sig.Recv() == nil || len(call.Args) == 0 {
+		return nil
+	}
+	return call.Args[0]
+}
+
+// recordContainerStores records the interface values this package hands to a
+// container a reflected value is read out of. The container's methods live in
+// another package, so the walker can neither see what they store nor follow a
+// load back to the store that filled the slot; the boxed types exist only at
+// the call sites of this package, which are found through the shared receiver.
+func (ri *reflectInspector) recordContainerStores(fun *ssa.Function, recv ssa.Value, visited map[ssa.Value]bool) {
+	if recv == nil {
+		return
+	}
+	refs := recv.Referrers()
+	if refs == nil {
+		return
+	}
+	for _, ref := range *refs {
+		inst, ok := ref.(ssa.CallInstruction)
+		if !ok {
+			continue
+		}
+		call := inst.Common()
+		if len(call.Args) == 0 || call.Args[0] != recv {
+			continue
+		}
+		if sig := call.Signature(); sig == nil || sig.Recv() == nil {
+			continue
+		}
+		for _, arg := range call.Args[1:] {
+			if hasInterfaceData(arg.Type()) {
+				ri.recordArgReflected(fun, arg, visited)
+			}
+		}
+	}
 }
 
 // recordReferrersReflected records the values derived from a reflected value,
