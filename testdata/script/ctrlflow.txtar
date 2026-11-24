@@ -376,22 +376,39 @@ func callerLine() int {
 // calls, so len, indexing and field access have to survive.
 //
 //garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
-func crossBlockForeignValue(pick bool) (int, byte, int) {
+func crossBlockForeignValue(pick bool) (int, byte, int, int, byte) {
 	blob := named.MakeBlob(1)
 	cell := named.MakeCell(3)
 	bag := named.MakeCounts(4)
+	sized := named.MakeSized(9)
 	if pick {
 		blob = named.MakeBlob(7)
 		cell = named.MakeCell(9)
 		bag = named.MakeCounts(6)
+		sized = named.MakeSized(4)
 	}
 	// len, indexing, ranging and field access all need the real type, and so
-	// does passing the value back to a function of its own package.
+	// does passing the value back to a function of its own package. sized has
+	// an exported value-receiver method that this function never calls, so its
+	// declaration has to keep the underlying type as well.
 	total := 0
 	for _, n := range bag {
 		total += n
 	}
-	return len(blob), blob[0], named.CellSum(cell) + total
+	return len(blob), blob[0], named.CellSum(cell) + total, len(sized), sized[0]
+}
+
+// crossBlockMethodSetValue keeps a value of an unexported foreign named type
+// whose only use across the boundary is its exported method, so the emulated
+// interface of that method set is the declaration it needs.
+//
+//garble:controlflow flatten_passes=1 junk_jumps=0 block_splits=0 trash_blocks=0
+func crossBlockMethodSetValue(pick bool) int {
+	sized := named.MakeSized(9)
+	if pick {
+		sized = named.MakeSized(4)
+	}
+	return sized.Size()
 }
 
 // crossBlockPointerReceiverValue keeps a value of an unexported foreign named
@@ -460,11 +477,17 @@ func main() {
 
 	genericBoxCheck()
 
-	if n, first, sum := crossBlockForeignValue(true); n != 3 || first != 7 || sum != 16 {
+	if n, first, sum, sizedLen, sizedFirst := crossBlockForeignValue(true); n != 3 || first != 7 || sum != 16 || sizedLen != 2 || sizedFirst != 4 {
 		panic("cross-block foreign value changed")
 	}
-	if n, first, sum := crossBlockForeignValue(false); n != 3 || first != 1 || sum != 8 {
+	if n, first, sum, sizedLen, sizedFirst := crossBlockForeignValue(false); n != 3 || first != 1 || sum != 8 || sizedLen != 2 || sizedFirst != 9 {
 		panic("cross-block foreign value changed")
+	}
+	if got := crossBlockMethodSetValue(true); got != 2 {
+		panic("cross-block foreign method-set value changed")
+	}
+	if got := crossBlockMethodSetValue(false); got != 2 {
+		panic("cross-block foreign method-set value changed")
 	}
 	if n, first := crossBlockPointerReceiverValue(true); n != 2 || first != 8 {
 		panic("cross-block pointer-receiver value changed")
@@ -556,6 +579,17 @@ func CellSum(c cell) int { return c.N }
 type counts map[string]int
 
 func MakeCounts(n int) counts { return counts{"a": n, "b": 1} }
+
+// sized is an unexported named slice type with an exported value-receiver
+// method. A value of it does implement the interface that emulates the type, so
+// a declaration that only looked at the type would take that interface and lose
+// len and indexing; a group used only for its length has to keep the underlying
+// type instead.
+type sized []byte
+
+func (s sized) Size() int { return len(s) }
+
+func MakeSized(first byte) sized { return sized{first, 7} }
 
 // pointed is an unexported named slice type whose only method has a pointer
 // receiver, so a value of it does not implement the interface that emulates the
