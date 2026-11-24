@@ -755,6 +755,20 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 	underlying := types.Unalias(writtenType).Underlying()
 
 	var arrayLen int64
+	// A type parameter is neither a slice nor an array to go/types, even when
+	// its type set holds exactly one byte slice or byte array, so it has to be
+	// recognized before the written type's underlying type is consulted. Every
+	// other spelling, including a defined type or an alias, is decided by the
+	// underlying type, which is where its elements are visible.
+	var typeParam *types.TypeParam
+	if tp, ok := types.Unalias(writtenType).(*types.TypeParam); ok {
+		var ok bool
+		arrayLen, ok = byteTypeParamCore(tp)
+		if !ok {
+			return nil
+		}
+		typeParam = tp
+	}
 	switch y := underlying.(type) {
 	case *types.Array:
 		// The decoder returns an unnamed byte array or slice, which is only
@@ -774,7 +788,12 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 		}
 
 	default:
-		return nil
+		// A type parameter's underlying type is its constraint, which is an
+		// interface and not the shape that decides the decoder, so the
+		// parameter was already resolved above.
+		if typeParam == nil {
+			return nil
+		}
 	}
 
 	data := make([]byte, 0, len(node.Elts))
@@ -794,6 +813,16 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 		data = append(data, byte(value))
 	}
 
+	if typeParam != nil {
+		// The decoder returns an unnamed byte slice or array, and the declared
+		// type is only known through the parameter's type set, so the decoded
+		// value is converted back to the parameter the source wrote.
+		replacement := convertTypeParamBytes(or, info, typeParam, node.Type, obfuscateBytes(or, false, data, arrayLen), isPointer)
+		if replacement == nil {
+			return nil
+		}
+		return withPos(replacement, node.Pos())
+	}
 	replacement := obfuscateBytes(or, isPointer, data, arrayLen)
 	if types.Identical(writtenType, underlying) {
 		return withPos(replacement, node.Pos())
@@ -808,6 +837,103 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 		typeExpr = &ast.ParenExpr{X: ah.StarExpr(typeExpr)}
 	}
 	return withPos(ah.CallExpr(typeExpr, replacement), node.Pos())
+}
+
+// byteTypeParamCore reports the array length of a type parameter whose type set
+// is exactly one byte slice or one byte array, and zero for that slice.
+//
+// The decoder returns an unnamed []byte or [N]byte, so a defined or named
+// element type is rejected for the same reason as in the array and slice cases.
+// A conversion between []byte and [N]byte is legal Go, so types.ConvertibleTo
+// cannot tell the two shapes apart: the type set's term decides which decoder
+// result the conversion has to receive.
+func byteTypeParamCore(tp *types.TypeParam) (arrayLen int64, ok bool) {
+	iface, _ := tp.Constraint().Underlying().(*types.Interface)
+	if iface == nil {
+		return 0, false
+	}
+	var term types.Type
+	terms := 0
+	for i := range iface.NumEmbeddeds() {
+		switch embedded := iface.EmbeddedType(i).(type) {
+		case *types.Union:
+			for j := range embedded.Len() {
+				term = embedded.Term(j).Type()
+				terms++
+			}
+		case *types.Interface, *types.TypeParam:
+			// A nested constraint needs its own type-set walk; fail closed.
+			return 0, false
+		default:
+			term = embedded
+			terms++
+		}
+	}
+	if terms != 1 {
+		return 0, false
+	}
+	byteElem := func(elem types.Type) bool {
+		return types.Identical(types.Unalias(elem), types.Typ[types.Uint8])
+	}
+	var result types.Type
+	switch under := term.Underlying().(type) {
+	case *types.Slice:
+		if !byteElem(under.Elem()) {
+			return 0, false
+		}
+		result = types.NewSlice(types.Typ[types.Uint8])
+	case *types.Array:
+		if !byteElem(under.Elem()) {
+			return 0, false
+		}
+		arrayLen = under.Len()
+		result = types.NewArray(types.Typ[types.Uint8], arrayLen)
+	default:
+		return 0, false
+	}
+	if !types.ConvertibleTo(result, tp) {
+		return 0, false
+	}
+	return arrayLen, true
+}
+
+// convertTypeParamBytes converts a decoded byte slice or array back to the type
+// parameter its composite literal was written with. The decoder's result is not
+// assignable to a type parameter, so the conversion is required rather than
+// cosmetic; the pointer form additionally needs a temporary, because a call
+// result is not addressable.
+//
+// Both occurrences of the parameter are fresh identifiers bound to the
+// parameter's type object, so the renaming pass renames them together with the
+// declaration instead of leaving the original spelling behind. The spelling
+// itself comes from the same per-file table the string arm uses, which leaves a
+// parameter alone when a declaration inside the same function shadows its name
+// and the conversion would therefore name the wrong type.
+func convertTypeParamBytes(or *obfRand, info *types.Info, tp *types.TypeParam, written ast.Expr, decoded *ast.CallExpr, isPointer bool) ast.Expr {
+	if _, ok := written.(*ast.Ident); !ok {
+		// A type parameter is always spelled with a plain identifier.
+		return nil
+	}
+	name, ok := or.typeParams.spelling(tp)
+	if !ok {
+		return nil
+	}
+	obj := tp.Obj()
+	typeIdent := func() *ast.Ident {
+		ident := ast.NewIdent(name)
+		info.Uses[ident] = obj
+		return ident
+	}
+	converted := ah.CallExpr(typeIdent(), decoded)
+	if !isPointer {
+		return converted
+	}
+	tmpName := or.nameFunc(or.rnd, "literalTypeParamPtr")
+	body := ah.BlockStmt(
+		ah.AssignDefineStmt(ast.NewIdent(tmpName), converted),
+		ah.ReturnStmt(ah.UnaryExpr(token.AND, ast.NewIdent(tmpName))),
+	)
+	return ah.LambdaCall(nil, ah.StarExpr(typeIdent()), body, nil)
 }
 
 // withPos sets any token.Pos fields under node which affect printing to pos.
