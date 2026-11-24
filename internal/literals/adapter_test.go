@@ -96,7 +96,7 @@ func TestSharedStringAdapterBehavior(t *testing.T) {
 	for _, obf := range append(append([]obfuscator{nil}, Obfuscators...), blob{}) {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
 			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
-			file, fset := checkSource(t, "main", "adapter.go", source, parser.SkipObjectResolution, info)
+			file, fset := CheckSource(t, "main", "adapter.go", source, parser.SkipObjectResolution, info)
 			useObfuscator(t, file.Name.Name, obf)
 			Obfuscate(rand.New(rand.NewSource(7)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
 			if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, nil); err != nil {

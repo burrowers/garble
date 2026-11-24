@@ -91,7 +91,7 @@ func main() {
  println(str, string(slice), string(*ptr), string(array[:]), string(converted))
 }`, marker, []byte(marker), []byte(marker), array, marker)
 	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
-	file, fset := checkSource(t, "main", "probe.go", text, parser.SkipObjectResolution, info)
+	file, fset := CheckSource(t, "main", "probe.go", text, parser.SkipObjectResolution, info)
 	useObfuscator(t, file.Name.Name, shuffle{})
 	Obfuscate(rand.New(rand.NewSource(123)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("hidden_%s_%d", base, r.Uint64()) })
 	var source bytes.Buffer
