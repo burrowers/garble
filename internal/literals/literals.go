@@ -642,8 +642,27 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 
 	data := make([]byte, 0, len(node.Elts))
 
+	// A keyed element sets its index rather than appending, and a sparse key
+	// leaves zero bytes in between. The key itself is not a constant, so
+	// looking up info.Types on the *ast.KeyValueExpr finds no value at all;
+	// without this branch a keyed literal keeps every byte in plaintext.
+	next := 0
 	for _, el := range node.Elts {
-		elType := info.Types[el]
+		valueExpr := el
+		if keyValue, ok := el.(*ast.KeyValueExpr); ok {
+			key := info.Types[keyValue.Key]
+			if key.Value == nil || key.Value.Kind() != constant.Int {
+				return nil
+			}
+			index, ok := constant.Uint64Val(key.Value)
+			if !ok || index >= MaxSize {
+				return nil
+			}
+			next = int(index)
+			valueExpr = keyValue.Value
+		}
+
+		elType := info.Types[valueExpr]
 
 		if elType.Value == nil || elType.Value.Kind() != constant.Int {
 			return nil
@@ -654,7 +673,11 @@ func handleCompositeLiteral(or *obfRand, isPointer bool, node *ast.CompositeLit,
 			panic(fmt.Sprintf("cannot parse byte value: %v", elType.Value))
 		}
 
-		data = append(data, byte(value))
+		for len(data) <= next {
+			data = append(data, 0)
+		}
+		data[next] = byte(value)
+		next++
 	}
 
 	replacement := obfuscateBytes(or, isPointer, data, arrayLen)

@@ -12,6 +12,7 @@ binsubstr main$exe 'skip typed const' 'skip untyped const' 'sz<min'
 ! binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz' 'local option key' 'local option value'
 ! binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
 ! binsubstr main$exe 'elemuint8slice' 'elemaliasslice' 'elemuint8array' 'elemaliasarray'
+! binsubstr main$exe 'keyedslcmark' 'keyedarrmar' 'keyedmixmark'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -28,6 +29,7 @@ cmp stderr main.stderr
 binsubstr main$exe 'Lorem Ipsum' 'dolor sit amet' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret'
 binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
 binsubstr main$exe 'elemuint8slice' 'elemaliasslice' 'elemuint8array' 'elemaliasarray' 'elemconvuint8' 'elemconvalias' 'elemconvdefined'
+binsubstr main$exe 'keyedslcmark' 'keyedarrmar' 'keyedmixmark'
 
 # Generate and write random literals into a separate file.
 # Huge literals must use the bounded-AST decoder instead of per-byte expressions.
@@ -409,6 +411,15 @@ var (
 	definedElemConv = []byteDefinedElem("elemconvdefined")
 )
 
+// A keyed element sets its index instead of appending, and a sparse key leaves
+// zero bytes in between. Plain Go treats these as ordinary byte literals, so
+// they have to be decoded like the unkeyed spelling beside them.
+var (
+	keyedSliceByte = []byte{0: 'k', 1: 'e', 2: 'y', 3: 'e', 4: 'd', 5: 's', 6: 'l', 7: 'c', 8: 'm', 9: 'a', 10: 'r', 11: 'k'}
+	keyedArrayByte = [12]byte{1: 'k', 2: 'e', 3: 'y', 4: 'e', 5: 'd', 6: 'a', 7: 'r', 8: 'r', 9: 'm', 10: 'a', 11: 'r'}
+	keyedMixedByte = [...]byte{0: 'k', 'e', 'y', 'e', 'd', 'm', 'i', 'x', 'm', 'a', 'r', 'k'}
+)
+
 // Strings which are only used inside constant expressions must be left alone;
 // rewriting them into decoder calls would stop the constants from compiling.
 const constString string = "constant expression secret"
@@ -457,6 +468,17 @@ func main() {
 	}
 	if len(definedElemConv) != cap(definedElemConv) || string(definedElemConv) != "elemconvdefined" {
 		panic("defined byte slice conversion changed")
+	}
+	// A keyed element sets its index rather than appending, and a sparse key
+	// leaves zero bytes in front of or between the written ones.
+	if len(keyedSliceByte) != 12 || cap(keyedSliceByte) != 12 || string(keyedSliceByte) != "keyedslcmark" {
+		panic("keyed byte slice literal changed")
+	}
+	if string(keyedArrayByte[:]) != "\x00keyedarrmar" {
+		panic("keyed byte array literal changed")
+	}
+	if string(keyedMixedByte[:]) != "keyedmixmark" {
+		panic("mixed keyed byte literal changed")
 	}
 	empty := ""
 	tooSmall := "sz<min"
