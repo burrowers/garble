@@ -32,7 +32,7 @@ var callback = func() string { return "repeated literal secret" }
 	for _, obf := range Obfuscators {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
 			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object)}
-			file, fset := checkSource(t, "main", "repeat.go", source, parser.SkipObjectResolution, info)
+			file, fset := CheckSource(t, "main", "repeat.go", source, parser.SkipObjectResolution, info)
 			useObfuscator(t, file.Name.Name, obf)
 			before := slices.Clone(file.Decls)
 			Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })

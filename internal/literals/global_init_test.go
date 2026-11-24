@@ -25,7 +25,7 @@ func pick(v string) string { return v + log[0] }
 	for _, obf := range Obfuscators {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
 			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
-			file, fset := checkSource(t, "order", "order.go", source, 0, info)
+			file, fset := CheckSource(t, "order", "order.go", source, 0, info)
 			useObfuscator(t, file.Name.Name, obf)
 			file = Obfuscate(rand.New(rand.NewSource(1)), file, info, nil, nil, nil, func(r *rand.Rand, base string) string {
 				return fmt.Sprintf("hidden_%s_%x", base, r.Uint64())
@@ -52,7 +52,7 @@ func pick(v string) string { return v + log[0] }
 
 func TestConstructorSummarySafety(t *testing.T) {
 	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
-	file, _ := checkSource(t, "safety", "safety.go", `package safety
+	file, _ := CheckSource(t, "safety", "safety.go", `package safety
  type Key string
  type Pair struct { Text string }
  var global = "observable global value"
@@ -142,7 +142,7 @@ func TestGlobalLiteralProxyOwnership(t *testing.T) {
 			}
 			long = long[:MaxSize]
 			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object), Selections: make(map[*ast.SelectorExpr]*types.Selection)}
-			file, fset := checkSource(t, "globals", "global.go", fmt.Sprintf(`package globals
+			file, fset := CheckSource(t, "globals", "global.go", fmt.Sprintf(`package globals
 var early = len([1]string{late})
 var late = "initialized through an unevaluated operand"
 type record struct { Text string; Count int; Nested [2]string }

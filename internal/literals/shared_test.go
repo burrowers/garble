@@ -8,7 +8,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/printer"
-	"go/token"
 	"go/types"
 	mathrand "math/rand"
 	"os"
@@ -56,16 +55,9 @@ func TestSharedShortLiteralDecoder(t *testing.T) {
 	for i := range 40 {
 		fmt.Fprintf(&input, "func owner%d() { println(%q); println(%q); func() { println(%q) }() }\n", i, "eight-by", strings.Repeat("x", 24), "eight-by")
 	}
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "shared.go", input.String(), parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	before := slices.Clone(file.Decls)
 	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
-	if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
-		t.Fatal(err)
-	}
+	file, fset := literals.CheckSource(t, "main", "shared.go", input.String(), parser.SkipObjectResolution, info)
+	before := slices.Clone(file.Decls)
 	literals.Obfuscate(mathrand.New(mathrand.NewSource(7)), file, info, nil, nil, nil, func(r *mathrand.Rand, base string) string {
 		return fmt.Sprintf("%s%d", base, r.Uint64())
 	})

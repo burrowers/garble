@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// checkSource parses src and type-checks it as the package at path, recording
+// CheckSource parses src and type-checks it as the package at path, recording
 // into info, and returns the parsed file with the file set its positions refer
-// to.
-func checkSource(t *testing.T, path, filename, src string, mode parser.Mode, info *types.Info) (*ast.File, *token.FileSet) {
+// to. It is exported for the external test package.
+func CheckSource(t *testing.T, path, filename, src string, mode parser.Mode, info *types.Info) (*ast.File, *token.FileSet) {
 	t.Helper()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, filename, src, mode)

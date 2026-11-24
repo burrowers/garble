@@ -7,9 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/printer"
-	"go/token"
 	"go/types"
 	mathrand "math/rand"
 	"strings"
@@ -18,15 +16,8 @@ import (
 
 func TestLargeLiteral(t *testing.T) {
 	value := strings.Repeat("LARGE_LITERAL_SECRET_194", 4096)
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "large.go", "package p; var s = "+fmt.Sprintf("%q", value), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
 	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object)}
-	if _, err := new(types.Config).Check("p", fset, []*ast.File{file}, info); err != nil {
-		t.Fatal(err)
-	}
+	file, fset := CheckSource(t, "p", "large.go", "package p; var s = "+fmt.Sprintf("%q", value), 0, info)
 	file = Obfuscate(mathrand.New(mathrand.NewSource(123)), file, info, nil, nil, nil, func(r *mathrand.Rand, base string) string { return fmt.Sprintf("%s%d", base, r.Uint64()) })
 	var src bytes.Buffer
 	if err := printer.Fprint(&src, fset, file); err != nil {

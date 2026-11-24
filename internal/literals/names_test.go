@@ -66,7 +66,7 @@ func init() { global += "init literal secret" }
 	for _, obf := range Obfuscators {
 		t.Run(fmt.Sprintf("%T", obf), func(t *testing.T) {
 			info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
-			file, fset := checkSource(t, "owners", "owner.go", source, parser.SkipObjectResolution, info)
+			file, fset := CheckSource(t, "owners", "owner.go", source, parser.SkipObjectResolution, info)
 			useObfuscator(t, file.Name.Name, obf)
 			liftedNames := make(map[string]bool)
 			before := slices.Clone(file.Decls)

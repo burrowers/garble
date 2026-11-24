@@ -47,17 +47,10 @@ func TestObfuscateDeadFunctionDecoders(t *testing.T) {
 func main() { println("live literal secret"); _ = "live literal secret" }
 func dead() string { return func() string { return "live literal secret" }() }
 `
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "owner.go", source, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatal(err)
-	}
+	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
+	file, fset := literals.CheckSource(t, "main", "owner.go", source, parser.SkipObjectResolution, info)
 	dead := file.Decls[1].(*ast.FuncDecl)
 	before := slices.Clone(file.Decls)
-	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
-	if _, err := new(types.Config).Check("main", fset, []*ast.File{file}, info); err != nil {
-		t.Fatal(err)
-	}
 	literals.Obfuscate(mathrand.New(mathrand.NewSource(1)), file, info, nil, nil, nil, func(r *mathrand.Rand, base string) string {
 		return fmt.Sprintf("%s%d", base, r.Uint64())
 	})
