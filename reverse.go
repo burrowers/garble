@@ -90,6 +90,12 @@ Use -test to reverse frames from a binary built with "garble test":
 	return nil
 }
 
+// cgoGeneratedFiles are the file names cmd/cgo gives the generated files which
+// the compiler builds for a cgo package. A copy of one of them without a
+// whole-file "//line" directive carries markers of its own; the "<name>.cgo1.go"
+// copies do not, as cmd/cgo starts them with a directive naming the source file.
+var cgoGeneratedFiles = []string{"_cgo_gotypes.go", "_cgo_import.go"}
+
 // newReverser uses the existing listing, without starting another Go command.
 func newReverser() (*strings.Replacer, map[string]string, error) {
 	// A package's names are generally hashed with the action ID of its
@@ -166,6 +172,23 @@ func newReverser() (*strings.Replacer, map[string]string, error) {
 				}
 				origPos := fmt.Sprintf("%s:%d", goFile, pos.Offset)
 				registerMarker(hashWithPackage(lpkg, origPos) + ".go")
+				// cmd/cgo compiles a package's generated files out of the
+				// build cache, so the listing names them after their cache
+				// entries while the compiler sees names such as
+				// "_cgo_gotypes.go". Their markers key on that name and the
+				// byte offset, and the listing cannot provide the name, so
+				// register every offset under each name cmd/cgo generates.
+				// The marker keys on the name, so a wrong guess only adds an
+				// entry which no emitted marker uses.
+				if !strings.HasSuffix(goFile, ".go") {
+					for _, name := range cgoGeneratedFiles {
+						marker := "_cgo_" + hashWithPackage(lpkg, fmt.Sprintf("%s:%d", name, pos.Offset)) + ".go"
+						positions[marker] = name
+						// The frame names the package's build directory in
+						// front of the file, as with an absolute source name.
+						positions[hashWithListingIdentity(lpkg, lpkg.ImportPath)+"/"+marker] = name
+					}
+				}
 				// A generated copy of a file, such as the one cmd/cover compiles
 				// instead of a package's source, has byte offsets of its own, so
 				// its markers key on the logical position instead.

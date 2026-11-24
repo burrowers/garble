@@ -40,8 +40,7 @@ env GARBLE_TEST_PANIC=true
 ! exec ./main
 cp stderr panic.txt
 exec garble reverse . panic.txt
-# TODO: restore the generated file's name; it stays hashed today.
-stdout 'main\._Cfunc_callGoCallbacks[^\n]*\n\t[^\n]*_cgo_[A-Za-z0-9_]+\.go:[0-9]+ \+0x'
+stdout 'main\._Cfunc_callGoCallbacks[^\n]*\n\t_cgo_gotypes\.go:[0-9]+ \+0x'
 env GARBLE_TEST_PANIC=false
 
 exec garble -tiny -literals build
