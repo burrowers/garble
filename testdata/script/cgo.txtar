@@ -33,6 +33,17 @@ exec garble reverse .
 cmp stdout reversed.stdout
 env GARBLE_TEST_REVERSING=false
 
+# A panic which unwinds through a C frame has a frame in cmd/cgo's generated
+# _cgo_gotypes.go. That file is a build copy without a whole-file "//line"
+# directive, so its own markers have to carry the name garble reverse restores.
+env GARBLE_TEST_PANIC=true
+! exec ./main
+cp stderr panic.txt
+exec garble reverse . panic.txt
+# TODO: restore the generated file's name; it stays hashed today.
+stdout 'main\._Cfunc_callGoCallbacks[^\n]*\n\t[^\n]*_cgo_[A-Za-z0-9_]+\.go:[0-9]+ \+0x'
+env GARBLE_TEST_PANIC=false
+
 exec garble -tiny -literals build
 exec ./main
 cmp stdout main.stdout
@@ -164,6 +175,9 @@ func goThreadCallback(value C.uintptr_t) {
 func goCallback() {
 	runtime.GC()
 	fmt.Println("go callback")
+	if os.Getenv("GARBLE_TEST_PANIC") == "true" {
+		panic("cgo callback panic")
+	}
 	// TODO: support reversing filenames in cgo files
 	if false && os.Getenv("GARBLE_TEST_REVERSING") == "true" {
 		_, filename, _, _ := runtime.Caller(0)
