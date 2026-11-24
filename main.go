@@ -660,7 +660,10 @@ This command wraps "go %s". Below is its help:
 	if err := <-binaryContentID; err != nil {
 		return nil, err
 	}
-	if listErr != nil {
+	// A package which does not build is one package's result under `go test`,
+	// which runs and reports the rest of the pattern; only a build command
+	// fails as a whole. Let the go command report it in the test case.
+	if listErr != nil && command != "test" {
 		return nil, listErr
 	}
 

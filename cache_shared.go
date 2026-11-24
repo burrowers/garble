@@ -870,10 +870,6 @@ func appendListedPackages(packages []string, mainBuild, speculative bool) error 
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("go list error: %v:\nargs: %q\n%s", err, args, stderr.Bytes())
 	}
-	if msg := listedPackageErrors(pkgErrors, imported, cleanVariants); msg != "" {
-		return errors.New(msg)
-	}
-
 	if mainBuild {
 		// List only the linknamed packages absent from the build graph, once in
 		// the parent. Keep their -export BuildIDs for stable GarbleActionIDs;
@@ -914,6 +910,14 @@ func appendListedPackages(packages []string, mainBuild, speculative bool) error 
 				return fmt.Errorf("failed to load plain packages of test variants: %v", err)
 			}
 		}
+	}
+
+	// Report the collected listing errors last. A `garble test` which still
+	// runs the go command needs the auxiliary listings above: they name the
+	// standard packages reached only through linkname, and a missing entry
+	// there is fatal to the name translation.
+	if msg := listedPackageErrors(pkgErrors, imported, cleanVariants); msg != "" {
+		return errors.New(msg)
 	}
 
 	return nil
