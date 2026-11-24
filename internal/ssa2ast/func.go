@@ -876,6 +876,101 @@ func (fc *funcConverter) zeroCompositeType(typ types.Type) bool {
 	return false
 }
 
+// crossBlockVarUses reports, for every declared variable name, how the values
+// assigned to it are used. A declaration is shared by all values of one type,
+// so the information only decides the substitute for a group whose values are
+// used consistently.
+func (fc *funcConverter) crossBlockVarUses() map[string]VarUses {
+	uses := make(map[string]VarUses, len(fc.valueNameMap))
+	for val, name := range fc.valueNameMap {
+		refs := val.Referrers()
+		if refs == nil {
+			continue
+		}
+		classified := false
+		var valUses VarUses
+		for _, ref := range *refs {
+			switch classifyVarUse(ref, val) {
+			case useMethodSet:
+				valUses.MethodSet = true
+				classified = true
+			case useConcrete:
+				valUses.Concrete = true
+				classified = true
+			}
+		}
+		if !classified {
+			continue
+		}
+		// A value can share its name with the values of other blocks through a
+		// phi, so the uses accumulate rather than replace each other.
+		prev := uses[name]
+		uses[name] = VarUses{
+			MethodSet: prev.MethodSet || valUses.MethodSet,
+			Concrete:  prev.Concrete || valUses.Concrete,
+		}
+	}
+	return uses
+}
+
+// varUseKind is how one instruction uses a cross-block value.
+type varUseKind int
+
+const (
+	// useNone does not constrain the declaration, because the instruction only
+	// moves the value to where its uses are collected again.
+	useNone varUseKind = iota
+	// useMethodSet needs the value's method set, which only the emulated
+	// interface of an unexported type of another package keeps.
+	useMethodSet
+	// useConcrete needs the value's own or underlying type, which the
+	// emulated interface replaces.
+	useConcrete
+)
+
+// classifyVarUse reports how ref uses val.
+func classifyVarUse(ref ssa.Instruction, val ssa.Value) varUseKind {
+	switch ref := ref.(type) {
+	case *ssa.Phi:
+		// The phi carries the uses of its own result; an edge value's only use
+		// being the phi says nothing about what the value has to support.
+		return useNone
+	case *ssa.DebugRef:
+		return useNone
+	case *ssa.Call:
+		return classifyCallUse(ref.Common(), val)
+	case *ssa.Defer:
+		return classifyCallUse(ref.Common(), val)
+	case *ssa.Go:
+		return classifyCallUse(ref.Common(), val)
+	case *ssa.MakeInterface:
+		// Converting the value to an interface of its methods is the same
+		// restriction as calling one of them, and the underlying type would
+		// additionally change the dynamic type the conversion stores.
+		return useMethodSet
+	case *ssa.ChangeInterface, *ssa.MakeClosure:
+		return useMethodSet
+	}
+	return useConcrete
+}
+
+// classifyCallUse reports whether a call, defer or go instruction uses val as
+// the receiver of a method call. Only an interface method call carries
+// CallCommon.Method; a call of a concrete method is a call of the method's
+// *ssa.Function, which is recognisable by its receiver.
+func classifyCallUse(call *ssa.CallCommon, val ssa.Value) varUseKind {
+	if len(call.Args) == 0 || call.Args[0] != val {
+		return useConcrete
+	}
+	if call.Method != nil {
+		return useMethodSet
+	}
+	if fn, ok := call.Value.(*ssa.Function); ok && fn.Signature.Recv() != nil {
+		return useMethodSet
+	}
+	return useConcrete
+}
+
 func (fc *funcConverter) convertBlock(astFunc *AstFunc, ssaBlock *ssa.BasicBlock, astBlock *AstBlock) error {
 	astBlock.HasRefs = len(ssaBlock.Preds) != 0
 	fc.preStmts = nil
@@ -1550,9 +1645,30 @@ func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, erro
 			groupedVar[varType] = []string{varName}
 		}
 	}
+	usesByName := fc.crossBlockVarUses()
 	var specs []ast.Spec
 	for varType, varNames := range groupedVar {
-		typeExpr, err := fc.tc.ConvertVar(varType)
+		uses := VarUses{}
+		anyKnown := false
+		for _, name := range varNames {
+			groupUses, ok := usesByName[name]
+			if !ok {
+				// The value's only uses flow into the declaration itself, so it
+				// says nothing about what the group has to support; the phi or
+				// the value the group is assigned from carries those uses.
+				continue
+			}
+			anyKnown = true
+			uses.MethodSet = uses.MethodSet || groupUses.MethodSet
+			uses.Concrete = uses.Concrete || groupUses.Concrete
+		}
+		if !anyKnown {
+			// Without any classified use the group keeps the method set, which
+			// is the substitute that preserves the most of an unexported type
+			// of another package.
+			uses.MethodSet = true
+		}
+		typeExpr, err := fc.tc.ConvertVar(varType, uses)
 		if err != nil {
 			return nil, fmt.Errorf("variable %s: %w", strings.Join(varNames, ", "), err)
 		}

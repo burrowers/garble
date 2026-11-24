@@ -39,6 +39,23 @@ func (tc *TypeConverter) canName(typ types.Type) bool {
 	return tc.resolver(obj.Pkg()) == nil || token.IsExported(obj.Name())
 }
 
+// VarUses reports how the values that share a cross-block declaration are used.
+// One declaration has to keep every operation of the group, and the operations
+// split into two kinds that a substitute type can only keep one of: a use that
+// needs the value's method set, and a use that needs its own type or its
+// underlying type. ConvertVar picks the substitute from this information
+// instead of from the type alone.
+type VarUses struct {
+	// MethodSet reports a use that needs the value's method set: a call of
+	// one of its methods, a method value, or a conversion of the value to an
+	// interface, which the underlying type would change the dynamic type of.
+	MethodSet bool
+	// Concrete reports a use that needs the value's own or underlying type:
+	// len, cap, indexing, slicing, ranging, append, copy, field access, or
+	// passing the value where the underlying type is wanted.
+	Concrete bool
+}
+
 // ConvertVar converts the type of a variable declared by the converted
 // function body, rather than the type of an expression inside it.
 //
@@ -59,8 +76,8 @@ func (tc *TypeConverter) canName(typ types.Type) bool {
 // assignable to the underlying type that could be written for it. Emitting the
 // substituted declaration anyway would leave a typecheck error in the generated
 // source that no longer mentions the value's type.
-func (tc *TypeConverter) ConvertVar(typ types.Type) (ast.Expr, error) {
-	declared, ok := tc.varType(typ)
+func (tc *TypeConverter) ConvertVar(typ types.Type, uses VarUses) (ast.Expr, error) {
+	declared, ok := tc.varType(typ, uses)
 	if !ok {
 		return nil, fmt.Errorf("type %s: %w", typ, ErrUnwritableVarType)
 	}
@@ -71,7 +88,7 @@ func (tc *TypeConverter) ConvertVar(typ types.Type) (ast.Expr, error) {
 // whether the converted source can declare one at all. It tries the type
 // itself first, then the substitutes that keep as much of the value as the
 // generated file can express.
-func (tc *TypeConverter) varType(typ types.Type) (types.Type, bool) {
+func (tc *TypeConverter) varType(typ types.Type, uses VarUses) (types.Type, bool) {
 	candidates := []types.Type{typ}
 	if named, ok := types.Unalias(typ).(*types.Named); ok {
 		obj := named.Obj()
@@ -87,8 +104,13 @@ func (tc *TypeConverter) varType(typ types.Type) (types.Type, bool) {
 			// An unexported type of another package. The interface of its
 			// exported methods keeps the method calls, but only when the
 			// value implements it, which a pointer-receiver method alone does
-			// not.
-			if iface := exportedMethodInterface(named); iface != nil {
+			// not. It also replaces every other operation the value supports,
+			// so it is only the declaration of a group whose values are not
+			// used for anything but their method set; a group used any other
+			// way takes the underlying type, which is writable and
+			// assignable, and keeps len, indexing, slicing, ranging, field
+			// access and argument passing.
+			if iface := exportedMethodInterface(named); iface != nil && (uses.MethodSet || !uses.Concrete) {
 				candidates = append(candidates, iface)
 			}
 			candidates = append(candidates, named.Underlying())

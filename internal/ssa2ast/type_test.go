@@ -185,21 +185,30 @@ func TestConvertVar(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		typ     types.Type
+		uses    VarUses
 		want    string
 		wantErr bool
 	}{
-		{"unexported slice without methods", blob, "[]uint8", false},
-		{"unexported struct of writable fields", cell, "struct {\n	N int\n}", false},
-		{"unexported type with a value-receiver method", valueMethoded, "interface {\n	Size() int\n}", false},
-		{"unexported type with a pointer-receiver method", methoded, "[]uint8", false},
-		{"unexported struct holding an unexported type", holds, "", true},
-		{"unexported basic type", basicRank, "", true},
-		{"pointer to an unexported struct", ptrCell, "", true},
-		{"slice of an unexported basic type", rankSlice, "", true},
-		{"exported type", exported, "other.Exported", false},
+		{"unexported slice without methods", blob, VarUses{}, "[]uint8", false},
+		{"unexported struct of writable fields", cell, VarUses{}, "struct {\n\tN int\n}", false},
+		{"unexported type with a value-receiver method", valueMethoded, VarUses{}, "interface {\n\tSize() int\n}", false},
+		{"unexported type with a pointer-receiver method", methoded, VarUses{}, "[]uint8", false},
+		{"unexported struct holding an unexported type", holds, VarUses{}, "", true},
+		{"unexported basic type", basicRank, VarUses{}, "", true},
+		{"pointer to an unexported struct", ptrCell, VarUses{}, "", true},
+		{"slice of an unexported basic type", rankSlice, VarUses{}, "", true},
+		{"exported type", exported, VarUses{}, "other.Exported", false},
+		// A value-receiver method set forces the emulated interface only when a
+		// use needs it. A group used only for len, indexing, slicing, ranging or
+		// argument passing keeps the underlying type, which is the declaration
+		// those operations typecheck against.
+		{"value-receiver method used concretely", valueMethoded, VarUses{Concrete: true}, "[]uint8", false},
+		{"value-receiver method used only for its method set", valueMethoded, VarUses{MethodSet: true}, "interface {\n\tSize() int\n}", false},
+		{"value-receiver method used both ways", valueMethoded, VarUses{MethodSet: true, Concrete: true}, "interface {\n\tSize() int\n}", false},
+		{"slice without methods used concretely", blob, VarUses{Concrete: true}, "[]uint8", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			expr, err := tc.ConvertVar(test.typ)
+			expr, err := tc.ConvertVar(test.typ, test.uses)
 			if test.wantErr {
 				qt.Assert(t, qt.ErrorIs(err, ErrUnwritableVarType))
 				qt.Assert(t, qt.IsNil(expr))
