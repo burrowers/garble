@@ -17,6 +17,7 @@ binsubstr main$exe 'skip typed const' 'skip untyped const' 'sz<min'
 ! binsubstr main$exe 'elemuint8slice' 'elemaliasslice' 'elemuint8array' 'elemaliasarray'
 ! binsubstr main$exe 'namedcomposite' 'aliascomposite' 'namedarrayse' 'pointercompo' 'fieldcomposit' 'fieldarrayse'
 ! binsubstr main$exe 'typeparam local secret' 'typeparam return secret' 'typeparam concat secret' 'typeparam arg secret' 'typeparam field secret' 'typeparam slice secret' 'typeparam map key secret' 'typeparam map value secret' 'typeparam append secret' 'typeparam array secret' 'typeparam closure secret' 'typeparam method local secret' 'typeparam case secret'
+! binsubstr main$exe 'TPARRAYBYTEMARKER0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ012'
 
 [short] stop # checking that the build is reproducible is slow
 
@@ -38,6 +39,7 @@ binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' '
 binsubstr main$exe 'elemuint8slice' 'elemaliasslice' 'elemuint8array' 'elemaliasarray' 'elemconvuint8' 'elemconvalias' 'elemconvdefined'
 binsubstr main$exe 'namedcomposite' 'aliascomposite' 'namedarrayse' 'pointercompo' 'fieldcomposit' 'fieldarrayse'
 binsubstr main$exe 'typeparam local secret' 'typeparam return secret' 'typeparam concat secret' 'typeparam arg secret' 'typeparam field secret' 'typeparam slice secret' 'typeparam map key secret' 'typeparam map value secret' 'typeparam append secret' 'typeparam array secret' 'typeparam closure secret' 'typeparam method local secret' 'typeparam case secret'
+binsubstr main$exe 'TPARRAYBYTEMARKER0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ012'
 
 # Generate and write random literals into a separate file.
 # Huge literals must use the bounded-AST decoder instead of per-byte expressions.
@@ -564,7 +566,84 @@ var constArrayCap [cap(&[8]byte{1, 2, 3, 4, 5, 6, 7, 8})]byte
 const padding512 = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
 const padding2048 = padding512 + padding512 + padding512 + padding512
 
+// A composite literal written with a type parameter whose type set is exactly
+// one byte slice or byte array kept every byte in plaintext: go/types records
+// the parameter, and neither the slice nor the array arm matched it. The
+// decoder returns []byte or [N]byte, which is not assignable to a parameter, so
+// the rewrite converts it back.
+//
+// Only the array form is observable in the binary: a slice composite of this
+// length is stored with immediate writes, while returning a 128-byte array
+// value keeps the bytes in static data.
+type typeParamByte byte
+
+func typeParamArrayLiteral[S ~[128]byte]() S {
+	return S{
+		'T', 'P', 'A', 'R', 'R', 'A', 'Y', 'B',
+		'Y', 'T', 'E', 'M', 'A', 'R', 'K', 'E',
+		'R', '0', '1', '2', '3', '4', '5', '6',
+		'7', '8', '9', 'A', 'B', 'C', 'D', 'E',
+		'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U',
+		'V', 'W', 'X', 'Y', 'Z', '0', '1', '2',
+		'3', '4', '5', '6', '7', '8', '9', 'A',
+		'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I',
+		'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q',
+		'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y',
+		'Z', '0', '1', '2', '3', '4', '5', '6',
+		'7', '8', '9', 'A', 'B', 'C', 'D', 'E',
+		'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U',
+		'V', 'W', 'X', 'Y', 'Z', '0', '1', '2',
+	}
+}
+
+func typeParamSliceLiteral[S ~[]byte]() S {
+	return S{
+		'T', 'P', 'S', 'L', 'I', 'C', 'E', 'B',
+		'Y', 'T', 'E', 'L', 'I', 'T', 'E', 'R',
+		'A', 'L', 'M', 'A', 'R', 'K',
+	}
+}
+
+// The pointer form has no addressable value once the literal becomes a call.
+func typeParamPointerLiteral[S ~[]byte]() *S {
+	return &S{
+		'T', 'P', 'P', 'O', 'I', 'N', 'T', 'E',
+		'R', 'B', 'Y', 'T', 'E', 'L', 'I', 'T',
+		'E', 'R', 'A', 'L', 'M', 'R', 'K',
+	}
+}
+
+// The decoder returns []byte, which is not convertible to a rune slice or to a
+// slice of a defined byte type, so these keep the form they were written in.
+func typeParamRuneLiteral[S ~[]rune]() S {
+	return S{'r', 'u', 'n', 'e', 'l', 'i', 't', 'e'}
+}
+
+func typeParamDefinedByteLiteral[S ~[]typeParamByte]() S {
+	return S{1, 2, 3, 4, 5, 6, 7, 8}
+}
+
 func main() {
+	arrayLiteral := typeParamArrayLiteral[[128]byte]()
+	if string(arrayLiteral[:]) != "TPARRAYBYTEMARKER0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ012" {
+		panic("type parameter byte array literal changed")
+	}
+	sliceLiteral := typeParamSliceLiteral[[]byte]()
+	if len(sliceLiteral) != cap(sliceLiteral) || string(sliceLiteral) != "TPSLICEBYTELITERALMARK" {
+		panic("type parameter byte slice literal changed")
+	}
+	pointerLiteral := typeParamPointerLiteral[[]byte]()
+	if len(*pointerLiteral) != cap(*pointerLiteral) || string(*pointerLiteral) != "TPPOINTERBYTELITERALMRK" {
+		panic("type parameter byte slice pointer literal changed")
+	}
+	if got := typeParamRuneLiteral[[]rune](); len(got) != 8 || got[0] != 'r' {
+		panic("type parameter rune slice literal changed")
+	}
+	if got := typeParamDefinedByteLiteral[[]typeParamByte](); len(got) != 8 || byte(got[7]) != 8 {
+		panic("type parameter defined byte literal changed")
+	}
 	checkRepeatedLiterals()
 	checkAppendString()
 	checkCopyString()
