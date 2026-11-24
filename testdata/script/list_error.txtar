@@ -1,6 +1,13 @@
 ! exec garble build ./...
 cmpenv stderr stderr.golden
 
+# A package which does not build is that package's result under `go test`,
+# which still runs and reports the others; only `go build` fails as a whole.
+! exec garble test ./...
+stdout 'FAIL.*test/main/broken \[build failed\]'
+stdout 'ok.*test/main/good'
+stderr 'broken.broken\.go:5:16: cannot use 123'
+
 # Listing succeeds for a missing function body, but linking must fail.
 # Keep the tool's diagnostic and add a version with original names.
 ! exec garble build -o missing$exe ./linker
@@ -61,3 +68,19 @@ package imports_missing
 // Importing a missing package will list in JSON form like:
 // {..., "Incomplete": true, "DepsErrors": [...], ...}
 import _ "test/main/missing"
+
+-- good/good.go --
+package good
+
+func Value() string { return "good" }
+
+-- good/good_test.go --
+package good
+
+import "testing"
+
+func TestValue(t *testing.T) {
+	if Value() != "good" {
+		t.Fatal("unexpected value")
+	}
+}
