@@ -253,8 +253,8 @@ func pinGenerated(node ast.Node, pos token.Pos) {
 	withPos(node, pos)
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch n := n.(type) {
-		case *ast.StructType:
-			n.Fields.Opening, n.Fields.Closing = pos, pos
+		case *ast.FieldList:
+			n.Opening, n.Closing = pos, pos
 		case *ast.KeyValueExpr:
 			n.Colon = pos
 		case *ast.FuncLit:
