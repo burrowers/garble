@@ -894,6 +894,10 @@ func (fc *funcConverter) crossBlockVarUses() map[string]VarUses {
 			case useMethodSet:
 				valUses.MethodSet = true
 				classified = true
+			case useStructural:
+				valUses.Concrete = true
+				valUses.Structural = true
+				classified = true
 			case useConcrete:
 				valUses.Concrete = true
 				classified = true
@@ -906,8 +910,9 @@ func (fc *funcConverter) crossBlockVarUses() map[string]VarUses {
 		// phi, so the uses accumulate rather than replace each other.
 		prev := uses[name]
 		uses[name] = VarUses{
-			MethodSet: prev.MethodSet || valUses.MethodSet,
-			Concrete:  prev.Concrete || valUses.Concrete,
+			MethodSet:  prev.MethodSet || valUses.MethodSet,
+			Concrete:   prev.Concrete || valUses.Concrete,
+			Structural: prev.Structural || valUses.Structural,
 		}
 	}
 	return uses
@@ -923,6 +928,9 @@ const (
 	// useMethodSet needs the value's method set, which only the emulated
 	// interface of an unexported type of another package keeps.
 	useMethodSet
+	// useStructural needs the value's structure, which the emulated interface
+	// replaces: its length, elements, fields, or the range it spans.
+	useStructural
 	// useConcrete needs the value's own or underlying type, which the
 	// emulated interface replaces.
 	useConcrete
@@ -950,6 +958,11 @@ func classifyVarUse(ref ssa.Instruction, val ssa.Value) varUseKind {
 		return useMethodSet
 	case *ssa.ChangeInterface, *ssa.MakeClosure:
 		return useMethodSet
+	case *ssa.Index, *ssa.IndexAddr, *ssa.Slice, *ssa.Range, *ssa.Lookup,
+		*ssa.Field, *ssa.FieldAddr:
+		// Reading an element, a field or a sub-slice, or ranging over the
+		// value, needs its structure; an interface value has none.
+		return useStructural
 	}
 	return useConcrete
 }
@@ -959,6 +972,18 @@ func classifyVarUse(ref ssa.Instruction, val ssa.Value) varUseKind {
 // CallCommon.Method; a call of a concrete method is a call of the method's
 // *ssa.Function, which is recognisable by its receiver.
 func classifyCallUse(call *ssa.CallCommon, val ssa.Value) varUseKind {
+	if builtin, ok := call.Value.(*ssa.Builtin); ok {
+		// These builtins read the value's structure in any argument position,
+		// and the emulated interface has none of it.
+		switch builtin.Name() {
+		case "len", "cap", "append", "copy", "delete", "clear":
+			for _, arg := range call.Args {
+				if arg == val {
+					return useStructural
+				}
+			}
+		}
+	}
 	if len(call.Args) == 0 || call.Args[0] != val {
 		return useConcrete
 	}
@@ -1661,6 +1686,7 @@ func (fc *funcConverter) convertToStmts(ssaFunc *ssa.Function) ([]ast.Stmt, erro
 			anyKnown = true
 			uses.MethodSet = uses.MethodSet || groupUses.MethodSet
 			uses.Concrete = uses.Concrete || groupUses.Concrete
+			uses.Structural = uses.Structural || groupUses.Structural
 		}
 		if !anyKnown {
 			// Without any classified use the group keeps the method set, which
