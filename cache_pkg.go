@@ -257,25 +257,8 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		matchReflectedInterfaceMethods(pkg, &computed)
 	}
 	// Reflection discovered by a downstream implementation must flow back across
-	// interface calls in already compiled dependencies. Resolve those saved
-	// forwarding edges after merging the dependency caches.
-	for changed := true; changed; {
-		changed = false
-		for _, edge := range computed.ReflectCallEdges {
-			if !computed.ReflectAPIs[edge.Callee][edge.CalleeParam] {
-				continue
-			}
-			params := computed.ReflectAPIs[edge.Caller]
-			if params == nil {
-				params = make(map[int]bool)
-				computed.ReflectAPIs[edge.Caller] = params
-			}
-			if !params[edge.CallerParam] {
-				params[edge.CallerParam] = true
-				changed = true
-			}
-		}
-	}
+	// interface calls in already compiled dependencies.
+	solveReflectCallEdges(computed.ReflectAPIs, computed.ReflectCallEdges)
 
 	// Fill the reflect info from SSA, which builds on top of the syntax tree and type info.
 	inspector := reflectInspector{
