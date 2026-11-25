@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	_ "embed"
-	"fmt"
 	"go/token"
 	"go/types"
 	"iter"
@@ -46,7 +44,6 @@ func reflectSignatureKey(sig *types.Signature) string {
 
 //go:embed reflect_abi_code.go
 var reflectAbiCode string
-var reflectPatchFile = ""
 
 func abiNamePatch(path string) (string, error) {
 	data, err := os.ReadFile(path)
@@ -59,55 +56,13 @@ func abiNamePatch(path string) (string, error) {
 
 	str := strings.Replace(string(data), find, replace, 1)
 
-	originalNames := `
-//go:linkname _originalNames
-func _originalNames(name string) string
-
-//go:linkname _originalNamesInit
-func _originalNamesInit()
-
-func init() { _originalNamesInit() }
-`
-
-	return str + originalNames, nil
-}
-
-// reflectMainPrePatch adds the initial empty name mapping and _originalNames implementation
-// to a file in the main package. The name mapping will be populated later after
-// analyzing the main package, since we need to know all obfuscated names that need mapping.
-// We split this into pre/post steps so that all variable names in the generated code
-// can be properly obfuscated - if we added the filled map directly, the obfuscated names
-// would appear as plain strings in the binary.
-func reflectMainPrePatch(path string) (string, error) {
-	if reflectPatchFile != "" {
-		// already patched another file in main
-		return "", nil
-	}
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
 	_, code, _ := strings.Cut(reflectAbiCode, "// Injected code below this line.")
-	code = strings.ReplaceAll(code, "//disabledgo:", "//go:")
-	return string(content) + code, nil
-}
+	return str + code + `
+//go:linkname _originalNameData go:garbleReflectNames
+var _originalNameData string
 
-// reflectMainPostPatch populates the name mapping with the final obfuscated->real name
-// mappings after all packages have been analyzed.
-func reflectMainPostPatch(file []byte, lpkg *listedPackage, pkg pkgCache) []byte {
-	// A generated test main can remain unobfuscated. Match the name chosen
-	// by source transformation rather than assuming it was always hashed.
-	obfVarName := obfuscatedPackageObjectName(lpkg, "_originalNamePairs")
-	namePairs := fmt.Appendf(nil, "%s = []string{", obfVarName)
-
-	keys := slices.Sorted(maps.Keys(pkg.ReflectObjectNames))
-	namePairsFilled := bytes.Clone(namePairs)
-	for _, obf := range keys {
-		namePairsFilled = fmt.Appendf(namePairsFilled, "%q, %q,", obf, pkg.ReflectObjectNames[obf])
-	}
-
-	return bytes.Replace(file, namePairs, namePairsFilled, 1)
+func init() { _originalNamesInit(_originalNameData) }
+`, nil
 }
 
 type reflectInspector struct {
@@ -166,7 +121,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 // Note that reflected parameters count too: an API keeps taking new ones as
 // more of its callees are found to use reflection.
 func (ri *reflectInspector) recordedCount() int {
-	n := len(ri.result.ReflectObjectNames)
+	n := len(ri.result.ReflectedObjects)
 	for _, params := range ri.result.ReflectAPIs {
 		n += 1 + len(params)
 	}
@@ -1524,6 +1479,7 @@ func (ri *reflectInspector) recordUsedForReflect(obj types.Object, parent *types
 	if obfName == "" {
 		return
 	}
+	ri.result.ReflectedObjects[obfName] = true
 	ri.result.ReflectObjectNames[obfName] = obj.Name()
 	if flagDebug {
 		log.Printf("reflect: preserving object %s as %q -> %q", obj, obfName, obj.Name())
@@ -1538,8 +1494,7 @@ func (ri *reflectInspector) usedForReflect(obj types.Object) bool {
 	// TODO: Note that this does an object lookup by obfuscated name.
 	// We should probably use unique object identifiers or strings,
 	// such as go/types/objectpath.
-	_, ok := ri.result.ReflectObjectNames[obfName]
-	return ok
+	return ri.result.ReflectedObjects[obfName]
 }
 
 // We only mark named objects, so this function looks for a named object

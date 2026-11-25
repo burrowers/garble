@@ -10,30 +10,35 @@ package main
 // The code below does a more efficient version of:
 //
 //	func _originalNames(name string) string {
-//		for _, pair := range _originalNamePairs {
+//		for _, pair := range pairs {
 //			name = strings.ReplaceAll(name, pair[0], pair[1])
 //		}
 //		return name
 //	}
 //
-// The linknames below are only turned on when the code is injected,
-// so that we can test and benchmark this code normally.
-
 // Injected code below this line.
-
-// Each pair is the obfuscated and then the real name.
-// The pairs are sorted by obfuscated name, lexicographically.
-var _originalNamePairs = []string{}
 
 var _originalNamesReplacer *_genericReplacer
 
-//disabledgo:linkname _originalNamesInit internal/abi._originalNamesInit
-func _originalNamesInit() {
-	_originalNamesReplacer = _makeGenericReplacer(_originalNamePairs)
+// The linker emits the obfuscated and original names on alternating lines.
+func _originalNamesInit(data string) {
+	var pairs []string
+	start := 0
+	for i := range len(data) {
+		if data[i] == '\n' {
+			pairs = append(pairs, data[start:i])
+			start = i + 1
+		}
+	}
+	if len(pairs) > 0 {
+		_originalNamesReplacer = _makeGenericReplacer(pairs)
+	}
 }
 
-//disabledgo:linkname _originalNames internal/abi._originalNames
 func _originalNames(name string) string {
+	if _originalNamesReplacer == nil {
+		return name
+	}
 	return _originalNamesReplacer.Replace(name)
 }
 

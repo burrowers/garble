@@ -1,0 +1,165 @@
+From 6da87271909c3e36842b9b4327cda38654650d62 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Wed, 25 Nov 2026 11:32:54 +0000
+Subject: [PATCH] aggregate reflection names from object archives
+
+Read per-package name records while loading the exact archives for the
+link. Use one sorted table for internal/abi and for typelink sorting.
+---
+ cmd/link/internal/ld/data.go           | 26 +-----------
+ cmd/link/internal/ld/garble_reflect.go | 56 ++++++++++++++++++++++++++
+ cmd/link/internal/ld/lib.go            |  4 ++
+ cmd/link/internal/ld/link.go           |  4 ++
+ 4 files changed, 66 insertions(+), 24 deletions(-)
+ create mode 100644 src/cmd/link/internal/ld/garble_reflect.go
+
+diff --git a/cmd/link/internal/ld/data.go b/cmd/link/internal/ld/data.go
+index d6a6d53f..4a9a10b0 100644
+--- a/cmd/link/internal/ld/data.go
++++ b/cmd/link/internal/ld/data.go
+@@ -1291,6 +1291,7 @@ func (ctxt *Link) dostrdata() {
+ 	for _, name := range strnames {
+ 		addstrdata(ctxt.Arch, ctxt.loader, name, strdata[name])
+ 	}
++	ctxt.embedGarbleReflectNames()
+ }
+ 
+ // addgostring adds str, as a Go string value, to s. symname is the name of the
+@@ -1317,29 +1318,6 @@ func addinitarrdata(ctxt *Link, ldr *loader.Loader, s loader.Sym) {
+ 	sp.AddAddr(ctxt.Arch, s)
+ }
+ 
+-// garbleReflectNames undoes the obfuscation of the names that reflect sees
+-// with their original spelling. The runtime applies the same pairs in
+-// abi.Name.Name, and reflect binary-searches the typelinks by those strings,
+-// so they must be sorted by them too.
+-var garbleReflectNames = sync.OnceValue(func() *strings.Replacer {
+-	path := os.Getenv("GARBLE_LINK_REFLECT_NAMES")
+-	if path == "" {
+-		return nil
+-	}
+-	data, err := os.ReadFile(path)
+-	if err != nil {
+-		panic(fmt.Errorf("[garble] cannot read reflect names: %v", err))
+-	}
+-	pairs := strings.Split(string(data), "\n")
+-	if len(pairs) == 1 && pairs[0] == "" {
+-		return nil
+-	}
+-	if len(pairs)%2 != 0 {
+-		panic(fmt.Errorf("[garble] odd number of reflect names in %s", path))
+-	}
+-	return strings.NewReplacer(pairs...)
+-})
+-
+ // symalign returns the required alignment for the given symbol s.
+ func symalign(ldr *loader.Loader, s loader.Sym) int32 {
+ 	min := int32(thearch.Minalign)
+@@ -2484,7 +2462,7 @@ func (state *dodataState) dodataSect(ctxt *Link, symn sym.SymKind, syms []loader
+ 				sl[k].isTypelink = ldr.IsTypelink(s)
+ 				if sl[k].isTypelink {
+ 					sl[k].typeStr = decodetypeStr(ldr, ctxt.Arch, s)
+-					if r := garbleReflectNames(); r != nil {
++					if r := ctxt.garbleReflectNames; r != nil {
+ 						sl[k].typeStr = r.Replace(sl[k].typeStr)
+ 					}
+ 				}
+diff --git a/cmd/link/internal/ld/garble_reflect.go b/cmd/link/internal/ld/garble_reflect.go
+new file mode 100644
+index 00000000..5475130f
+--- /dev/null
++++ b/cmd/link/internal/ld/garble_reflect.go
+@@ -0,0 +1,56 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package ld
++
++import (
++	"io"
++	"maps"
++	"slices"
++	"strings"
++)
++
++func (ctxt *Link) readGarbleReflectNames(archive string, r io.Reader, size int64) {
++	data, err := io.ReadAll(io.LimitReader(r, size))
++	if err != nil || int64(len(data)) != size {
++		Exitf("%s: cannot read garble-reflect member (%d of %d bytes): %v", archive, len(data), size, err)
++	}
++	text, terminated := strings.CutSuffix(string(data), "\n")
++	pairs := strings.Split(text, "\n")
++	if !terminated || len(pairs)%2 != 0 {
++		Exitf("%s: malformed garble-reflect member", archive)
++	}
++	if ctxt.garbleReflectPairs == nil {
++		ctxt.garbleReflectPairs = make(map[string]string)
++	}
++	for i := 0; i < len(pairs); i += 2 {
++		name, original := pairs[i], pairs[i+1]
++		if name == "" || original == "" {
++			Exitf("%s: empty name in garble-reflect member", archive)
++		}
++		if prev, ok := ctxt.garbleReflectPairs[name]; ok && prev != original {
++			Exitf("%s: conflicting reflected names for %q: %q and %q", archive, name, prev, original)
++		}
++		ctxt.garbleReflectPairs[name] = original
++	}
++}
++
++// Embed the same ordered pairs that the linker uses to sort typelinks.
++// reflect binary-searches typelinks using the names returned by internal/abi.
++func (ctxt *Link) embedGarbleReflectNames() {
++	if len(ctxt.garbleReflectPairs) == 0 {
++		return
++	}
++	pairs := make([]string, 0, 2*len(ctxt.garbleReflectPairs))
++	for _, name := range slices.Sorted(maps.Keys(ctxt.garbleReflectPairs)) {
++		pairs = append(pairs, name, ctxt.garbleReflectPairs[name])
++	}
++	const symName = "go:garbleReflectNames" // internal/abi's injected string variable
++	if s := ctxt.loader.Lookup(symName, 0); s == 0 || !ctxt.loader.AttrReachable(s) {
++		Exitf("garble reflection table has no reachable %s variable", symName)
++	}
++	addstrdata(ctxt.Arch, ctxt.loader, symName, strings.Join(pairs, "\n")+"\n")
++	ctxt.garbleReflectNames = strings.NewReplacer(pairs...)
++	ctxt.garbleReflectPairs = nil
++}
+diff --git a/cmd/link/internal/ld/lib.go b/cmd/link/internal/ld/lib.go
+index 031fbde2..14b6d934 100644
+--- a/cmd/link/internal/ld/lib.go
++++ b/cmd/link/internal/ld/lib.go
+@@ -1155,6 +1155,10 @@ func loadobjfile(ctxt *Link, lib *sym.Library) {
+ 		if arhdr.name == pkgdef {
+ 			continue
+ 		}
++		if arhdr.name == "garble-reflect" {
++			ctxt.readGarbleReflectNames(lib.File, f, atolwhex(arhdr.size))
++			continue
++		}
+ 
+ 		if arhdr.name == "dynimportfail" {
+ 			dynimportfail = append(dynimportfail, lib.Pkg)
+diff --git a/cmd/link/internal/ld/link.go b/cmd/link/internal/ld/link.go
+index c0d20680..88bcedfc 100644
+--- a/cmd/link/internal/ld/link.go
++++ b/cmd/link/internal/ld/link.go
+@@ -37,6 +37,7 @@ import (
+ 	"cmd/link/internal/sym"
+ 	"debug/elf"
+ 	"fmt"
++	"strings"
+ )
+ 
+ type Shlib struct {
+@@ -103,6 +104,9 @@ type Link struct {
+ 	PackageFile  map[string]string
+ 	PackageShlib map[string]string
+ 
++	garbleReflectPairs map[string]string
++	garbleReflectNames *strings.Replacer
++
+ 	tramps []loader.Sym // trampolines
+ 
+ 	compUnits []*sym.CompilationUnit // DWARF compilation units
