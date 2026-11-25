@@ -1,12 +1,13 @@
 # Intrinsic and toolchain-sensitive declarations are renamed while their
 # compiler, assembler, and runtime contracts keep their original semantics.
 [short] skip 'runtime obfuscation is an integration test'
-exec garble -debugdir=debug build -o=main$exe .
+exec garble -debugdir=debug build -gcflags=test/intrinsic=-d=ssa/intrinsics/debug=1 -o=main$exe .
+# Len64 keeps its compiler name, not its emitted symbol name.
+grep '^func Len64\(' $WORK/debug/garbled/math/bits/bits.go
+[amd64] stderr 'intrinsic substitution for Len64 '
+[arm64] stderr 'intrinsic substitution for Len64 '
 exec ./main$exe
 stdout '^intrinsic-ok$'
-# Inspect transformed declarations, not just the final linked binary.
-grep 'func [A-Za-z0-9_]+\([^)]*uint64\) \([^)]*int\)' $WORK/debug/garbled/math/bits/bits.go
-! grep 'func Len64\(' $WORK/debug/garbled/math/bits/bits.go
 ! binsubstr main$exe 'math/bits.Len64' 'Len64'
 ! binsubstr main$exe 'runtime.goexit' 'runtime.gopanic' 'reflect.makeFuncStub' 'reflect.methodValueCall'
 grep -count=2 '^func (getg|publicationBarrier)\(' $WORK/debug/source/runtime/stubs.go
@@ -67,12 +68,20 @@ type hostValue struct {
 	value int
 }
 
+var bitLength = bits.Len64
+
+//go:noinline
+func directBitLength(x uint64) int { return bits.Len64(x) }
+
 func main() {
 	if data, err := files.ReadFile("go.mod"); err != nil || len(data) == 0 {
 		panic("embedded file lost")
 	}
-	if bits.Len64(1<<55) != 56 {
+	if directBitLength(1<<55) != 56 || bitLength(1<<55) != 56 {
 		panic("wrong intrinsic result")
+	}
+	if f := runtime.FuncForPC(reflect.ValueOf(bitLength).Pointer()); f == nil || f.Name() == "" {
+		panic("missing function-value symbol")
 	}
 	var counter atomic.Int64
 	if counter.Add(7) != 7 {

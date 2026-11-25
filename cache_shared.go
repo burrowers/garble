@@ -533,7 +533,8 @@ var specialPkgPaths = [...]string{
 // the property, such as race instrumentation leaking into sync internals.
 // Format: "obfuscated1=original1,obfuscated2=original2,..."
 func buildRuntimePkgPathMap() string {
-	pkgPaths := slices.Concat(objabiSpecialPkgPaths, linkerLoadedPkgPaths[:], specialPkgPaths[:], slices.Sorted(maps.Keys(runtimeAndLinknamed)))
+	pkgPaths := slices.Concat(objabiSpecialPkgPaths, linkerLoadedPkgPaths[:], specialPkgPaths[:],
+		slices.Sorted(maps.Keys(runtimeAndLinknamed)), slices.Sorted(maps.Keys(compilerNamedFunctions)))
 	var mappings []string
 	seen := make(map[string]bool, len(pkgPaths))
 	for _, pkgPath := range pkgPaths {
@@ -582,10 +583,9 @@ func symbolMapEntries(symbol string) []symbolMapEntry {
 	return []symbolMapEntry{{name: symbol}}
 }
 
-// buildSymbolMap builds a complete mapping of obfuscated->original symbols
-// for all intrinsic and builtin functions. This is passed to the patched
-// compiler and linker so they can recognize obfuscated symbols.
-// Format: "obfuscatedPkg.obfuscatedFunc=originalPkg.originalFunc,..."
+// buildSymbolMap maps emitted names back to original names for toolchain
+// consumers. Functions renamed at emission instead get a forward-only entry
+// keyed by their compiler spelling (marked with @).
 func buildSymbolMap() string {
 	// Intrinsics and builtin symbols can overlap. Use one naming rule and
 	// one entry per original symbol so neither producer can disagree.
@@ -613,8 +613,11 @@ func buildSymbolMap() string {
 				if entry.method {
 					obfuscatedSymbol = methodName(lpkg, entry.name)
 				}
-				if obfuscatedPath != pkgPath || obfuscatedSymbol != entry.name {
-					mappings = append(mappings, obfuscatedPath+"."+obfuscatedSymbol+"="+pkgPath+"."+entry.name)
+				emitted := obfuscatedPath + "." + obfuscatedSymbol
+				if !entry.method && renameFunctionAtEmission(lpkg, entry.name) {
+					mappings = append(mappings, "@"+obfuscatedPath+"."+entry.name+"="+emitted)
+				} else if obfuscatedPath != pkgPath || obfuscatedSymbol != entry.name {
+					mappings = append(mappings, emitted+"="+pkgPath+"."+entry.name)
 				}
 			}
 		}

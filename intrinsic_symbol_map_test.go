@@ -5,26 +5,26 @@ import (
 	"testing"
 )
 
-// The compiler sees intrinsics by their original names, but compiled object
-// symbols and transformed declarations use the same hashed spelling.
-func TestIntrinsicSymbolMapUsesTransformedDeclaration(t *testing.T) {
+func TestIntrinsicSymbolMapDefersLen64Renaming(t *testing.T) {
 	oldCache := sharedCache
 	defer func() { sharedCache = oldCache }()
-	pkg := &listedPackage{ImportPath: "math/bits", Name: "bits", CompiledGoFiles: []string{"bits.go"}}
+	pkg := &listedPackage{ImportPath: "math/bits", Name: "bits", Standard: true, CompiledGoFiles: []string{"bits.go"}}
 	pkg.GarbleActionID[0] = 83
 	sharedCache = &sharedCacheType{ListedPackages: newListedPackages()}
 	sharedCache.ListedPackages.set(pkg.ImportPath, pkg)
-	name := "Len64"
-	if isToolchainNameDependency(pkg.ImportPath, name) {
-		t.Fatalf("intrinsic %s must be eligible for renaming", name)
+	prefix := pkg.obfuscatedImportPath()
+	emitted := prefix + "." + obfuscatedPackageObjectName(pkg, "Len64")
+	symbols := strings.SplitSeq(buildSymbolMap(), ",")
+	want := "@" + prefix + ".Len64=" + emitted
+	found := false
+	for entry := range symbols {
+		if entry == emitted+"=math/bits.Len64" {
+			t.Fatal("Len64 must not need a reverse intrinsic mapping")
+		}
+		found = found || entry == want
 	}
-	hashed := obfuscatedPackageObjectName(pkg, name)
-	if hashed == name {
-		t.Fatal("intrinsic declaration not renamed")
-	}
-	mapping := pkg.obfuscatedImportPath() + "." + hashed + "=" + pkg.ImportPath + "." + name
-	if !strings.Contains(","+buildSymbolMap()+",", ","+mapping+",") {
-		t.Fatalf("missing intrinsic symbol mapping %s", mapping)
+	if !found {
+		t.Fatalf("missing emission mapping %s", want)
 	}
 }
 
@@ -76,8 +76,8 @@ func TestIntrinsicAndBuiltinSymbolProducersAgree(t *testing.T) {
 			builtinSymbols[pkg.ImportPath] = oldBuiltin
 		}
 	}()
-	builtinSymbols[pkg.ImportPath] = []string{"Len64"}
-	mapping := pkg.obfuscatedImportPath() + "." + obfuscatedPackageObjectName(pkg, "Len64") + "=" + pkg.ImportPath + ".Len64"
+	builtinSymbols[pkg.ImportPath] = []string{"Len32"}
+	mapping := pkg.obfuscatedImportPath() + "." + obfuscatedPackageObjectName(pkg, "Len32") + "=" + pkg.ImportPath + ".Len32"
 	count := 0
 	for _, entry := range strings.Split(buildSymbolMap(), ",") {
 		if entry == mapping {
