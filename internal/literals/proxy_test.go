@@ -18,6 +18,36 @@ func occupancyDispatcher(seed int64) *proxyDispatcher {
 	})
 }
 
+func TestProxyRootPreservesFirstDirectiveWithoutImports(t *testing.T) {
+	const src = "package main\n\n//go:noinline\nfunc first() {}\n"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "input.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := &ast.GenDecl{Tok: token.TYPE, Specs: []ast.Spec{&ast.TypeSpec{
+		Name: ast.NewIdent("root"),
+		Type: &ast.StructType{Fields: &ast.FieldList{List: []*ast.Field{{
+			Names: []*ast.Ident{ast.NewIdent("decode")},
+			Type:  &ast.FuncType{Params: &ast.FieldList{}},
+		}}}},
+	}}}
+	pinGenerated(root, declGapPos(file))
+	file.Decls = append([]ast.Decl{root}, file.Decls...)
+	var out strings.Builder
+	if err := printer.Fprint(&out, fset, file); err != nil {
+		t.Fatal(err)
+	}
+	printed, err := parser.ParseFile(token.NewFileSet(), "printed.go", out.String(), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := printed.Decls[1].(*ast.FuncDecl).Doc
+	if doc == nil || doc.List[0].Text != "//go:noinline" {
+		t.Fatalf("directive moved away from first:\n%s", out.String())
+	}
+}
+
 func TestProxyHiddenValueIdentity(t *testing.T) {
 	d := occupancyDispatcher(7)
 	const count = 513
