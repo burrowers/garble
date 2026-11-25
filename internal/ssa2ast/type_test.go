@@ -203,9 +203,17 @@ func TestConvertVar(t *testing.T) {
 		// argument passing keeps the underlying type, which is the declaration
 		// those operations typecheck against.
 		{"value-receiver method used concretely", valueMethoded, VarUses{Concrete: true}, "[]uint8", false},
-		{"value-receiver method used only for its method set", valueMethoded, VarUses{MethodSet: true}, "interface {\n\tSize() int\n}", false},
-		{"value-receiver method used both ways", valueMethoded, VarUses{MethodSet: true, Concrete: true}, "interface {\n\tSize() int\n}", false},
+		{"value-receiver method used only for its method set", valueMethoded, VarUses{MethodSet: true}, "interface {\n	Size() int\n}", false},
+		// A concrete use that an interface value also supports, such as a
+		// comparison, does not stop the interface from keeping the method set.
+		{"value-receiver method with a use an interface supports", valueMethoded, VarUses{MethodSet: true, Concrete: true}, "interface {\n	Size() int\n}", false},
+		// A use of the value's structure cannot work on the interface, and the
+		// underlying type has no method set, so no declaration serves the group
+		// and the conversion has to fail closed instead of emitting one that
+		// only half of the uses typecheck against.
+		{"value-receiver method set and structure", valueMethoded, VarUses{MethodSet: true, Concrete: true, Structural: true}, "", true},
 		{"slice without methods used concretely", blob, VarUses{Concrete: true}, "[]uint8", false},
+		{"slice without methods used for its structure", blob, VarUses{Concrete: true, Structural: true}, "[]uint8", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			expr, err := tc.ConvertVar(test.typ, test.uses)
