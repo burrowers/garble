@@ -12,7 +12,16 @@ func TestIntrinsicSymbolMapDefersLen64Renaming(t *testing.T) {
 	pkg.GarbleActionID[0] = 83
 	sharedCache = &sharedCacheType{ListedPackages: newListedPackages()}
 	sharedCache.ListedPackages.set(pkg.ImportPath, pkg)
+	// The emission policy must also work for ordinary functions which do not
+	// appear in the compiler's intrinsic or builtin tables.
+	const ordinary = "OrdinaryFunction"
+	compilerNamedFunctions[pkg.ImportPath][ordinary] = true
+	t.Cleanup(func() { delete(compilerNamedFunctions[pkg.ImportPath], ordinary) })
 	prefix := pkg.obfuscatedImportPath()
+	emission := "@" + prefix + "." + ordinary + "=" + prefix + "." + obfuscatedPackageObjectName(pkg, ordinary)
+	if !strings.Contains(","+buildSymbolMap()+",", ","+emission+",") {
+		t.Fatalf("missing emission mapping for a non-intrinsic: %s", emission)
+	}
 	emitted := prefix + "." + obfuscatedPackageObjectName(pkg, "Len64")
 	symbols := strings.SplitSeq(buildSymbolMap(), ",")
 	want := "@" + prefix + ".Len64=" + emitted

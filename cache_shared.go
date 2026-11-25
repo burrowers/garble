@@ -584,7 +584,7 @@ func symbolMapEntries(symbol string) []symbolMapEntry {
 }
 
 // buildSymbolMap maps emitted names back to original names for toolchain
-// consumers. Functions renamed at emission instead get a forward-only entry
+// consumers. Functions renamed at emission instead get an emission-only entry
 // keyed by their compiler spelling (marked with @).
 func buildSymbolMap() string {
 	// Intrinsics and builtin symbols can overlap. Use one naming rule and
@@ -592,6 +592,9 @@ func buildSymbolMap() string {
 	pkgSymbols := make(map[string][]string)
 	for pkgPath, symbols := range compilerIntrinsics {
 		pkgSymbols[pkgPath] = slices.Collect(maps.Keys(symbols))
+	}
+	for pkgPath, names := range compilerNamedFunctions {
+		pkgSymbols[pkgPath] = slices.AppendSeq(pkgSymbols[pkgPath], maps.Keys(names))
 	}
 	for _, registry := range []map[string][]string{mappedToolchainSymbols, builtinSymbols} {
 		for pkgPath, symbols := range registry {
