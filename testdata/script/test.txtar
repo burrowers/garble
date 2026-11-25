@@ -5,8 +5,7 @@ exec garble test -c
 binsubstr bar.test$exe 'TestFoo' 'TestSeparateFoo' 'TestLinkedOwnPackage'
 ! binsubstr bar.test$exe 'LocalFoo|ImportedVar|OriginalFuncName'
 
-# A cached test main has GoFiles but no CompiledGoFiles in go list output.
-# Retain GOCACHE and force relinking after evicting reflection metadata.
+# Relink the cached test main after evicting Garble's analysis cache.
 rm garble-cache
 exec garble test -c -ldflags=-X=main.unused=changed
 

@@ -196,24 +196,25 @@ func BenchmarkBuild(b *testing.B) {
 }
 
 func BenchmarkAbiOriginalNames(b *testing.B) {
-	// Benchmark two thousand obfuscated names in _originalNamePairs
+	// Benchmark two thousand obfuscated names
 	// and a variety of input strings to reverse.
 	// As an example, the cmd/go binary ends up with about 2200 entries
-	// in _originalNamePairs as of November 2024, so it's a realistic figure.
+	// as of November 2024, so it's a realistic figure.
 	// Structs with tens of fields are also relatively normal.
 	salt := []byte("some salt bytes")
+	var pairs []string
 	for n := range 2000 {
 		name := fmt.Sprintf("name_%d", n)
 		garbled := hashWithCustomSalt(salt, name)
-		_originalNamePairs = append(_originalNamePairs, garbled, name)
+		pairs = append(pairs, garbled, name)
 	}
-	_originalNamesInit()
+	_originalNamesInit(strings.Join(pairs, "\n") + "\n")
 	// Pick twenty obfuscated names at random to use as inputs below.
 	// Use a deterministic random source so it's stable between benchmark runs.
 	rnd := rand.New(rand.NewPCG(1, 2))
 	var chosen []string
-	for i := 0; i < len(_originalNamePairs); i += 2 {
-		chosen = append(chosen, _originalNamePairs[i])
+	for i := 0; i < len(pairs); i += 2 {
+		chosen = append(chosen, pairs[i])
 	}
 	rnd.Shuffle(len(chosen), func(i, j int) {
 		chosen[i], chosen[j] = chosen[j], chosen[i]
@@ -251,6 +252,5 @@ func BenchmarkAbiOriginalNames(b *testing.B) {
 			}
 		}
 	})
-	_originalNamePairs = []string{}
 	_originalNamesReplacer = nil
 }

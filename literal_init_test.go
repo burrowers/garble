@@ -135,6 +135,7 @@ func TestLiteralInitConstructorCache(t *testing.T) {
 		PureConstructors:   map[string]bool{"(example.com/attribute.Key).String": true, "example.com/attribute.StringValue": true},
 		ReflectAPIs:        map[string]map[int]bool{"reflect.TypeOf": {0: true}},
 		ReflectCallEdges:   []reflectCallEdge{{Caller: "wrapper", Callee: "reflect.TypeOf", CallerParam: 1, CalleeParam: 0}},
+		ReflectedObjects:   map[string]bool{"hidden": true},
 		ReflectObjectNames: map[string]string{"hidden": "original"},
 	}
 	data, err := original.MarshalMsg(nil)
@@ -144,8 +145,12 @@ func TestLiteralInitConstructorCache(t *testing.T) {
 	if err != nil || len(rest) != 0 {
 		t.Fatalf("cache decode: %v, remainder %d", err, len(rest))
 	}
-	merged := pkgCache{PureConstructors: map[string]bool{}, ReflectAPIs: map[string]map[int]bool{}, ReflectObjectNames: map[string]string{}}
+	if !reflect.DeepEqual(original.ReflectObjectNames, loaded.ReflectObjectNames) {
+		t.Fatalf("cache lost the local reflected names: %#v", loaded.ReflectObjectNames)
+	}
+	merged := pkgCache{PureConstructors: map[string]bool{}, ReflectAPIs: map[string]map[int]bool{}, ReflectedObjects: map[string]bool{}}
 	merged.CopyFrom(loaded)
+	original.ReflectObjectNames = nil // archive records must not be copied to importers
 	if !reflect.DeepEqual(original, merged) {
 		t.Fatalf("cache lost summaries: %#v", merged)
 	}

@@ -14,7 +14,6 @@ import (
 	"sync"
 
 	"github.com/rogpeppe/go-internal/cache"
-	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
 	"mvdan.cc/garble/internal/literals"
 )
@@ -37,8 +36,8 @@ type cachedDebugArtifacts struct {
 }
 
 // pkgCache contains information about a package that will be stored in fsCache.
-// Note that pkgCache is "deep", containing information about all packages
-// which are transitive dependencies as well.
+// Analysis summaries include transitive dependencies. The names emitted into
+// the object archive are the records discovered in this package alone.
 type pkgCache struct {
 	// ReflectAPIs is a static record of what std APIs use reflection on their
 	// parameters, so we can avoid obfuscating types used with them.
@@ -56,8 +55,11 @@ type pkgCache struct {
 	// the callee's reflection use is only discovered in a downstream package.
 	ReflectCallEdges []reflectCallEdge
 
-	// ReflectObjectNames maps obfuscated names which are reflected to their original
-	// non-obfuscated names. The key is a [reflectInspector.obfuscatedObjectName].
+	// ReflectedObjects is the transitive set used to propagate reflection through
+	// stores and conversions. Only ReflectObjectNames is sent to the linker.
+	ReflectedObjects map[string]bool
+	// ReflectObjectNames maps names recorded while analyzing this package to
+	// their original spellings, even if the objects are declared elsewhere.
 	ReflectObjectNames map[string]string
 
 	// PureConstructors records body-proven value constructors by Func.FullName.
@@ -77,7 +79,7 @@ func (c *pkgCache) CopyFrom(c2 pkgCache) {
 	for name, positions := range c2.ReflectTypeParams {
 		mergeReflectParams(c.ReflectTypeParams, name, positions)
 	}
-	maps.Copy(c.ReflectObjectNames, c2.ReflectObjectNames)
+	maps.Copy(c.ReflectedObjects, c2.ReflectedObjects)
 	if len(c2.ReflectCallEdges) > 0 {
 		seen := make(map[reflectCallEdge]bool, len(c.ReflectCallEdges)+len(c2.ReflectCallEdges))
 		for _, edge := range c.ReflectCallEdges {
@@ -138,12 +140,8 @@ func patchedBasename(name string) string {
 
 // parseFiles parses the given Go files of lpkg. It supports relative file paths,
 // such as those found in listedPackage.CompiledGoFiles, as long as dir is set to
-// listedPackage.Dir. When mainPatch is true and lpkg is a main package, garble's
-// reflection support code is patched in; needed when compiling, not when only
-// inspecting names as reverse and map do.
-func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool) (files []*ast.File, err error) {
-	mainPackage := mainPatch && lpkg.Name == "main" && lpkg.ForTest == ""
-
+// listedPackage.Dir.
+func parseFiles(lpkg *listedPackage, dir string, paths []string) (files []*ast.File, err error) {
 	for _, path := range paths {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(dir, path)
@@ -171,14 +169,6 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool)
 			if err != nil {
 				return nil, err
 			}
-		} else if mainPackage && reflectPatchFile == "" && !strings.HasPrefix(base, "_cgo_") {
-			// Note that we cannot add our code to e.g. _cgo_gotypes.go.
-			src, err = reflectMainPrePatch(path)
-			if err != nil {
-				return nil, err
-			}
-
-			reflectPatchFile = path
 		}
 
 		file, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution|parser.ParseComments)
@@ -186,15 +176,8 @@ func parseFiles(lpkg *listedPackage, dir string, paths []string, mainPatch bool)
 			return nil, err
 		}
 
-		if mainPackage && src != "" {
-			astutil.AddNamedImport(fset, file, "_", "unsafe")
-		}
-
 		transformRuntimeMetadataNames(lpkg, file)
 		files = append(files, file)
-	}
-	if mainPackage && reflectPatchFile == "" {
-		return nil, fmt.Errorf("main packages must get reflect code patched in")
 	}
 	return files, nil
 }
@@ -220,24 +203,6 @@ func loadPkgCache(lpkg *listedPackage, pkg *types.Package, files []*ast.File, in
 	return computePkgCache(fsCache, lpkg, pkg, files, info, ssaPkg)
 }
 
-// linkOnlyReflectDeps returns the packages which the go command links into a
-// binary without naming them in any package's Imports, and whose reflection
-// records the current build therefore needs. Only a dependency which the
-// forwarded build flags actually activate is included: a name recorded by a
-// package that is not linked would only add plaintext to the binary.
-func linkOnlyReflectDeps() []string {
-	if hasCoverBuildFlag(sharedCache.ForwardBuildFlags) {
-		// A covered binary always links runtime/coverage, which imports
-		// internal/coverage/cfile. cfile decodes the go command's own
-		// metafiles.txt with encoding/json, so the field names of the
-		// coverage meta-data collection have to stay readable; otherwise
-		// every auxiliary fragment decodes as empty and a test binary counts
-		// only the statements of its own package.
-		return []string{"runtime/coverage"}
-	}
-	return nil
-}
-
 // computePkgCache merges the package caches of the packages this one imports.
 func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Package, files []*ast.File, info *types.Info, ssaPkg *ssa.Package) (pkgCache, error) {
 	// Not yet in the cache. Load the cache entries for all direct dependencies,
@@ -251,6 +216,7 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 			"reflect.ValueOf": {0: true},
 		},
 		ReflectTypeParams:  map[string]map[int]bool{},
+		ReflectedObjects:   map[string]bool{},
 		ReflectObjectNames: map[string]string{},
 		PureConstructors:   map[string]bool{},
 	}
@@ -288,21 +254,6 @@ func computePkgCache(fsCache *cache.Cache, lpkg *listedPackage, pkg *types.Packa
 		maps.Copy(computed.PureConstructors, literals.ConstructorSummaries(files, info, computed.PureConstructors))
 	}
 	if lpkg.Name == "main" {
-		// A main package also links the packages the go command adds on behalf
-		// of the linker. They are never named in an Imports list, so neither
-		// they nor the packages they import can contribute their reflected
-		// names to the name table this cache fills.
-		for _, path := range linkOnlyReflectDeps() {
-			dep, ok := sharedCache.ListedPackages.get(path)
-			if !ok || dep.BuildID == "" {
-				continue // the build does not link this dependency
-			}
-			loaded, err := loadListedPkgCache(fsCache, dep)
-			if err != nil {
-				return pkgCache{}, fmt.Errorf("pkgCache load for %s: %w", path, err)
-			}
-			maps.Copy(computed.ReflectObjectNames, loaded.ReflectObjectNames)
-		}
 		matchReflectedInterfaceMethods(pkg, &computed)
 	}
 	// Reflection discovered by a downstream implementation must flow back across
@@ -381,11 +332,7 @@ func loadListedPkgCache(fsCache *cache.Cache, lpkg *listedPackage) (pkgCache, er
 	// Missing or corrupted entry in the cache.
 	// Could happen if GARBLE_CACHE was emptied but GOCACHE was not.
 	// Compute it, which can recurse if many entries are missing.
-	paths := lpkg.CompiledGoFiles
-	if len(paths) == 0 && isSynthesizedTestMain(*lpkg) {
-		paths = lpkg.GoFiles
-	}
-	files, err := parseFiles(lpkg, lpkg.Dir, paths, true)
+	files, err := parseFiles(lpkg, lpkg.Dir, lpkg.CompiledGoFiles)
 	if err != nil {
 		return pkgCache{}, err
 	}

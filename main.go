@@ -413,7 +413,17 @@ func mainErr(args []string) error {
 		if tool != "compile" && tool != "asm" && tool != "link" {
 			return cmd.Run()
 		}
-		return runTool(cmd)
+		if err := runTool(cmd); err != nil {
+			return err
+		}
+		if tool == "compile" && len(tf.curPkgCache.ReflectObjectNames) > 0 {
+			archive := flagValue(transformed, "-linkobj")
+			if archive == "" {
+				archive = flagValue(transformed, "-o")
+			}
+			return appendReflectArchiveMember(archive, tf.curPkgCache.ReflectObjectNames)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown command: %q", command)
 	}

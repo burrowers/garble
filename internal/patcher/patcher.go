@@ -39,9 +39,6 @@ const (
 	MagicValueEnv  = "GARBLE_LINK_MAGIC"
 	TinyEnv        = "GARBLE_LINK_TINY"
 	EntryOffKeyEnv = "GARBLE_LINK_ENTRYOFF_KEY"
-	// ReflectNamesEnv names a file with the obfuscated and original names
-	// that reflect sees, one per line, in the order the runtime replaces them.
-	ReflectNamesEnv = "GARBLE_LINK_REFLECT_NAMES"
 	// GoSrcEnv can be set to override Go source files while building patched tools.
 	GoSrcEnv = "GARBLE_GO_SRC"
 
@@ -103,6 +100,8 @@ var linkerOverlayFiles = []string{
 	"cmd/link/internal/ld/lib.go",
 	"cmd/link/internal/ld/symtab.go",
 	"cmd/link/internal/ld/data.go",
+	"cmd/link/internal/ld/garble_reflect.go",
+	"cmd/link/internal/ld/link.go",
 	"cmd/link/internal/ld/main.go",
 	"cmd/link/internal/ld/inittask.go",
 	"cmd/link/internal/ld/xcoff.go",

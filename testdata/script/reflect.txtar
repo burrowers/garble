@@ -22,13 +22,20 @@ exec ./methods-bin$exe
 stdout '^used$'
 ! binsubstr methods-bin$exe 'unused-method-marker'
 
-# Go can reuse the compiled main package after its garble cache entry is gone,
-# and only link again. Keep GOCACHE and the seed from the initial build above;
-# the linker must reconstruct the reflected names even without recompilation.
+# Keep GOCACHE and the seed so only the linker runs after deleting the Garble
+# cache. It must get the reflected names from the cached archives.
 rm garble-cache
 exec garble -seed=0002deadbeef build -ldflags=-X=main.unused=changed
 exec ./main
 cmp stdout main.stdout
+
+# The cached package archive carries its own name records for the linker.
+exec garble -seed=0002deadbeef build -o reflected.a ./importedpkg
+exec go tool pack t reflected.a
+stdout '^garble-reflect$'
+exec go tool pack p reflected.a garble-reflect
+stdout '^ReflectTypeOf$'
+! stdout '^IndirectUnobfuscated$'
 
 [short] stop # no need to verify this with -short
 
