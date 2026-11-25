@@ -8,6 +8,9 @@ cmp stderr main.stderr
 
 binsubstr main$exe 'skip typed const' 'skip untyped const' 'sz<min'
 ! binsubstr main$exe 'garbleDecrypt' 'Lorem Ipsum' 'dolor sit amet' 'first assign' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret' 'parens!!' 'skip typed var' 'skip typed var assign' 'stringTypeField strType' 'stringType lambda func return' 'testMap2 key' 'testMap3 key' 'testMap1 value' 'testMap3 value' 'testMap1 new value' 'testMap3 new value' 'stringType func param' 'stringType return' 'named case label secret'
+# A named string type with type arguments has to be decoded in every position,
+# like its non-generic sibling above.
+! binsubstr main$exe 'generic global secret' 'generic nested secret' 'generic return secret' 'generic param secret' 'generic field secret' 'generic map key secret' 'generic map value secret'
 ! binsubstr main$exe 'initialized owner of linked string'
 ! binsubstr main$exe 'append variadic secret payload abcdefghijklmnopqrstuvwxyz' 'copy untyped secret abcdefghijklmnopqrstuvwxyz' 'local option key' 'local option value'
 ! binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
@@ -26,6 +29,9 @@ go build
 exec ./main$exe
 cmp stderr main.stderr
 binsubstr main$exe 'Lorem Ipsum' 'dolor sit amet' 'second assign' 'First Line' 'Second Line' 'secret map value' 'obfuscated with shadowed builtins' '1: literal in' 'an secret array' '2: literal in' 'a secret slice' 'to obfuscate' 'also obfuscate' 'stringTypeField String' 'testMap1 key' 'Obfuscate this block' 'also obfuscate this' 'oversize concat secret'
+# The plain build proves these markers are materialized at all, so the negative
+# assertions above cannot pass for a literal the compiler never emits.
+binsubstr main$exe 'named case label secret' 'generic global secret' 'generic nested secret' 'generic return secret' 'generic param secret' 'generic field secret' 'generic map key secret' 'generic map value secret'
 binsubstr main$exe 'alias of string var secret' 'alias of string slice secret' 'alias of string map key secret' 'alias of string field secret' 'alias of string return secret' 'alias of string arg secret' 'alias of string conversion secret'
 binsubstr main$exe 'elemuint8slice' 'elemaliasslice' 'elemuint8array' 'elemaliasarray' 'elemconvuint8' 'elemconvalias' 'elemconvdefined'
 
@@ -362,6 +368,42 @@ func namedCaseLabel(i int) bool {
 	return false
 }
 
+// A named string type can take type arguments. A constant of an instantiation is
+// the same literal with a conversion around it, so every one of these positions
+// has to be decoded like the non-generic ones above; the conversion has to name
+// the type together with its arguments.
+type genericStringType[T ~string] string
+
+type genericStringHolder struct{ Field genericStringType[string] }
+
+var genericStringGlobal genericStringType[string] = "generic global secret"
+
+// The argument is itself an instantiation, so the spelled type needs a nested
+// argument list.
+var genericStringNested genericStringType[genericStringType[string]] = "generic nested secret"
+
+func genericStringReturn() genericStringType[string] { return "generic return secret" }
+
+func genericStringParam[S ~string]() genericStringType[S] { return "generic param secret" }
+
+func genericStringCheck() {
+	holder := genericStringHolder{Field: "generic field secret"}
+	values := map[genericStringType[string]]string{"generic map key secret": "generic map value secret"}
+	if string(genericStringGlobal) != "generic global secret" ||
+		string(genericStringNested) != "generic nested secret" ||
+		string(genericStringReturn()) != "generic return secret" ||
+		string(genericStringParam[string]()) != "generic param secret" ||
+		string(holder.Field) != "generic field secret" {
+		panic("generic named string literal changed")
+	}
+	if values["generic map key secret"] != "generic map value secret" {
+		panic("generic named string map literal changed")
+	}
+	// Printing keeps these three values, which plain Go folds away, in the
+	// binary, so the negative assertion cannot pass for an absent literal.
+	println(string(genericStringReturn()), string(genericStringParam[string]()), string(holder.Field))
+}
+
 // An alias of the predeclared string type records a *types.Alias rather than
 // the string type itself, so a rewrite that compares only against
 // types.Typ[types.String] leaves every position naming the alias in plaintext,
@@ -507,6 +549,7 @@ func main() {
 		println("unreachable")
 	}
 	aliasOfStringCheck()
+	genericStringCheck()
 
 	strArray := [2]string{"1: literal in", "an secret array"}
 	println(strArray[0], strArray[1])
@@ -997,5 +1040,6 @@ alias of string field secret
 alias of string return secret
 alias of string arg secret
 alias of string conversion secret
+generic return secret generic param secret generic field secret
 1: literal in an secret array
 2: literal in a secret slice

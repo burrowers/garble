@@ -1,9 +1,11 @@
 package literals
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"go/types"
 	"math/rand"
@@ -114,6 +116,7 @@ func TestConstructorResultTypes(t *testing.T) {
 	type Complex complex128
 	type InterfaceAlias = Interface
 	type StringAlias = String
+	type Generic[T any] string
 	`, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -123,6 +126,17 @@ func TestConstructorResultTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Run("Instantiation", func(t *testing.T) {
+		// A factory's result type has to match the compiler's certified
+		// initializer contract, which an instantiation cannot spell.
+		inst, err := types.Instantiate(nil, pkg.Scope().Lookup("Generic").Type(), []types.Type{types.Typ[types.Int]}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := constructorResult(file, info, inst); got != nil {
+			t.Fatalf("constructor result of an instantiation: got %v, want nil", got)
+		}
+	})
 	for _, name := range pkg.Scope().Names() {
 		t.Run(name, func(t *testing.T) {
 			want := name == "String" || name == "StringAlias" || name == "Array" || name == "Struct" || name == "Map"
@@ -131,6 +145,101 @@ func TestConstructorResultTypes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNamedTypeExprSpellings covers the type forms the ordinary named-string
+// conversion can be written with. Every identifier it emits has to carry its
+// object, because the renaming pass rewrites names through info.Uses; a form it
+// cannot bind is not emitted at all, which leaves that literal in plaintext.
+func TestNamedTypeExprSpellings(t *testing.T) {
+	const source = `package spell
+type Named[T ~string] string
+type Any2[T any] string
+type Pair[A, B any] string
+func generic[S ~string]() {}
+`
+	info := &types.Info{Defs: make(map[*ast.Ident]types.Object), Uses: make(map[*ast.Ident]types.Object)}
+	file, fset := CheckSource(t, "spell", "spell.go", source, 0, info)
+	named := map[string]types.Type{}
+	var param *types.TypeParam
+	for _, decl := range file.Decls {
+		switch decl := decl.(type) {
+		case *ast.GenDecl:
+			for _, spec := range decl.Specs {
+				if ts, ok := spec.(*ast.TypeSpec); ok {
+					named[ts.Name.Name] = info.Defs[ts.Name].Type()
+				}
+			}
+		case *ast.FuncDecl:
+			param = info.Defs[decl.Name].(*types.Func).Signature().TypeParams().At(0)
+		}
+	}
+	inst := func(t *testing.T, orig types.Type, args ...types.Type) types.Type {
+		t.Helper()
+		typ, err := types.Instantiate(nil, orig, args, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return typ
+	}
+	intType := types.Typ[types.Int]
+	stringType := types.Typ[types.String]
+	namedString := inst(t, named["Named"], stringType)
+	tests := []struct {
+		name string
+		typ  types.Type
+		want string // empty means the spelling is declined
+	}{
+		{"plain", named["Named"], "Named"},
+		{"basic argument", namedString, "Named[string]"},
+		{"nested argument", inst(t, named["Named"], namedString), "Named[Named[string]]"},
+		{"type parameter argument", inst(t, named["Named"], param), "Named[S]"},
+		{"two arguments", inst(t, named["Pair"], intType, stringType), "Pair[int, string]"},
+		{"slice argument", inst(t, named["Any2"], types.NewSlice(intType)), "Any2[[]int]"},
+		{"map argument", inst(t, named["Any2"], types.NewMap(stringType, intType)), "Any2[map[string]int]"},
+		{"chan argument", inst(t, named["Any2"], types.NewChan(types.SendOnly, intType)), "Any2[chan<- int]"},
+		{"array argument", inst(t, named["Any2"], types.NewArray(intType, 3)), "Any2[[3]int]"},
+		{"pointer argument", inst(t, named["Any2"], types.NewPointer(intType)), "Any2[*int]"},
+		// A struct or unsafe argument has no spelling here, so the literal keeps
+		// its source text rather than receiving an unresolvable name.
+		{"struct argument", inst(t, named["Any2"], types.NewStruct(nil, nil)), ""},
+		{"unsafe argument", inst(t, named["Any2"], types.Typ[types.UnsafePointer]), ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			expr := namedTypeExpr(file, info, tc.typ)
+			if tc.want == "" {
+				if expr != nil {
+					t.Fatalf("got %s, want no spelling", spell(t, fset, expr))
+				}
+				return
+			}
+			if expr == nil {
+				t.Fatalf("no spelling, want %s", tc.want)
+			}
+			if got := spell(t, fset, expr); got != tc.want {
+				t.Fatalf("got %s, want %s", got, tc.want)
+			}
+			ast.Inspect(expr, func(n ast.Node) bool {
+				id, ok := n.(*ast.Ident)
+				if !ok || info.Uses[id] != nil || types.Universe.Lookup(id.Name) != nil {
+					return true
+				}
+				t.Errorf("%s is not bound to an object", id.Name)
+				return true
+			})
+		})
+	}
+}
+
+// spell prints a generated type expression without line breaks.
+func spell(t *testing.T, fset *token.FileSet, expr ast.Expr) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, expr); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
 }
 
 func TestGlobalLiteralProxyOwnership(t *testing.T) {

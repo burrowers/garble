@@ -8,6 +8,8 @@ import (
 	"go/token"
 	"go/types"
 	"strings"
+
+	ah "mvdan.cc/garble/internal/asthelper"
 )
 
 // ConstructorSummaries proves a deliberately small, terminating subset of Go:
@@ -196,10 +198,20 @@ func constructorResult(file *ast.File, info *types.Info, typ types.Type) ast.Exp
 		return nil
 	}
 	named, ok := types.Unalias(typ).(*types.Named)
-	if !ok || named.TypeArgs().Len() != 0 || named.Obj().Pkg() == nil {
+	if !ok || named.TypeArgs().Len() != 0 || named.TypeParams().Len() != 0 {
 		return nil
 	}
-	obj := named.Obj()
+	return namedTypeName(file, info, named.Obj())
+}
+
+// namedTypeName spells a named type in file: a qualified selector for a package
+// this file imports, or an identifier for a name this file declares. Unknown or
+// inaccessible names return nil, which leaves the initializer strong or its
+// literal in plaintext.
+func namedTypeName(file *ast.File, info *types.Info, obj *types.TypeName) ast.Expr {
+	if obj.Pkg() == nil {
+		return nil
+	}
 	for _, imp := range file.Imports {
 		var pkg *types.PkgName
 		if imp.Name != nil {
@@ -219,13 +231,107 @@ func constructorResult(file *ast.File, info *types.Info, typ types.Type) ast.Exp
 		info.Uses[qualifier] = pkg
 		return &ast.SelectorExpr{X: qualifier, Sel: ident}
 	}
-	// A declaration object in this package establishes a local result name.
+	// A declaration object in this package establishes a local name.
 	for _, defined := range info.Defs {
 		if defined == obj {
 			ident := ast.NewIdent(obj.Name())
 			info.Uses[ident] = obj
 			return ident
 		}
+	}
+	return nil
+}
+
+// namedTypeExpr spells a named type together with the type arguments of an
+// instantiation, so a constant of a generic named type can be converted back to
+// that type. constructorResult stays restricted to non-generic types, because a
+// certified initializer factory has to declare exactly the result type the
+// compiler expects, while a conversion only has to name it.
+func namedTypeExpr(file *ast.File, info *types.Info, typ types.Type) ast.Expr {
+	named, ok := types.Unalias(typ).(*types.Named)
+	if !ok {
+		return nil
+	}
+	base := namedTypeName(file, info, named.Obj())
+	if base == nil {
+		return nil
+	}
+	args := make([]ast.Expr, named.TypeArgs().Len())
+	for i := range args {
+		arg := typeArgExpr(file, info, named.TypeArgs().At(i))
+		if arg == nil {
+			return nil
+		}
+		args[i] = arg
+	}
+	switch len(args) {
+	case 0:
+		return base
+	case 1:
+		return &ast.IndexExpr{X: base, Index: args[0]}
+	default:
+		return &ast.IndexListExpr{X: base, Indices: args}
+	}
+}
+
+// typeArgExpr spells one type argument. Anything outside these shapes returns
+// nil, which keeps the literal in plaintext instead of emitting a name that may
+// not resolve at that position.
+func typeArgExpr(file *ast.File, info *types.Info, typ types.Type) ast.Expr {
+	switch t := types.Unalias(typ).(type) {
+	case *types.Basic:
+		// An untyped type cannot be written, and unsafe.Pointer would need the
+		// unsafe package in scope.
+		if t.Info()&types.IsUntyped != 0 || t.Kind() == types.UnsafePointer {
+			return nil
+		}
+		return ast.NewIdent(t.Name())
+	case *types.Named:
+		return namedTypeExpr(file, info, t)
+	case *types.TypeParam:
+		// A type parameter is renamed with its declaration, so the reference has
+		// to carry its object; an unbound name would stay in the source spelling.
+		ident := ast.NewIdent(t.Obj().Name())
+		info.Uses[ident] = t.Obj()
+		return ident
+	case *types.Pointer:
+		elem := typeArgExpr(file, info, t.Elem())
+		if elem == nil {
+			return nil
+		}
+		return &ast.StarExpr{X: elem}
+	case *types.Slice:
+		elem := typeArgExpr(file, info, t.Elem())
+		if elem == nil {
+			return nil
+		}
+		return &ast.ArrayType{Elt: elem}
+	case *types.Array:
+		elem := typeArgExpr(file, info, t.Elem())
+		if elem == nil {
+			return nil
+		}
+		return &ast.ArrayType{Len: ah.IntLit(int(t.Len())), Elt: elem}
+	case *types.Map:
+		key := typeArgExpr(file, info, t.Key())
+		value := typeArgExpr(file, info, t.Elem())
+		if key == nil || value == nil {
+			return nil
+		}
+		return &ast.MapType{Key: key, Value: value}
+	case *types.Chan:
+		elem := typeArgExpr(file, info, t.Elem())
+		if elem == nil {
+			return nil
+		}
+		dir := ast.SEND | ast.RECV
+		switch t.Dir() {
+		case types.SendOnly:
+			dir = ast.SEND
+		case types.RecvOnly:
+			dir = ast.RECV
+		}
+		return &ast.ChanType{Dir: dir, Value: elem}
 	}
 	return nil
 }

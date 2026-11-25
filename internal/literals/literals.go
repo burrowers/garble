@@ -289,7 +289,7 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 				if basic, ok := named.Underlying().(*types.Basic); ok && basic.Kind() == types.String {
 					value := constant.StringVal(typeAndValue.Value)
 					if stringLiteralText(node) && len(value) >= MinSize {
-						if typeExpr := constructorResult(file, info, named); typeExpr != nil {
+						if typeExpr := namedTypeExpr(file, info, named); typeExpr != nil {
 							cursor.Replace(withPos(ah.CallExpr(typeExpr, obfuscateString(or, value)), node.Pos()))
 							return false
 						}
