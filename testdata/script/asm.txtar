@@ -155,11 +155,13 @@ func main() {
 // A comment may include many·special∕asm·runes and it's okay.
 //No space: many·special∕asm·runes.
 	// Indented: many·special∕asm·runes.
+/* A block comment may separate words · words and it's okay. */
+/*No space: many·special∕asm·runes.*/
 DATA bar+0(SB)/8, $0 // Inline: many·special∕asm·runes.
 
 // Reference an imported package by its package path.
 TEXT ·addJmpPkgPath(SB),$0-16
-	JMP clib·add(SB)
+	JMP clib·add(SB) /* jump · through C */
 
 // Reference the current package by its package name.
 TEXT ·addJmpPkgName(SB),$0-16

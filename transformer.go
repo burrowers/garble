@@ -845,6 +845,26 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 		}
 		asmPkgPath := string(remaining[pkgStart:pkgEnd])
 
+		// A middle dot names an assembly symbol only when a Go identifier
+		// follows it. Anything else is program text: a block comment may
+		// separate words · like this, and the dot there must be kept
+		// verbatim rather than hashed with an empty name.
+		afterDot := remaining[pkgEnd+asmPeriodLen:]
+		nameEnd := 0
+		for nameEnd < len(afterDot) {
+			c, size := utf8.DecodeRune(afterDot[nameEnd:])
+			if !unicode.IsLetter(c) && c != '_' && !unicode.IsDigit(c) {
+				break
+			}
+			nameEnd += size
+		}
+		if nameEnd == 0 {
+			buf.Write(remaining[:pkgEnd+asmPeriodLen])
+			remaining = afterDot
+			continue
+		}
+		name := string(afterDot[:nameEnd])
+
 		// Write the bytes before our unqualified `·foo` or qualified `pkg·foo`.
 		buf.Write(remaining[:pkgStart])
 
@@ -886,20 +906,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 
 		// Write the middle dot and advance the remaining slice.
 		buf.WriteRune(asmPeriod)
-		remaining = remaining[pkgEnd+asmPeriodLen:]
-
-		// The declared name ends at the first rune which cannot be part of a Go
-		// identifier, such as a comma or space.
-		nameEnd := 0
-		for nameEnd < len(remaining) {
-			c, size := utf8.DecodeRune(remaining[nameEnd:])
-			if !unicode.IsLetter(c) && c != '_' && !unicode.IsDigit(c) {
-				break
-			}
-			nameEnd += size
-		}
-		name := string(remaining[:nameEnd])
-		remaining = remaining[nameEnd:]
+		remaining = afterDot[nameEnd:]
 
 		if lpkg.toObfuscate() && !isToolchainNameDependency(lpkg.baseImportPath(), name) {
 			newName := hashWithPackage(lpkg, name)
