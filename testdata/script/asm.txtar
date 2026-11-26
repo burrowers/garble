@@ -97,6 +97,16 @@ type All struct {
 // allOffsets sums the go_asm.h constants of All's embedded fields.
 func allOffsets() int64
 
+// nestedOffset reads a go_asm.h constant from a header which the .s file
+// reaches through another header.
+func nestedOffset() int64
+
+// nestedAdd writes to goData through a macro from the same nested header.
+func nestedAdd()
+
+// dupValues adds the values of two headers which share a basename.
+func dupValues() int64
+
 func main() {
 	if asmLiteralValue() != "an assembly-only string global" {
 		panic("assembly-only literal initializer removed")
@@ -115,12 +125,19 @@ func main() {
 	println(addArgs(&Args{a12: 5, a1: 10, a123: 20}))
 	println(argsSize())
 	println(allOffsets())
+	println(nestedOffset())
+	nestedAdd()
+	println(goData[2])
+	println(dupValues())
 }
 
 -- garble_main_amd64.s --
 #include "go_asm.h"
 #include "garble_define_amd64.h"
 #include "extra/garble_define2_amd64.h" // Inline: many·special∕asm·runes.
+#include "nested_amd64.h"
+#include "one/shared.h"
+#include "two/shared.h"
 
 // A comment may include many·special∕asm·runes and it's okay.
 //No space: many·special∕asm·runes.
@@ -177,6 +194,36 @@ TEXT ·allOffsets(SB), $0-8
 	ADDQ $All__size, AX
 	MOVQ AX, ret+0(FP)
 	RET
+
+TEXT ·nestedOffset(SB), $0-8
+	MOVQ $NESTED_OFFSET, AX
+	MOVQ AX, ret+0(FP)
+	RET
+
+TEXT ·nestedAdd(SB), $0-0
+	NESTED_ADD
+	RET
+
+TEXT ·dupValues(SB), $0-8
+	MOVQ $ONE_VALUE+TWO_VALUE, AX
+	MOVQ AX, ret+0(FP)
+	RET
+
+-- nested_amd64.h --
+// This header names a go_asm.h constant and a package symbol from a header it
+// includes, so both have to be rewritten in the copy the assembler reads.
+#include "nested_values_amd64.h"
+
+-- nested_values_amd64.h --
+#define NESTED_OFFSET Args_a1
+#define NESTED_ADD \
+	ADDL $7, ·goData+16(SB)
+
+-- one/shared.h --
+#define ONE_VALUE 5
+
+-- two/shared.h --
+#define TWO_VALUE 6
 
 -- clib_amd64.s --
 // Assembly symbols can use a qualifier which is not a Go package.
@@ -250,6 +297,9 @@ TEXT ·AddImpl(SB),$0-16
 35
 24
 144
+8
+10
+11
 -- overlay.json --
 {"Replace":{"imported/imported_amd64.s":"imported/backing.txt"}}
 -- empty-reverse.txt --

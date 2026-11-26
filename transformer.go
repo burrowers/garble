@@ -416,15 +416,24 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 			for _, path := range tf.curPkg.CompiledGoFiles {
 				goFiles[filepath.Base(path)] = true
 			}
+			// A copy whose name had to differ from "garbled_"+basename is
+			// archived under the basename the first pass recorded for it.
+			renamed := copiedNames(pkgDir)
 			entries, err := os.ReadDir(pkgDir)
 			if err != nil {
 				return nil, err
 			}
 			for _, entry := range entries {
 				name := entry.Name()
+				if name == copiedNameFile {
+					continue // not an include
+				}
 				if !entry.IsDir() && strings.HasPrefix(name, "garbled_") && !goFiles[name] {
 					// The debug tree archives an include under its own name.
-					relPath := strings.TrimPrefix(name, "garbled_")
+					relPath, ok := renamed[name]
+					if !ok {
+						relPath = strings.TrimPrefix(name, "garbled_")
+					}
 					if err := rewrite(filepath.Join(pkgDir, name), relPath); err != nil {
 						return nil, err
 					}
@@ -455,7 +464,15 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 		debugArtifacts.SourceFiles = make(map[string][]byte)
 		debugArtifacts.GarbledFiles = make(map[string][]byte)
 	}
-	var buf, includeBuf bytes.Buffer
+	includes := &asmIncludes{
+		tf:       tf,
+		pkgDir:   filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir()),
+		visiting: make(map[string]bool),
+	}
+	if flagDebugDir != "" {
+		includes.debugArtifacts = &debugArtifacts
+	}
+	var buf bytes.Buffer
 	for _, path := range paths {
 		buf.Reset()
 		var asmContent bytes.Buffer
@@ -499,39 +516,17 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 					buf.WriteByte('\n')
 					continue
 				case "": // first time we see this header
-					includeBuf.Reset()
-					content, err := os.ReadFile(includePath)
-					if errors.Is(err, fs.ErrNotExist) {
+					written, missing, err := includes.copy(includePath)
+					if err != nil {
+						return nil, err
+					}
+					if missing {
 						newHeaderPaths[includePath] = missingHeader
 						buf.WriteString(line)
 						buf.WriteByte('\n')
 						continue // a header file provided by Go or the system
-					} else if err != nil {
-						return nil, err
 					}
-					basename := filepath.Base(includePath)
-					if flagDebugDir != "" {
-						debugArtifacts.SourceFiles[basename] = content
-						if err := writeDebugDirFile(debugDirSourceSubdir, tf.curPkg, basename, content); err != nil {
-							return nil, err
-						}
-					}
-					tf.replaceAsmNames(&includeBuf, content)
-
-					// For now, we replace `foo.h` or `dir/foo.h` with `garbled_foo.h`.
-					// The different name ensures we don't use the unobfuscated file.
-					// This is far from perfect, but does the job for the time being.
-					// In the future, use a randomized name.
-					newPath = "garbled_" + basename
-					content = includeBuf.Bytes()
-					if _, err := tf.writeSourceFile(basename, newPath, content); err != nil {
-						return nil, err
-					}
-					if flagDebugDir != "" {
-						// includeBuf is reused for the next header, so the
-						// artifact must own its bytes.
-						debugArtifacts.GarbledFiles[basename] = bytes.Clone(content)
-					}
+					newPath = written
 					newHeaderPaths[includePath] = newPath
 				}
 				buf.WriteString("#include ")
@@ -880,6 +875,181 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 			buf.WriteString(name)
 		}
 	}
+}
+
+// asmIncludes copies the local headers which an assembly file includes into the
+// package's garbled source directory, and rewrites the names inside them.
+//
+// One value is used for the duration of one transformAsm pass, but a package
+// has one pass per assembly file, so copies are also detected on disk: a header
+// which an earlier assembly file already copied with the same content is reused.
+type asmIncludes struct {
+	tf             *transformer
+	pkgDir         string
+	visiting       map[string]bool // include paths being processed, to reject cycles
+	debugArtifacts *cachedDebugArtifacts
+}
+
+// copiedNameFile records the copies whose name is not simply "garbled_" plus the
+// header's basename, so the second assembler pass can still archive them under
+// their original name. It lives in the package's temporary directory, which both
+// passes share, and is not part of the build.
+const copiedNameFile = "garbled_include_names.txt"
+
+// copy reads one include, rewrites the names in it and in the headers it
+// includes, and copies it into the package's temporary directory. It returns the
+// name to use in the #include line. A missing file is reported as missing, so
+// the caller can leave a header provided by Go or the system alone.
+func (ai *asmIncludes) copy(includePath string) (string, bool, error) {
+	if ai.visiting[includePath] {
+		return "", false, fmt.Errorf("assembly include cycle at %q", includePath)
+	}
+	content, err := os.ReadFile(includePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", true, nil
+	} else if err != nil {
+		return "", false, err
+	}
+
+	ai.visiting[includePath] = true
+	defer delete(ai.visiting, includePath)
+
+	if ai.debugArtifacts != nil {
+		basename := filepath.Base(includePath)
+		ai.debugArtifacts.SourceFiles[basename] = content
+		if err := writeDebugDirFile(debugDirSourceSubdir, ai.tf.curPkg, basename, content); err != nil {
+			return "", false, err
+		}
+	}
+
+	var out bytes.Buffer
+	var chunk []byte
+	flush := func() {
+		if len(chunk) > 0 {
+			ai.tf.replaceAsmNames(&out, chunk)
+			chunk = nil
+		}
+	}
+	rest := content
+	for len(rest) > 0 {
+		line := rest
+		if i := bytes.IndexByte(rest, '\n'); i >= 0 {
+			line, rest = rest[:i], rest[i+1:]
+		} else {
+			rest = nil
+		}
+		trimmed, _, _ := strings.Cut(string(line), "//")
+		if quoted, ok := strings.CutPrefix(trimmed, "#include"); ok {
+			quoted = strings.TrimSpace(quoted)
+			nested, err := strconv.Unquote(quoted)
+			if err != nil {
+				return "", false, fmt.Errorf("cannot unquote %q: %v", quoted, err)
+			}
+			flush()
+			// A header may include another header which names package symbols
+			// or go_asm.h constants; it has to be copied and rewritten too,
+			// because the assembler resolves includes against the working
+			// directory and would otherwise read the plaintext file.
+			name, missing, err := ai.copy(nested)
+			if err != nil {
+				return "", false, err
+			}
+			if missing {
+				out.Write(line)
+			} else {
+				out.WriteString("#include ")
+				out.WriteString(strconv.Quote(name))
+			}
+			out.WriteByte('\n')
+			continue
+		}
+		chunk = append(chunk, line...)
+		chunk = append(chunk, '\n')
+	}
+	flush()
+
+	name, err := ai.writeCopy(includePath, out.Bytes())
+	if err != nil {
+		return "", false, err
+	}
+	if ai.debugArtifacts != nil {
+		// out is reused for the next header, so the artifact must own its bytes.
+		ai.debugArtifacts.GarbledFiles[filepath.Base(includePath)] = bytes.Clone(out.Bytes())
+	}
+	return name, false, nil
+}
+
+// writeCopy writes a rewritten header under a name derived from its basename,
+// falling back to a name derived from the whole include path when another header
+// of the same package already took the flat name with different content.
+func (ai *asmIncludes) writeCopy(includePath string, content []byte) (string, error) {
+	basename := filepath.Base(includePath)
+	// The assembler's first pass runs before the compiler, so the package's
+	// directory may not exist yet; [transformer.writeSourceFile] creates it for
+	// the assembly file itself and this is the same directory.
+	if err := os.MkdirAll(ai.pkgDir, 0o777); err != nil {
+		return "", err
+	}
+	// The different name ensures we don't use the unobfuscated file.
+	candidates := []string{
+		"garbled_" + basename,
+		"garbled_" + hashWithPackage(ai.tf.curPkg, includePath) + "_" + basename,
+	}
+	for _, name := range candidates {
+		path := filepath.Join(ai.pkgDir, name)
+		switch old, err := os.ReadFile(path); {
+		case err == nil && bytes.Equal(old, content):
+			return name, nil // an earlier assembly file of this package copied it
+		case err == nil:
+			continue // a different header owns this name
+		case !errors.Is(err, fs.ErrNotExist):
+			return "", err
+		}
+		if err := writeFileExclusive(path, content); err != nil {
+			return "", err
+		}
+		if flagDebugDir != "" {
+			// The debug tree archives an include under its basename.
+			if err := writeDebugDirFile(debugDirGarbledSubdir, ai.tf.curPkg, basename, content); err != nil {
+				return "", err
+			}
+		}
+		if name != "garbled_"+basename {
+			if err := ai.recordCopiedName(name, basename); err != nil {
+				return "", err
+			}
+		}
+		return name, nil
+	}
+	return "", fmt.Errorf("assembly include %q: no free name for %q", includePath, basename)
+}
+
+func (ai *asmIncludes) recordCopiedName(name, basename string) error {
+	f, err := os.OpenFile(filepath.Join(ai.pkgDir, copiedNameFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(f, "%s\t%s\n", name, basename)
+	if err2 := f.Close(); err == nil {
+		err = err2
+	}
+	return err
+}
+
+// copiedNames loads the name-to-basename map which [asmIncludes.writeCopy]
+// recorded, so a copy with a distinct name is archived under its real basename.
+func copiedNames(pkgDir string) map[string]string {
+	data, err := os.ReadFile(filepath.Join(pkgDir, copiedNameFile))
+	if err != nil {
+		return nil
+	}
+	names := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
+		if name, basename, ok := strings.Cut(line, "\t"); ok {
+			names[name] = basename
+		}
+	}
+	return names
 }
 
 // writeSourceFile is a mix between os.CreateTemp and os.WriteFile, as it writes a
