@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -457,8 +456,6 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 		return append(flags, newPaths...), nil
 	}
 
-	const missingHeader = "missing header path"
-	newHeaderPaths := make(map[string]string)
 	var debugArtifacts cachedDebugArtifacts
 	if flagDebugDir != "" {
 		debugArtifacts.SourceFiles = make(map[string][]byte)
@@ -467,91 +464,28 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 	includes := &asmIncludes{
 		tf:       tf,
 		pkgDir:   filepath.Join(sharedTempDir, tf.curPkg.obfuscatedSourceDir()),
+		names:    make(map[string]string),
 		visiting: make(map[string]bool),
 	}
 	if flagDebugDir != "" {
 		includes.debugArtifacts = &debugArtifacts
 	}
-	var buf bytes.Buffer
 	for _, path := range paths {
-		buf.Reset()
-		var asmContent bytes.Buffer
-		f, err := os.Open(path)
+		basename := filepath.Base(path)
+		src, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}
-		basename := filepath.Base(path)
-		defer f.Close() // in case of error
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if flagDebugDir != "" {
-				asmContent.WriteString(line)
-				asmContent.WriteByte('\n')
-			}
-
-			// Whole-line comments might be directives, leave them in place.
-			// For example: //go:build race
-			// Any other comment, including inline ones, can be discarded entirely.
-			line, comment, hasComment := strings.Cut(line, "//")
-			if hasComment && line == "" {
-				buf.WriteString("//")
-				buf.WriteString(comment)
-				buf.WriteByte('\n')
-				continue
-			}
-
-			// Preprocessor lines to include another file.
-			// For example: #include "foo.h"
-			if quoted, ok := strings.CutPrefix(line, "#include"); ok {
-				quoted = strings.TrimSpace(quoted)
-				includePath, err := strconv.Unquote(quoted)
-				if err != nil { // note that strconv.Unquote errors do not include the input string
-					return nil, fmt.Errorf("cannot unquote %q: %v", quoted, err)
-				}
-				newPath := newHeaderPaths[includePath]
-				switch newPath {
-				case missingHeader: // no need to try again
-					buf.WriteString(line)
-					buf.WriteByte('\n')
-					continue
-				case "": // first time we see this header
-					written, missing, err := includes.copy(includePath)
-					if err != nil {
-						return nil, err
-					}
-					if missing {
-						newHeaderPaths[includePath] = missingHeader
-						buf.WriteString(line)
-						buf.WriteByte('\n')
-						continue // a header file provided by Go or the system
-					}
-					newPath = written
-					newHeaderPaths[includePath] = newPath
-				}
-				buf.WriteString("#include ")
-				buf.WriteString(strconv.Quote(newPath))
-				buf.WriteByte('\n')
-				continue
-			}
-
-			// Anything else is regular assembly; replace function names.
-			tf.replaceAsmNames(&buf, []byte(line))
-			buf.WriteByte('\n')
-		}
-		if err := scanner.Err(); err != nil {
-			return nil, err
-		}
-		f.Close() // do not keep len(paths) files open
 		if flagDebugDir != "" {
-			content := asmContent.Bytes()
-			debugArtifacts.SourceFiles[basename] = content
-			if err := writeDebugDirFile(debugDirSourceSubdir, tf.curPkg, basename, content); err != nil {
+			debugArtifacts.SourceFiles[basename] = src
+			if err := writeDebugDirFile(debugDirSourceSubdir, tf.curPkg, basename, src); err != nil {
 				return nil, err
 			}
 		}
-
-		content := buf.Bytes()
+		content, err := includes.rewrite(src)
+		if err != nil {
+			return nil, err
+		}
 
 		// With assembly files, we obfuscate the filename in the temporary
 		// directory, as assembly files do not support `/*line` directives.
@@ -563,9 +497,7 @@ func (tf *transformer) transformAsm(args []string) ([]string, error) {
 			newPaths = append(newPaths, path)
 		}
 		if flagDebugDir != "" {
-			// buf is reused for the next assembly file, so the artifact must
-			// own its bytes.
-			debugArtifacts.GarbledFiles[basename] = bytes.Clone(content)
+			debugArtifacts.GarbledFiles[basename] = content
 		}
 	}
 	if err := saveDebugArtifactsForPkg(tf.curPkg, debugCacheKindAsm, debugArtifacts); err != nil {
@@ -929,9 +861,12 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 type asmIncludes struct {
 	tf             *transformer
 	pkgDir         string
-	visiting       map[string]bool // include paths being processed, to reject cycles
+	names          map[string]string // include path to copied name, or missingHeader
+	visiting       map[string]bool   // include paths being processed, to reject cycles
 	debugArtifacts *cachedDebugArtifacts
 }
+
+const missingHeader = "missing header path"
 
 // copiedNameFile records the copies whose name is not simply "garbled_" plus the
 // header's basename, so the second assembler pass can still archive them under
@@ -965,40 +900,53 @@ func (ai *asmIncludes) copy(includePath string) (string, bool, error) {
 		}
 	}
 
-	var out bytes.Buffer
-	var chunk []byte
-	flush := func() {
-		if len(chunk) > 0 {
-			ai.tf.replaceAsmNames(&out, chunk)
-			chunk = nil
-		}
+	out, err := ai.rewrite(content)
+	if err != nil {
+		return "", false, err
 	}
-	rest := content
-	for len(rest) > 0 {
+
+	name, err := ai.writeCopy(includePath, out)
+	if err != nil {
+		return "", false, err
+	}
+	if ai.debugArtifacts != nil {
+		ai.debugArtifacts.GarbledFiles[filepath.Base(includePath)] = out
+	}
+	return name, false, nil
+}
+
+// rewrite copies the headers which src includes, rewrites the names in src and
+// in those copies, and returns the result. A header may include another header
+// which names package symbols or go_asm.h constants; it has to be copied and
+// rewritten too, because the assembler resolves includes against the working
+// directory and would otherwise read the plaintext file. A whole-line comment
+// is kept, since it may be a directive such as //go:build; any other comment is
+// discarded.
+func (ai *asmIncludes) rewrite(src []byte) ([]byte, error) {
+	var out bytes.Buffer
+	for rest := src; len(rest) > 0; {
 		line := rest
 		if i := bytes.IndexByte(rest, '\n'); i >= 0 {
 			line, rest = rest[:i], rest[i+1:]
 		} else {
 			rest = nil
 		}
-		trimmed, _, _ := strings.Cut(string(line), "//")
-		if quoted, ok := strings.CutPrefix(trimmed, "#include"); ok {
-			quoted = strings.TrimSpace(quoted)
-			nested, err := strconv.Unquote(quoted)
+		text := string(line)
+		bare, _, hasComment := strings.Cut(text, "//")
+		if hasComment && bare == "" {
+			out.WriteString(text)
+			out.WriteByte('\n')
+			continue
+		}
+		// Preprocessor lines to include another file.
+		// For example: #include "foo.h"
+		if quoted, ok := strings.CutPrefix(bare, "#include"); ok {
+			name, found, err := ai.include(quoted)
 			if err != nil {
-				return "", false, fmt.Errorf("cannot unquote %q: %v", quoted, err)
+				return nil, err
 			}
-			flush()
-			// A header may include another header which names package symbols
-			// or go_asm.h constants; it has to be copied and rewritten too,
-			// because the assembler resolves includes against the working
-			// directory and would otherwise read the plaintext file.
-			name, missing, err := ai.copy(nested)
-			if err != nil {
-				return "", false, err
-			}
-			if missing {
-				out.Write(line)
+			if !found {
+				out.WriteString(bare) // a header file provided by Go or the system
 			} else {
 				out.WriteString("#include ")
 				out.WriteString(strconv.Quote(name))
@@ -1006,20 +954,36 @@ func (ai *asmIncludes) copy(includePath string) (string, bool, error) {
 			out.WriteByte('\n')
 			continue
 		}
-		chunk = append(chunk, line...)
-		chunk = append(chunk, '\n')
+		// Anything else is regular assembly; replace function names.
+		ai.tf.replaceAsmNames(&out, []byte(bare))
+		out.WriteByte('\n')
 	}
-	flush()
+	return out.Bytes(), nil
+}
 
-	name, err := ai.writeCopy(includePath, out.Bytes())
-	if err != nil {
-		return "", false, err
+// include resolves the file named by one #include directive and copies it. It
+// returns the name to write in the directive, and false when the header does
+// not exist, so the caller can leave a path provided by Go or the system
+// alone. Each pass sees the same header again in a later file and a header in
+// the headers it includes, so the outcome is remembered per include path.
+func (ai *asmIncludes) include(quoted string) (string, bool, error) {
+	quoted = strings.TrimSpace(quoted)
+	includePath, err := strconv.Unquote(quoted)
+	if err != nil { // note that strconv.Unquote errors do not include the input string
+		return "", false, fmt.Errorf("cannot unquote %q: %v", quoted, err)
 	}
-	if ai.debugArtifacts != nil {
-		// out is reused for the next header, so the artifact must own its bytes.
-		ai.debugArtifacts.GarbledFiles[filepath.Base(includePath)] = bytes.Clone(out.Bytes())
+	name, ok := ai.names[includePath]
+	if !ok {
+		var missing bool
+		if name, missing, err = ai.copy(includePath); err != nil {
+			return "", false, err
+		}
+		if missing {
+			name = missingHeader
+		}
+		ai.names[includePath] = name
 	}
-	return name, false, nil
+	return name, name != missingHeader, nil
 }
 
 // writeCopy writes a rewritten header under a name derived from its basename,
