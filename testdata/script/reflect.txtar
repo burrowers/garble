@@ -1182,6 +1182,7 @@ func closure() {
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -1383,6 +1384,64 @@ type syncMapRow struct {
 	SyncMapBeta  int
 }
 
+// globalSyncRow is stored in a package-level container, whose address is a
+// global: SSA keeps no referrers for it, so the calls on the container cannot
+// be found from the read.
+type globalSyncRow struct {
+	GlobalSyncAlpha string
+	GlobalSyncBeta  int
+}
+
+var globalSyncBox sync.Map
+
+// fieldStoreRow is only ever stored into an interface-carrying field by
+// another function, so nothing ties the store to the read that marshals it.
+type fieldStoreRow struct {
+	FieldStoreAlpha string
+	FieldStoreBeta  int
+}
+
+type fieldStoreHolder struct {
+	rows []any
+}
+
+func (holder fieldStoreHolder) report() string {
+	out, err := json.Marshal(holder.rows[0])
+	return fmt.Sprintf("%s %v", out, err)
+}
+
+// globalFieldRow sits in a container which is a field of a package-level
+// struct, so the store and the read build separate field addresses of the same
+// global.
+type globalFieldRow struct {
+	GlobalFieldAlpha string
+	GlobalFieldBeta  int
+}
+
+var containerHolder struct {
+	box sync.Map
+}
+
+func fillContainerHolder() {
+	containerHolder.box.Store("row", &globalFieldRow{GlobalFieldAlpha: "a", GlobalFieldBeta: 1})
+}
+
+// mapKeyRow is only reachable as the key of a map with interface keys, so its
+// type name is exposed by ranging the map and must survive obfuscation.
+type mapKeyRow struct {
+	MapKeyAlpha string
+	MapKeyBeta  int
+}
+
+// contextRow is stored through a constructor whose receiver the read never
+// shares, so only the constructor's own call site names the boxed type.
+type contextRow struct {
+	ContextAlpha string
+	ContextBeta  int
+}
+
+type contextRowKey struct{}
+
 type methodClosureHolder struct{}
 
 // report marshals the captured value inside a closure whose enclosing function
@@ -1443,6 +1502,42 @@ func checkProducerAny() {
 		panic("missing sync map entry")
 	}
 	reportField("sync map any", loaded, "SyncMapAlpha")
+
+	// The same container at package level: the receiver is a global, which has
+	// no referrers, so the store and the read are unrelated SSA values.
+	globalSyncBox.Store("row", &globalSyncRow{GlobalSyncAlpha: "a", GlobalSyncBeta: 1})
+	fromGlobal, ok := globalSyncBox.Load("row")
+	if !ok {
+		panic("missing global sync map entry")
+	}
+	reportField("global sync map any", fromGlobal, "GlobalSyncAlpha")
+
+	// The producer is a field store in this function, and the read is a method
+	// which marshals the same field.
+	fieldHolder := fieldStoreHolder{}
+	fieldHolder.rows = append(fieldHolder.rows, &fieldStoreRow{FieldStoreAlpha: "a", FieldStoreBeta: 1})
+	fmt.Printf("field store any: %s\n", fieldHolder.report())
+
+	// The container is a field of a package-level struct, so every call builds
+	// its own address of the same field.
+	fillContainerHolder()
+	fromHolder, ok := containerHolder.box.Load("row")
+	if !ok {
+		panic("missing global struct field entry")
+	}
+	reportField("global struct field any", fromHolder, "GlobalFieldAlpha")
+
+	// A key of interface type carries its concrete type into a reflected range
+	// just as a map value does.
+	keyed := map[any]string{&mapKeyRow{MapKeyAlpha: "a", MapKeyBeta: 1}: "value"}
+	for key := range keyed {
+		fmt.Printf("map key any: %s\n", reflect.TypeOf(key).Elem().Name())
+	}
+
+	// The container is built by a constructor in another package, so the read
+	// shares the returned value but no receiver with the store.
+	ctx := context.WithValue(context.Background(), contextRowKey{}, &contextRow{ContextAlpha: "a", ContextBeta: 1})
+	reportField("context value any", ctx.Value(contextRowKey{}), "ContextAlpha")
 }
 
 -- importedpkg/imported.go --
@@ -1924,6 +2019,11 @@ global chan any: {"GlobalChanAlpha":"a","GlobalChanBeta":1} <nil> true "a"
 closure any: {"ClosureAlpha":"a","ClosureBeta":1} <nil> true "a"
 method closure any: {"MethodClosureAlpha":"a","MethodClosureBeta":1} <nil> true "a"
 sync map any: {"SyncMapAlpha":"a","SyncMapBeta":1} <nil> true "a"
+global sync map any: {"GlobalSyncAlpha":"a","GlobalSyncBeta":1} <nil> true "a"
+field store any: {"FieldStoreAlpha":"a","FieldStoreBeta":1} <nil>
+global struct field any: {"GlobalFieldAlpha":"a","GlobalFieldBeta":1} <nil> true "a"
+map key any: mapKeyRow
+context value any: {"ContextAlpha":"a","ContextBeta":1} <nil> true "a"
 range defer 2
 range defer 1
 range defer 0

@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/ssa"
@@ -103,6 +104,16 @@ type reflectInspector struct {
 	// interface parameter only exists at the caller's argument, so the
 	// position is recorded for the caller and applied after the pass.
 	sendParams map[*ssa.Function]map[int]bool
+	// fieldStores holds the interface-carrying values this package writes into
+	// each field of a named struct type. A field read exposes the concrete
+	// types stored into it, and the store can sit in another function than the
+	// read, so the writes are indexed up front like the global ones.
+	fieldStores map[fieldStoreKey][]ssa.Value
+	// callSites holds the method calls this package makes, keyed by the storage
+	// they receive. A container held in a package-level variable is a
+	// *ssa.Global, which has no referrers at all, so the calls on it are only
+	// reachable through an index like this one.
+	callSites map[receiverPath][]*ssa.CallCommon
 
 	result pkgCache
 }
@@ -117,6 +128,14 @@ type channelPosition struct {
 	field     int // the field index, or -1 for an element or an entry
 }
 
+// fieldStoreKey names one field of one named struct type. The type object is
+// part of the key because two packages, or a package and a test variant, can
+// declare distinct struct types which no structural comparison separates.
+type fieldStoreKey struct {
+	typ   types.Object
+	field int
+}
+
 // Record all instances of reflection use, and don't obfuscate types which are used in reflection.
 func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 	if reflectSkipPkg[ssaPkg.Pkg.Path()] {
@@ -129,6 +148,8 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 	ri.indexGlobalStores(ssaPkg)
 	ri.indexClosureBindings(ssaPkg)
 	ri.indexChannelPositions(ssaPkg)
+	ri.indexFieldStores(ssaPkg)
+	ri.indexCallSites(ssaPkg)
 	for {
 		prev := ri.recordedCount()
 		ri.ignoreReflectedTypes(ssaPkg)
@@ -200,6 +221,144 @@ func (ri *reflectInspector) indexGlobalStores(ssaPkg *ssa.Package) {
 			scan(fn)
 		}
 	}
+}
+
+// indexFieldStores records the interface-carrying values this package writes
+// into a struct field. Reflection on a value reads back the concrete types
+// stored into its interface-carrying fields, and the store may sit in a
+// function the reflecting call never reaches: a prototype built in main and a
+// method which ranges over it share no value the walker could follow.
+func (ri *reflectInspector) indexFieldStores(ssaPkg *ssa.Package) {
+	if ri.fieldStores != nil {
+		return
+	}
+	ri.fieldStores = make(map[fieldStoreKey][]ssa.Value)
+	for _, fn := range packageFunctions(ssaPkg) {
+		for _, block := range fn.Blocks {
+			for _, inst := range block.Instrs {
+				store, ok := inst.(*ssa.Store)
+				if !ok || !hasInterfaceData(store.Val.Type()) {
+					continue
+				}
+				field, ok := store.Addr.(*ssa.FieldAddr)
+				if !ok {
+					continue
+				}
+				if key, ok := fieldStoreKeyOf(field); ok {
+					ri.fieldStores[key] = append(ri.fieldStores[key], store.Val)
+				}
+			}
+		}
+	}
+}
+
+// indexCallSites records the method calls of the package by receiver. A
+// container held in a package-level variable is addressed by a *ssa.Global,
+// whose referrers are always nil, so neither the calls which fill it nor the
+// calls which read it are discoverable without an index.
+func (ri *reflectInspector) indexCallSites(ssaPkg *ssa.Package) {
+	if ri.callSites != nil {
+		return
+	}
+	ri.callSites = make(map[receiverPath][]*ssa.CallCommon)
+	for _, fn := range packageFunctions(ssaPkg) {
+		for _, block := range fn.Blocks {
+			for _, inst := range block.Instrs {
+				call, ok := inst.(ssa.CallInstruction)
+				if !ok {
+					continue
+				}
+				recv := callReceiver(call.Common())
+				if recv == nil {
+					continue
+				}
+				key := receiverPathOf(recv)
+				ri.callSites[key] = append(ri.callSites[key], call.Common())
+			}
+		}
+	}
+}
+
+// receiverPath names the storage a call receives: a root value and the field
+// and element selections which address it. Every call builds its own FieldAddr
+// for the same field of the same variable, so only the path finds the other
+// calls on that storage.
+type receiverPath struct {
+	root ssa.Value
+	path string
+}
+
+func receiverPathOf(value ssa.Value) receiverPath {
+	var steps []string
+	for {
+		switch x := value.(type) {
+		case *ssa.FieldAddr:
+			steps = append(steps, strconv.Itoa(x.Field))
+			value = x.X
+			continue
+		case *ssa.IndexAddr:
+			// Every element of a slice or array is the same storage.
+			steps = append(steps, "*")
+			value = x.X
+			continue
+		case *ssa.UnOp:
+			if x.Op == token.MUL {
+				steps = append(steps, "^")
+				value = x.X
+				continue
+			}
+		}
+		break
+	}
+	slices.Reverse(steps)
+	return receiverPath{root: value, path: strings.Join(steps, ".")}
+}
+
+// packageFunctions returns the functions of a package, including its methods
+// and the anonymous functions they declare.
+func packageFunctions(ssaPkg *ssa.Package) []*ssa.Function {
+	var funcs []*ssa.Function
+	seen := make(map[*ssa.Function]bool)
+	var add func(fn *ssa.Function)
+	add = func(fn *ssa.Function) {
+		if seen[fn] {
+			return
+		}
+		seen[fn] = true
+		funcs = append(funcs, fn)
+		for _, anon := range fn.AnonFuncs {
+			add(anon)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(ssaPkg.Members)) {
+		switch memb := ssaPkg.Members[name].(type) {
+		case *ssa.Function:
+			add(memb)
+		case *ssa.Type:
+			for _, typ := range []types.Type{memb.Type(), types.NewPointer(memb.Type())} {
+				for method := range ssaPkg.Prog.MethodSets.MethodSet(typ).Methods() {
+					if fn := ssaPkg.Prog.MethodValue(method); fn != nil {
+						add(fn)
+					}
+				}
+			}
+		}
+	}
+	return funcs
+}
+
+// fieldStoreKeyOf returns the field a struct field address names. A field of
+// an unnamed struct has no type object to key on, so it is not indexed.
+func fieldStoreKeyOf(field *ssa.FieldAddr) (fieldStoreKey, bool) {
+	typ := types.Unalias(field.X.Type())
+	if pointer, ok := typ.Underlying().(*types.Pointer); ok {
+		typ = pointer.Elem()
+	}
+	named, ok := types.Unalias(typ).(*types.Named)
+	if !ok {
+		return fieldStoreKey{}, false
+	}
+	return fieldStoreKey{typ: named.Obj(), field: field.Field}, true
 }
 
 // globalOfAddr returns the package-level variable an address belongs to,
@@ -1188,8 +1347,15 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 		// The field of a reflected value is part of that value, so a value
 		// stored into the field is reachable through reflection. This is the
 		// route a concrete type takes into an interface-typed field, which
-		// the field's own static type does not spell out.
+		// the field's own static type does not spell out. The store can sit in
+		// a function the reflecting call never reaches, so the values this
+		// package writes into the same field are indexed up front.
 		ri.recordReferrersReflected(fun, val, visited)
+		if key, ok := fieldStoreKeyOf(val); ok {
+			for _, stored := range ri.fieldStores[key] {
+				ri.recordArgReflected(fun, stored, visited)
+			}
+		}
 		return ri.recordArgReflected(fun, val.X, visited)
 
 	case *ssa.Alloc:
@@ -1218,11 +1384,13 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 	case *ssa.MakeMap:
 		ri.recursivelyRecordUsedForReflect(val.Type())
 		// The entries of a map are written by MapUpdate, which a reflected
-		// lookup reads back as values of the element type.
+		// lookup reads back as values of the element type; a key of interface
+		// type carries a concrete type the same way.
 		if refs := val.Referrers(); refs != nil {
 			for _, ref := range *refs {
 				if update, ok := ref.(*ssa.MapUpdate); ok && update.Map == val {
 					ri.recordArgReflected(fun, update.Value, visited)
+					ri.recordArgReflected(fun, update.Key, visited)
 				}
 			}
 		}
@@ -1289,14 +1457,38 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 	return nil
 }
 
-// callReceiver returns the receiver a call passes explicitly, or nil when the
-// call has no receiver or binds it into a function value first.
+// callReceiver returns the receiver a call passes, or nil when the call has no
+// receiver or binds it into a function value first. An invoke names its
+// receiver as the called value rather than as an argument.
 func callReceiver(call *ssa.CallCommon) ssa.Value {
+	if call.IsInvoke() {
+		return call.Value
+	}
 	sig := call.Signature()
 	if sig == nil || sig.Recv() == nil || len(call.Args) == 0 {
 		return nil
 	}
 	return call.Args[0]
+}
+
+// producingCall returns the call a value is the result of, looking through the
+// conversions and extracts which keep the same value. A container returned by
+// another package, such as context.WithValue's context, is only reachable
+// through its constructor.
+func producingCall(value ssa.Value) *ssa.CallCommon {
+	switch value := value.(type) {
+	case *ssa.Call:
+		return &value.Call
+	case *ssa.Extract:
+		if call, ok := value.Tuple.(*ssa.Call); ok {
+			return &call.Call
+		}
+	case *ssa.ChangeInterface:
+		return producingCall(value.X)
+	case *ssa.ChangeType:
+		return producingCall(value.X)
+	}
+	return nil
 }
 
 // recordContainerStores records the interface values this package hands to a
@@ -1308,23 +1500,35 @@ func (ri *reflectInspector) recordContainerStores(fun *ssa.Function, recv ssa.Va
 	if recv == nil {
 		return
 	}
-	refs := recv.Referrers()
-	if refs == nil {
-		return
+	// A constructor in another package returns the container this package later
+	// reads from, as context.WithValue does. The store and the read then share
+	// no receiver, only the returned value, and the boxed type still exists at
+	// the constructor's call site here.
+	if call := producingCall(recv); call != nil {
+		for i, arg := range call.Args {
+			if i == 0 && call.Signature() != nil && call.Signature().Recv() != nil {
+				// The receiver of the producing call, not a value it stores.
+				continue
+			}
+			if hasInterfaceData(arg.Type()) {
+				ri.recordArgReflected(fun, arg, visited)
+			}
+		}
 	}
-	for _, ref := range *refs {
-		inst, ok := ref.(ssa.CallInstruction)
-		if !ok {
-			continue
+	// Every call this package makes on the same receiver is part of what the
+	// container holds: the store can be in another function, and a container in
+	// a package-level variable has no referrers at all, so the index built up
+	// front is the only route from the read back to the store.
+	for _, call := range ri.callSites[receiverPathOf(recv)] {
+		args := call.Args
+		if !call.IsInvoke() {
+			// A static method call passes its receiver as the first argument.
+			if sig := call.Signature(); sig == nil || sig.Recv() == nil || len(args) == 0 {
+				continue
+			}
+			args = args[1:]
 		}
-		call := inst.Common()
-		if len(call.Args) == 0 || call.Args[0] != recv {
-			continue
-		}
-		if sig := call.Signature(); sig == nil || sig.Recv() == nil {
-			continue
-		}
-		for _, arg := range call.Args[1:] {
+		for _, arg := range args {
 			if hasInterfaceData(arg.Type()) {
 				ri.recordArgReflected(fun, arg, visited)
 			}
