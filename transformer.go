@@ -750,6 +750,42 @@ func (tf *transformer) validateMappedSymbolNames() {
 	}
 }
 
+// asmNameDot returns the index in line of the first middle dot which starts a
+// symbol reference, or -1. A middle dot inside a dollar-quoted string or rune
+// literal is program data, not a name: cmd/asm writes those bytes into the
+// object file unchanged, so the literal has to be skipped whole.
+func asmNameDot(line []byte) int {
+	for i := 0; i < len(line); {
+		r, size := utf8.DecodeRune(line[i:])
+		if r == '·' {
+			return i
+		}
+		if r == '$' {
+			// Literal operands are spelled $"text" or $'c'; an escape cannot
+			// close one.
+			j := i + size
+			for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
+				j++
+			}
+			if j < len(line) && (line[j] == '"' || line[j] == '\'') {
+				quote := line[j]
+				for j++; j < len(line); j++ {
+					if line[j] == '\\' {
+						j++
+					} else if line[j] == quote {
+						j++
+						break
+					}
+				}
+				i = j
+				continue
+			}
+		}
+		i += size
+	}
+	return -1
+}
+
 func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	// We need to replace all function references with their obfuscated name
 	// counterparts.
@@ -771,7 +807,7 @@ func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	asmPeriodLen := utf8.RuneLen(asmPeriod)
 
 	for {
-		periodIdx := bytes.IndexRune(remaining, asmPeriod)
+		periodIdx := asmNameDot(remaining)
 		if periodIdx < 0 {
 			buf.Write(remaining)
 			remaining = nil

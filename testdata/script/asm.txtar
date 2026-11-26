@@ -39,6 +39,9 @@ go 1.23
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"test/with.many.dots/main/imported"
 )
 
@@ -66,6 +69,14 @@ func addArgs(args *Args) int64
 
 // argsSize returns the size of Args struct using go_asm.h constant
 func argsSize() int64
+
+// dotData and dotDataHeader are read-only symbols whose bytes are program data
+// beginning with a middle dot; the second one is defined by a header macro.
+var dotData [16]byte
+var dotDataHeader [16]byte
+
+// dotRune is a two-byte read-only symbol holding a rune constant.
+var dotRune [2]byte
 
 const asmZero = 0
 
@@ -129,9 +140,11 @@ func main() {
 	nestedAdd()
 	println(goData[2])
 	println(dupValues())
+	fmt.Fprintf(os.Stderr, "dot=%x header=%x rune=%x\n", dotData, dotDataHeader, dotRune)
 }
 
 -- garble_main_amd64.s --
+#include "textflag.h"
 #include "go_asm.h"
 #include "garble_define_amd64.h"
 #include "extra/garble_define2_amd64.h" // Inline: many·special∕asm·runes.
@@ -178,6 +191,17 @@ TEXT ·asmLiteralValue(SB), $0-16
 	MOVQ ·asmLiteral+8(SB), AX
 	MOVQ AX, ret+8(FP)
 	RET
+
+// Assembly data can begin with a middle dot; the bytes are program data, not a
+// symbol reference, so they have to survive unchanged.
+GLOBL ·dotData(SB), RODATA|NOPTR, $16
+DATA ·dotData+0(SB)/16, $"·abcdefghijklm"
+
+GLOBL ·dotRune(SB), RODATA|NOPTR, $2
+DATA ·dotRune+0(SB)/2, $'·'
+
+GLOBL ·dotDataHeader(SB), RODATA|NOPTR, $16
+DOT_DATA_HEADER
 
 TEXT ·argsSize(SB), $0-8
 	MOVQ $Args__size, AX
@@ -235,6 +259,7 @@ TEXT clib·add(SB),$0-16
 	ADDL arg, ·goData+0(SB)
 
 -- extra/garble_define2_amd64.h --
+#define DOT_DATA_HEADER DATA ·dotDataHeader+0(SB)/16, $"·abcdefghijklm"
 #define ASM_ZERO const_asmZero
 #define addGoDataTo2(arg) \
 	ADDL arg, ·goData+0(SB)
@@ -300,6 +325,7 @@ TEXT ·AddImpl(SB),$0-16
 8
 10
 11
+dot=2e6162636465666768696a6b6c6d0000 header=2e6162636465666768696a6b6c6d0000 rune=2e00
 -- overlay.json --
 {"Replace":{"imported/imported_amd64.s":"imported/backing.txt"}}
 -- empty-reverse.txt --
