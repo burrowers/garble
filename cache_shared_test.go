@@ -4,6 +4,7 @@
 package main
 
 import (
+	"path"
 	"reflect"
 	"slices"
 	"strings"
@@ -122,33 +123,48 @@ func TestTestVariantsAreObfuscatable(t *testing.T) {
 
 // testRuntimePkgPathsAreMapped lists paths as synthetic packages in a fresh
 // shared cache with the given seed, and checks that each one has a hashed path
-// which the toolchain path map translates back to the original.
+// and package name, and that the toolchain path map translates the path back to
+// the original.
 func testRuntimePkgPathsAreMapped(t *testing.T, seed string, paths []string) {
 	t.Helper()
 	oldCache, oldSeed := sharedCache, flagSeed
 	t.Cleanup(func() { sharedCache, flagSeed = oldCache, oldSeed })
 	flagSeed = seedFlag{bytes: []byte(seed)}
 	sharedCache = &sharedCacheType{BinaryContentID: []byte("test"), ListedPackages: newListedPackages()}
-	for _, path := range paths {
-		sharedCache.ListedPackages.set(path, &listedPackage{
-			Name:            "synthetic",
-			ImportPath:      path,
-			GarbleActionID:  addGarbleToHash([]byte(path)),
+	for _, pkgPath := range paths {
+		sharedCache.ListedPackages.set(pkgPath, &listedPackage{
+			Name:            path.Base(pkgPath),
+			ImportPath:      pkgPath,
+			GarbleActionID:  addGarbleToHash([]byte(pkgPath)),
 			CompiledGoFiles: []string{"synthetic.go"},
 		})
 	}
 
 	mappings := strings.Split(buildRuntimePkgPathMap(), ",")
-	for _, path := range paths {
-		pkg, _ := sharedCache.ListedPackages.get(path)
+	for _, pkgPath := range paths {
+		pkg, _ := sharedCache.ListedPackages.get(pkgPath)
 		obfuscated := pkg.obfuscatedImportPath()
-		if obfuscated == path {
-			t.Fatalf("%s is exempt from path hashing; the test needs a hashed path", path)
+		if obfuscated == pkgPath {
+			t.Fatalf("%s is exempt from path hashing; the test needs a hashed path", pkgPath)
 		}
-		if want := obfuscated + "=" + path; !slices.Contains(mappings, want) {
+		if pkg.obfuscatedPackageName() == pkg.Name {
+			t.Errorf("package name %q was preserved", pkg.Name)
+		}
+		if want := obfuscated + "=" + pkgPath; !slices.Contains(mappings, want) {
 			t.Errorf("toolchain path map is missing %q; mappings: %v", want, mappings)
 		}
 	}
+}
+
+// TestSpecialPackagePathsAreObfuscated covers the special packages the
+// toolchain resolves by their original import path.
+func TestSpecialPackagePathsAreObfuscated(t *testing.T) {
+	testRuntimePkgPathsAreMapped(t, "special-package-paths", []string{
+		"reflect", "embed", "structs", "syscall", "internal/abi",
+		"internal/bytealg", "internal/chacha8rand", "internal/runtime/sys",
+		"internal/runtime/syscall/linux", "internal/runtime/syscall/windows",
+		"internal/runtime/startlinetest",
+	})
 }
 
 // TestNoRaceFuncPkgPathsAreMapped covers the packages whose functions the
