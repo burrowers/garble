@@ -127,8 +127,11 @@ func ObfuscateWithGlobalInits(rand *mathrand.Rand, file *ast.File, info *types.I
 					// still applies to it; see isEmbeddedPlaceholder.
 					continue
 				}
+				// Like source literals, values above MaxSize still get
+				// obfuscated; pickObfuscator falls back to the blob decoder
+				// for them. Only values below MinSize stay in plaintext.
 				expr := ast.Expr(&ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(value)})
-				if len(value) >= MinSize && len(value) <= MaxSize {
+				if len(value) >= MinSize {
 					expr = obfuscateString(or, value)
 				}
 				node.Values[i] = withPos(expr, name.Pos()).(ast.Expr)
