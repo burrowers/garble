@@ -727,6 +727,7 @@ func main() {
 	checkAnyTable()
 	checkCrossPackageAny()
 	checkMapAndChanAny()
+	checkChanTransportAny()
 	checkProducerAny()
 }
 
@@ -1244,6 +1245,35 @@ func checkMapAndChanAny() {
 	out, err = json.Marshal(received)
 	field = reflect.ValueOf(received).Elem().FieldByName("ChanAnyAlpha")
 	fmt.Printf("chan any: %s %v %v %q\n", out, err, field.IsValid(), field.String())
+}
+
+// A channel which crosses a function boundary hides the value sent into it
+// from the function that reflects on the receive: the send names a parameter
+// in another function, or a free variable of a closure.
+type chanParamRow struct {
+	ChanParamAlpha string
+	ChanParamBeta  int
+}
+
+type chanClosureRow struct {
+	ChanClosureAlpha string
+	ChanClosureBeta  int
+}
+
+func sendChanParam(c chan<- any) {
+	c <- &chanParamRow{ChanParamAlpha: "a", ChanParamBeta: 1}
+}
+
+func checkChanTransportAny() {
+	c := make(chan any, 1)
+	sendChanParam(c)
+	reportField("chan param any", <-c, "ChanParamAlpha")
+
+	closureChan := make(chan any, 1)
+	func() {
+		closureChan <- &chanClosureRow{ChanClosureAlpha: "a", ChanClosureBeta: 1}
+	}()
+	reportField("chan closure any", <-closureChan, "ChanClosureAlpha")
 }
 
 // The producers below fill a container whose elements are interface values
@@ -1833,6 +1863,8 @@ any table pointer: {"Alpha":"a","Beta":1} <nil>
 cross-package any: {"CrossAlpha":"a","CrossBeta":1} <nil> true "a"
 map any: {"MapAnyAlpha":"a","MapAnyBeta":1} <nil> true "a"
 chan any: {"ChanAnyAlpha":"a","ChanAnyBeta":1} <nil> true "a"
+chan param any: {"ChanParamAlpha":"a","ChanParamBeta":1} <nil> true "a"
+chan closure any: {"ChanClosureAlpha":"a","ChanClosureBeta":1} <nil> true "a"
 make index any: {"MakeIndexAlpha":"a","MakeIndexBeta":1} <nil> true "a"
 global map key any: {"GlobalMapAlpha":"a","GlobalMapBeta":1} <nil> true "a"
 global map range any: {"GlobalMapAlpha":"a","GlobalMapBeta":1} <nil> true "a"
