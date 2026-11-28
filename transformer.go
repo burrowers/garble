@@ -719,6 +719,48 @@ func asmNameDot(line []byte) int {
 	return -1
 }
 
+// asmCommentStart returns the index in line of the first // which starts a
+// comment, or -1. A // inside a quoted operand or an include path is not a
+// comment: cmd/asm writes the bytes of a $"..." string or $'c' rune into the
+// object file unchanged and resolves the argument of an #include as a path, so
+// the quoted span has to be skipped whole.
+func asmCommentStart(line []byte) int {
+	dollar := false // the last non-space byte was $, so 'c' is a rune operand
+	for i := 0; i < len(line); {
+		c := line[i]
+		if c == ' ' || c == '	' {
+			i++
+			continue
+		}
+		prevDollar := dollar
+		dollar = c == '$'
+		switch c {
+		case '"', '\'':
+			// A double quote only opens a string, while a single quote is a
+			// rune operand of $ and may also be an apostrophe in text.
+			if c == '\'' && !prevDollar {
+				i++
+				continue
+			}
+			for i++; i < len(line); i++ {
+				if line[i] == '\\' {
+					i++ // an escape cannot close the literal
+				} else if line[i] == c {
+					i++
+					break
+				}
+			}
+			continue
+		case '/':
+			if i+1 < len(line) && line[i+1] == '/' {
+				return i
+			}
+		}
+		i++
+	}
+	return -1
+}
+
 func (tf *transformer) replaceAsmNames(buf *bytes.Buffer, remaining []byte) {
 	// We need to replace all function references with their obfuscated name
 	// counterparts.
@@ -922,7 +964,8 @@ func (ai *asmIncludes) copy(includePath string) (string, bool, error) {
 // rewritten too, because the assembler resolves includes against the working
 // directory and would otherwise read the plaintext file. A whole-line comment
 // is kept, since it may be a directive such as //go:build; any other comment is
-// discarded.
+// discarded, except the two bytes inside a quoted operand or include path,
+// which are program data.
 func (ai *asmIncludes) rewrite(src []byte) ([]byte, error) {
 	var out bytes.Buffer
 	for rest := src; len(rest) > 0; {
@@ -933,11 +976,14 @@ func (ai *asmIncludes) rewrite(src []byte) ([]byte, error) {
 			rest = nil
 		}
 		text := string(line)
-		bare, _, hasComment := strings.Cut(text, "//")
-		if hasComment && bare == "" {
+		bare := text
+		if i := asmCommentStart(line); i == 0 {
+			// A whole-line comment may be a directive such as //go:build.
 			out.WriteString(text)
 			out.WriteByte('\n')
 			continue
+		} else if i > 0 {
+			bare = text[:i]
 		}
 		// Preprocessor lines to include another file.
 		// For example: #include "foo.h"
