@@ -1442,6 +1442,33 @@ type contextRow struct {
 
 type contextRowKey struct{}
 
+// paramStoreRow reaches reflection only as the argument of a call whose callee
+// stores it into an interface field, so the concrete type exists at the call
+// site and not inside the function which writes the field.
+type paramStoreRow struct {
+	ParamStoreAlpha string
+	ParamStoreBeta  int
+}
+
+type paramStoreHolder struct {
+	field any
+}
+
+func (holder *paramStoreHolder) set(value any) { holder.field = value }
+
+// paramFuncRow takes the same route through a plain function rather than a
+// method, so the receiver is not part of the callee's parameter list.
+type paramFuncRow struct {
+	ParamFuncAlpha string
+	ParamFuncBeta  uint32
+}
+
+type paramFuncHolder struct {
+	field any
+}
+
+func fillParamFunc(holder *paramFuncHolder, value any) { holder.field = value }
+
 type methodClosureHolder struct{}
 
 // report marshals the captured value inside a closure whose enclosing function
@@ -1538,6 +1565,17 @@ func checkProducerAny() {
 	// shares the returned value but no receiver with the store.
 	ctx := context.WithValue(context.Background(), contextRowKey{}, &contextRow{ContextAlpha: "a", ContextBeta: 1})
 	reportField("context value any", ctx.Value(contextRowKey{}), "ContextAlpha")
+
+	// The producer is the callee's own parameter, so the concrete type only
+	// exists at this call site and the field index on its own records an empty
+	// interface.
+	paramHolder := &paramStoreHolder{}
+	paramHolder.set(&paramStoreRow{ParamStoreAlpha: "a", ParamStoreBeta: 1})
+	reportField("param store any", paramHolder.field, "ParamStoreAlpha")
+
+	funcHolder := &paramFuncHolder{}
+	fillParamFunc(funcHolder, &paramFuncRow{ParamFuncAlpha: "b", ParamFuncBeta: 2})
+	reportField("param func store any", funcHolder.field, "ParamFuncAlpha")
 }
 
 -- importedpkg/imported.go --
@@ -2024,6 +2062,8 @@ field store any: {"FieldStoreAlpha":"a","FieldStoreBeta":1} <nil>
 global struct field any: {"GlobalFieldAlpha":"a","GlobalFieldBeta":1} <nil> true "a"
 map key any: mapKeyRow
 context value any: {"ContextAlpha":"a","ContextBeta":1} <nil> true "a"
+param store any: {"ParamStoreAlpha":"a","ParamStoreBeta":1} <nil> true "a"
+param func store any: {"ParamFuncAlpha":"b","ParamFuncBeta":2} <nil> true "b"
 range defer 2
 range defer 1
 range defer 0

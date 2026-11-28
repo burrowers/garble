@@ -99,11 +99,13 @@ type reflectInspector struct {
 	// different SSA value from the one stored there, and the store can sit
 	// in another function, so only the position connects the two.
 	channelPositions map[channelPosition][]ssa.Value
-	// sendParams holds the parameter positions whose argument a reflected
-	// receive sends back into a channel. The concrete type behind an
-	// interface parameter only exists at the caller's argument, so the
-	// position is recorded for the caller and applied after the pass.
-	sendParams map[*ssa.Function]map[int]bool
+	// reflectedParams holds the parameter positions whose argument a reflected
+	// value depends on: a reflected receive sends it into a channel, and a
+	// reflected field store writes it into an interface-carrying field. The
+	// concrete type behind an interface parameter only exists at the caller's
+	// argument, so the position is recorded for the caller and applied after
+	// the pass.
+	reflectedParams map[*ssa.Function]map[int]bool
 	// fieldStores holds the interface-carrying values this package writes into
 	// each field of a named struct type. A field read exposes the concrete
 	// types stored into it, and the store can sit in another function than the
@@ -156,7 +158,7 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 		// A reflected receive can mark a parameter of another function as
 		// reflected after that function's own pass is over, so the positions
 		// are applied here and the count makes the loop run again.
-		ri.applySendParams()
+		ri.applyReflectedParams()
 		if ri.recordedCount() == prev {
 			return
 		}
@@ -498,31 +500,33 @@ func (ri *reflectInspector) indexChannelPositions(ssaPkg *ssa.Package) {
 	}
 }
 
-// markSendParam records that the argument a caller passes at this parameter
-// position is sent into a channel which reflection reads. The position is
-// declared, so the receiver and the synthetic leading parameters of a generic
-// function are left out, exactly as for a reflected call argument.
-func (ri *reflectInspector) markSendParam(fun *ssa.Function, param *ssa.Parameter) {
+// markReflectedParam records that the argument a caller passes at this
+// parameter position reaches reflection, either sent into a channel or stored
+// into an interface-carrying field. The position is declared, so the receiver
+// and the synthetic leading parameters of a generic function are left out,
+// exactly as for a reflected call argument.
+func (ri *reflectInspector) markReflectedParam(fun *ssa.Function, param *ssa.Parameter) {
 	pos := slices.Index(fun.Params, param)
 	pos -= len(fun.Params) - fun.Signature.Params().Len()
 	if pos < 0 {
 		return
 	}
-	if ri.sendParams == nil {
-		ri.sendParams = make(map[*ssa.Function]map[int]bool)
+	if ri.reflectedParams == nil {
+		ri.reflectedParams = make(map[*ssa.Function]map[int]bool)
 	}
-	if ri.sendParams[fun] == nil {
-		ri.sendParams[fun] = make(map[int]bool)
+	if ri.reflectedParams[fun] == nil {
+		ri.reflectedParams[fun] = make(map[int]bool)
 	}
-	ri.sendParams[fun][pos] = true
+	ri.reflectedParams[fun][pos] = true
 }
 
-// applySendParams records the positions collected by [reflectInspector.markSendParam]
-// as reflected parameters of their function. A named function's position goes
-// into the package cache, so callers in other packages see it; a function
-// literal has no name to store it under and stays local.
-func (ri *reflectInspector) applySendParams() {
-	for fun, positions := range ri.sendParams {
+// applyReflectedParams records the positions collected by
+// [reflectInspector.markReflectedParam] as reflected parameters of their
+// function. A named function's position goes into the package cache, so callers
+// in other packages see it; a function literal has no name to store it under
+// and stays local.
+func (ri *reflectInspector) applyReflectedParams() {
+	for fun, positions := range ri.reflectedParams {
 		name := ""
 		if obj, ok := ssaFuncOrigin(fun).Object().(*types.Func); ok && obj != nil {
 			name, _ = stripTypeArgs(reflectFuncName(obj))
@@ -1353,7 +1357,12 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 		ri.recordReferrersReflected(fun, val, visited)
 		if key, ok := fieldStoreKeyOf(val); ok {
 			for _, stored := range ri.fieldStores[key] {
-				ri.recordArgReflected(fun, stored, visited)
+				// The value can be a parameter of the function which stores
+				// it, and the concrete type behind it then only exists at
+				// that function's call sites.
+				if param := ri.recordArgReflected(fun, stored, visited); param != nil {
+					ri.markReflectedParam(param.Parent(), param)
+				}
 			}
 		}
 		return ri.recordArgReflected(fun, val.X, visited)
@@ -1598,7 +1607,7 @@ func (ri *reflectInspector) recordChannelSends(fun *ssa.Function, ch ssa.Value, 
 					// The value can be a parameter of this function, whose
 					// callers then hand their own arguments to reflection.
 					if param := ri.recordArgReflected(fun, ref.X, visited); param != nil {
-						ri.markSendParam(fun, param)
+						ri.markReflectedParam(fun, param)
 					}
 				}
 			case *ssa.MakeClosure:
