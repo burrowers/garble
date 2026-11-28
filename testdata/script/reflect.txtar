@@ -1260,9 +1260,41 @@ type chanClosureRow struct {
 	ChanClosureBeta  int
 }
 
+type chanFieldRow struct {
+	ChanFieldAlpha string
+	ChanFieldBeta  int
+}
+
+type chanMapRow struct {
+	ChanMapAlpha string
+	ChanMapBeta  int
+}
+
+type chanSliceRow struct {
+	ChanSliceAlpha string
+	ChanSliceBeta  int
+}
+
+// chanPublishRow travels through the parameter of a helper which sends its own
+// argument, so its concrete type only exists at the call site.
+type chanPublishRow struct {
+	ChanPublishAlpha string
+	ChanPublishBeta  int
+}
+
+func publishChan(c chan<- any, v any) { c <- v }
+
 func sendChanParam(c chan<- any) {
 	c <- &chanParamRow{ChanParamAlpha: "a", ChanParamBeta: 1}
 }
+
+// A channel which is not a parameter, a package variable or a captured cell
+// still carries the value: a struct field handed to a plain function, a map
+// element and a slice element each hold the channel where the send reads it.
+type chanHub struct{ ch chan any }
+
+func sendChanField(h *chanHub, v any) { h.ch <- v }
+func readChanField(h *chanHub) any    { return <-h.ch }
 
 func checkChanTransportAny() {
 	c := make(chan any, 1)
@@ -1274,6 +1306,21 @@ func checkChanTransportAny() {
 		closureChan <- &chanClosureRow{ChanClosureAlpha: "a", ChanClosureBeta: 1}
 	}()
 	reportField("chan closure any", <-closureChan, "ChanClosureAlpha")
+
+	hub := &chanHub{ch: make(chan any, 1)}
+	sendChanField(hub, &chanFieldRow{ChanFieldAlpha: "a", ChanFieldBeta: 1})
+	reportField("chan field any", readChanField(hub), "ChanFieldAlpha")
+
+	byName := map[string]chan any{"row": make(chan any, 1)}
+	byName["row"] <- &chanMapRow{ChanMapAlpha: "a", ChanMapBeta: 1}
+	reportField("chan map any", <-byName["row"], "ChanMapAlpha")
+
+	byIndex := []chan any{make(chan any, 1)}
+	byIndex[0] <- &chanSliceRow{ChanSliceAlpha: "a", ChanSliceBeta: 1}
+	reportField("chan slice any", <-byIndex[0], "ChanSliceAlpha")
+
+	publishChan(c, &chanPublishRow{ChanPublishAlpha: "a", ChanPublishBeta: 1})
+	reportField("chan publish any", <-c, "ChanPublishAlpha")
 }
 
 // The producers below fill a container whose elements are interface values
@@ -1865,6 +1912,10 @@ map any: {"MapAnyAlpha":"a","MapAnyBeta":1} <nil> true "a"
 chan any: {"ChanAnyAlpha":"a","ChanAnyBeta":1} <nil> true "a"
 chan param any: {"ChanParamAlpha":"a","ChanParamBeta":1} <nil> true "a"
 chan closure any: {"ChanClosureAlpha":"a","ChanClosureBeta":1} <nil> true "a"
+chan field any: {"ChanFieldAlpha":"a","ChanFieldBeta":1} <nil> true "a"
+chan map any: {"ChanMapAlpha":"a","ChanMapBeta":1} <nil> true "a"
+chan slice any: {"ChanSliceAlpha":"a","ChanSliceBeta":1} <nil> true "a"
+chan publish any: {"ChanPublishAlpha":"a","ChanPublishBeta":1} <nil> true "a"
 make index any: {"MakeIndexAlpha":"a","MakeIndexBeta":1} <nil> true "a"
 global map key any: {"GlobalMapAlpha":"a","GlobalMapBeta":1} <nil> true "a"
 global map range any: {"GlobalMapAlpha":"a","GlobalMapBeta":1} <nil> true "a"
