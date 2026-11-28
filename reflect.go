@@ -1206,23 +1206,6 @@ func (ri *reflectInspector) recordChannelSends(fun *ssa.Function, ch ssa.Value, 
 						walk(fun, cell)
 					}
 				}
-			case *ssa.Alloc:
-				// The cell of a captured variable: its loads reach the
-				// send and its bindings hand the cell to the closure.
-				cellRefs := ref.Referrers()
-				if cellRefs == nil {
-					continue
-				}
-				for _, cellRef := range *cellRefs {
-					switch cellRef := cellRef.(type) {
-					case *ssa.MakeClosure:
-						if closure, ok := cellRef.Fn.(*ssa.Function); ok {
-							walkBound(closure, cellRef.Bindings, ch)
-						}
-					case *ssa.UnOp:
-						walkLoad(fun, cellRef)
-					}
-				}
 			case ssa.CallInstruction:
 				call := ref.Common()
 				callee := call.StaticCallee()
