@@ -5,6 +5,13 @@ exec garble -seed=FX4AAAAAAAA build -o=main$exe ./std_importer
 grep '\x00runtime\.NowI8m\x00' main$exe
 # Function names are NUL-delimited; do not match part of a runtime hash.
 ! grep '\x00(net/http\.ListenAndServe|runtime/debug\.WriteHeapDump|time\.Now|syscall\.Listen)\x00' main$exe
+# net/http's relevantCaller filters stack frames by its own package path, which
+# is hashed here; the warning must still name the handler's own line. A
+# non-standard package does the same with its own, hashed import path.
+exec ./main$exe
+stdout '^caller superfluous: 50$'
+stdout '^caller hijacked: 61$'
+stdout '^caller dep: 33$'
 
 [short] stop # rebuilding std is slow
 
@@ -30,6 +37,11 @@ grep '\x00net/http\.ListenAndServe\x00' main_regular$exe
 grep '\x00runtime/debug\.WriteHeapDump\x00' main_regular$exe
 grep '\x00time\.Now\x00' main_regular$exe
 grep '\x00syscall\.Listen\x00' main_regular$exe
+# The same warnings name the handler's own line in a plain build as well.
+exec ./main_regular$exe
+stdout '^caller superfluous: 50$'
+stdout '^caller hijacked: 61$'
+stdout '^caller dep: 33$'
 
 # Also check that a full rebuild is reproducible, via a new GOCACHE.
 # This is slow, but necessary to uncover bugs hidden by the build cache.
@@ -50,13 +62,19 @@ go 1.23
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
+	"strings"
 	"syscall"
+	"test/main/std_importer/callers"
 	"testing"
 	"time"
 )
@@ -65,6 +83,15 @@ func main() {
 	// Ensure that embedded information in the runtime is missing.
 	fmt.Printf("runtime.GOROOT: %q\n", runtime.GOROOT())
 	fmt.Printf("runtime.Version: %q\n", runtime.Version())
+
+	// net/http reports misuse of a ResponseWriter through relevantCaller, which
+	// filters stack frames by its own package path. That path is hashed in an
+	// obfuscated build, and the warning must still name the handler's own line.
+	fmt.Printf("caller superfluous: %s\n", callerLine(writeTwice))
+	fmt.Printf("caller hijacked: %s\n", callerLine(writeHijacked))
+	// A non-standard package filtering frames by its own import path, the way
+	// relevantCaller does; that path is hashed in an obfuscated build too.
+	fmt.Printf("caller dep: %d\n", callers.Where().Line)
 
 	// We just want to ensure these build and link OK, but we don't need to run them.
 	if len(os.Args) > 5 {
@@ -76,6 +103,71 @@ func main() {
 		testing.MainStart(nil, nil, nil, nil, nil)
 		pprof.StartCPUProfile(nil)
 	}
+}
+
+// writeTwice triggers the superfluous response.WriteHeader warning.
+func writeTwice(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(200)
+	w.WriteHeader(201)
+}
+
+// writeHijacked triggers the response.Write on hijacked connection warning.
+func writeHijacked(w http.ResponseWriter, r *http.Request) {
+	conn, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+	fmt.Fprintf(conn, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+	w.Write([]byte("late"))
+}
+
+// callerLine serves one request with h and returns the line the warning
+// attributes to the handler. An obfuscated build hashes the function and the
+// file name, so the handler's own line is the stable part of the message.
+func callerLine(h http.HandlerFunc) string {
+	var logBuf bytes.Buffer
+	srv := httptest.NewServer(h)
+	srv.Config.ErrorLog = log.New(&logBuf, "", 0)
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		panic(err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	srv.Close()
+	msg := logBuf.String()
+	if i := strings.LastIndex(msg, ":"); i >= 0 {
+		return strings.TrimRight(msg[i+1:], ")\n")
+	}
+	return msg
+}
+-- std_importer/callers/callers.go --
+package callers
+
+import (
+	"runtime"
+	"strings"
+)
+
+// Where returns the first frame outside this package, the way net/http's
+// relevantCaller returns the caller of a misused ResponseWriter.
+func Where() runtime.Frame {
+	pc := make([]uintptr, 16)
+	n := runtime.Callers(1, pc)
+	frames := runtime.CallersFrames(pc[:n])
+	var frame runtime.Frame
+	for {
+		var more bool
+		frame, more = frames.Next()
+		if !strings.HasPrefix(frame.Function, "test/main/std_importer/callers.") {
+			break
+		}
+		if !more {
+			break
+		}
+	}
+	return frame
 }
 -- debug_importer/main.go --
 package main
@@ -90,3 +182,6 @@ func main() {
 -- std_importer.stdout --
 runtime.GOROOT: ""
 runtime.Version: "unknown"
+caller superfluous: 50
+caller hijacked: 61
+caller dep: 33
