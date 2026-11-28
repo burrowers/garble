@@ -5,35 +5,36 @@ import (
 	"testing"
 )
 
-func TestIntrinsicSymbolMapDefersLen64Renaming(t *testing.T) {
+func TestSymbolMapDefersGoFunctionRenaming(t *testing.T) {
 	oldCache := sharedCache
 	defer func() { sharedCache = oldCache }()
-	pkg := &listedPackage{ImportPath: "math/bits", Name: "bits", Standard: true, CompiledGoFiles: []string{"bits.go"}}
-	pkg.GarbleActionID[0] = 83
 	sharedCache = &sharedCacheType{ListedPackages: newListedPackages()}
-	sharedCache.ListedPackages.set(pkg.ImportPath, pkg)
-	// The emission policy must also work for ordinary functions which do not
-	// appear in the compiler's intrinsic or builtin tables.
-	const ordinary = "OrdinaryFunction"
-	compilerNamedFunctions[pkg.ImportPath][ordinary] = true
-	t.Cleanup(func() { delete(compilerNamedFunctions[pkg.ImportPath], ordinary) })
-	prefix := pkg.obfuscatedImportPath()
-	emission := "@" + prefix + "." + ordinary + "=" + prefix + "." + obfuscatedPackageObjectName(pkg, ordinary)
-	if !strings.Contains(","+buildSymbolMap()+",", ","+emission+",") {
-		t.Fatalf("missing emission mapping for a non-intrinsic: %s", emission)
-	}
-	emitted := prefix + "." + obfuscatedPackageObjectName(pkg, "Len64")
-	symbols := strings.SplitSeq(buildSymbolMap(), ",")
-	want := "@" + prefix + ".Len64=" + emitted
-	found := false
-	for entry := range symbols {
-		if entry == emitted+"=math/bits.Len64" {
-			t.Fatal("Len64 must not need a reverse intrinsic mapping")
+	for _, tc := range []struct {
+		path  string
+		names []string
+	}{
+		{"math/bits", []string{"Len64", "ReverseBytes64", "Div32"}},
+		{"internal/byteorder", []string{"LEUint64", "BEAppendUint32"}},
+		{"internal/runtime/math", []string{"Add64", "MulUintptr"}},
+	} {
+		pkg := &listedPackage{ImportPath: tc.path, Standard: true, CompiledGoFiles: []string{"source.go"}}
+		pkg.GarbleActionID[0] = 83
+		sharedCache.ListedPackages.set(pkg.ImportPath, pkg)
+		prefix := pkg.obfuscatedImportPath()
+		symbols := "," + buildSymbolMap() + ","
+		for _, name := range tc.names {
+			emitted := prefix + "." + obfuscatedPackageObjectName(pkg, name)
+			want := "@" + prefix + "." + name + "=" + emitted
+			if !strings.Contains(symbols, ","+want+",") {
+				t.Errorf("%s.%s: missing emission mapping", tc.path, name)
+			}
+			if strings.Contains(symbols, ","+emitted+"="+tc.path+"."+name+",") {
+				t.Errorf("%s.%s: unexpectedly uses a reverse symbol mapping", tc.path, name)
+			}
 		}
-		found = found || entry == want
-	}
-	if !found {
-		t.Fatalf("missing emission mapping %s", want)
+		if tc.path == "math/bits" && strings.Contains(symbols, ",@"+prefix+".divideError=") {
+			t.Error("linkname alias incorrectly marked for renaming at emission")
+		}
 	}
 }
 

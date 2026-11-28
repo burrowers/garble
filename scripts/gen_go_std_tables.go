@@ -81,6 +81,17 @@ var compilerIntrinsics = map[string]map[string]bool{
 {{- end }}
 }
 
+// compilerNamedFunctions keep their Go names until compiler symbol emission.
+var compilerNamedFunctions = map[string]map[string]bool{
+{{- range $pkg := .CompilerNamedFunctions }}
+	"{{ $pkg.Path }}": {
+{{- range $name := $pkg.Names }}
+		"{{ $name.String }}": true, // {{ $name.GoVersionLang }}
+{{- end }}
+	},
+{{- end }}
+}
+
 // builtinSymbols lists generated compiler, assembler, and linker symbol-name
 // contracts which must survive runtime obfuscation.
 var builtinSymbols = map[string][]string{
@@ -99,12 +110,13 @@ var reflectSkipPkg = map[string]bool{
 `[1:]))
 
 type tmplData struct {
-	GoVersions            []string
-	RuntimePkgPaths       []versionedString
-	ObjabiSpecialPkgPaths []versionedString
-	RuntimeAndLinknamed   []versionedString
-	CompilerIntrinsics    []tmplIntrinsic
-	BuiltinSymbols        []tmplIntrinsic
+	GoVersions             []string
+	RuntimePkgPaths        []versionedString
+	ObjabiSpecialPkgPaths  []versionedString
+	RuntimeAndLinknamed    []versionedString
+	CompilerIntrinsics     []tmplIntrinsic
+	CompilerNamedFunctions []tmplIntrinsic
+	BuiltinSymbols         []tmplIntrinsic
 }
 
 type tmplIntrinsic struct {
@@ -227,6 +239,52 @@ func groupedSymbols(symbols map[string][]versionedString) []tmplIntrinsic {
 	}
 	slices.SortFunc(groups, tmplIntrinsic.Compare)
 	return groups
+}
+
+func compilerNamedFunctions(goroots []versionedString) []tmplIntrinsic {
+	// Use the portable implementation files, not test files, assembly stubs,
+	// or the neighboring linkname aliases in math/bits/bits_errors.go.
+	implementations := map[string]string{
+		"internal/byteorder":    "byteorder.go",
+		"internal/runtime/math": "math.go",
+		"math/bits":             "bits.go",
+	}
+	symbols := make(map[string][]versionedString)
+	for _, goroot := range goroots {
+		for path, filename := range implementations {
+			source := filepath.Join(goroot.String, "src", path, filename)
+			file, err := parser.ParseFile(token.NewFileSet(), source, nil, parser.ParseComments|parser.SkipObjectResolution)
+			if err != nil {
+				panic(err)
+			}
+			for _, comment := range file.Comments {
+				for _, c := range comment.List {
+					if strings.HasPrefix(c.Text, "//go:build ") || strings.HasPrefix(c.Text, "// +build ") {
+						panic(fmt.Sprintf("late renaming requires a portable implementation: %s", source))
+					}
+				}
+			}
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Recv != nil || fn.Name.Name == "init" || fn.Name.Name == "_" {
+					continue
+				}
+				if fn.Type.TypeParams != nil || fn.Body == nil || fn.Doc != nil && slices.ContainsFunc(fn.Doc.List, func(c *ast.Comment) bool {
+					return strings.HasPrefix(c.Text, "//go:")
+				}) {
+					panic(fmt.Sprintf("late renaming of %s.%s needs an ABI audit", path, fn.Name.Name))
+				}
+				for node := range ast.Preorder(fn.Body) {
+					switch node.(type) {
+					case *ast.FuncLit, *ast.GoStmt, *ast.DeferStmt:
+						panic(fmt.Sprintf("late renaming of %s.%s needs an audit of derived symbols", path, fn.Name.Name))
+					}
+				}
+				symbols[path] = append(symbols[path], versionedString{String: fn.Name.Name, GoVersionLang: goroot.GoVersionLang})
+			}
+		}
+	}
+	return groupedSymbols(symbols)
 }
 
 func calledName(call *ast.CallExpr) string {
@@ -522,25 +580,6 @@ func generateBuiltinSymbols(goroots []versionedString) []tmplIntrinsic {
 			{"link/internal/ld/data.go", `"internal/fuzz._ecounters"`, "internal/fuzz._ecounters"},
 			{"compile/internal/typecheck/builtin.go", `{"initHook", funcTag`, "runtime/coverage.initHook"},
 			{"compile/internal/ir/abi.go", `== "reflectcall"`, "runtime.reflectcall"},
-			// internal/byteorder helpers the inliner marks as cheap by name.
-			{"compile/internal/inline/inl.go", `"LEUint16"`, "internal/byteorder.LEUint16"},
-			{"compile/internal/inline/inl.go", `"LEUint32"`, "internal/byteorder.LEUint32"},
-			{"compile/internal/inline/inl.go", `"LEUint64"`, "internal/byteorder.LEUint64"},
-			{"compile/internal/inline/inl.go", `"BEUint16"`, "internal/byteorder.BEUint16"},
-			{"compile/internal/inline/inl.go", `"BEUint32"`, "internal/byteorder.BEUint32"},
-			{"compile/internal/inline/inl.go", `"BEUint64"`, "internal/byteorder.BEUint64"},
-			{"compile/internal/inline/inl.go", `"LEPutUint16"`, "internal/byteorder.LEPutUint16"},
-			{"compile/internal/inline/inl.go", `"LEPutUint32"`, "internal/byteorder.LEPutUint32"},
-			{"compile/internal/inline/inl.go", `"LEPutUint64"`, "internal/byteorder.LEPutUint64"},
-			{"compile/internal/inline/inl.go", `"BEPutUint16"`, "internal/byteorder.BEPutUint16"},
-			{"compile/internal/inline/inl.go", `"BEPutUint32"`, "internal/byteorder.BEPutUint32"},
-			{"compile/internal/inline/inl.go", `"BEPutUint64"`, "internal/byteorder.BEPutUint64"},
-			{"compile/internal/inline/inl.go", `"LEAppendUint16"`, "internal/byteorder.LEAppendUint16"},
-			{"compile/internal/inline/inl.go", `"LEAppendUint32"`, "internal/byteorder.LEAppendUint32"},
-			{"compile/internal/inline/inl.go", `"LEAppendUint64"`, "internal/byteorder.LEAppendUint64"},
-			{"compile/internal/inline/inl.go", `"BEAppendUint16"`, "internal/byteorder.BEAppendUint16"},
-			{"compile/internal/inline/inl.go", `"BEAppendUint32"`, "internal/byteorder.BEAppendUint32"},
-			{"compile/internal/inline/inl.go", `"BEAppendUint64"`, "internal/byteorder.BEAppendUint64"},
 		}
 		for _, special := range specials {
 			contents := readFile(filepath.Join(cmdRoot, special.file))
@@ -668,12 +707,13 @@ func main() {
 
 	var buf bytes.Buffer
 	if err := tmplTables.Execute(&buf, tmplData{
-		GoVersions:            goVersions,
-		RuntimePkgPaths:       runtimePkgPaths,
-		ObjabiSpecialPkgPaths: objabiSpecialPkgPaths,
-		RuntimeAndLinknamed:   runtimeAndLinknamed,
-		CompilerIntrinsics:    compilerIntrinsics,
-		BuiltinSymbols:        builtinSymbols,
+		GoVersions:             goVersions,
+		RuntimePkgPaths:        runtimePkgPaths,
+		ObjabiSpecialPkgPaths:  objabiSpecialPkgPaths,
+		RuntimeAndLinknamed:    runtimeAndLinknamed,
+		CompilerIntrinsics:     compilerIntrinsics,
+		CompilerNamedFunctions: compilerNamedFunctions(goroots),
+		BuiltinSymbols:         builtinSymbols,
 	}); err != nil {
 		panic(err)
 	}

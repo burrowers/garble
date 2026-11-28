@@ -641,12 +641,6 @@ var mappedToolchainSymbols = map[string][]string{
 	"simd/archsimd": {"v128", "v256", "v512"},
 }
 
-// Start with a non-generic Go function with a body and no assembly or
-// linkname definition. Its compiler name need not double as its linker name.
-var compilerNamedFunctions = map[string]map[string]bool{
-	"math/bits": {"Len64": true},
-}
-
 func renameFunctionAtEmission(lpkg *listedPackage, name string) bool {
 	return lpkg.Standard && compilerNamedFunctions[lpkg.baseImportPath()][name]
 }
@@ -671,6 +665,7 @@ func (tf *transformer) validateMappedSymbolNames() {
 	if symbols == nil {
 		symbols = make(map[string]bool)
 	}
+	maps.Copy(symbols, compilerNamedFunctions[tf.curPkg.baseImportPath()])
 	for _, name := range builtinSymbols[tf.curPkg.ImportPath] {
 		symbols[name] = true
 	}

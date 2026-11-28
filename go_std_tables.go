@@ -2450,29 +2450,88 @@ var compilerIntrinsics = map[string]map[string]bool{
 	},
 }
 
+// compilerNamedFunctions keep their Go names until compiler symbol emission.
+var compilerNamedFunctions = map[string]map[string]bool{
+	"internal/byteorder": {
+		"BEAppendUint16": true, // go1.27
+		"BEAppendUint32": true, // go1.27
+		"BEAppendUint64": true, // go1.27
+		"BEPutUint16":    true, // go1.27
+		"BEPutUint32":    true, // go1.27
+		"BEPutUint64":    true, // go1.27
+		"BEUint16":       true, // go1.27
+		"BEUint32":       true, // go1.27
+		"BEUint64":       true, // go1.27
+		"LEAppendUint16": true, // go1.27
+		"LEAppendUint32": true, // go1.27
+		"LEAppendUint64": true, // go1.27
+		"LEPutUint16":    true, // go1.27
+		"LEPutUint32":    true, // go1.27
+		"LEPutUint64":    true, // go1.27
+		"LEUint16":       true, // go1.27
+		"LEUint32":       true, // go1.27
+		"LEUint64":       true, // go1.27
+	},
+	"internal/runtime/math": {
+		"Add64":      true, // go1.27
+		"MulUintptr": true, // go1.27
+	},
+	"math/bits": {
+		"Add":             true, // go1.27
+		"Add32":           true, // go1.27
+		"Add64":           true, // go1.27
+		"Div":             true, // go1.27
+		"Div32":           true, // go1.27
+		"Div64":           true, // go1.27
+		"LeadingZeros":    true, // go1.27
+		"LeadingZeros16":  true, // go1.27
+		"LeadingZeros32":  true, // go1.27
+		"LeadingZeros64":  true, // go1.27
+		"LeadingZeros8":   true, // go1.27
+		"Len":             true, // go1.27
+		"Len16":           true, // go1.27
+		"Len32":           true, // go1.27
+		"Len64":           true, // go1.27
+		"Len8":            true, // go1.27
+		"Mul":             true, // go1.27
+		"Mul32":           true, // go1.27
+		"Mul64":           true, // go1.27
+		"OnesCount":       true, // go1.27
+		"OnesCount16":     true, // go1.27
+		"OnesCount32":     true, // go1.27
+		"OnesCount64":     true, // go1.27
+		"OnesCount8":      true, // go1.27
+		"Rem":             true, // go1.27
+		"Rem32":           true, // go1.27
+		"Rem64":           true, // go1.27
+		"Reverse":         true, // go1.27
+		"Reverse16":       true, // go1.27
+		"Reverse32":       true, // go1.27
+		"Reverse64":       true, // go1.27
+		"Reverse8":        true, // go1.27
+		"ReverseBytes":    true, // go1.27
+		"ReverseBytes16":  true, // go1.27
+		"ReverseBytes32":  true, // go1.27
+		"ReverseBytes64":  true, // go1.27
+		"RotateLeft":      true, // go1.27
+		"RotateLeft16":    true, // go1.27
+		"RotateLeft32":    true, // go1.27
+		"RotateLeft64":    true, // go1.27
+		"RotateLeft8":     true, // go1.27
+		"Sub":             true, // go1.27
+		"Sub32":           true, // go1.27
+		"Sub64":           true, // go1.27
+		"TrailingZeros":   true, // go1.27
+		"TrailingZeros16": true, // go1.27
+		"TrailingZeros32": true, // go1.27
+		"TrailingZeros64": true, // go1.27
+		"TrailingZeros8":  true, // go1.27
+	},
+}
+
 // builtinSymbols lists generated compiler, assembler, and linker symbol-name
 // contracts which must survive runtime obfuscation.
 var builtinSymbols = map[string][]string{
-	"internal/byteorder": {
-		"BEAppendUint16", // go1.27
-		"BEAppendUint32", // go1.27
-		"BEAppendUint64", // go1.27
-		"BEPutUint16",    // go1.27
-		"BEPutUint32",    // go1.27
-		"BEPutUint64",    // go1.27
-		"BEUint16",       // go1.27
-		"BEUint32",       // go1.27
-		"BEUint64",       // go1.27
-		"LEAppendUint16", // go1.27
-		"LEAppendUint32", // go1.27
-		"LEAppendUint64", // go1.27
-		"LEPutUint16",    // go1.27
-		"LEPutUint32",    // go1.27
-		"LEPutUint64",    // go1.27
-		"LEUint16",       // go1.27
-		"LEUint32",       // go1.27
-		"LEUint64",       // go1.27
-	},
 	"internal/fuzz": {
 		"_counters",  // go1.27
 		"_ecounters", // go1.27

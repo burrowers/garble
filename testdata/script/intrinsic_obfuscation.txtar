@@ -1,14 +1,20 @@
 # Intrinsic and toolchain-sensitive declarations are renamed while their
 # compiler, assembler, and runtime contracts keep their original semantics.
 [short] skip 'runtime obfuscation is an integration test'
-exec garble -debugdir=debug build -gcflags=test/intrinsic=-d=ssa/intrinsics/debug=1 -o=main$exe .
-# Len64 keeps its compiler name, not its emitted symbol name.
-grep '^func Len64\(' $WORK/debug/garbled/math/bits/bits.go
+exec garble -debugdir=debug build '-gcflags=test/intrinsic=-S -d=ssa/intrinsics/debug=1' -o=main$exe .
+# Taking a function's address must not leak its compiler name into object data.
+stderr '\.\w+·f\(SB\)'
+! stderr '\.(Len64|Div32)·f'
+grep -count=3 '^func (Len64|ReverseBytes64|Div32)\(' $WORK/debug/garbled/math/bits/bits.go
+grep '^func LEUint64\(' $WORK/debug/garbled/internal/byteorder/byteorder.go
+grep -count=2 '^func (Add64|MulUintptr)\(' $WORK/debug/garbled/internal/runtime/math/math.go
 [amd64] stderr 'intrinsic substitution for Len64 '
 [arm64] stderr 'intrinsic substitution for Len64 '
+[amd64] stderr 'intrinsic substitution for ReverseBytes64 '
+[arm64] stderr 'intrinsic substitution for ReverseBytes64 '
 exec ./main$exe
 stdout '^intrinsic-ok$'
-! binsubstr main$exe 'math/bits.Len64' 'Len64'
+! binsubstr main$exe 'Len64' 'ReverseBytes64' 'Div32' 'LEUint64' 'MulUintptr'
 ! binsubstr main$exe 'runtime.goexit' 'runtime.gopanic' 'reflect.makeFuncStub' 'reflect.methodValueCall'
 grep -count=2 '^func (getg|publicationBarrier)\(' $WORK/debug/source/runtime/stubs.go
 ! grep '^func (getg|publicationBarrier)\(' $WORK/debug/garbled/runtime/stubs.go
@@ -69,9 +75,13 @@ type hostValue struct {
 }
 
 var bitLength = bits.Len64
+var divide = bits.Div32
 
 //go:noinline
 func directBitLength(x uint64) int { return bits.Len64(x) }
+
+//go:noinline
+func directReverseBytes(x uint64) uint64 { return bits.ReverseBytes64(x) }
 
 func main() {
 	if data, err := files.ReadFile("go.mod"); err != nil || len(data) == 0 {
@@ -79,6 +89,12 @@ func main() {
 	}
 	if directBitLength(1<<55) != 56 || bitLength(1<<55) != 56 {
 		panic("wrong intrinsic result")
+	}
+	if directReverseBytes(0x102) != 0x0201000000000000 {
+		panic("wrong intrinsic byte reversal")
+	}
+	if q, r := divide(0, 23, 7); q != 3 || r != 2 {
+		panic("wrong non-intrinsic division")
 	}
 	if f := runtime.FuncForPC(reflect.ValueOf(bitLength).Pointer()); f == nil || f.Name() == "" {
 		panic("missing function-value symbol")
