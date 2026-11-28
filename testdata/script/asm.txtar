@@ -75,6 +75,11 @@ func argsSize() int64
 var dotData [16]byte
 var dotDataHeader [16]byte
 
+// dotMacro and dotMacroHeader take their bytes from a macro body, so the
+// middle dot is written in a #define line rather than beside a $ operand.
+var dotMacro [16]byte
+var dotMacroHeader [16]byte
+
 // dotRune is a two-byte read-only symbol holding a rune constant.
 var dotRune [2]byte
 
@@ -146,7 +151,7 @@ func main() {
 	nestedAdd()
 	println(goData[2])
 	println(dupValues())
-	fmt.Fprintf(os.Stderr, "dot=%x header=%x rune=%x comment=%s commentHeader=%s\n", dotData, dotDataHeader, dotRune, commentData, commentDataHeader)
+	fmt.Fprintf(os.Stderr, "dot=%x header=%x rune=%x comment=%s commentHeader=%s macro=%x macroHeader=%x\n", dotData, dotDataHeader, dotRune, commentData, commentDataHeader, dotMacro, dotMacroHeader)
 }
 
 -- garble_main_amd64.s --
@@ -164,6 +169,10 @@ func main() {
 /* A block comment may separate words · words and it's okay. */
 /*No space: many·special∕asm·runes.*/
 DATA bar+0(SB)/8, $0 // Inline: many·special∕asm·runes.
+
+// The bytes of a macro body are program data, even when the macro is defined
+// in the file that uses it.
+#define DOT_MACRO "·abcdefghijklm"
 
 // Reference an imported package by its package path.
 TEXT ·addJmpPkgPath(SB),$0-16
@@ -217,6 +226,12 @@ COMMENT_DATA_HEADER
 
 GLOBL ·dotDataHeader(SB), RODATA|NOPTR, $16
 DOT_DATA_HEADER
+
+GLOBL ·dotMacro(SB), RODATA|NOPTR, $16
+DATA ·dotMacro+0(SB)/16, $DOT_MACRO
+
+GLOBL ·dotMacroHeader(SB), RODATA|NOPTR, $16
+DATA ·dotMacroHeader+0(SB)/16, $DOT_MACRO_HEADER
 
 TEXT ·argsSize(SB), $0-8
 	MOVQ $Args__size, AX
@@ -275,6 +290,7 @@ TEXT clib·add(SB),$0-16
 
 -- extra/garble_define2_amd64.h --
 #define DOT_DATA_HEADER DATA ·dotDataHeader+0(SB)/16, $"·abcdefghijklm"
+#define DOT_MACRO_HEADER "·abcdefghijklm"
 #define COMMENT_DATA_HEADER DATA ·commentDataHeader+0(SB)/12, $"http://b.com"
 #define ASM_ZERO const_asmZero
 #define addGoDataTo2(arg) \
@@ -341,7 +357,7 @@ TEXT ·AddImpl(SB),$0-16
 8
 10
 11
-dot=2e6162636465666768696a6b6c6d0000 header=2e6162636465666768696a6b6c6d0000 rune=2e00 comment=http://a.com commentHeader=http://b.com
+dot=2e6162636465666768696a6b6c6d0000 header=2e6162636465666768696a6b6c6d0000 rune=2e00 comment=http://a.com commentHeader=http://b.com macro=2e6162636465666768696a6b6c6d0000 macroHeader=2e6162636465666768696a6b6c6d0000
 -- overlay.json --
 {"Replace":{"imported/imported_amd64.s":"imported/backing.txt"}}
 -- empty-reverse.txt --
