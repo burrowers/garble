@@ -35,6 +35,8 @@ func main() {
 
 ### Parameter explanation
 
+An opt-in [live block duplication experiment](CONTROLFLOW_DUPLICATION_EXPERIMENT.md) is available via `block_duplicates=1`. It is disabled by default and currently duplicates only small, pure integer return blocks.
+
 > Unlike other garble features (which just work), we recommend that you understand how parameters affect control flow obfuscation and which caveats exist.
 
 > Code snippets below without name obfuscation, for better readability.
