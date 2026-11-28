@@ -14,7 +14,14 @@ func TestSymbolMapDefersGoFunctionRenaming(t *testing.T) {
 		names []string
 	}{
 		{"math/bits", []string{"Len64", "ReverseBytes64", "Div32"}},
-		{"internal/byteorder", []string{"LEUint64", "BEAppendUint32"}},
+		{"internal/byteorder", []string{
+			"LEUint16", "LEUint32", "LEUint64",
+			"BEUint16", "BEUint32", "BEUint64",
+			"LEPutUint16", "LEPutUint32", "LEPutUint64",
+			"BEPutUint16", "BEPutUint32", "BEPutUint64",
+			"LEAppendUint16", "LEAppendUint32", "LEAppendUint64",
+			"BEAppendUint16", "BEAppendUint32", "BEAppendUint64",
+		}},
 		{"internal/runtime/math", []string{"Add64", "MulUintptr"}},
 	} {
 		pkg := &listedPackage{ImportPath: tc.path, Standard: true, CompiledGoFiles: []string{"source.go"}}
