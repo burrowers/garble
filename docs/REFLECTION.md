@@ -21,27 +21,39 @@ result independent of edge order: mutually recursive functions need a seed to
 contribute a new fact, and different positions of a function are independent.
 The solver needs neither SSA nor a new cache format.
 
-## Extending the model
+## Package-local constraints
 
-The package-local analysis still iterates over SSA. A next step is to extract
-constraints for local facts first, without changing which names are retained:
+The extractor turns SSA into ordered sites before resolving their requirements:
 
-- For an argument required by a callee, trace the value to its producers and
-  to the enclosing function's declared parameters. Closures and allocations
-  need local identities; those are not suitable cache keys. Global stores and
-  closure bindings already have producer indexes that can feed this step.
-- Keep reflected type arguments and reflected objects as separate kinds of
-  facts. A generic call substitutes type arguments; for a store or conversion,
-  the requirement comes from its reflected type rather than a callee position.
-- Treat ambiguous calls as a dispatch problem, not a single edge. Today a
-  dynamic call can fall back to requirements keyed by signature when there are
-  no requirements for its name, and can combine requirements from several
-  local closures. Unconditionally treating the signature as another source is
-  not equivalent: it can retain extra names once exact requirements are known.
-  Keep this policy separate until a change in precision can be measured.
+- A return with interface data seeds a demand for its value. Producers of an
+  interface value can know its concrete type even when the caller cannot.
+- A reflected object name enables stores into that type and conversions from
+  it. The effects demand the stored value or the type produced by the
+  conversion.
+- A call site maps required declared parameter positions to SSA values, and
+  required type-parameter positions to the types substituted at the call. A
+  `reflect.TypeFor` call also seeds a type demand directly.
 
-For each migration, compare the complete requirement sets and the names
-retained by old and new analysis, including negative cases where unrelated
-names must stay obfuscated. The `reflect` script exercises late interface
-matching across separately compiled packages; solver tests alone cannot verify
-that the SSA extractor or package cache supplied the right edges.
+Value demands still use the existing producer walks through closures, globals,
+containers, and other SSA values. The package cache still merges named
+requirements, reflected object facts, and forwarding edges from dependencies.
+Local sites and closure identities are not serialized.
+
+The local worklist indexes consumers by named API, closure, generic function,
+or reflected object. A change wakes only the functions that use the fact. A
+function still publishes its parameter requirements together, while names and
+type-parameter requirements become visible within the function. Worklist visits
+follow the old sweep order: a newly affected function later in the order can
+run in the current pass, while one already visited waits for the next pass.
+
+This order matters for unresolved calls. Signature-based requirements are a
+fallback, used only if the call has no named requirements at the time it is
+visited. Possible local closures can contribute requirements as well. A later
+named fact does not retract names previously retained via the fallback. Treating
+the signature as a second unconditional source, or processing the same facts
+in an arbitrary order, could change which names are kept.
+
+The `reflect` script checks the result across separately compiled packages,
+including late interface matching and names that must remain obfuscated. The
+local SSA tests also exercise backward chains, generic substitution, closures,
+and the ordering of signature fallback and named facts.
