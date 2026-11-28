@@ -1431,8 +1431,17 @@ func (ri *reflectInspector) recordChannelSends(fun *ssa.Function, ch ssa.Value, 
 			case ssa.CallInstruction:
 				call := ref.Common()
 				callee := call.StaticCallee()
-				if callee == nil || callee.Blocks == nil ||
-					callee.Pkg == nil || callee.Pkg.Pkg != ri.pkg {
+				if callee == nil || callee.Blocks == nil {
+					continue
+				}
+				// An instantiated generic function belongs to no package of
+				// its own, so its Pkg is nil; the generic function it was
+				// instantiated from names the package the call is local to.
+				pkg := callee.Pkg
+				if pkg == nil {
+					pkg = ssaFuncOrigin(callee).Pkg
+				}
+				if pkg == nil || pkg.Pkg != ri.pkg {
 					continue
 				}
 				for i, arg := range call.Args {

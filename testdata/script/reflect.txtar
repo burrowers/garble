@@ -1284,6 +1284,31 @@ type chanPublishRow struct {
 
 func publishChan(c chan<- any, v any) { c <- v }
 
+// A generic instantiation is the same route as a plain helper: the call names
+// the value's type, and the send sits in the instantiated body.
+type chanGenericRow struct {
+	ChanGenericAlpha string
+	ChanGenericBeta  int
+}
+
+type chanGenericConcreteRow struct {
+	ChanGenericConcreteAlpha string
+	ChanGenericConcreteBeta  int
+}
+
+type chanGenericMethodRow struct {
+	ChanGenericMethodAlpha string
+	ChanGenericMethodBeta  int
+}
+
+func publishChanGeneric[T any](c chan<- any, v T) { c <- v }
+
+func publishChanGenericConcrete[T any](c chan<- any, v *chanGenericConcreteRow) { c <- v }
+
+type chanGenericRelay[T any] struct{}
+
+func (chanGenericRelay[T]) send(c chan<- any, v T) { c <- v }
+
 func sendChanParam(c chan<- any) {
 	c <- &chanParamRow{ChanParamAlpha: "a", ChanParamBeta: 1}
 }
@@ -1321,6 +1346,16 @@ func checkChanTransportAny() {
 
 	publishChan(c, &chanPublishRow{ChanPublishAlpha: "a", ChanPublishBeta: 1})
 	reportField("chan publish any", <-c, "ChanPublishAlpha")
+
+	publishChanGeneric(c, &chanGenericRow{ChanGenericAlpha: "a", ChanGenericBeta: 1})
+	reportField("chan generic any", <-c, "ChanGenericAlpha")
+
+	publishChanGenericConcrete[int](c, &chanGenericConcreteRow{ChanGenericConcreteAlpha: "a", ChanGenericConcreteBeta: 1})
+	reportField("chan generic concrete any", <-c, "ChanGenericConcreteAlpha")
+
+	var genericRelay chanGenericRelay[*chanGenericMethodRow]
+	genericRelay.send(c, &chanGenericMethodRow{ChanGenericMethodAlpha: "a", ChanGenericMethodBeta: 1})
+	reportField("chan generic method any", <-c, "ChanGenericMethodAlpha")
 }
 
 // The producers below fill a container whose elements are interface values
@@ -1916,6 +1951,9 @@ chan field any: {"ChanFieldAlpha":"a","ChanFieldBeta":1} <nil> true "a"
 chan map any: {"ChanMapAlpha":"a","ChanMapBeta":1} <nil> true "a"
 chan slice any: {"ChanSliceAlpha":"a","ChanSliceBeta":1} <nil> true "a"
 chan publish any: {"ChanPublishAlpha":"a","ChanPublishBeta":1} <nil> true "a"
+chan generic any: {"ChanGenericAlpha":"a","ChanGenericBeta":1} <nil> true "a"
+chan generic concrete any: {"ChanGenericConcreteAlpha":"a","ChanGenericConcreteBeta":1} <nil> true "a"
+chan generic method any: {"ChanGenericMethodAlpha":"a","ChanGenericMethodBeta":1} <nil> true "a"
 make index any: {"MakeIndexAlpha":"a","MakeIndexBeta":1} <nil> true "a"
 global map key any: {"GlobalMapAlpha":"a","GlobalMapBeta":1} <nil> true "a"
 global map range any: {"GlobalMapAlpha":"a","GlobalMapBeta":1} <nil> true "a"
