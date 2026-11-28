@@ -63,13 +63,71 @@ A similar use case is a Go library whose source is private or purchased.
 Since Go libraries cannot be imported in binary form, and Go plugins
 [have their shortcomings](https://github.com/golang/go/issues/19282),
 sharing obfuscated source code becomes an option.
-See [#369](https://github.com/burrowers/garble/issues/369).
+See [exporting libraries](#exporting-libraries) below.
 
 Obfuscation can also help with aspects entirely unrelated to licensing.
 For example, the `-tiny` flag can make binaries 15% smaller,
 similar to the [common practice in Android](https://developer.android.com/build/shrink-code#obfuscate) to reduce app sizes.
 Obfuscation has also helped some open source developers work around
 anti-virus scans incorrectly treating Go binaries as malware.
+
+### Exporting libraries
+
+To distribute an obfuscated library as ordinary Go source, run:
+
+```sh
+garble export out example.com/library/...
+```
+
+The resulting module is under `out/example.com/library`, including its `go.mod`,
+`go.sum`, license files and embedded assets. Consumers use the normal Go toolchain;
+Garble is not needed to build the exported source. The destination must not exist.
+Garble builds the exported packages with plain `go build` before publishing them;
+a failed export does not leave a partial destination.
+
+Public import paths, exported declarations, documentation and license comments
+remain readable. Private identifiers and internal package paths are renamed, and
+implementation comments and source positions are removed. Exported fields and
+methods remain unchanged even in internal packages, since their identities can
+be required by consumers' struct conversions and interfaces. Embedded exported
+type names also remain unchanged to preserve their promoted field names.
+
+Export handles pure-Go libraries from one module, including their same-module
+dependencies. It discovers platform variants automatically across the selected
+Go toolchain's supported `GOOS`/`GOARCH` pairs. Filename suffixes such as
+`_windows.go` and build constraints such as `//go:build unix` are retained in
+one output tree; no target list or separate export per platform is needed.
+Targets selecting the same module and nonstandard dependency source files with
+the same Go type sizes share an obfuscation and validation pass.
+
+Custom tags remain an explicit choice, rather than enumerating every possible
+combination. Architecture feature levels are also fixed for an export, not
+enumerated:
+
+```sh
+garble -seed=o9WDTZ4CN4w export -tags=purego out ./...
+```
+
+Keep those custom tags when building the output. Discovery and validation use
+`CGO_ENABLED=0`. Original package constraints still determine platform support;
+targets with no active packages or platform-excluded dependencies are skipped.
+Other package-loading and representative-build failures abort the export.
+
+Clear `GOFLAGS` and pass tags explicitly. Assembly, cgo, local module replacements,
+workspace-only dependencies, nested internal packages and `//go:linkname`
+directives are not supported. Export does not support `-tiny`, `-debugdir` or
+experimental control-flow obfuscation.
+
+Use `-literals` before `export` to obfuscate ordinary source literals.
+Platform-dependent constant references and expressions, such as `runtime.GOOS`
+and `unsafe.Sizeof`, remain expressions instead of being baked into decoders
+for the exporting machine. Constant-dependent string-to-slice conversions stay
+as constant expressions to preserve their capacity, leaving any literal prefixes
+readable too. Embedded assets are copied unchanged, even with `-literals`;
+export does not patch the `embed` package. Unlike binary builds,
+export does not transform dependencies outside the module or the Go runtime.
+Renaming still changes private reflection names; obfuscation is not encryption
+and does not prevent determined reverse engineering.
 
 ### Word-list naming
 
