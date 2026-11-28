@@ -684,14 +684,31 @@ func (tf *transformer) validateMappedSymbolNames() {
 }
 
 // asmNameDot returns the index in line of the first middle dot which starts a
-// symbol reference, or -1. A middle dot inside a dollar-quoted string or rune
-// literal is program data, not a name: cmd/asm writes those bytes into the
-// object file unchanged, so the literal has to be skipped whole.
+// symbol reference, or -1. A middle dot inside a quoted span is program data,
+// not a name: cmd/asm writes the bytes of a $"..." string or $'c' rune into the
+// object file unchanged, and its preprocessor replaces a macro body into such
+// an operand, so a literal has to be skipped whole wherever it is written. The
+// one exception, the argument of an #include, is read before this scan runs.
 func asmNameDot(line []byte) int {
 	for i := 0; i < len(line); {
 		r, size := utf8.DecodeRune(line[i:])
 		if r == '·' {
 			return i
+		}
+		if r == '"' {
+			// A double-quoted span is data in every position; an escape
+			// cannot close it.
+			j := i + size
+			for ; j < len(line); j++ {
+				if line[j] == '\\' {
+					j++
+				} else if line[j] == '"' {
+					j++
+					break
+				}
+			}
+			i = j
+			continue
 		}
 		if r == '$' {
 			// Literal operands are spelled $"text" or $'c'; an escape cannot
