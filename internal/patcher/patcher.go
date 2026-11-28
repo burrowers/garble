@@ -65,6 +65,7 @@ var compilerOverlayFiles = []string{
 	"cmd/compile/internal/ir/expr.go",
 	"cmd/compile/internal/base/flag.go",
 	"cmd/compile/internal/base/garble.go",
+	"cmd/compile/internal/base/link.go",
 	"cmd/compile/internal/escape/call.go",
 	"cmd/compile/internal/inline/inl.go",
 	"cmd/compile/internal/liveness/plive.go",

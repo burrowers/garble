@@ -5,26 +5,43 @@ import (
 	"testing"
 )
 
-// The compiler sees intrinsics by their original names, but compiled object
-// symbols and transformed declarations use the same hashed spelling.
-func TestIntrinsicSymbolMapUsesTransformedDeclaration(t *testing.T) {
+func TestSymbolMapDefersGoFunctionRenaming(t *testing.T) {
 	oldCache := sharedCache
 	defer func() { sharedCache = oldCache }()
-	pkg := &listedPackage{ImportPath: "math/bits", Name: "bits", CompiledGoFiles: []string{"bits.go"}}
-	pkg.GarbleActionID[0] = 83
 	sharedCache = &sharedCacheType{ListedPackages: newListedPackages()}
-	sharedCache.ListedPackages.set(pkg.ImportPath, pkg)
-	name := "Len64"
-	if isToolchainNameDependency(pkg.ImportPath, name) {
-		t.Fatalf("intrinsic %s must be eligible for renaming", name)
-	}
-	hashed := obfuscatedPackageObjectName(pkg, name)
-	if hashed == name {
-		t.Fatal("intrinsic declaration not renamed")
-	}
-	mapping := pkg.obfuscatedImportPath() + "." + hashed + "=" + pkg.ImportPath + "." + name
-	if !strings.Contains(","+buildSymbolMap()+",", ","+mapping+",") {
-		t.Fatalf("missing intrinsic symbol mapping %s", mapping)
+	for _, tc := range []struct {
+		path  string
+		names []string
+	}{
+		{"math/bits", []string{"Len64", "ReverseBytes64", "Div32"}},
+		{"internal/byteorder", []string{
+			"LEUint16", "LEUint32", "LEUint64",
+			"BEUint16", "BEUint32", "BEUint64",
+			"LEPutUint16", "LEPutUint32", "LEPutUint64",
+			"BEPutUint16", "BEPutUint32", "BEPutUint64",
+			"LEAppendUint16", "LEAppendUint32", "LEAppendUint64",
+			"BEAppendUint16", "BEAppendUint32", "BEAppendUint64",
+		}},
+		{"internal/runtime/math", []string{"Add64", "MulUintptr"}},
+	} {
+		pkg := &listedPackage{ImportPath: tc.path, Standard: true, CompiledGoFiles: []string{"source.go"}}
+		pkg.GarbleActionID[0] = 83
+		sharedCache.ListedPackages.set(pkg.ImportPath, pkg)
+		prefix := pkg.obfuscatedImportPath()
+		symbols := "," + buildSymbolMap() + ","
+		for _, name := range tc.names {
+			emitted := prefix + "." + obfuscatedPackageObjectName(pkg, name)
+			want := "@" + prefix + "." + name + "=" + emitted
+			if !strings.Contains(symbols, ","+want+",") {
+				t.Errorf("%s.%s: missing emission mapping", tc.path, name)
+			}
+			if strings.Contains(symbols, ","+emitted+"="+tc.path+"."+name+",") {
+				t.Errorf("%s.%s: unexpectedly uses a reverse symbol mapping", tc.path, name)
+			}
+		}
+		if tc.path == "math/bits" && strings.Contains(symbols, ",@"+prefix+".divideError=") {
+			t.Error("linkname alias incorrectly marked for renaming at emission")
+		}
 	}
 }
 
@@ -76,8 +93,8 @@ func TestIntrinsicAndBuiltinSymbolProducersAgree(t *testing.T) {
 			builtinSymbols[pkg.ImportPath] = oldBuiltin
 		}
 	}()
-	builtinSymbols[pkg.ImportPath] = []string{"Len64"}
-	mapping := pkg.obfuscatedImportPath() + "." + obfuscatedPackageObjectName(pkg, "Len64") + "=" + pkg.ImportPath + ".Len64"
+	builtinSymbols[pkg.ImportPath] = []string{"Len32"}
+	mapping := pkg.obfuscatedImportPath() + "." + obfuscatedPackageObjectName(pkg, "Len32") + "=" + pkg.ImportPath + ".Len32"
 	count := 0
 	for _, entry := range strings.Split(buildSymbolMap(), ",") {
 		if entry == mapping {

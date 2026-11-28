@@ -695,14 +695,6 @@ func TestRuntimeGeneratedLinkerSymbols(t *testing.T) {
 func TestTranslatedNameCheckSymbols(t *testing.T) {
 	requireBuiltinSymbols(t, "runtime",
 		"must be in the symbol map so patched tools can translate the obfuscated name", "quoted", "throw")
-	requireBuiltinSymbols(t, "internal/byteorder", "must be in the symbol map so the inliner recognizes it as cheap",
-		"LEUint16", "LEUint32", "LEUint64",
-		"BEUint16", "BEUint32", "BEUint64",
-		"LEPutUint16", "LEPutUint32", "LEPutUint64",
-		"BEPutUint16", "BEPutUint32", "BEPutUint64",
-		"LEAppendUint16", "LEAppendUint32", "LEAppendUint64",
-		"BEAppendUint16", "BEAppendUint32", "BEAppendUint64",
-	)
 	if isToolchainNameDependency("internal/abi", "NoEscape") ||
 		!slices.Contains(mappedToolchainSymbols["internal/abi"], "NoEscape") {
 		t.Error("internal/abi.NoEscape must use the translated symbol map for cheap-call recognition")

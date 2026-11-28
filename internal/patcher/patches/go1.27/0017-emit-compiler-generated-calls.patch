@@ -1,0 +1,71 @@
+From 105934764eef74417ae1721d83b53af4be230e28 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Sat, 28 Nov 2026 04:21:53 +0000
+Subject: [PATCH] compile: emit synthesized calls using the registered object
+ symbol
+
+On targets without the MulUintptr intrinsic, unsafe.Slice emits a
+call built from the original internal/runtime/math package identity.
+Resolve that identity to the same emitted symbol and package owner as
+the helper definition. Only use the translated owner when there is an
+exact late-emission entry; unrelated symbols keep their normal path.
+
+Refs burrowers/garble#1422
+---
+ cmd/compile/internal/base/link.go |  4 ++--
+ cmd/internal/objabi/garble.go     | 23 ++++++++++++++++++++---
+ 2 files changed, 22 insertions(+), 5 deletions(-)
+
+diff --git a/cmd/compile/internal/base/link.go b/cmd/compile/internal/base/link.go
+index 851317da..affa9ba7 100644
+--- a/cmd/compile/internal/base/link.go
++++ b/cmd/compile/internal/base/link.go
+@@ -39,8 +39,8 @@ func PkgLinksym(prefix, name string, abi obj.ABI) *obj.LSym {
+ 		sep = ":"
+ 	}
+ 	linkName := prefix + sep + name
+-	if emitted := objabi.EmittedSymbol(linkName); emitted != "" {
+-		linkName = emitted
++	if pkg, emitted := objabi.EmittedSymbol(prefix, linkName); emitted != "" {
++		prefix, linkName = pkg, emitted
+ 	}
+ 	return linksym(prefix, linkName, abi)
+ }
+diff --git a/cmd/internal/objabi/garble.go b/cmd/internal/objabi/garble.go
+index ab188b35..f6aad67d 100644
+--- a/cmd/internal/objabi/garble.go
++++ b/cmd/internal/objabi/garble.go
+@@ -71,10 +71,27 @@ var symbols = sync.OnceValue(func() nameMap {
+ 	return parseNameMap(readNameMap(symbolMapEnv))
+ })
+ 
+-// EmittedSymbol returns the linker spelling of a compiler-named symbol, or
+-// the empty string if Garble has not deferred this symbol's renaming.
+-func EmittedSymbol(compilerName string) string {
++// EmittedSymbol returns the object package prefix and linker name for a
++// late-renamed symbol. compilerName includes prefix.
++func EmittedSymbol(prefix, compilerName string) (string, string) {
+ 	emitted := symbols().emitted
++	if len(emitted) == 0 {
++		return "", ""
++	}
++	if name := lookupEmittedSymbol(emitted, compilerName); name != "" {
++		return prefix, name
++	}
++	// Compiler-created references such as the unsafe.Slice fallback start
++	// with the original package, not the package from transformed imports.
++	if mapped := ObfuscatedPackagePath(prefix); mapped != prefix {
++		if name := lookupEmittedSymbol(emitted, mapped+compilerName[len(prefix):]); name != "" {
++			return mapped, name
++		}
++	}
++	return "", ""
++}
++
++func lookupEmittedSymbol(emitted map[string]string, compilerName string) string {
+ 	if name := emitted[compilerName]; name != "" {
+ 		return name
+ 	}
+-- 
+2.47.3
+

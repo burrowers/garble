@@ -22,7 +22,19 @@ go 1.27
 -- main.go --
 package main
 
-func main() { println("wasm-runtime-ok") }
+import "unsafe"
+
+var data = [...]uint16{21, 42}
+var count = len(data)
+
+func main() {
+	// Without a MulUintptr intrinsic, unsafe.Slice lowers to a call to the
+	// compiler-selected helper and must link to its obfuscated spelling.
+	if s := unsafe.Slice(&data[0], count); len(s) != 2 || s[1] != 42 {
+		panic("unsafe.Slice changed")
+	}
+	println("wasm-runtime-ok")
+}
 -- hostlayout/main.go --
 package main
 

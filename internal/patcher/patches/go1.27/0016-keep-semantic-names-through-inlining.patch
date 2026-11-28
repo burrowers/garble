@@ -1,0 +1,59 @@
+From 97b92e3bbd11bfbb90933c7ab4e73d81eb9f4fb5 Mon Sep 17 00:00:00 2001
+From: Paul Scheduikat <luantak@pm.me>
+Date: Sat, 28 Nov 2026 03:58:59 +0000
+Subject: [PATCH] compile: separate byteorder identity from object names
+
+The byteorder helpers now keep their Go names through inlining, so
+only their package path needs translation in the cheap-call check.
+Also rename compiler-generated function value data alongside the
+entry point, so objects do not retain the source name as a suffix.
+
+Refs burrowers/garble#1422
+---
+ cmd/compile/internal/inline/inl.go |  5 ++---
+ cmd/internal/objabi/garble.go      | 13 ++++++++++++-
+ 2 files changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/cmd/compile/internal/inline/inl.go b/cmd/compile/internal/inline/inl.go
+index 1fe205df..b95ddf28 100644
+--- a/cmd/compile/internal/inline/inl.go
++++ b/cmd/compile/internal/inline/inl.go
+@@ -587,9 +587,8 @@ opSwitch:
+ 				// explicitly mark internal/byteorder methods as cheap,
+ 				// because in practice they are, even though our inlining
+ 				// budgeting system does not see that. See issue 42958.
+-				pkgPath, fn := objabi.OriginalPackageSymbol(name.Sym().Pkg.Path, name.Sym().Name)
+-				if base.Ctxt.Arch.CanMergeLoads && pkgPath == "internal/byteorder" {
+-					switch fn {
++				if base.Ctxt.Arch.CanMergeLoads && objabi.OriginalPackagePath(name.Sym().Pkg.Path) == "internal/byteorder" {
++					switch name.Sym().Name {
+ 					case "LEUint64", "LEUint32", "LEUint16",
+ 						"BEUint64", "BEUint32", "BEUint16",
+ 						"LEPutUint64", "LEPutUint32", "LEPutUint16",
+diff --git a/cmd/internal/objabi/garble.go b/cmd/internal/objabi/garble.go
+index 89ef4f83..ab188b35 100644
+--- a/cmd/internal/objabi/garble.go
++++ b/cmd/internal/objabi/garble.go
+@@ -74,7 +74,18 @@ var symbols = sync.OnceValue(func() nameMap {
+ // EmittedSymbol returns the linker spelling of a compiler-named symbol, or
+ // the empty string if Garble has not deferred this symbol's renaming.
+ func EmittedSymbol(compilerName string) string {
+-	return symbols().emitted[compilerName]
++	emitted := symbols().emitted
++	if name := emitted[compilerName]; name != "" {
++		return name
++	}
++	// The compiler derives the function value's data symbol from the Go
++	// name, not the emitted entry point. Give both symbols the same stem.
++	if stem, ok := strings.CutSuffix(compilerName, "·f"); ok {
++		if name := emitted[stem]; name != "" {
++			return name + "·f"
++		}
++	}
++	return ""
+ }
+ 
+ // OriginalPackagePath returns the original package path for an obfuscated path.
+-- 
+2.47.3
+

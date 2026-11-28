@@ -641,8 +641,11 @@ var mappedToolchainSymbols = map[string][]string{
 	"simd/archsimd": {"v128", "v256", "v512"},
 }
 
-// obfuscatedPackageObjectName is the shared package-level naming rule used by
-// source transformation and the symbol map consumed by patched tools.
+func renameFunctionAtEmission(lpkg *listedPackage, name string) bool {
+	return lpkg.Standard && compilerNamedFunctions[lpkg.baseImportPath()][name]
+}
+
+// obfuscatedPackageObjectName computes the emitted package-level name.
 func obfuscatedPackageObjectName(lpkg *listedPackage, name string) string {
 	if !lpkg.toObfuscate() || isToolchainNameDependency(lpkg.baseImportPath(), name) ||
 		lpkg.isMainLinknameTarget(name) {
@@ -662,6 +665,7 @@ func (tf *transformer) validateMappedSymbolNames() {
 	if symbols == nil {
 		symbols = make(map[string]bool)
 	}
+	maps.Copy(symbols, compilerNamedFunctions[tf.curPkg.baseImportPath()])
 	for _, name := range builtinSymbols[tf.curPkg.ImportPath] {
 		symbols[name] = true
 	}
@@ -1750,6 +1754,10 @@ func (tf *transformer) useAllImports(file *ast.File) {
 // obj may belong to curPkg or any dependency, found via [listPackage]. tf.fieldToStruct
 // must be populated when obj may be a struct field.
 func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
+	return tf.objectName(obj, false)
+}
+
+func (tf *transformer) objectName(obj types.Object, forSource bool) (string, bool) {
 	pkg := obj.Pkg()
 	if pkg == nil {
 		return "", false // universe scope
@@ -1822,6 +1830,9 @@ func (tf *transformer) obfuscatedObjectName(obj types.Object) (string, bool) {
 		debugName = "type"
 	case *types.Func:
 		debugName = "func"
+		if forSource && renameFunctionAtEmission(lpkg, name) {
+			return "", false
+		}
 		// The compiler and linker recognize package initialization and the
 		// executable entry point. Test discovery has already happened in
 		// cmd/go; its generated references are transformed along with tests.
@@ -1935,7 +1946,7 @@ func (tf *transformer) transformGoFile(file *ast.File) *ast.File {
 			obj = tname
 		}
 
-		if newName, ok := tf.obfuscatedObjectName(obj); ok {
+		if newName, ok := tf.objectName(obj, true); ok {
 			node.Name = newName
 		}
 		return true
