@@ -71,6 +71,7 @@ type reflectInspector struct {
 
 	propagatedInstr map[ssa.Instruction]bool
 	seenEdges       map[reflectCallEdge]bool
+	work            reflectWorklist
 	// Function literals have no types.Func name to put in the package cache.
 	localReflectAPIs map[*ssa.Function]map[int]bool
 	// walkedInstantiations holds the instantiations whose members were already
@@ -102,36 +103,10 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 		return
 	}
 
-	// One pass only propagates reflection use to the functions analyzed after
-	// the ones it learns from, so a chain of reflect-tainted calls can need one
-	// pass per link. Repeat until a pass records nothing new.
 	ri.indexGlobalStores(ssaPkg)
 	ri.indexClosureBindings(ssaPkg)
-	for {
-		prev := ri.recordedCount()
-		ri.ignoreReflectedTypes(ssaPkg)
-		if ri.recordedCount() == prev {
-			return
-		}
-	}
-}
-
-// recordedCount measures how much has been recorded so far. Recording only ever
-// adds, so [reflectInspector.recordReflection] is done once this stops growing.
-// Note that reflected parameters count too: an API keeps taking new ones as
-// more of its callees are found to use reflection.
-func (ri *reflectInspector) recordedCount() int {
-	n := len(ri.result.ReflectedObjects)
-	for _, params := range ri.result.ReflectAPIs {
-		n += 1 + len(params)
-	}
-	for _, positions := range ri.result.ReflectTypeParams {
-		n += 1 + len(positions)
-	}
-	for _, params := range ri.localReflectAPIs {
-		n += 1 + len(params)
-	}
-	return n
+	ri.seedReflectInternals()
+	ri.solvePackageReflection(ssaPkg)
 }
 
 // indexGlobalStores records the values written into package-level variables.
@@ -247,9 +222,7 @@ func (ri *reflectInspector) indexClosureBindings(ssaPkg *ssa.Package) {
 	}
 }
 
-// find all functions, methods and interface declarations of a package and record their
-// reflection use
-func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
+func (ri *reflectInspector) seedReflectInternals() {
 	// Some packages reach into reflect internals, like go-spew.
 	// It's not particularly right of them to do that,
 	// and it's entirely unsupported, but try to accomodate for now.
@@ -259,10 +232,16 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 		ri.recursivelyRecordUsedForReflect(scope.Lookup("rtype").Type())
 		ri.recursivelyRecordUsedForReflect(scope.Lookup("Value").Type())
 	}
+}
 
-	// Iterate in a stable order; ssa.Package.Members is a map, and the order
-	// functions are analyzed in decides how many passes a chain of
-	// reflect-tainted calls needs to settle.
+func reflectAnalysisSteps(ssaPkg *ssa.Package, function func(*ssa.Function), iface func(*types.Func)) {
+	var walk func(*ssa.Function)
+	walk = func(fun *ssa.Function) {
+		for _, anon := range fun.AnonFuncs {
+			walk(anon)
+		}
+		function(fun)
+	}
 	for _, membName := range slices.Sorted(maps.Keys(ssaPkg.Members)) {
 		memb := ssaPkg.Members[membName]
 		switch x := memb.(type) {
@@ -282,10 +261,9 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 						m = ssaPkg.Prog.FuncValue(obj)
 					}
 					if m != nil {
-						ri.checkFunction(m)
+						walk(m)
 					} else {
-						// Handle interface declarations.
-						ri.checkInterfaceMethod(obj)
+						iface(obj)
 					}
 				}
 			}
@@ -294,7 +272,7 @@ func (ri *reflectInspector) ignoreReflectedTypes(ssaPkg *ssa.Package) {
 			// these not only include top level functions, but also synthetic
 			// functions like the initialization of global variables
 
-			ri.checkFunction(x)
+			walk(x)
 		}
 	}
 }
@@ -344,205 +322,7 @@ func (ri *reflectInspector) checkInterfaceMethod(m *types.Func) {
 	}
 
 	if len(reflectParams) > 0 {
-		ri.result.ReflectAPIs[methodName] = reflectParams
-
-		/* fmt.Printf("curPkgCache.ReflectAPIs: %v\n", curPkgCache.ReflectAPIs) */
-	}
-}
-
-// Checks all callsites in a function declaration for use of reflection.
-func (ri *reflectInspector) checkFunction(fun *ssa.Function) {
-	for _, anon := range fun.AnonFuncs {
-		ri.checkFunction(anon)
-	}
-	// if fun != nil && fun.Synthetic != "loaded from gc object file" {
-	// 	// fun.WriteTo crashes otherwise
-	// 	fun.WriteTo(os.Stdout)
-	// }
-
-	f, _ := ssaFuncOrigin(fun).Object().(*types.Func)
-	var funcName string
-	genericFunc := false
-	if f != nil {
-		funcName, genericFunc = stripTypeArgs(reflectFuncName(f))
-	}
-
-	reflectParams := make(map[int]bool)
-	if funcName != "" {
-		maps.Copy(reflectParams, ri.result.ReflectAPIs[funcName])
-
-		if f.Exported() {
-			ri.checkMethodSignature(reflectParams, fun.Signature)
-		}
-	} else {
-		maps.Copy(reflectParams, ri.localReflectAPIs[fun])
-	}
-
-	// fmt.Printf("f: %v\n", f)
-	// fmt.Printf("fun: %v\n", fun)
-
-	for _, block := range fun.Blocks {
-		for _, inst := range block.Instrs {
-			if ri.propagatedInstr[inst] {
-				// Already propagated in an earlier pass; the rest of the block
-				// may still hold calls to APIs discovered since then.
-				continue
-			}
-
-			// fmt.Printf("inst: %v, t: %T\n", inst, inst)
-			switch inst := inst.(type) {
-			case *ssa.Return:
-				// An interface result hides the concrete value behind it, and
-				// the caller that reflects on the result need not be in this
-				// package: a function returning []any or any other interface
-				// container hands its boxed types to whoever reflects on them.
-				// The boxed types only exist here, so record them here.
-				for _, result := range inst.Results {
-					if !hasInterfaceData(result.Type()) {
-						continue
-					}
-					ri.recordArgReflected(fun, result, make(map[ssa.Value]bool))
-				}
-			case *ssa.Store:
-				obj := typeToObj(inst.Addr.Type())
-				if obj != nil && ri.usedForReflect(obj) {
-					ri.recordArgReflected(fun, inst.Val, make(map[ssa.Value]bool))
-					ri.propagatedInstr[inst] = true
-				}
-			case *ssa.ChangeType:
-				obj := typeToObj(inst.X.Type())
-				if obj != nil && ri.usedForReflect(obj) {
-					ri.recursivelyRecordUsedForReflect(inst.Type())
-					ri.propagatedInstr[inst] = true
-				}
-			case ssa.CallInstruction:
-				// A direct call, a deferred call and a goroutine call all
-				// evaluate their arguments here, at the declared parameter
-				// positions of the callee.
-				call := inst.Common()
-				callName := ""
-				if callee := call.StaticCallee(); callee != nil {
-					if obj, ok := ssaFuncOrigin(callee).Object().(*types.Func); ok && obj != nil {
-						callName = reflectFuncName(obj)
-					}
-				}
-				if callName == "" && call.Method != nil {
-					callName = reflectFuncName(call.Method)
-				}
-				if callName == "" {
-					callName = call.Value.String()
-				}
-				rawCallName := callName
-				callName, genericCall := stripTypeArgs(callName)
-				if flagDebug && genericCall {
-					log.Printf("reflect: normalized call %q to %q", rawCallName, callName)
-				}
-				if callName == reflectTypeForFunc {
-					ri.recordTypeForArgs(fun, call)
-				}
-				ri.recordInstantiatedTypeParams(fun, call, callName)
-
-				/* fmt.Printf("callName: %v\n", callName) */
-
-				if funcName != "" && ((call.StaticCallee() != nil && call.StaticCallee().Object() != nil) || call.Method != nil) {
-					ri.recordForwardedCall(fun, funcName, callName, call.Args, call.Signature())
-				}
-				// record each call argument passed to a function parameter which is used in reflection
-				knownParams := ri.result.ReflectAPIs[callName]
-				if len(knownParams) == 0 && call.StaticCallee() == nil {
-					// The callee is only known dynamically, such as a function
-					// value or an interface method selection, so its name above
-					// is not the one recorded for the implementation. Go
-					// requires the signature to match, so fall back to the
-					// reflected parameters recorded for this signature.
-					sigKey := reflectSignatureKey(call.Signature())
-					knownParams = ri.result.ReflectAPIs[sigKey]
-					if flagDebug && len(knownParams) > 0 {
-						log.Printf("reflect: dynamic call %q matches signature %q", rawCallName, sigKey)
-					}
-				}
-				for _, callee := range localCallees(call.Value) {
-					if params := ri.localReflectAPIs[callee]; len(params) > 0 {
-						knownParams = maps.Clone(knownParams)
-						if knownParams == nil {
-							knownParams = make(map[int]bool)
-						}
-						maps.Copy(knownParams, params)
-					}
-				}
-				// Iterate in a stable order too, like the member loop above.
-				for _, knownParam := range slices.Sorted(maps.Keys(knownParams)) {
-					sig := call.Signature()
-					if sig == nil {
-						continue
-					}
-					// SSA call arguments can include synthetic leading values
-					// before the declared parameters. Use the signature to find
-					// where the real parameters start.
-					//
-					// Example for method M(x):
-					//   - direct call `t.M(x)` often has Call.Args = [t, x]
-					//   - bound call  `f := t.M; f(x)` has Call.Args = [x]
-					// In both cases Params().Len() == 1, so firstParamArg is
-					// len(Args)-1, and parameter x resolves correctly.
-					firstParamArg := len(call.Args) - sig.Params().Len()
-					argPos := firstParamArg + knownParam
-					if argPos < 0 || argPos >= len(call.Args) {
-						continue
-					}
-
-					arg := call.Args[argPos]
-					/* fmt.Printf("flagging arg: %v\n", arg) */
-
-					reflectedParam := ri.recordArgReflected(fun, arg, make(map[ssa.Value]bool))
-					if reflectedParam == nil {
-						continue
-					}
-
-					pos := slices.Index(fun.Params, reflectedParam)
-					// SSA methods include the receiver and generic functions may
-					// include synthetic leading parameters. Both ReflectAPIs and
-					// saved edges use declared, receiver-excluded parameter indexes.
-					pos -= len(fun.Params) - fun.Signature.Params().Len()
-					if pos < 0 {
-						continue
-					}
-
-					reflectParams[pos] = true
-					if flagDebug {
-						log.Printf("reflect: %s marks param %d reflected via %s argument %T", fun, pos, callName, arg)
-					}
-				}
-			}
-		}
-	}
-
-	if len(reflectParams) > 0 {
-		if funcName == "" {
-			if ri.localReflectAPIs == nil {
-				ri.localReflectAPIs = make(map[*ssa.Function]map[int]bool)
-			}
-			ri.localReflectAPIs[fun] = reflectParams
-			return
-		}
-		ri.result.ReflectAPIs[funcName] = reflectParams
-		// Also key the parameters by signature, so that calls which can only
-		// be resolved dynamically, such as a function value or an interface
-		// method selection, still protect the argument types. Generic
-		// signatures keep their type parameters and so only match call sites
-		// with the same type arguments. Several functions can share a
-		// signature while reflecting on different parameters, so union them.
-		if !genericFunc {
-			mergeReflectParams(ri.result.ReflectAPIs, reflectSignatureKey(fun.Signature), reflectParams)
-		}
-		if f != nil && fun.Signature.Recv() != nil {
-			ri.recordImplementedInterfaceMethods(f, reflectParams)
-		}
-		if flagDebug {
-			log.Printf("reflect: function %s has reflected params %v", funcName, reflectParams)
-		}
-
-		/* fmt.Printf("curPkgCache.ReflectAPIs: %v\n", curPkgCache.ReflectAPIs) */
+		ri.addNamedReflectParams(reflectAPIFact, methodName, reflectParams)
 	}
 }
 
@@ -582,7 +362,7 @@ func (ri *reflectInspector) recordImplementedInterfaceMethods(method *types.Func
 	for _, pkg := range append([]*types.Package{ri.pkg}, ri.pkg.Imports()...) {
 		for iface, im := range interfaceMethods(pkg) {
 			if im.Name() == method.Name() && types.Implements(method.Signature().Recv().Type(), iface) {
-				mergeReflectParams(ri.result.ReflectAPIs, reflectFuncName(im), params)
+				ri.addNamedReflectParams(reflectAPIFact, reflectFuncName(im), params)
 			}
 		}
 	}
@@ -655,6 +435,9 @@ func matchReflectedInterfaceMethods(pkg *types.Package, result *pkgCache) {
 // it can refer to itself; StaticCallee does not resolve calls through that
 // variable. Collect every possible assignment conservatively.
 func localCallees(value ssa.Value) []*ssa.Function {
+	if fn, ok := value.(*ssa.Function); ok {
+		return []*ssa.Function{fn}
+	}
 	seen := make(map[ssa.Value]bool)
 	functions := make(map[*ssa.Function]bool)
 	var visit func(ssa.Value)
@@ -723,10 +506,7 @@ func (ri *reflectInspector) recordForwardedCall(fun *ssa.Function, caller, calle
 		if param == nil {
 			continue
 		}
-		pos := slices.Index(fun.Params, param)
-		// Methods have a receiver in SSA; generic functions may also have
-		// synthetic leading parameters. Edges use declared parameter indexes.
-		pos -= len(fun.Params) - fun.Signature.Params().Len()
+		pos := reflectParamPosition(fun, param)
 		if pos < 0 {
 			continue
 		}
@@ -748,16 +528,6 @@ func (ri *reflectInspector) recordForwardedCall(fun *ssa.Function, caller, calle
 // reflection information of its type argument. Unlike reflect.TypeOf it has no
 // value whose static type could be recorded instead.
 const reflectTypeForFunc = "reflect.TypeFor"
-
-// recordTypeForArgs records the types a reflect.TypeFor call exposes to
-// reflection. The argument is either concrete, in which case everything it
-// reaches is recorded now, or it mentions type parameters of the calling
-// function, in which case only that function's call sites can resolve them.
-func (ri *reflectInspector) recordTypeForArgs(fun *ssa.Function, call *ssa.CallCommon) {
-	for _, targ := range typeForTypeArgs(call) {
-		ri.recordReflectType(fun, targ)
-	}
-}
 
 // typeForTypeArgs returns the type arguments a call passes to
 // reflect.TypeFor, or nil when the call is not to that function. The call can
@@ -786,45 +556,10 @@ func typeForTypeArgs(call *ssa.CallCommon) []types.Type {
 func (ri *reflectInspector) recordReflectType(fun *ssa.Function, typ types.Type) {
 	ri.recursivelyRecordUsedForReflect(typ)
 	for name, positions := range typeParamUses(fun, typ) {
-		if ri.result.ReflectTypeParams == nil {
-			ri.result.ReflectTypeParams = make(map[string]map[int]bool)
-		}
-		mergeReflectParams(ri.result.ReflectTypeParams, name, positions)
+		ri.addNamedReflectParams(reflectTypeParamFact, name, positions)
 		if flagDebug {
 			log.Printf("reflect: %s reflects type parameters of %s: %v", fun, name, positions)
 		}
-	}
-}
-
-// recordInstantiatedTypeParams completes the reflection of a generic function
-// at one of its call sites: the callee reflects instantiations of the recorded
-// type parameters, so the types this call substitutes are reflected too.
-func (ri *reflectInspector) recordInstantiatedTypeParams(fun *ssa.Function, call *ssa.CallCommon, callName string) {
-	positions := ri.result.ReflectTypeParams[callName]
-	if len(positions) == 0 {
-		return
-	}
-	callee := call.StaticCallee()
-	if callee == nil {
-		// The implementation is only known dynamically, so this call site
-		// cannot tell which types it instantiates.
-		return
-	}
-	targs := callee.TypeArgs()
-	if len(targs) == 0 {
-		return
-	}
-	// A method instantiation carries its receiver's type arguments, which are
-	// neither declared by the method nor indexed like the positions recorded
-	// above, so only a function's own type parameters can be resolved here.
-	if origin := ssaFuncOrigin(callee); origin.TypeParams() == nil || origin.TypeParams().Len() != len(targs) {
-		return
-	}
-	for _, pos := range slices.Sorted(maps.Keys(positions)) {
-		if pos < 0 || pos >= len(targs) {
-			continue
-		}
-		ri.recordReflectType(fun, targs[pos])
 	}
 }
 
@@ -1578,22 +1313,14 @@ func (ri *reflectInspector) recordUsedForReflect(obj types.Object, parent *types
 	if obfName == "" {
 		return
 	}
-	ri.result.ReflectedObjects[obfName] = true
+	if !ri.result.ReflectedObjects[obfName] {
+		ri.result.ReflectedObjects[obfName] = true
+		ri.work.changed(reflectFact{kind: reflectObjectFact, name: obfName})
+	}
 	ri.result.ReflectObjectNames[obfName] = obj.Name()
 	if flagDebug {
 		log.Printf("reflect: preserving object %s as %q -> %q", obj, obfName, obj.Name())
 	}
-}
-
-func (ri *reflectInspector) usedForReflect(obj types.Object) bool {
-	obfName := ri.obfuscatedObjectName(obj, nil)
-	if obfName == "" {
-		return false
-	}
-	// TODO: Note that this does an object lookup by obfuscated name.
-	// We should probably use unique object identifiers or strings,
-	// such as go/types/objectpath.
-	return ri.result.ReflectedObjects[obfName]
 }
 
 // We only mark named objects, so this function looks for a named object
