@@ -265,6 +265,7 @@ type obfRand struct {
 	liftedFuncs     []ast.Decl
 	proxyDispatcher *proxyDispatcher
 	stringCalls     map[string]*ast.CallExpr
+	typeParams      *typeParamSpellings
 }
 
 func newObfRand(rand *mathrand.Rand, file *ast.File, nameFunc NameProviderFunc) *obfRand {

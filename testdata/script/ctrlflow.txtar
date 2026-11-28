@@ -37,6 +37,15 @@ grep 'func\(int\) int' $WORK/debug/garbled/test/main/GARBLE_controlflow.go
 stderr 'controlflow directive on test/main/unwritable\.main: variable _s2a_[0-9]+'
 stderr 'type test/main/unwritable/other\.rank: type cannot be written from another package, and no unnamed equivalent is assignable'
 
+# A cross-block value used both through its method set and through its
+# structure has no writable declaration either: the emulated interface has no
+# len, and the underlying type has no method. It must fail with the same
+# documented diagnostic instead of emitting source whose own typecheck reports
+# an unrelated len error on a variable the user never wrote.
+! exec garble build -o=mixed-bin$exe ./mixed
+stderr 'controlflow directive on test/main/mixed\.main: variable _s2a_[0-9]+'
+stderr 'type test/main/mixed/other\.blob: type cannot be written from another package, and no unnamed equivalent is assignable'
+
 -- go.mod --
 module test/main
 
@@ -659,3 +668,33 @@ package other
 type rank int
 
 func MakeRank(n int) rank { return rank(n) }
+-- mixed/main.go --
+package main
+
+import (
+	"os"
+
+	"test/main/mixed/other"
+)
+
+// b crosses a block boundary and is used both concretely, through len, and
+// through its method set, through Size. Neither substitute keeps both.
+//
+//garble:controlflow flatten_passes=1
+func main() {
+	b := other.MakeBlob(1)
+	if len(os.Args) > 1 {
+		b = other.MakeBlob(2)
+	}
+	println(len(b), b.Size())
+}
+-- mixed/other/other.go --
+package other
+
+// blob is unexported and has an exported value-receiver method, so a value of
+// it implements an interface that keeps Size and loses the slice operations.
+type blob []byte
+
+func (b blob) Size() int { return len(b) }
+
+func MakeBlob(n int) blob { return blob{byte(n), 2, 3, 4} }

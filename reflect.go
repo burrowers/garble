@@ -940,6 +940,13 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 	// to complete instead, as for the type argument of reflect.TypeFor.
 	ri.recordReflectType(fun, val.Type())
 
+	// A channel of interface values hands the concrete types sent through it
+	// to whoever reflects on a received value. The send need not be in this
+	// function: it can sit behind a channel parameter or a closure.
+	if _, ok := val.Type().(*types.Chan); ok {
+		ri.recordChannelSends(fun, val, visited)
+	}
+
 	switch val := val.(type) {
 	case *ssa.Phi:
 		var param *ssa.Parameter
@@ -1030,14 +1037,6 @@ func (ri *reflectInspector) recordArgReflected(fun *ssa.Function, val ssa.Value,
 		}
 	case *ssa.MakeChan:
 		ri.recursivelyRecordUsedForReflect(val.Type())
-		// A receive returns whatever a send put into the channel.
-		if refs := val.Referrers(); refs != nil {
-			for _, ref := range *refs {
-				if send, ok := ref.(*ssa.Send); ok && send.Chan == val {
-					ri.recordArgReflected(fun, send.X, visited)
-				}
-			}
-		}
 	case *ssa.MakeSlice:
 		// The elements of a slice are reachable through its index, so the
 		// values stored into the addresses derived from it are part of what
@@ -1140,6 +1139,106 @@ func (ri *reflectInspector) recordContainerStores(fun *ssa.Function, recv ssa.Va
 			}
 		}
 	}
+}
+
+// recordChannelSends records the values sent into a channel which reflection
+// reads from. A channel value only refers to the sends of the function that
+// made it: a send in another function of the package receives the channel as a
+// parameter, and a send in a closure receives it as a free variable. Both still
+// belong to this package, so the calls and the closure bindings which hand the
+// channel on are followed here.
+func (ri *reflectInspector) recordChannelSends(fun *ssa.Function, ch ssa.Value, visited map[ssa.Value]bool) {
+	walked := make(map[ssa.Value]bool)
+	var walk func(fun *ssa.Function, ch ssa.Value)
+	// walkLoad follows a load of a captured variable, which a send takes as
+	// its channel once the cell holds one.
+	walkLoad := func(fun *ssa.Function, load *ssa.UnOp) {
+		if load.Op != token.MUL {
+			return
+		}
+		if _, ok := load.Type().(*types.Chan); ok {
+			walk(fun, load)
+		}
+	}
+	// walkBound follows the free variable a closure reads a bound value
+	// through, such as the cell holding a captured channel.
+	walkBound := func(closure *ssa.Function, bindings []ssa.Value, bound ssa.Value) {
+		for i, binding := range bindings {
+			if binding == bound && i < len(closure.FreeVars) {
+				walk(closure, closure.FreeVars[i])
+			}
+		}
+	}
+	walk = func(fun *ssa.Function, ch ssa.Value) {
+		// A function can pass the channel back to itself, directly or
+		// through another one, and the parameter value would be the same.
+		if walked[ch] {
+			return
+		}
+		walked[ch] = true
+		refs := ch.Referrers()
+		if refs == nil {
+			return
+		}
+		for _, ref := range *refs {
+			switch ref := ref.(type) {
+			case *ssa.Send:
+				if ref.Chan == ch {
+					ri.recordArgReflected(fun, ref.X, visited)
+				}
+			case *ssa.MakeClosure:
+				if closure, ok := ref.Fn.(*ssa.Function); ok {
+					walkBound(closure, ref.Bindings, ch)
+				}
+			case *ssa.UnOp:
+				walkLoad(fun, ref)
+			case *ssa.ChangeType:
+				// Passing the channel where only one direction is allowed
+				// converts it, and the send uses the converted value.
+				if _, ok := ref.Type().(*types.Chan); ok {
+					walk(fun, ref)
+				}
+			case *ssa.Store:
+				// A captured variable lives in a cell, so the channel is
+				// stored into it before a closure loads it again.
+				if ref.Val == ch {
+					if cell, ok := ref.Addr.(*ssa.Alloc); ok {
+						walk(fun, cell)
+					}
+				}
+			case *ssa.Alloc:
+				// The cell of a captured variable: its loads reach the
+				// send and its bindings hand the cell to the closure.
+				cellRefs := ref.Referrers()
+				if cellRefs == nil {
+					continue
+				}
+				for _, cellRef := range *cellRefs {
+					switch cellRef := cellRef.(type) {
+					case *ssa.MakeClosure:
+						if closure, ok := cellRef.Fn.(*ssa.Function); ok {
+							walkBound(closure, cellRef.Bindings, ch)
+						}
+					case *ssa.UnOp:
+						walkLoad(fun, cellRef)
+					}
+				}
+			case ssa.CallInstruction:
+				call := ref.Common()
+				callee := call.StaticCallee()
+				if callee == nil || callee.Blocks == nil ||
+					callee.Pkg == nil || callee.Pkg.Pkg != ri.pkg {
+					continue
+				}
+				for i, arg := range call.Args {
+					if arg == ch && i < len(callee.Params) {
+						walk(callee, callee.Params[i])
+					}
+				}
+			}
+		}
+	}
+	walk(fun, ch)
 }
 
 // recordReferrersReflected records the values derived from a reflected value,

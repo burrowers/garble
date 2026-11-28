@@ -45,6 +45,11 @@ func (tc *TypeConverter) canName(typ types.Type) bool {
 // needs the value's method set, and a use that needs its own type or its
 // underlying type. ConvertVar picks the substitute from this information
 // instead of from the type alone.
+//
+// A group that needs both kinds has no substitute at all: the emulated
+// interface of an unexported type has no length, elements or fields, and the
+// underlying type has no method set. ConvertVar fails closed for that group
+// rather than emitting a declaration only half of its uses typecheck against.
 type VarUses struct {
 	// MethodSet reports a use that needs the value's method set: a call of
 	// one of its methods, a method value, or a conversion of the value to an
@@ -54,6 +59,16 @@ type VarUses struct {
 	// len, cap, indexing, slicing, ranging, append, copy, field access, or
 	// passing the value where the underlying type is wanted.
 	Concrete bool
+	// Structural reports the subset of Concrete that cannot work on the
+	// emulated interface at all, because it reads the value's structure rather
+	// than only its methods. A group that needs both the structure and the
+	// method set has no writable declaration: the underlying type has no
+	// methods, and the interface has no length, elements or fields.
+	//
+	// Structural is not set for uses that an interface value also supports, so
+	// a group whose only other use is a comparison keeps its interface and
+	// keeps building.
+	Structural bool
 }
 
 // ConvertVar converts the type of a variable declared by the converted
@@ -110,8 +125,23 @@ func (tc *TypeConverter) varType(typ types.Type, uses VarUses) (types.Type, bool
 			// way takes the underlying type, which is writable and
 			// assignable, and keeps len, indexing, slicing, ranging, field
 			// access and argument passing.
-			if iface := exportedMethodInterface(named); iface != nil && (uses.MethodSet || !uses.Concrete) {
-				candidates = append(candidates, iface)
+			//
+			// A group whose values are used through the method set and also
+			// through their structure is the one shape neither substitute can
+			// serve: the interface has no length, elements or fields, and the
+			// underlying type has no method set. Emitting the interface anyway
+			// left a typecheck error in the generated source on a variable name
+			// the user never wrote, so this group fails closed with
+			// ErrUnwritableVarType like the other shapes the file cannot
+			// express.
+			iface := exportedMethodInterface(named)
+			if iface != nil {
+				if uses.MethodSet && uses.Structural {
+					return nil, false
+				}
+				if uses.MethodSet || !uses.Concrete {
+					candidates = append(candidates, iface)
+				}
 			}
 			candidates = append(candidates, named.Underlying())
 		}
