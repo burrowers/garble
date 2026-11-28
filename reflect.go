@@ -92,8 +92,29 @@ type reflectInspector struct {
 	// no operand, so this is the only route from a captured value back to the
 	// value the enclosing function produced.
 	closureBindings map[*ssa.Function][][]ssa.Value
+	// channelPositions holds the channel values this package stores into or
+	// loads from a container position, keyed by that position. A channel
+	// read out of a struct field, a slice element or a map entry is a
+	// different SSA value from the one stored there, and the store can sit
+	// in another function, so only the position connects the two.
+	channelPositions map[channelPosition][]ssa.Value
+	// sendParams holds the parameter positions whose argument a reflected
+	// receive sends back into a channel. The concrete type behind an
+	// interface parameter only exists at the caller's argument, so the
+	// position is recorded for the caller and applied after the pass.
+	sendParams map[*ssa.Function]map[int]bool
 
 	result pkgCache
+}
+
+// channelPosition names a place which can hold a channel: one field of a
+// struct type, or any element of a slice, array or map type, or a package-level
+// variable. The container is named by its printed type because the compiler
+// builds a fresh type object for the same slice type at every use, while
+// identity of a named type object only holds within one package's type-check.
+type channelPosition struct {
+	container string
+	field     int // the field index, or -1 for an element or an entry
 }
 
 // Record all instances of reflection use, and don't obfuscate types which are used in reflection.
@@ -107,9 +128,14 @@ func (ri *reflectInspector) recordReflection(ssaPkg *ssa.Package) {
 	// pass per link. Repeat until a pass records nothing new.
 	ri.indexGlobalStores(ssaPkg)
 	ri.indexClosureBindings(ssaPkg)
+	ri.indexChannelPositions(ssaPkg)
 	for {
 		prev := ri.recordedCount()
 		ri.ignoreReflectedTypes(ssaPkg)
+		// A reflected receive can mark a parameter of another function as
+		// reflected after that function's own pass is over, so the positions
+		// are applied here and the count makes the loop run again.
+		ri.applySendParams()
 		if ri.recordedCount() == prev {
 			return
 		}
@@ -245,6 +271,171 @@ func (ri *reflectInspector) indexClosureBindings(ssaPkg *ssa.Package) {
 			}
 		}
 	}
+}
+
+// indexChannelPositions records the channel values this package stores into and
+// loads from a container position. A send reads the channel out of the
+// position, so the value it sends is reachable from the reflected receive only
+// if the send's own load of that position is part of the walk; the store and
+// the loads are separate SSA values, often in separate functions.
+func (ri *reflectInspector) indexChannelPositions(ssaPkg *ssa.Package) {
+	if ri.channelPositions != nil {
+		return
+	}
+	ri.channelPositions = make(map[channelPosition][]ssa.Value)
+	add := func(key channelPosition, value ssa.Value) {
+		if _, ok := value.Type().Underlying().(*types.Chan); !ok {
+			return
+		}
+		ri.channelPositions[key] = append(ri.channelPositions[key], value)
+	}
+	var scan func(fn *ssa.Function)
+	scan = func(fn *ssa.Function) {
+		for _, anon := range fn.AnonFuncs {
+			scan(anon)
+		}
+		for _, block := range fn.Blocks {
+			for _, inst := range block.Instrs {
+				switch inst := inst.(type) {
+				case *ssa.Store:
+					// The address names the position, whether the channel is
+					// written into a field, an element or a package variable.
+					if key, ok := channelPositionOfAddr(inst.Addr); ok {
+						add(key, inst.Val)
+					}
+				case *ssa.MapUpdate:
+					// Every entry of one map type is the same position, and a
+					// global map has no referrers of its own to follow.
+					add(channelPositionOfMap(inst.Map), inst.Value)
+				case *ssa.UnOp:
+					// A load hands the stored channel to the send that reads
+					// it, and its own address is the position again.
+					if key, ok := channelPositionOfLoad(inst); ok {
+						add(key, inst)
+					}
+				case *ssa.Lookup:
+					add(channelPositionOfMap(inst.X), inst)
+				}
+			}
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(ssaPkg.Members)) {
+		switch memb := ssaPkg.Members[name].(type) {
+		case *ssa.Function:
+			scan(memb)
+		case *ssa.Type:
+			for _, typ := range []types.Type{memb.Type(), types.NewPointer(memb.Type())} {
+				for method := range ssaPkg.Prog.MethodSets.MethodSet(typ).Methods() {
+					fn := ssaPkg.Prog.MethodValue(method)
+					if fn == nil {
+						fn = ssaPkg.Prog.FuncValue(method.Obj().(*types.Func))
+					}
+					if fn != nil {
+						scan(fn)
+					}
+				}
+			}
+		}
+	}
+}
+
+// markSendParam records that the argument a caller passes at this parameter
+// position is sent into a channel which reflection reads. The position is
+// declared, so the receiver and the synthetic leading parameters of a generic
+// function are left out, exactly as for a reflected call argument.
+func (ri *reflectInspector) markSendParam(fun *ssa.Function, param *ssa.Parameter) {
+	pos := slices.Index(fun.Params, param)
+	pos -= len(fun.Params) - fun.Signature.Params().Len()
+	if pos < 0 {
+		return
+	}
+	if ri.sendParams == nil {
+		ri.sendParams = make(map[*ssa.Function]map[int]bool)
+	}
+	if ri.sendParams[fun] == nil {
+		ri.sendParams[fun] = make(map[int]bool)
+	}
+	ri.sendParams[fun][pos] = true
+}
+
+// applySendParams records the positions collected by [reflectInspector.markSendParam]
+// as reflected parameters of their function. A named function's position goes
+// into the package cache, so callers in other packages see it; a function
+// literal has no name to store it under and stays local.
+func (ri *reflectInspector) applySendParams() {
+	for fun, positions := range ri.sendParams {
+		name := ""
+		if obj, ok := ssaFuncOrigin(fun).Object().(*types.Func); ok && obj != nil {
+			name, _ = stripTypeArgs(reflectFuncName(obj))
+		}
+		for pos := range positions {
+			if name == "" {
+				if ri.localReflectAPIs == nil {
+					ri.localReflectAPIs = make(map[*ssa.Function]map[int]bool)
+				}
+				if ri.localReflectAPIs[fun] == nil {
+					ri.localReflectAPIs[fun] = make(map[int]bool)
+				}
+				ri.localReflectAPIs[fun][pos] = true
+				continue
+			}
+			if ri.result.ReflectAPIs == nil {
+				ri.result.ReflectAPIs = make(map[string]map[int]bool)
+			}
+			if ri.result.ReflectAPIs[name] == nil {
+				ri.result.ReflectAPIs[name] = make(map[int]bool)
+			}
+			ri.result.ReflectAPIs[name][pos] = true
+		}
+	}
+}
+
+// channelPositionOfAddr names the position an address refers to, or reports
+// false for an address which is a cell of its own rather than a container.
+func channelPositionOfAddr(addr ssa.Value) (channelPosition, bool) {
+	switch addr := addr.(type) {
+	case *ssa.FieldAddr:
+		typ := types.Unalias(addr.X.Type())
+		if pointer, ok := typ.Underlying().(*types.Pointer); ok {
+			typ = types.Unalias(pointer.Elem())
+		}
+		return channelPosition{container: channelContainerName(typ), field: addr.Field}, true
+	case *ssa.IndexAddr:
+		return channelPosition{container: channelContainerName(addr.X.Type()), field: -1}, true
+	case *ssa.Global:
+		return channelPosition{container: channelContainerName(addr.Type()), field: -1}, true
+	}
+	return channelPosition{}, false
+}
+
+// channelPositionOfMap names the entries of one map type, which the lookup
+// reading a channel and the update storing one name through different values.
+func channelPositionOfMap(m ssa.Value) channelPosition {
+	return channelPosition{container: channelContainerName(m.Type()), field: -1}
+}
+
+// channelPositionOfLoad names the position a channel value was read from: a
+// load of a field or element address, a lookup in a map, or a package-level
+// variable of channel type.
+func channelPositionOfLoad(ch ssa.Value) (channelPosition, bool) {
+	switch ch := ch.(type) {
+	case *ssa.UnOp:
+		if ch.Op != token.MUL {
+			return channelPosition{}, false
+		}
+		return channelPositionOfAddr(ch.X)
+	case *ssa.Lookup:
+		return channelPosition{container: channelContainerName(ch.X.Type()), field: -1}, true
+	}
+	return channelPosition{}, false
+}
+
+// channelContainerName prints a container type for the index. Package paths
+// rather than package names keep two packages' same-named types apart.
+func channelContainerName(typ types.Type) string {
+	return types.TypeString(types.Unalias(typ), func(pkg *types.Package) string {
+		return pkg.Path()
+	})
 }
 
 // find all functions, methods and interface declarations of a package and record their
@@ -1150,6 +1341,16 @@ func (ri *reflectInspector) recordContainerStores(fun *ssa.Function, recv ssa.Va
 func (ri *reflectInspector) recordChannelSends(fun *ssa.Function, ch ssa.Value, visited map[ssa.Value]bool) {
 	walked := make(map[ssa.Value]bool)
 	var walk func(fun *ssa.Function, ch ssa.Value)
+	// follow adds every channel this package stores into or loads from one
+	// container position. The send reads a load of that position rather than
+	// the value stored into it, so both directions belong to the walk.
+	follow := func(key channelPosition) {
+		for _, sibling := range ri.channelPositions[key] {
+			if parent := sibling.Parent(); parent != nil {
+				walk(parent, sibling)
+			}
+		}
+	}
 	// walkLoad follows a load of a captured variable, which a send takes as
 	// its channel once the cell holds one.
 	walkLoad := func(fun *ssa.Function, load *ssa.UnOp) {
@@ -1176,6 +1377,12 @@ func (ri *reflectInspector) recordChannelSends(fun *ssa.Function, ch ssa.Value, 
 			return
 		}
 		walked[ch] = true
+		// The channel a send reads out of a container is a different SSA
+		// value from the one stored there, and the store can sit in another
+		// function, so every channel of that position is part of the walk.
+		if key, ok := channelPositionOfLoad(ch); ok {
+			follow(key)
+		}
 		refs := ch.Referrers()
 		if refs == nil {
 			return
@@ -1184,7 +1391,11 @@ func (ri *reflectInspector) recordChannelSends(fun *ssa.Function, ch ssa.Value, 
 			switch ref := ref.(type) {
 			case *ssa.Send:
 				if ref.Chan == ch {
-					ri.recordArgReflected(fun, ref.X, visited)
+					// The value can be a parameter of this function, whose
+					// callers then hand their own arguments to reflection.
+					if param := ri.recordArgReflected(fun, ref.X, visited); param != nil {
+						ri.markSendParam(fun, param)
+					}
 				}
 			case *ssa.MakeClosure:
 				if closure, ok := ref.Fn.(*ssa.Function); ok {
@@ -1200,11 +1411,22 @@ func (ri *reflectInspector) recordChannelSends(fun *ssa.Function, ch ssa.Value, 
 				}
 			case *ssa.Store:
 				// A captured variable lives in a cell, so the channel is
-				// stored into it before a closure loads it again.
+				// stored into it before a closure loads it again. A struct
+				// field or a slice element keeps it in the same position at
+				// every store, so the loads of that position read it back.
 				if ref.Val == ch {
 					if cell, ok := ref.Addr.(*ssa.Alloc); ok {
 						walk(fun, cell)
 					}
+					if key, ok := channelPositionOfAddr(ref.Addr); ok {
+						follow(key)
+					}
+				}
+			case *ssa.MapUpdate:
+				// A send takes the map's lookup as its channel, which names
+				// the map rather than the channel stored in it.
+				if ref.Value == ch {
+					follow(channelPositionOfMap(ref.Map))
 				}
 			case *ssa.Alloc:
 				// The cell of a captured variable: its loads reach the
