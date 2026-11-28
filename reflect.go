@@ -160,6 +160,42 @@ func (ri *reflectInspector) recordedCount() int {
 	return n
 }
 
+// scanPackageInstrs calls visit for every instruction of every function body in
+// the package. A method body is not a package member, so the declared types'
+// value and pointer method sets are scanned too, and a function nested in a body
+// is reached through AnonFuncs rather than through Members.
+func scanPackageInstrs(ssaPkg *ssa.Package, visit func(ssa.Instruction)) {
+	var scan func(fn *ssa.Function)
+	scan = func(fn *ssa.Function) {
+		for _, anon := range fn.AnonFuncs {
+			scan(anon)
+		}
+		for _, block := range fn.Blocks {
+			for _, inst := range block.Instrs {
+				visit(inst)
+			}
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(ssaPkg.Members)) {
+		switch memb := ssaPkg.Members[name].(type) {
+		case *ssa.Function:
+			scan(memb)
+		case *ssa.Type:
+			for _, typ := range []types.Type{memb.Type(), types.NewPointer(memb.Type())} {
+				for method := range ssaPkg.Prog.MethodSets.MethodSet(typ).Methods() {
+					fn := ssaPkg.Prog.MethodValue(method)
+					if fn == nil {
+						fn = ssaPkg.Prog.FuncValue(method.Obj().(*types.Func))
+					}
+					if fn != nil {
+						scan(fn)
+					}
+				}
+			}
+		}
+	}
+}
+
 // indexGlobalStores records the values written into package-level variables.
 // SSA does not maintain referrers for a *ssa.Global, so the writes have to be
 // collected by walking the package's functions once.
@@ -231,46 +267,17 @@ func (ri *reflectInspector) indexClosureBindings(ssaPkg *ssa.Package) {
 		return
 	}
 	ri.closureBindings = make(map[*ssa.Function][][]ssa.Value)
-	var scan func(fn *ssa.Function)
-	scan = func(fn *ssa.Function) {
-		for _, anon := range fn.AnonFuncs {
-			scan(anon)
+	scanPackageInstrs(ssaPkg, func(inst ssa.Instruction) {
+		mc, ok := inst.(*ssa.MakeClosure)
+		if !ok {
+			return
 		}
-		for _, block := range fn.Blocks {
-			for _, inst := range block.Instrs {
-				mc, ok := inst.(*ssa.MakeClosure)
-				if !ok {
-					continue
-				}
-				closure, ok := mc.Fn.(*ssa.Function)
-				if !ok {
-					continue
-				}
-				ri.closureBindings[closure] = append(ri.closureBindings[closure], mc.Bindings)
-			}
+		closure, ok := mc.Fn.(*ssa.Function)
+		if !ok {
+			return
 		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(ssaPkg.Members)) {
-		switch memb := ssaPkg.Members[name].(type) {
-		case *ssa.Function:
-			scan(memb)
-		case *ssa.Type:
-			// A method body is not a package member, so a closure created
-			// there is not reached through Members and its bindings would be
-			// indexed nowhere.
-			for _, typ := range []types.Type{memb.Type(), types.NewPointer(memb.Type())} {
-				for method := range ssaPkg.Prog.MethodSets.MethodSet(typ).Methods() {
-					fn := ssaPkg.Prog.MethodValue(method)
-					if fn == nil {
-						fn = ssaPkg.Prog.FuncValue(method.Obj().(*types.Func))
-					}
-					if fn != nil {
-						scan(fn)
-					}
-				}
-			}
-		}
-	}
+		ri.closureBindings[closure] = append(ri.closureBindings[closure], mc.Bindings)
+	})
 }
 
 // indexChannelPositions records the channel values this package stores into and
@@ -289,54 +296,28 @@ func (ri *reflectInspector) indexChannelPositions(ssaPkg *ssa.Package) {
 		}
 		ri.channelPositions[key] = append(ri.channelPositions[key], value)
 	}
-	var scan func(fn *ssa.Function)
-	scan = func(fn *ssa.Function) {
-		for _, anon := range fn.AnonFuncs {
-			scan(anon)
-		}
-		for _, block := range fn.Blocks {
-			for _, inst := range block.Instrs {
-				switch inst := inst.(type) {
-				case *ssa.Store:
-					// The address names the position, whether the channel is
-					// written into a field, an element or a package variable.
-					if key, ok := channelPositionOfAddr(inst.Addr); ok {
-						add(key, inst.Val)
-					}
-				case *ssa.MapUpdate:
-					// Every entry of one map type is the same position, and a
-					// global map has no referrers of its own to follow.
-					add(channelPositionOfMap(inst.Map), inst.Value)
-				case *ssa.UnOp:
-					// A load hands the stored channel to the send that reads
-					// it, and its own address is the position again.
-					if key, ok := channelPositionOfLoad(inst); ok {
-						add(key, inst)
-					}
-				case *ssa.Lookup:
-					add(channelPositionOfMap(inst.X), inst)
-				}
+	scanPackageInstrs(ssaPkg, func(inst ssa.Instruction) {
+		switch inst := inst.(type) {
+		case *ssa.Store:
+			// The address names the position, whether the channel is
+			// written into a field, an element or a package variable.
+			if key, ok := channelPositionOfAddr(inst.Addr); ok {
+				add(key, inst.Val)
 			}
-		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(ssaPkg.Members)) {
-		switch memb := ssaPkg.Members[name].(type) {
-		case *ssa.Function:
-			scan(memb)
-		case *ssa.Type:
-			for _, typ := range []types.Type{memb.Type(), types.NewPointer(memb.Type())} {
-				for method := range ssaPkg.Prog.MethodSets.MethodSet(typ).Methods() {
-					fn := ssaPkg.Prog.MethodValue(method)
-					if fn == nil {
-						fn = ssaPkg.Prog.FuncValue(method.Obj().(*types.Func))
-					}
-					if fn != nil {
-						scan(fn)
-					}
-				}
+		case *ssa.MapUpdate:
+			// Every entry of one map type is the same position, and a
+			// global map has no referrers of its own to follow.
+			add(channelPositionOfMap(inst.Map), inst.Value)
+		case *ssa.UnOp:
+			// A load hands the stored channel to the send that reads
+			// it, and its own address is the position again.
+			if key, ok := channelPositionOfLoad(inst); ok {
+				add(key, inst)
 			}
+		case *ssa.Lookup:
+			add(channelPositionOfMap(inst.X), inst)
 		}
-	}
+	})
 }
 
 // markSendParam records that the argument a caller passes at this parameter
